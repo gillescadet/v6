@@ -8,6 +8,7 @@
 BEGIN_V6_CORE_NAMESPACE
 
 class CFileSystem;
+class IHeap;
 
 END_V6_CORE_NAMESPACE
 
@@ -17,14 +18,16 @@ BEGIN_V6_BAKER_NAMESPACE
 class CBaker
 {
 public:
-	CBaker();
+	CBaker(core::IHeap & oHeap);
 	~CBaker();
 
 public:
-	core::CFileSystem const & GetFileSystem() { return *m_pFileSystem; }
+	core::CFileSystem const &	GetFileSystem() const { return *m_pFileSystem; }
+	core::IHeap &				GetHeap() { return m_oHeap; }
 
 private:
-	core::CFileSystem * m_pFileSystem;
+	core::IHeap &				m_oHeap;
+	core::CFileSystem *			m_pFileSystem;	
 };
 
 END_V6_BAKER_NAMESPACE

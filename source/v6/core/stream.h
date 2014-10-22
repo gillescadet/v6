@@ -1,0 +1,83 @@
+/*V6*/
+
+#pragma once
+
+#ifndef __V6_CORE_STREAM_H__
+#define __V6_CORE_STREAM_H__
+
+#include <new>
+
+BEGIN_V6_CORE_NAMESPACE
+
+class IHeap;
+
+class IStreamWriter
+{
+public:
+	virtual int GetPos() const = 0;
+	virtual int GetSize() const = 0;
+	virtual void Write(void * pData, int nSize) = 0;
+};
+
+class CFileWriter : public IStreamWriter
+{
+public:
+	CFileWriter();
+	virtual ~CFileWriter();
+
+public:
+	bool Open(const char * sFilename);
+	void Close();
+
+public:
+	virtual int GetPos() const { return m_nPos; }
+	virtual int GetSize() const { return m_nSize; }
+	virtual void Write(void * pData, int nSize);
+
+private:
+	void * m_pFile;
+	int m_nPos;
+	int m_nSize;
+};
+
+class CMemoryWriter : public IStreamWriter
+{
+public:
+	CMemoryWriter(IHeap & oHeap);
+	virtual ~CMemoryWriter();
+
+public:
+	void Clear();
+	void * GetBuffer() { return m_pBuffer; }
+	virtual int GetPos() const { return m_nPos; }
+	virtual int GetSize() const { return m_nSize; }
+	virtual void Resize(int nSize);
+	virtual void Write(void * pData, int nSize);
+
+private:
+	IHeap & m_oHeap;
+	void * m_pBuffer;
+	int m_nPos;
+	int m_nSize;
+};
+
+class CBufferWriter : public IStreamWriter
+{
+public:
+	CBufferWriter(void * pBuffer, int nSize);
+
+public:
+	void * GetBuffer() { return m_pBuffer; }
+	virtual int GetPos() const { return m_nPos; }
+	virtual int GetSize() const { return m_nSize; }
+	virtual void Write(void * pData, int nSize);
+
+private:
+	void * m_pBuffer;
+	int m_nPos;
+	int m_nSize;
+};
+
+END_V6_CORE_NAMESPACE
+
+#endif // __V6_CORE_STREAM_H__
