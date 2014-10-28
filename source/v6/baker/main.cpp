@@ -11,6 +11,8 @@
 
 int main()
 {
+	V6_LOG("Baker 0.0");
+
 	v6::core::CHeap oHeap;
 	v6::baker::CBaker oBaker(oHeap);
 	v6::baker::CTileReader oTileReader(oBaker);
