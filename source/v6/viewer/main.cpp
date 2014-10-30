@@ -2,6 +2,8 @@
 
 #include <v6/viewer/common.h>
 
+#include <v6/core/algo.h>
+
 #include <windows.h>
 #include <d3d11.h>
 
@@ -76,11 +78,14 @@ public:
 	bool Create(int nWidth, int nHeight, HWND hWnd);
 	void ClearBuffers();
 	void Present();
+	void Release();
 
 	IDXGISwapChain* m_pSwapChain;
 	ID3D11Device* m_pDevice;
 	D3D_FEATURE_LEVEL m_nFeatureLevel;
 	ID3D11DeviceContext* m_pImmediateContext;
+	ID3D11Texture2D* m_pColorBuffer;
+	ID3D11Texture2D* m_pDepthStencilBuffer;
 	ID3D11RenderTargetView* m_pColorView;
 	ID3D11DepthStencilView* m_pDepthStencilView;
 };
@@ -138,10 +143,10 @@ bool CRenderingDevice::Create(int nWidth, int nHeight, HWND hWnd)
 		}
 	}
 
-	ID3D11Texture2D* pColorBuffer = NULL;
+	m_pColorBuffer = NULL;
 
 	{
-		HRESULT hRes = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&pColorBuffer);
+		HRESULT hRes = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&m_pColorBuffer);
 
 		if (FAILED(hRes))
 		{
@@ -153,7 +158,7 @@ bool CRenderingDevice::Create(int nWidth, int nHeight, HWND hWnd)
 	m_pColorView = NULL;
 
 	{
-		HRESULT hRes = m_pDevice->CreateRenderTargetView(pColorBuffer, 0, &m_pColorView);
+		HRESULT hRes = m_pDevice->CreateRenderTargetView(m_pColorBuffer, 0, &m_pColorView);
 
 		if (FAILED(hRes))
 		{
@@ -175,10 +180,10 @@ bool CRenderingDevice::Create(int nWidth, int nHeight, HWND hWnd)
 	oDepthStencilDesc.CPUAccessFlags = 0;
 	oDepthStencilDesc.MiscFlags = 0;
 
-	ID3D11Texture2D* pDepthStencilBuffer = 0;
+	m_pDepthStencilBuffer = 0;
 
 	{
-		HRESULT hRes = m_pDevice->CreateTexture2D(&oDepthStencilDesc, 0, &pDepthStencilBuffer);
+		HRESULT hRes = m_pDevice->CreateTexture2D(&oDepthStencilDesc, 0, &m_pDepthStencilBuffer);
 
 		if (FAILED(hRes))
 		{
@@ -196,7 +201,7 @@ bool CRenderingDevice::Create(int nWidth, int nHeight, HWND hWnd)
 	m_pDepthStencilView = 0;
 
 	{
-		HRESULT hRes = m_pDevice->CreateDepthStencilView(pDepthStencilBuffer, &oDepthStencilViewDesc, &m_pDepthStencilView);
+		HRESULT hRes = m_pDevice->CreateDepthStencilView(m_pDepthStencilBuffer, &oDepthStencilViewDesc, &m_pDepthStencilView);
 
 		if (FAILED(hRes))
 		{
@@ -222,12 +227,37 @@ void CRenderingDevice::Present()
 	m_pSwapChain->Present(0, 0);
 }
 
+void CRenderingDevice::Release()
+{
+	m_pImmediateContext->ClearState();
+	
+	m_pDepthStencilView->Release();
+	m_pDepthStencilBuffer->Release();
+
+	m_pColorView->Release();
+	m_pColorBuffer->Release();
+
+	m_pSwapChain->Release();
+	m_pImmediateContext->Release();
+	m_pDevice->Release();	
+}
+
 END_V6_VIEWER_NAMESPACE
+
+void debugInputs(const char * sDebug, int * pValues, int nCount)
+{
+	printf("%s [ ", sDebug);
+	for (int i = 0; i < nCount; ++i)
+	{
+		printf("%d ", pValues[i]);
+	}
+	printf("]\n");
+}
 
 int main()
 {
 	V6_LOG("Viewer 0.0");
-
+#if 0
 	int const nWidth = 1280;
 	int const nHeight = 720;
 
@@ -267,6 +297,15 @@ int main()
 			oRenderingDevice.Present();
 		}
 	}
+
+	oRenderingDevice.Release();
+#endif
+
+	int pValues[] = { 2, 3, 3, 2, 4, 4, 5, 5, 6, 7, 7, 6, 0, 1, 0, 1 };
+	int nCount = sizeof(pValues) / sizeof(int);
+	debugInputs("unsorted", pValues, nCount);
+	v6::core::InsertionSort(pValues, nCount);
+	debugInputs("  sorted", pValues, nCount);
 
 	return 0;
 }
