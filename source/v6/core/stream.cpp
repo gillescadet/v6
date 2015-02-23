@@ -89,7 +89,7 @@ void CMemoryWriter::Resize(int nSize)
 		{
 			m_nSize = nSize;
 			m_pBuffer = m_oHeap.realloc(m_pBuffer, m_nSize);
-			m_nPos = CMath::Min(m_nPos, m_nSize);
+			m_nPos = Min(m_nPos, m_nSize);
 		}
 	}
 }
@@ -98,7 +98,7 @@ void CMemoryWriter::Write(void * pData, int nSize)
 {
 	if (m_nPos + nSize > m_nSize)
 	{
-		m_nSize += CMath::Max(m_nSize, nSize);
+		m_nSize += Max(m_nSize, nSize);
 		m_pBuffer = m_oHeap.realloc(m_pBuffer, m_nSize);
 	}
 	memcpy((char *)m_pBuffer + m_nPos, pData, nSize);

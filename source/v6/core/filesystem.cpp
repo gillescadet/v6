@@ -3,6 +3,8 @@
 #include <v6/core/common.h>
 #include <v6/core/filesystem.h>
 
+#include <v6/core/memory.h>
+
 #include <windows.h>
 
 BEGIN_V6_CORE_NAMESPACE
@@ -49,6 +51,34 @@ bool CFileSystem::GetFileList(const char * pFilter, FileCallback pFileCallback, 
 	FindClose(hFind);
 
 	return true;
+}
+
+int CFileSystem::ReadFile( const char* filename, void** data, core::IAllocator* allocator )
+{
+	FILE * file = NULL;
+
+	if ( fopen_s( &file, filename, "rb" ) != 0 )
+	{
+		V6_ERROR( "Unable to open file %s", filename );
+		return -1;
+	}
+
+	fseek( file, 0, SEEK_END );
+	const core::u32 size = ftell( file );
+	fseek( file, 0, SEEK_SET );
+
+	if ( size == 0 )
+	{
+		fclose( file );
+		*data = nullptr;
+		return 0;
+	}
+
+	*data = allocator->alloc( size );
+	fread( *data, size, 1, file );
+	fclose( file );
+	
+	return size;
 }
 
 END_V6_CORE_NAMESPACE

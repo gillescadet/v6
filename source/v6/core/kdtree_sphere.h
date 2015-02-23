@@ -17,7 +17,7 @@ class CKDTreeSphere
 public:
 	struct SSPhere
 	{
-		SVec3 m_vPoint;
+		Vec3 m_vPoint;
 		float m_fRadius;
 	};
 

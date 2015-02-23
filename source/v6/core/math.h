@@ -5,20 +5,31 @@
 #ifndef __V6_CORE_MATH_H__
 #define __V6_CORE_MATH_H__
 
+#include <float.h>
+#include <math.h>
+
 BEGIN_V6_CORE_NAMESPACE
 
-class CMath
-{
-public:
-	template<typename T>
-	V6_INLINE static T Max(T x, T y) { return x < y ? y : x; }
+static const float PI = 3.1415926f;
+
+template<typename T>
+V6_INLINE T Max(T x, T y) { return x < y ? y : x; }
 	
-	template<typename T>
-	V6_INLINE static T Min(T x, T y) { return x < y ? x : y; }
+template<typename T>
+V6_INLINE T Min(T x, T y) { return x < y ? x : y; }
 	
-	template<typename T>
-	V6_INLINE static T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }
-};
+template<typename T>
+V6_INLINE T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }
+
+V6_INLINE float Pow(float v, float e) { return pow(v, e); }
+
+V6_INLINE float Sqrt(float v) { return sqrt(v); }
+
+V6_INLINE void SinCos( float a, float* s, float* c) { *s = sin(a); *c = cos(a); }
+
+V6_INLINE float DegToRad( float deg ) { return deg * (PI / 180.0f); }
+
+V6_INLINE float RadToDeg( float rad ) { return rad * (180.0f / PI); }
 
 END_V6_CORE_NAMESPACE
 

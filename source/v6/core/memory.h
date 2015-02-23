@@ -48,12 +48,61 @@ public:
 	virtual void *	realloc(void * p, int nSize) = 0;
 };
 
+class IStack : public IAllocator
+{
+public:
+	template <typename T>
+	void			deleteInstance(T * p)
+	{
+		p->~T();
+	}
+
+	virtual void	push() = 0;
+	virtual void	pop() = 0;
+};
+
 class CHeap : public IHeap
 {
 public:
-	virtual void *	alloc(int nSize);
-	virtual void	free(void * p);
-	virtual void *	realloc(void * p, int nSize);
+	virtual void *	alloc(int nSize) override;
+	virtual void	free(void * p) override;
+	virtual void *	realloc(void * p, int nSize) override;
+};
+
+class Stack : public IStack
+{
+public:
+					Stack( IHeap* heap, uint capacity = 1024 * 1024 );
+	virtual			~Stack();
+
+public:
+	virtual void *	alloc( int size ) override;
+	virtual void	push() override;
+	virtual void	pop() override;
+
+private:
+	IHeap*			m_heap;
+	uint*			m_stack;
+	void*			m_buffer;
+	uint			m_size;
+	uint			m_capacity;	
+	uint			m_stackSize;
+};
+
+class ScopedStack
+{
+public:
+	ScopedStack( IStack* stack ) : m_stack(stack)
+	{
+		m_stack->push();
+	}
+	~ScopedStack()
+	{
+		m_stack->pop();
+	}
+
+private:
+	IStack* m_stack;
 };
 
 class CBlockAllocator : public IAllocator
@@ -63,7 +112,7 @@ public:
 	virtual ~CBlockAllocator();
 
 public:
-	virtual void *	alloc(int nSize);
+	virtual void *	alloc(int nSize) override;
 	void			clear();
 
 private:

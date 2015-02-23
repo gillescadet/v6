@@ -148,8 +148,8 @@ bool CTileReader::AddFile(const char * pFilename)
 				}
 				else if (*pDepthf < 1e6f)
 				{
-					m_fMinDepth = core::CMath::Min(m_fMinDepth, *pDepthf);
-					m_fMaxDepth = core::CMath::Max(m_fMaxDepth, *pDepthf);
+					m_fMinDepth = core::Min(m_fMinDepth, *pDepthf);
+					m_fMaxDepth = core::Max(m_fMaxDepth, *pDepthf);
 				}
 			}
 		}
@@ -159,8 +159,8 @@ bool CTileReader::AddFile(const char * pFilename)
 	pTileExtra->m_next = m_pFirstTile;
 	m_pFirstTile = pTile;
 
-	m_nWidth = core::CMath::Max(m_nWidth, pTile->m_x + pTile->m_w);
-	m_nHeight = core::CMath::Max(m_nHeight, pTile->m_y + pTile->m_h);
+	m_nWidth = core::Max(m_nWidth, pTile->m_x + pTile->m_w);
+	m_nHeight = core::Max(m_nHeight, pTile->m_y + pTile->m_h);
 
 	return true;
 }
@@ -182,10 +182,10 @@ void CTileReader::FillColorImage(core::CImage & oImage)
 			core::SColor * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
 			for (int x = 0; x < pTile->m_w; ++x, pColorf += 4, pColor32++)
 			{
-				static float fInvGamma = 1.0f / 2.2f;
-				pColor32->m_r = core::CMath::Clamp((int)(pow(pColorf[0], fInvGamma) * 255), 0, 255);
-				pColor32->m_g = core::CMath::Clamp((int)(pow(pColorf[1], fInvGamma) * 255), 0, 255);
-				pColor32->m_b = core::CMath::Clamp((int)(pow(pColorf[2], fInvGamma) * 255), 0, 255);
+				static float const fInvGamma = 1.0f / 2.2f;
+				pColor32->m_r = core::Clamp((int)(pow(pColorf[0], fInvGamma) * 255), 0, 255);
+				pColor32->m_g = core::Clamp((int)(pow(pColorf[1], fInvGamma) * 255), 0, 255);
+				pColor32->m_b = core::Clamp((int)(pow(pColorf[2], fInvGamma) * 255), 0, 255);
 				pColor32->m_a = 255;
 			}
 		}
@@ -211,7 +211,7 @@ void CTileReader::FillDepthImage(core::CImage & oImage, float fMinDepth, float f
 			core::SColor * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
 			for (int x = 0; x < pTile->m_w; ++x, ++pDepthf, pColor32++)
 			{
-				float const fDepth = core::CMath::Clamp((*pDepthf - fMinDepth) * fScaleDepth, 0.0f, 1.0f);
+				float const fDepth = core::Clamp((*pDepthf - fMinDepth) * fScaleDepth, 0.0f, 1.0f);
 				core::u8 const nDepth = (int)(fDepth * 255);
 				pColor32->m_r = nDepth;
 				pColor32->m_g = nDepth;

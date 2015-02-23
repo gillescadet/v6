@@ -7,6 +7,8 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
+class IAllocator;
+
 class CFileSystem
 {
 public:
@@ -18,6 +20,7 @@ public:
 
 public:
 	bool	GetFileList(const char * pFilter, FileCallback pFileCallback, void * pCallbackData) const;
+	int		ReadFile( const char* filename, void** data, core::IAllocator* allocator );
 };
 
 END_V6_CORE_NAMESPACE
