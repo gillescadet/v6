@@ -49,7 +49,7 @@ void CFileWriter::Close()
 	}
 }
 
-void CFileWriter::Write(void * pData, int nSize)
+void CFileWriter::Write( const void * pData, int nSize)
 {
 	fwrite(pData, nSize, 1, (FILE *)m_pFile);
 	m_nPos += nSize;
@@ -94,7 +94,7 @@ void CMemoryWriter::Resize(int nSize)
 	}
 }
 
-void CMemoryWriter::Write(void * pData, int nSize)
+void CMemoryWriter::Write( const void * pData, int nSize)
 {
 	if (m_nPos + nSize > m_nSize)
 	{
@@ -105,6 +105,24 @@ void CMemoryWriter::Write(void * pData, int nSize)
 	m_nPos += nSize;
 }
 
+CBufferReader::CBufferReader( const void * pBuffer, int nSize )
+	: m_pBuffer(pBuffer)
+	, m_nPos(0)
+	, m_nSize(nSize)
+{
+}
+
+void CBufferReader::Read( int nSize, void * pData )
+{
+	if ( m_nPos + nSize > m_nSize )
+	{
+		V6_ASSERT(!"Buffer overrun");
+		return;
+	}
+	memcpy( pData, (char *)m_pBuffer + m_nPos, nSize);
+	m_nPos += nSize;
+}
+
 CBufferWriter::CBufferWriter(void * pBuffer, int nSize)
 	: m_pBuffer(pBuffer)
 	, m_nPos(0)
@@ -112,7 +130,7 @@ CBufferWriter::CBufferWriter(void * pBuffer, int nSize)
 {
 }
 
-void CBufferWriter::Write(void * pData, int nSize)
+void CBufferWriter::Write( const void * pData, int nSize)
 {
 	if (m_nPos + nSize > m_nSize)
 	{

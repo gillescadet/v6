@@ -20,6 +20,12 @@ public:
 			float m_fY;
 			float m_fZ;
 		};
+		struct
+		{
+			float x;
+			float y;
+			float z;
+		};
 		float m_fValues[3];
 	};	
 

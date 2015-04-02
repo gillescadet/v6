@@ -1,17 +1,11 @@
 /*V6*/
 
-#ifndef __V6_HLSL_BASIC_H__
-#define __V6_HLSL_BASIC_H__
+#ifndef __V6_HLSL_CLOUD_H__
+#define __V6_HLSL_CLOUD_H__
 
 #define HLSL
 
 #include "common_shared.h"
-
-struct VertexInput
-{
-	float3 position : POSITION;
-	float4 color : COLOR;
-};
 
 struct PixelInput
 {
@@ -22,4 +16,4 @@ struct PixelInput
 Texture2D<float4> colors : register( HLSL_COLOR_SRV );
 Texture2D<float> depths : register( HLSL_DEPTH_SRV );
 
-#endif // __V6_HLSL_BASIC_H__
+#endif // __V6_HLSL_CLOUD_H__

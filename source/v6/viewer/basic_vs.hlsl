@@ -6,8 +6,8 @@ PixelInput main( VertexInput i )
 
 	float4 pos = float4( i.position, 1.0f );
 
-	o.position = mul( pos, worldToView );
-	o.position = mul( o.position, viewToProj );
+	o.position = mul( objectToView, pos );
+	o.position = mul( viewToProj, o.position );
 
 	o.color = i.color;
 

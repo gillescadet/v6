@@ -4,6 +4,7 @@
 #include <v6/baker/baker.h>
 #include <v6/baker/tilereader.h>
 
+#include <v6/core/frame_manager.h>
 #include <v6/core/image.h>
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
@@ -30,6 +31,7 @@ int main()
 	V6_LOG("Image size  : %dx%d", nWidth, nHeight);
 	V6_LOG("Depth range : %g -> %g", fMinDepth, fMaxDepth);
 
+#if 1
 	{
 		v6::core::CImage oImage(oHeap, nWidth, nHeight);
 		{
@@ -47,6 +49,24 @@ int main()
 			oFileWriter.Close();
 		}
 	}
+#endif
+
+	{
+		v6::core::FrameManager frameManager( &oHeap );
+		v6::core::FrameDesc desc = {  nWidth, nHeight };
+		v6::core::FrameBuffer* frameBuffer = frameManager.CreateFrameBuffer( &desc );
+		
+		oTileReader.FillFrameBuffer( frameBuffer );
+
+		v6::core::CFileWriter oFileWriter;
+		oFileWriter.Open("d:/data/v6/frameBuffer0.frm");
+		oFileWriter.Write( "V6F0", 4 );
+		oFileWriter.Write( &desc, sizeof(desc) );
+		oFileWriter.Write( frameBuffer->colors, v6::core::FrameManager::GetFrameBufferColorSize( &desc ) );
+		oFileWriter.Write( frameBuffer->depths, v6::core::FrameManager::GetFrameBufferDepthSize( &desc ) );
+		oFileWriter.Close();
+	}
+
 	
 
 	return 0;

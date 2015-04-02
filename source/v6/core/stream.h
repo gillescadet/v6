@@ -16,7 +16,16 @@ class IStreamWriter
 public:
 	virtual int GetPos() const = 0;
 	virtual int GetSize() const = 0;
-	virtual void Write(void * pData, int nSize) = 0;
+	virtual void Write( const void * pData, int nSize) = 0;
+};
+
+class IStreamReader
+{
+public:
+	virtual int GetPos() const = 0;
+	virtual int GetRamaining() const { return GetSize() - GetPos(); }
+	virtual int GetSize() const = 0;
+	virtual void Read( int nSize, void * pData ) = 0;
 };
 
 class CFileWriter : public IStreamWriter
@@ -32,7 +41,7 @@ public:
 public:
 	virtual int GetPos() const { return m_nPos; }
 	virtual int GetSize() const { return m_nSize; }
-	virtual void Write(void * pData, int nSize);
+	virtual void Write( const void * pData, int nSize );
 
 private:
 	void * m_pFile;
@@ -52,11 +61,28 @@ public:
 	virtual int GetPos() const { return m_nPos; }
 	virtual int GetSize() const { return m_nSize; }
 	virtual void Resize(int nSize);
-	virtual void Write(void * pData, int nSize);
+	virtual void Write( const void * pData, int nSize);
 
 private:
 	IHeap & m_oHeap;
 	void * m_pBuffer;
+	int m_nPos;
+	int m_nSize;
+};
+
+class CBufferReader : public IStreamReader
+{
+public:
+	CBufferReader( const void * pBuffer, int nSize );
+
+public:
+	const void * GetBuffer() { return m_pBuffer; }
+	virtual int GetPos() const { return m_nPos; }	
+	virtual int GetSize() const { return m_nSize; }
+	virtual void Read( int nSize, void * pData );
+
+private:
+	const void * m_pBuffer;
 	int m_nPos;
 	int m_nSize;
 };
@@ -70,7 +96,7 @@ public:
 	void * GetBuffer() { return m_pBuffer; }
 	virtual int GetPos() const { return m_nPos; }
 	virtual int GetSize() const { return m_nSize; }
-	virtual void Write(void * pData, int nSize);
+	virtual void Write( const void * pData, int nSize);
 
 private:
 	void * m_pBuffer;

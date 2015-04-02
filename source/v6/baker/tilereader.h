@@ -9,6 +9,7 @@ BEGIN_V6_CORE_NAMESPACE
 
 class CBlockAllocator;
 class CImage;
+struct FrameBuffer;
 
 END_V6_CORE_NAMESPACE
 
@@ -25,10 +26,11 @@ public:
 	~CTileReader();
 
 public:
-	bool						AddFile(const char * pFilename);
-	bool						AddFiles(const char * pDirectory);
+	bool						AddFile( const char * pFilename );
+	bool						AddFiles( const char * pDirectory );
+	void						FillFrameBuffer( core::FrameBuffer* frameBuffer );
 	void						FillColorImage(core::CImage & oImage);
-	void						FillDepthImage(core::CImage & oImage, float fMinDepth, float fMaxDepth);
+	void						FillDepthImage(core::CImage & oImage, float fMinDepth, float fMaxDepth);	
 	void						GetDepthRange(float & fMin, float & fMax) const { fMin = m_fMinDepth; fMax = m_fMaxDepth; }
 	void						GetImageSize(int & nWidth, int & nHeight) const { nWidth = m_nWidth; nHeight = m_nHeight; }	
 
