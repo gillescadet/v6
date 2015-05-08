@@ -9,8 +9,6 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-struct SBlock;
-
 class IAllocator
 {
 public:
@@ -48,14 +46,11 @@ public:
 	virtual void *	realloc(void * p, int nSize) = 0;
 };
 
-class IStack : public IAllocator
+class IStack : public IHeap
 {
 public:
-	template <typename T>
-	void			deleteInstance(T * p)
-	{
-		p->~T();
-	}
+	virtual void	free(void * p) override {}
+	virtual void *	realloc(void * p, int nSize) override { return alloc( nSize ); }
 
 	virtual void	push() = 0;
 	virtual void	pop() = 0;
@@ -105,24 +100,63 @@ private:
 	IStack* m_stack;
 };
 
+struct Block_s;
+
+struct BlockAllocator_s
+{
+	IHeap*	 heap;
+	Block_s* firstBlock;
+	u32		 blockCapacity;
+};
+
+void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size );
+void BlockAllocator_Clear( BlockAllocator_s* allocator );
+void BlockAllocator_Create( BlockAllocator_s* allocator, IHeap* heap, u32 blockCapacity );
+void BlockAllocator_Release( BlockAllocator_s* allocator );
+
 class CBlockAllocator : public IAllocator
 {
 public:
-	CBlockAllocator(IHeap & oHeap, int nBlockCapacity = 4096);
+	CBlockAllocator( IHeap & oHeap, int nBlockCapacity = 4096 );
 	virtual ~CBlockAllocator();
 
 public:
-	virtual void *	alloc(int nSize) override;
+	virtual void *	alloc( int nSize ) override;
 	void			clear();
 
 private:
-	struct SBlock;
-
-private:
-	IHeap &			m_oHeap;
-	SBlock *		m_pFirstBlock;
-	int				m_nBlockCapacity;
+	BlockAllocator_s allocator;
 };
+
+struct GrowingAllocator_s
+{
+	IHeap*	heap;
+	void*	data;
+	u32		size;
+	u32		capacity;
+};
+
+template < typename T >
+T* GrowingAllocator_Add( BlockAllocator_s* allocator, u32 count );
+void GrowingAllocator_Extend( BlockAllocator_s* allocator, u32 size );
+void GrowingAllocator_Create( GrowingAllocator_s* allocator, IHeap* heap );
+template < typename T >
+T* GrowingAllocator_Get( GrowingAllocator_s* allocator, u32 index );
+void GrowingAllocator_Release( GrowingAllocator_s* allocator );
+
+template < typename T >
+T* GrowingAllocator_Add( BlockAllocator_s* allocator, u32 count )
+{
+	const u32 size = allocator->size;
+	GrowingAllocator_Extend( allocator, count * sizeof( T ) );
+	return (T*)((u8*)allocator->data + size);
+}
+
+template < typename T >
+T* GrowingAllocator_Get( GrowingAllocator_s* allocator, u32 index )
+{ 
+	return (T*)((u8*)allocator->data + index * sizeof( T )); 
+}
 
 END_V6_CORE_NAMESPACE
 

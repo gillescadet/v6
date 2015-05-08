@@ -21,6 +21,14 @@ V6_INLINE T Min(T x, T y) { return x < y ? x : y; }
 template<typename T>
 V6_INLINE T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }
 
+template<typename T>
+V6_INLINE T Swap( T& x, T& y )
+{ 
+	T tmp = x;
+	x = y;
+	y = tmp;
+}
+
 V6_INLINE float Pow(float v, float e) { return pow(v, e); }
 
 V6_INLINE float Sqrt(float v) { return sqrt(v); }

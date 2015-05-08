@@ -9,6 +9,13 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
+struct Block_s
+{
+	u32			size;
+	u32			capacity;
+	Block_s*	next;
+};
+
 void * CHeap::alloc(int nSize)
 {
 	return ::malloc(nSize);
@@ -24,53 +31,65 @@ void * CHeap::realloc(void * p, int nSize)
 	return ::realloc(p, nSize);
 }
 
-struct CBlockAllocator::SBlock
+void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 {
-	int			m_nSize;
-	int			m_nCapacity;
-	SBlock *	m_pNext;
+	if ( allocator->firstBlock == nullptr || allocator->firstBlock->size + size > allocator->firstBlock->capacity )
+	{
+		int const capacity = Max( size, allocator->blockCapacity );
+		Block_s* newBlock = (Block_s *)allocator->heap->alloc( sizeof( Block_s ) + capacity );
+		newBlock->size = size;
+		newBlock->capacity = capacity;
+		newBlock->next = allocator->firstBlock;
+		allocator->firstBlock = newBlock;
+		return (void*)(newBlock+1);
+	}
 
-	void *		GetData(int nOffset) { return (void *)((char *)(this + 1) + nOffset); }
-};
+	void* data = (u8*)(allocator->firstBlock+1) + size;
+	allocator->firstBlock->size += size;
+	return data;
+}
 
-CBlockAllocator::CBlockAllocator(IHeap & oHeap, int nBlockCapacity)
-	: m_oHeap(oHeap)
-	, m_pFirstBlock(nullptr)
-	, m_nBlockCapacity(nBlockCapacity)
+void BlockAllocator_Clear( BlockAllocator_s* allocator )
 {
+	for ( Block_s * block = allocator->firstBlock, *nextBlock = nullptr; block; block = nextBlock)
+	{
+		nextBlock = block->next;
+		allocator->heap->free( block );
+	}
+	allocator->firstBlock = nullptr;
+}
+
+void BlockAllocator_Create( BlockAllocator_s* allocator, IHeap* heap, u32 blockCapacity )
+{
+	allocator->heap = heap;
+	allocator->firstBlock = nullptr;
+	allocator->blockCapacity = blockCapacity;
+}
+
+void BlockAllocator_Release( BlockAllocator_s* allocator )
+{
+	BlockAllocator_Clear( allocator );
+	memset( allocator, 0, sizeof(BlockAllocator_s) );
+}
+
+CBlockAllocator::CBlockAllocator( IHeap & oHeap, int nBlockCapacity )
+{
+	BlockAllocator_Create( &allocator, &oHeap, nBlockCapacity );
 }
 
 CBlockAllocator::~CBlockAllocator()
 {
-	clear();
+	BlockAllocator_Release( &allocator );
 }
 
 void * CBlockAllocator::alloc(int nSize)
 {
-	if (m_pFirstBlock == nullptr || m_pFirstBlock->m_nSize + nSize > m_pFirstBlock->m_nCapacity)
-	{
-		int const nCapacity = Max(nSize, m_nBlockCapacity);
-		SBlock * pNewBlock = (SBlock *)m_oHeap.alloc(sizeof(SBlock) + nCapacity);
-		pNewBlock->m_nSize = nSize;
-		pNewBlock->m_nCapacity = nCapacity;
-		pNewBlock->m_pNext = m_pFirstBlock;
-		m_pFirstBlock = pNewBlock;
-		return pNewBlock->GetData(0);
-	}
-
-	void * pData = m_pFirstBlock->GetData(m_pFirstBlock->m_nSize);
-	m_pFirstBlock->m_nSize += nSize;
-	return pData;
+	return BlockAllocator_Alloc( &allocator, nSize );
 }
 
 void CBlockAllocator::clear()
 {
-	for (SBlock * pBlock = m_pFirstBlock, *pNextBlock = nullptr; pBlock; pBlock = pNextBlock)
-	{
-		pNextBlock = pBlock->m_pNext;
-		m_oHeap.free(pBlock);
-	}
-	m_pFirstBlock = nullptr;
+	BlockAllocator_Clear( &allocator );
 }
 
 static const uint STACK_CAPACITY = 32;
@@ -110,5 +129,31 @@ void Stack::pop()
 	m_size = m_stack[--m_stackSize];
 }
 
+void GrowingAllocator_Extend( GrowingAllocator_s* allocator, u32 size )
+{
+	if ( allocator->size + size > allocator->capacity )
+	{
+		void* data = allocator->data;
+		allocator->capacity = Max( allocator->size + size, allocator->capacity * 2 );
+		allocator->data = allocator->heap->alloc( allocator->capacity );		
+		memcpy( allocator->data, data, allocator->size );		
+		allocator->heap->free( data );
+	}
+	allocator->size += size;
+}
+
+void GrowingAllocator_Create( GrowingAllocator_s* allocator, IHeap* heap )
+{
+	allocator->heap = heap;
+	allocator->data = nullptr;
+	allocator->size = 0;
+	allocator->capacity = 0;
+}
+
+void GrowingAllocator_Release( GrowingAllocator_s* allocator )
+{
+	allocator->heap->free( allocator->data );
+	memset( allocator, 0, sizeof( GrowingAllocator_s ) );
+}
 
 END_V6_CORE_NAMESPACE

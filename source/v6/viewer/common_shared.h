@@ -12,9 +12,13 @@ CBUFFER( CBView, 0 )
 	row_major	matrix objectToView;
 	row_major	matrix viewToProj;
 	float		zFar;
-	float		unused1;
+	float		depthLinearScale;
+	float		depthLinearBias;
+	int			_pad1;
 	uint		frameWidth;
 	uint		frameHeight;
+	int			_pad2;
+	int			_pad3;
 };
 
 #define HLSL_FIRST_SLOT		0

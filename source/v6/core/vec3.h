@@ -20,13 +20,14 @@ public:
 			float m_fY;
 			float m_fZ;
 		};
+		float m_fValues[3];
 		struct
 		{
 			float x;
 			float y;
 			float z;
-		};
-		float m_fValues[3];
+		};		
+		float values[3];
 	};	
 
 public:

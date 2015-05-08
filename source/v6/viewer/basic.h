@@ -19,7 +19,4 @@ struct PixelInput
 	float4 color : COLOR;
 };
 
-Texture2D<float4> colors : register( HLSL_COLOR_SRV );
-Texture2D<float> depths : register( HLSL_DEPTH_SRV );
-
 #endif // __V6_HLSL_BASIC_H__
