@@ -32,13 +32,13 @@ struct Octree_s
 	float radius;
 };
 
-static const u32 IS_CHILD_BIT	= 1<<31;
+static const u32 IS_CHILD_BIT	= 1u<<31;
 static const u32 BATCH_SIZE		= 1024;
 static const u32 STACK_MAX_SIZE	= 128;
 
 // Private
 
-static void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float* radii, u32* ids, u32 count  )
+static void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float*, u32* ids, u32 count  )
 {
 	Vec3 split = Vec3_Make( 0.0f, 0.0f, 0.0f );
 	Node_s node = octree->root;
@@ -52,9 +52,9 @@ static void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float*
 		{
 			const u32 id = ids[pointRank];
 			const Vec3& point = points[id];
-			const u32 xSide = point.x < split.x ? 0 : 1;
-			const u32 ySide = point.y < split.y ? 0 : 2;
-			const u32 zSide = point.z < split.z ? 0 : 4;
+			const u32 xSide = point.x < split.x ? 0u : 1u;
+			const u32 ySide = point.y < split.y ? 0u : 2u;
+			const u32 zSide = point.z < split.z ? 0u : 4u;
 			const u32 octant = xSide | ySide | zSide;
 			octantIds[octant][++octantCounts[octant]] = id;
 		}

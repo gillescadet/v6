@@ -5,8 +5,6 @@
 
 #include <v6/core/math.h>
 
-#include <malloc.h>
-
 BEGIN_V6_CORE_NAMESPACE
 
 struct Block_s
@@ -18,7 +16,7 @@ struct Block_s
 
 void * CHeap::alloc(int nSize)
 {
-	return ::malloc(nSize);
+	return ::malloc( (u32)nSize );
 }
 
 void CHeap::free(void * p)
@@ -28,15 +26,15 @@ void CHeap::free(void * p)
 
 void * CHeap::realloc(void * p, int nSize)
 {
-	return ::realloc(p, nSize);
+	return ::realloc(p, (u32)nSize);
 }
 
 void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 {
 	if ( allocator->firstBlock == nullptr || allocator->firstBlock->size + size > allocator->firstBlock->capacity )
 	{
-		int const capacity = Max( size, allocator->blockCapacity );
-		Block_s* newBlock = (Block_s *)allocator->heap->alloc( sizeof( Block_s ) + capacity );
+		u32 const capacity = Max( size, allocator->blockCapacity );
+		Block_s* newBlock = (Block_s *)allocator->heap->alloc( (int)(sizeof( Block_s ) + capacity) );
 		newBlock->size = size;
 		newBlock->capacity = capacity;
 		newBlock->next = allocator->firstBlock;
@@ -74,7 +72,7 @@ void BlockAllocator_Release( BlockAllocator_s* allocator )
 
 CBlockAllocator::CBlockAllocator( IHeap & oHeap, int nBlockCapacity )
 {
-	BlockAllocator_Create( &allocator, &oHeap, nBlockCapacity );
+	BlockAllocator_Create( &allocator, &oHeap, (u32)nBlockCapacity );
 }
 
 CBlockAllocator::~CBlockAllocator()
@@ -84,7 +82,7 @@ CBlockAllocator::~CBlockAllocator()
 
 void * CBlockAllocator::alloc(int nSize)
 {
-	return BlockAllocator_Alloc( &allocator, nSize );
+	return BlockAllocator_Alloc( &allocator, (u32)nSize );
 }
 
 void CBlockAllocator::clear()
@@ -97,7 +95,7 @@ static const uint STACK_CAPACITY = 32;
 Stack::Stack( IHeap* heap, uint capacity )
 	: m_heap( heap )
 {
-	m_buffer = m_heap->alloc( capacity );
+	m_buffer = m_heap->alloc( (int)capacity );
 	m_capacity = capacity;
 	m_size = 0;
 	m_stack = (uint*)Stack::alloc( STACK_CAPACITY * sizeof(uint) );
@@ -135,7 +133,7 @@ void GrowingAllocator_Extend( GrowingAllocator_s* allocator, u32 size )
 	{
 		void* data = allocator->data;
 		allocator->capacity = Max( allocator->size + size, allocator->capacity * 2 );
-		allocator->data = allocator->heap->alloc( allocator->capacity );		
+		allocator->data = allocator->heap->alloc( (int)allocator->capacity );		
 		memcpy( allocator->data, data, allocator->size );		
 		allocator->heap->free( data );
 	}

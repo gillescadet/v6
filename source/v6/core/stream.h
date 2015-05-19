@@ -5,8 +5,6 @@
 #ifndef __V6_CORE_STREAM_H__
 #define __V6_CORE_STREAM_H__
 
-#include <new>
-
 BEGIN_V6_CORE_NAMESPACE
 
 class IHeap;
@@ -52,7 +50,7 @@ private:
 class CMemoryWriter : public IStreamWriter
 {
 public:
-	CMemoryWriter(IHeap & oHeap);
+	CMemoryWriter(IHeap* oHeap);
 	virtual ~CMemoryWriter();
 
 public:
@@ -64,7 +62,7 @@ public:
 	virtual void Write( const void * pData, int nSize);
 
 private:
-	IHeap & m_oHeap;
+	IHeap* m_oHeap;
 	void * m_pBuffer;
 	int m_nPos;
 	int m_nSize;

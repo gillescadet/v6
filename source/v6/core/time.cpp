@@ -1,20 +1,21 @@
 /*V6*/
 
+#pragma warning( push, 3 )
+#include <windows.h>
+#pragma warning( pop )
+
 #include <v6/core/common.h>
 #include <v6/core/time.h>
 
-#include <windows.h>
-
 BEGIN_V6_CORE_NAMESPACE
 
-static double g_fPCFreq = 0.0;
+const static double s_dInvFrequency = 1.0 / GetTickFrequency();
 
 double GetTickFrequency()
 {
 	LARGE_INTEGER li;
-	BOOL bRes = QueryPerformanceFrequency(&li);
-	V6_ASSERT(bRes);
-	return double(li.QuadPart);
+	QueryPerformanceFrequency(&li);
+	return double( li.QuadPart );
 }
 
 __int64 GetTickCount()
@@ -25,9 +26,8 @@ __int64 GetTickCount()
 }
 
 float ConvertTicksToSeconds(__int64 nTickCount)
-{
-	static double dInvFrequency = 1.0 / GetTickFrequency();
-	return (float)(nTickCount * dInvFrequency);
+{	
+	return (float)( nTickCount * s_dInvFrequency );
 }
 
 END_V6_CORE_NAMESPACE

@@ -2,6 +2,8 @@
 
 #pragma once
 
+#pragma warning( disable: 4514 4710 4711 )
+
 #ifndef __V6_CORE_COMMON_H__
 #define __V6_CORE_COMMON_H__
 
@@ -19,9 +21,43 @@
 
 #define V6_INLINE					__inline
 
+#pragma warning( push, 3 )
+#ifdef _CRTBLD
+#ifndef _ASSERT_OK
+#error assert.h not for CRT internal use, use dbgint.h
+#endif  /* _ASSERT_OK */
+#include <cruntime.h>
+#endif  /* _CRTBLD */
+#include <crtdefs.h>
+#include <float.h>
+#include <malloc.h>
+#include <math.h>
+#include <new>
+#include <stdio.h>
+#pragma warning( pop )
+
 #include <v6/core/types.h>
 
-#include <stdio.h>
-#include <assert.h>
+#undef assert
+
+#ifdef NDEBUG
+
+#define assert(_Expression)     ((void)0)
+
+#else  /* NDEBUG */
+
+#ifdef __cplusplus
+extern "C" {
+#endif  /* __cplusplus */
+
+_CRTIMP void __cdecl _wassert(_In_z_ const wchar_t * _Message, _In_z_ const wchar_t *_File, _In_ unsigned _Line);
+
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
+
+#define assert(_Expression) (void)( (!!(_Expression)) || (_wassert(_CRT_WIDE(#_Expression), _CRT_WIDE(__FILE__), (core::u32)__LINE__), 0) )
+
+#endif  /* NDEBUG */
 
 #endif // __V6_CORE_COMMON_H__

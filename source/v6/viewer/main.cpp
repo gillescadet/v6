@@ -1,36 +1,42 @@
 /*V6*/
 
-#include <v6/viewer/common.h>
-#include <v6/viewer/common_shared.h>
-
-#include <v6/core/image.h>
-#include <v6/core/memory.h>
-#include <v6/core/vec2.h>
-#include <v6/core/vec3.h>
-#include <v6/core/filesystem.h>
-#include <v6/core/math.h>
-#include <v6/core/mat4x4.h>
-#include <v6/core/color.h>
-#include <v6/core/filesystem.h>
-#include <v6/core/frame_manager.h>
-#include <v6/core/stream.h>
-#include <v6/core/time.h>
-
+#pragma warning( push, 3 )
 #include <windows.h>
 #include <Windowsx.h>
 #include <d3d11.h>
+#pragma warning( pop )
+
+#include <v6/viewer/common.h>
+#include <v6/viewer/common_shared.h>
+
+#include <v6/core/color.h>
+#include <v6/core/filesystem.h>
+#include <v6/core/image.h>
+#include <v6/core/math.h>
+#include <v6/core/mat4x4.h>
+#include <v6/core/memory.h>
+#include <v6/core/stream.h>
+#include <v6/core/time.h>
+#include <v6/core/vec2.h>
+#include <v6/core/vec3.h>
 
 #pragma comment(lib, "d3d11.lib")
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
-#define USE_PP 1
+#define USE_PP 0
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static const float ZNEAR			= 10.0f;
-static const float ZFAR				= 1000.0f;
-static const core::u32 FRAME_SIZE	= 1024;
+static const float ZNEAR					= 10.0f;
+static const float ZFAR						= 1000.0f;
+static const core::u32 CUBE_SIZE			= 256;
+static const core::u32 GRID_SIZE			= 128;
+
+static_assert( (GRID_SIZE & 7) == 0, "GRID_SIZE should me multiple of 8" );
+
+static const uint VERTEX_INPUT_MAX_COUNT	= 6;
+static const uint ENTITY_MAX_COUNT			= 256;
 
 static bool g_mousePressed = false;
 static int g_mousePosX = 0;
@@ -41,6 +47,8 @@ static int g_keyUpPressed = false;
 static int g_keyDownPressed = false;
 
 static int g_frameLimitation = true;
+
+static int g_drawCube = false;
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -68,6 +76,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'S': g_keyDownPressed = pressed; break;
 			case 'W': g_keyUpPressed = pressed; break;
 			case 'F': g_frameLimitation = !pressed; break;
+			case 'C': g_drawCube = pressed; break;
 			}
 		}
 		break;
@@ -155,93 +164,50 @@ enum
 	VERTEX_FORMAT_POSITION		= 1 << 0,
 	
 	VERTEX_FORMAT_COLOR			= 1 << 1,
-
-	VERTEX_FORMAT_USER0			= 7 << 2,
-	VERTEX_FORMAT_USER0_F1		= VERTEX_FORMAT_USER0 + 1,
-	VERTEX_FORMAT_USER0_F2		= VERTEX_FORMAT_USER0 + 2,
-	VERTEX_FORMAT_USER0_F3		= VERTEX_FORMAT_USER0 + 3,
-	VERTEX_FORMAT_USER0_F4		= VERTEX_FORMAT_USER0 + 4,
+		
+	VERTEX_FORMAT_USER0_SHIFT	= 2,
+	VERTEX_FORMAT_USER0_MASK	= 7 << VERTEX_FORMAT_USER0_SHIFT,
+	VERTEX_FORMAT_USER0_F1		= 1 << VERTEX_FORMAT_USER0_SHIFT,
+	VERTEX_FORMAT_USER0_F2		= 2 << VERTEX_FORMAT_USER0_SHIFT,
+	VERTEX_FORMAT_USER0_F3		= 3 << VERTEX_FORMAT_USER0_SHIFT,
+	VERTEX_FORMAT_USER0_F4		= 4 << VERTEX_FORMAT_USER0_SHIFT,
 	
-	VERTEX_FORMAT_USER1			= 7 << 5,
-	VERTEX_FORMAT_USER1_F1		= VERTEX_FORMAT_USER1 + 1,
-	VERTEX_FORMAT_USER1_F2		= VERTEX_FORMAT_USER1 + 2,
-	VERTEX_FORMAT_USER1_F3		= VERTEX_FORMAT_USER1 + 3,
-	VERTEX_FORMAT_USER1_F4		= VERTEX_FORMAT_USER1 + 4,
 	
-	VERTEX_FORMAT_USER2			= 7 << 7,
-	VERTEX_FORMAT_USER2_F1		= VERTEX_FORMAT_USER2 + 1,
-	VERTEX_FORMAT_USER2_F2		= VERTEX_FORMAT_USER2 + 2,
-	VERTEX_FORMAT_USER2_F3		= VERTEX_FORMAT_USER2 + 3,
-	VERTEX_FORMAT_USER2_F4		= VERTEX_FORMAT_USER2 + 4,
-	
-	VERTEX_FORMAT_USER3			= 7 << 12,
-	VERTEX_FORMAT_USER3_F1		= VERTEX_FORMAT_USER3 + 1,
-	VERTEX_FORMAT_USER3_F2		= VERTEX_FORMAT_USER3 + 2,
-	VERTEX_FORMAT_USER3_F3		= VERTEX_FORMAT_USER3 + 3,
-	VERTEX_FORMAT_USER3_F4		= VERTEX_FORMAT_USER3 + 4,
-	
+	VERTEX_FORMAT_USER1_SHIFT	= 5,
+	VERTEX_FORMAT_USER1_MASK	= 7 << VERTEX_FORMAT_USER1_SHIFT,
+	VERTEX_FORMAT_USER1_F1		= 1 << VERTEX_FORMAT_USER1_SHIFT,
+	VERTEX_FORMAT_USER1_F2		= 2 << VERTEX_FORMAT_USER1_SHIFT,
+	VERTEX_FORMAT_USER1_F3		= 3 << VERTEX_FORMAT_USER1_SHIFT,
+	VERTEX_FORMAT_USER1_F4		= 4 << VERTEX_FORMAT_USER1_SHIFT,
+
+	VERTEX_FORMAT_USER2_SHIFT	= 8,
+	VERTEX_FORMAT_USER2_MASK	= 7 << VERTEX_FORMAT_USER2_SHIFT,
+	VERTEX_FORMAT_USER2_F1		= 1 << VERTEX_FORMAT_USER2_SHIFT,
+	VERTEX_FORMAT_USER2_F2		= 2 << VERTEX_FORMAT_USER2_SHIFT,
+	VERTEX_FORMAT_USER2_F3		= 3 << VERTEX_FORMAT_USER2_SHIFT,
+	VERTEX_FORMAT_USER2_F4		= 4 << VERTEX_FORMAT_USER2_SHIFT,
+
+	VERTEX_FORMAT_USER3_SHIFT	= 11,
+	VERTEX_FORMAT_USER3_MASK	= 7 << VERTEX_FORMAT_USER3_SHIFT,
+	VERTEX_FORMAT_USER3_F1		= 1 << VERTEX_FORMAT_USER3_SHIFT,
+	VERTEX_FORMAT_USER3_F2		= 2 << VERTEX_FORMAT_USER3_SHIFT,
+	VERTEX_FORMAT_USER3_F3		= 3 << VERTEX_FORMAT_USER3_SHIFT,
+	VERTEX_FORMAT_USER3_F4		= 4 << VERTEX_FORMAT_USER3_SHIFT,
 };
 
-struct BasicVertex_s
+enum
 {
-	core::Vec3 position;
-	core::SColor color;
-};
+	COMPUTE_GRIDCLEAR,
+	COMPUTE_GRIDFILL,
 
-struct CubeVertex_s
-{
-	core::Vec3 position;
-	core::Vec2 uv;
-};
-
-struct Shader
-{
-	ID3D11VertexShader* m_vertexShader;
-	ID3D11PixelShader* m_pixelShader;
-
-	ID3D11InputLayout* m_inputLayout;
-
-	uint m_vertexFormat;
-};
-
-struct Mesh
-{
-	ID3D11Buffer* m_vertexBuffer;
-	ID3D11Buffer* m_indexBuffer;	
-	uint m_vertexCount;
-	uint m_vertexSize;
-	uint m_vertexFormat;
-	uint m_indexCount;
-	uint m_indexSize;
-	D3D11_PRIMITIVE_TOPOLOGY m_topology;	
-};
-
-struct Entity
-{
-	uint meshID;
-	uint shaderID;
-	core::Vec3 pos;
-	float scale;
-};
-
-struct PostProcess
-{
-	uint shaderID;
-};
-
-struct RenderingView_s
-{
-	core::Mat4x4 viewMatrix;
-	core::Mat4x4 projMatrix;
-	core::u16 frameWidth;
-	core::u16 frameHeight;
+	COMPUTE_COUNT
 };
 
 enum
 {
 	SHADER_BASIC,
-	SHADER_CLOUD,
 	SHADER_DEPTH_LINEARISATION,
+	SHADER_GRIDFILL,
 
 	SHADER_COUNT
 };
@@ -266,9 +232,6 @@ enum
 	POST_PROCESS_COUNT
 };
 
-static const uint VERTEX_INPUT_MAX_COUNT = 2;
-static const uint ENTITY_MAX_COUNT = 256;
-
 enum CubeAxis_e
 {
 	CUBE_AXIS_POSITIVE_X,
@@ -281,17 +244,85 @@ enum CubeAxis_e
 	CUBE_AXIS_COUNT
 };
 
+struct BasicVertex_s
+{
+	core::Vec3 position;
+	core::SColor color;
+};
+
+struct CubeVertex_s
+{
+	core::Vec3 lookAt;
+	core::Vec3 up;
+};
+
+struct Compute_s
+{
+	ID3D11ComputeShader* m_computeShader;
+};
+
+struct Shader_s
+{
+	ID3D11VertexShader* m_vertexShader;
+	ID3D11PixelShader* m_pixelShader;
+
+	ID3D11InputLayout* m_inputLayout;
+
+	uint m_vertexFormat;
+};
+
+struct Mesh_s
+{
+	ID3D11Buffer* m_vertexBuffer;
+	ID3D11Buffer* m_indexBuffer;	
+	uint m_vertexCount;
+	uint m_vertexSize;
+	uint m_vertexFormat;
+	uint m_indexCount;
+	uint m_indexSize;
+	D3D11_PRIMITIVE_TOPOLOGY m_topology;	
+};
+
+struct Entity_s
+{
+	uint meshID;
+	uint shaderID;
+	core::Vec3 pos;
+	float scale;
+};
+
+struct PostProcess_s
+{
+	uint shaderID;
+};
+
+struct RenderingView_s
+{
+	core::Mat4x4 viewMatrix;
+	core::Mat4x4 projMatrix;
+	core::u16 frameWidth;
+	core::u16 frameHeight;
+};
+
 struct Cube_s
 {	
 	ID3D11Texture2D* colorBuffer;
-	ID3D11RenderTargetView* colorViews[CUBE_AXIS_COUNT];
+	ID3D11ShaderResourceView* colorSRV;
+	ID3D11RenderTargetView* colorRTVs[CUBE_AXIS_COUNT];
 	
 	ID3D11Texture2D* depthBuffer;
-	ID3D11DepthStencilView* depthViews[CUBE_AXIS_COUNT];
+	ID3D11ShaderResourceView* depthSRV;
+	ID3D11DepthStencilView* depthRTVs[CUBE_AXIS_COUNT];
 
-	ID3D11Texture2D* linearDepthBuffer;
-	ID3D11RenderTargetView* linearDepthViews[CUBE_AXIS_COUNT];
+	core::u32 size;
+};
 
+struct Grid_s
+{
+	ID3D11Texture3D* colorBuffer;
+	ID3D11ShaderResourceView* colorSRV;
+	ID3D11UnorderedAccessView* colorUAV;
+	
 	core::u32 size;
 };
 
@@ -323,6 +354,8 @@ static void Cube_GetLookAt( core::Vec3& lookAt, core::Vec3& up, CubeAxis_e axis 
             lookAt	= core::Vec3_Make( 0.0f,  0.0f, -1.0f );
             up		= core::Vec3_Make( 0.0f,  1.0f,  0.0f );
             break;
+		default:
+			V6_ASSERT( "Not supported" );
     }
 }
 
@@ -332,14 +365,35 @@ static void Cube_MakeViewMatrix( core::Mat4x4* matrix, const core::Vec3& center,
 	core::Vec3 up;
 	Cube_GetLookAt( lookAt, up, axis );
 	
-	const core::Vec3 right = core::Cross( lookAt, up );
-
-	*matrix = Mat4x4_Rotation( right, up, lookAt );
+	*matrix = Mat4x4_Rotation( lookAt, up );
 	Mat4x4_SetTranslation( matrix, center );
 	Mat4x4_AffineInverse( matrix );
 }
 
-static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
+static bool Compute_Create( ID3D11Device* device, Compute_s* compute, const char* cs, core::CFileSystem* fileSystem, core::IStack* stack )
+{
+	core::ScopedStack scopedStack( stack );
+
+	void* csBytecode = nullptr;
+	const int csBytecodeSize = fileSystem->ReadFile( cs, &csBytecode, stack );
+	if ( csBytecodeSize <= 0 )
+	{
+		return false;
+	}	
+
+	{
+		HRESULT hRes = device->CreateComputeShader( csBytecode, csBytecodeSize, nullptr, &compute->m_computeShader );
+
+		if ( FAILED( hRes) )
+		{
+			V6_ERROR( "ID3D11Device::CreateComputeShader failed!" );
+		}
+	}	
+
+	return true;
+}
+
+static bool Shader_Create( ID3D11Device* device, Shader_s* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
 {
 	core::ScopedStack scopedStack( stack );
 
@@ -371,7 +425,7 @@ static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs,
 
 		if ( FAILED( hRes) )
 		{
-			V6_ERROR( "ID3D11Device::CreateVertexShader failed!" );
+			V6_ERROR( "ID3D11Device::CreatePixelShader failed!" );
 		}
 	}
 	
@@ -413,15 +467,15 @@ static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs,
 			++inputCount;
 		}
 
-		const static DXGI_FORMAT widthToFloatFormats[] = { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT };
+		const static DXGI_FORMAT widthToFloatFormats[] = { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT };
 
-		if ( vertexFormat & VERTEX_FORMAT_USER0 )
+		if ( vertexFormat & VERTEX_FORMAT_USER0_MASK )
 		{
 			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
 
 			idesc[inputCount].SemanticName = "USER";
 			idesc[inputCount].SemanticIndex = 0;
-			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER0 ) - VERTEX_FORMAT_USER0;
+			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER0_MASK ) >> VERTEX_FORMAT_USER0_SHIFT;
 			V6_ASSERT( width >= 1 && width <= 4 );
 			idesc[inputCount].Format = widthToFloatFormats[width];
 			idesc[inputCount].InputSlot = 0;
@@ -433,13 +487,13 @@ static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs,
 			++inputCount;
 		}
 
-		if ( vertexFormat & VERTEX_FORMAT_USER1 )
+		if ( vertexFormat & VERTEX_FORMAT_USER1_MASK )
 		{
 			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
 
 			idesc[inputCount].SemanticName = "USER";
 			idesc[inputCount].SemanticIndex = 1;
-			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER1 ) - VERTEX_FORMAT_USER1;
+			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER1_MASK ) >> VERTEX_FORMAT_USER1_SHIFT;
 			V6_ASSERT( width >= 1 && width <= 4 );
 			idesc[inputCount].Format = widthToFloatFormats[width];
 			idesc[inputCount].InputSlot = 0;
@@ -451,13 +505,13 @@ static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs,
 			++inputCount;
 		}
 
-		if ( vertexFormat & VERTEX_FORMAT_USER2 )
+		if ( vertexFormat & VERTEX_FORMAT_USER2_MASK )
 		{
 			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
 
 			idesc[inputCount].SemanticName = "USER";
 			idesc[inputCount].SemanticIndex = 2;
-			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER2 ) - VERTEX_FORMAT_USER2;
+			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER2_MASK ) >> VERTEX_FORMAT_USER2_SHIFT;
 			V6_ASSERT( width >= 1 && width <= 4 );
 			idesc[inputCount].Format = widthToFloatFormats[width];
 			idesc[inputCount].InputSlot = 0;
@@ -469,13 +523,13 @@ static bool Shader_Create( ID3D11Device* device, Shader* shader, const char* vs,
 			++inputCount;
 		}
 
-		if ( vertexFormat & VERTEX_FORMAT_USER3 )
+		if ( vertexFormat & VERTEX_FORMAT_USER3_MASK )
 		{
 			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
 
 			idesc[inputCount].SemanticName = "USER";
 			idesc[inputCount].SemanticIndex = 3;
-			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER3 ) - VERTEX_FORMAT_USER3;
+			const core::u32 width = ( vertexFormat & VERTEX_FORMAT_USER3_MASK ) >> VERTEX_FORMAT_USER3_SHIFT;
 			V6_ASSERT( width >= 1 && width <= 4 );
 			idesc[inputCount].Format = widthToFloatFormats[width];
 			idesc[inputCount].InputSlot = 0;
@@ -509,7 +563,7 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.Height = size;
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 6;
-		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -520,16 +574,28 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->colorBuffer) );
 	}
 
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+		viewDesc.Texture2DArray.MipLevels = 1;
+		viewDesc.Texture2DArray.ArraySize = 6;
+		viewDesc.Texture2DArray.FirstArraySlice = 0;		
+		viewDesc.Texture2DArray.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->colorBuffer, &viewDesc, &cube->colorSRV ) );
+	}
+
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
 		viewDesc.Texture2DArray.ArraySize = 1;
 		viewDesc.Texture2DArray.FirstArraySlice = faceID;
 		viewDesc.Texture2DArray.MipSlice = 0;
 
-		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->colorBuffer, &viewDesc, &cube->colorViews[faceID] ) );
+		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->colorBuffer, &viewDesc, &cube->colorRTVs[faceID] ) );
 	}
 	
 	{
@@ -549,66 +615,98 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		V6_ASSERT_D3D11( device->CreateTexture2D( &depthStencilDesc, nullptr, &cube->depthBuffer ) );
 	}
 
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
-		D3D11_DEPTH_STENCIL_VIEW_DESC depthStencilViewDesc = {};
-		depthStencilViewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		depthStencilViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
-		depthStencilViewDesc.Flags = 0;
-		depthStencilViewDesc.Texture2DArray.ArraySize = 1;
-		depthStencilViewDesc.Texture2DArray.FirstArraySlice = faceID;
-		depthStencilViewDesc.Texture2DArray.MipSlice = 0;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilView( cube->depthBuffer, &depthStencilViewDesc, &cube->depthViews[faceID] ) );
-	}
-
-	{
-		D3D11_TEXTURE2D_DESC texDesc = {};
-		texDesc.Width = size;
-		texDesc.Height = size;
-		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 6;
-		texDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		texDesc.SampleDesc.Count = 1;
-		texDesc.SampleDesc.Quality = 0;
-		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-		texDesc.CPUAccessFlags = 0;
-		texDesc.MiscFlags = 0;
-		
-		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->linearDepthBuffer ) );
-	}
-
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-	{
-		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+		viewDesc.Texture2DArray.MipLevels = 1;
+		viewDesc.Texture2DArray.ArraySize = 6;
+		viewDesc.Texture2DArray.FirstArraySlice = 0;		
+		viewDesc.Texture2DArray.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->depthBuffer, &viewDesc, &cube->depthSRV ) );
+	}
+
+	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
+	{
+		D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		viewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+		viewDesc.Flags = 0;
 		viewDesc.Texture2DArray.ArraySize = 1;
 		viewDesc.Texture2DArray.FirstArraySlice = faceID;
 		viewDesc.Texture2DArray.MipSlice = 0;
 
-		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->linearDepthBuffer, &viewDesc, &cube->linearDepthViews[faceID] ) );
+		V6_ASSERT_D3D11( device->CreateDepthStencilView( cube->depthBuffer, &viewDesc, &cube->depthRTVs[faceID] ) );
 	}
-
+	
 	cube->size = size;
 }
 
 static void Cube_Release( Cube_s* cube )
 {
-	cube->colorBuffer->Release();	
-	cube->depthBuffer->Release();	
-	cube->linearDepthBuffer->Release();
+	cube->colorBuffer->Release();
+	cube->depthBuffer->Release();
+
+	cube->colorSRV->Release();	
+	cube->depthSRV->Release();	
 
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
-		cube->colorViews[faceID]->Release();
-		cube->depthViews[faceID]->Release();
-		cube->linearDepthViews[faceID]->Release();
+		cube->colorRTVs[faceID]->Release();
+		cube->depthRTVs[faceID]->Release();
 	}
 }
 
-static void Mesh_Create( ID3D11Device* device, Mesh* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
+static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 size )
+{
+	{
+		D3D11_TEXTURE3D_DESC texDesc = {};
+		texDesc.Width = size;
+		texDesc.Height = size;
+		texDesc.Depth = size;
+		texDesc.MipLevels = 1;
+		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
+		
+		V6_ASSERT_D3D11( device->CreateTexture3D( &texDesc, nullptr, &grid->colorBuffer ) );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
+		viewDesc.Texture3D.MipLevels = 1;
+		viewDesc.Texture3D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->colorBuffer, &viewDesc, &grid->colorSRV ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
+		uavDesc.Texture3D.MipSlice = 0;
+		uavDesc.Texture3D.FirstWSlice = 0;
+		uavDesc.Texture3D.WSize = size;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->colorBuffer, &uavDesc, &grid->colorUAV ) );
+	}
+
+	grid->size = size;
+}
+
+static void Grid_Release( Grid_s* grid )
+{
+	grid->colorBuffer->Release();
+	grid->colorSRV->Release();
+	grid->colorUAV->Release();
+}
+
+static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
 {
 	mesh->m_vertexBuffer = nullptr;
 	mesh->m_vertexCount = vertexCount;
@@ -662,7 +760,7 @@ static void Mesh_Create( ID3D11Device* device, Mesh* mesh, const void* vertices,
 	mesh->m_topology = topology;
 }
 
-static void Mesh_CreateTriangle( ID3D11Device* device, Mesh* mesh )
+static void Mesh_CreateTriangle( ID3D11Device* device, Mesh_s* mesh )
 {
 	const BasicVertex_s vertices[3] = 
 	{
@@ -677,7 +775,7 @@ static void Mesh_CreateTriangle( ID3D11Device* device, Mesh* mesh )
 
 }
 
-static void Mesh_CreateBox( ID3D11Device* device, Mesh* mesh, const core::SColor color, bool wireframe )
+static void Mesh_CreateBox( ID3D11Device* device, Mesh_s* mesh, const core::SColor color, bool wireframe )
 {
 	const BasicVertex_s vertices[8] = 
 	{
@@ -720,72 +818,15 @@ static void Mesh_CreateBox( ID3D11Device* device, Mesh* mesh, const core::SColor
 	}
 }
 
-static void Mesh_CreateCloud( ID3D11Device* device, Mesh* mesh, const core::FrameBuffer* frameBuffer, core::IStack* stack )
-{
-	core::ScopedStack scopedStack( stack );
-
-	const uint faceWidth = frameBuffer->width / 3;
-	const uint faceHeight = frameBuffer->height / 2;
-
-	const uint vertexCount = frameBuffer->width * frameBuffer->height;
-
-#if 1
-	const uint indexCount = 6 * (faceHeight - 1) * ( faceWidth * 2 + 2 ) - 1;
-
-	core::u32* const indices = (core::u32*)stack->alloc( indexCount * sizeof( core::u32 ) );
-	core::u32* index = indices;
-		
-	for ( int faceID = 0; faceID < 6; ++faceID )
-	{		
-		const uint faceY = faceID / 3;
-		const uint faceX = faceID - faceY * 3;
-		uint offset = faceY * frameBuffer->width * faceHeight + faceX * faceWidth;
-		for ( uint y = 0; y < faceHeight-1; ++y )
-		{
-			const uint bot = offset + ( faceY ? 0 : frameBuffer->width );
-			const uint top = offset + ( faceY ? frameBuffer->width : 0 );
-			if ( index != indices )
-			{
-				*(index++) = bot;
-			}
-			for ( uint x = 0; x < faceWidth; ++x )
-			{
-				*(index++) = bot + x;
-				*(index++) = top + x;
-			}
-			*(index++) = top + faceWidth-1;			
-
-			offset += frameBuffer->width;
-		}
-	}
-#else
-	const uint indexCount = 6 * faceHeight * faceWidth;
-
-	core::u32* const indices = (core::u32*)stack->alloc( indexCount * sizeof( core::u32 ) );
-	core::u32* index = indices;
-		
-	for ( int vertexID = 0; vertexID < vertexCount; ++vertexID )
-	{		
-		*(index++) = vertexID;
-	}
-#endif
-
-	V6_ASSERT( index - indices == indexCount );
-	
-	Mesh_Create( device, mesh, nullptr, vertexCount, 0, 0, indices, indexCount, sizeof( core::u32 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
-	// RenderableCreate( device, renderable, nullptr, vertexCount, 0, indices, indexCount, sizeof( core::u32 ), D3D11_PRIMITIVE_TOPOLOGY_POINTLIST, shaderID );
-	//RenderableCreate( device, renderable, nullptr, vertexCount, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST, shaderID );
-}
-
-static void Mesh_CreateVirtualTriangle( ID3D11Device* device, Mesh* mesh )
+static void Mesh_CreateVirtualTriangle( ID3D11Device* device, Mesh_s* mesh )
 {
 	Mesh_Create( device, mesh, nullptr, 3, 0, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );	
 }
 
-static void Mesh_CreateCube( ID3D11Device* device, Mesh* mesh )
+static void Mesh_CreateCube( ID3D11Device* device, Mesh_s* mesh )
 {
 	CubeVertex_s vertices[24];
-	core::u8 indices[36];
+	core::u16 indices[36];
 
 	core::u32 vertexID = 0;
 	core::u32 indexID = 0;
@@ -795,16 +836,14 @@ static void Mesh_CreateCube( ID3D11Device* device, Mesh* mesh )
 		core::Vec3 up;
 		Cube_GetLookAt( lookAt, up, (CubeAxis_e)faceID );
 		
-		const core::Vec3 right = core::Cross( lookAt, up );
-		
-		vertices[vertexID+0].position	= lookAt - right - up;
-		vertices[vertexID+0].uv			= core::Vec2_Make( 0.0f, 0.0f );
-		vertices[vertexID+1].position	= lookAt - right + up;
-		vertices[vertexID+1].uv			= core::Vec2_Make( 0.0f, 1.0f );
-		vertices[vertexID+2].position	= lookAt + right - up;
-		vertices[vertexID+2].uv			= core::Vec2_Make( 1.0f, 0.0f );
-		vertices[vertexID+3].position	= lookAt + right + up;
-		vertices[vertexID+3].uv			= core::Vec2_Make( 1.0f, 1.0f );
+		vertices[vertexID+0].lookAt	= lookAt;
+		vertices[vertexID+0].up = up;
+		vertices[vertexID+1].lookAt	= lookAt;
+		vertices[vertexID+1].up = up;
+		vertices[vertexID+2].lookAt	= lookAt;
+		vertices[vertexID+2].up = up;
+		vertices[vertexID+3].lookAt	= lookAt;
+		vertices[vertexID+3].up = up;
 		
 		indices[indexID+0] = vertexID+0;
 		indices[indexID+1] = vertexID+1;
@@ -818,10 +857,10 @@ static void Mesh_CreateCube( ID3D11Device* device, Mesh* mesh )
 		indexID += 6;
 	}
 
-	Mesh_Create( device, mesh, vertices, 24, sizeof( CubeVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, indices, 36, sizeof( core::u8 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+	Mesh_Create( device, mesh, vertices, 24, sizeof( CubeVertex_s ), VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F3, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 }
 
-void Entity_Create( Entity* entity, core::u32 meshID, core::u32 shaderID, const core::Vec3& pos, float scale )
+void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderID, const core::Vec3& pos, float scale )
 {
 	entity->meshID = meshID;
 	entity->shaderID = shaderID;
@@ -829,12 +868,12 @@ void Entity_Create( Entity* entity, core::u32 meshID, core::u32 shaderID, const 
 	entity->scale = scale;
 }
 
-void PostProcess_Create( PostProcess* postProcess, core::u32 shaderID )
+void PostProcess_Create( PostProcess_s* postProcess, core::u32 shaderID )
 {
 	postProcess->shaderID = shaderID;
 }
 
-void Mesh_Draw( Mesh* mesh, Shader* shader, ID3D11DeviceContext* ctx )
+void Mesh_Draw( Mesh_s* mesh, Shader_s* shader, ID3D11DeviceContext* ctx )
 {
 	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
 
@@ -852,9 +891,6 @@ void Mesh_Draw( Mesh* mesh, Shader* shader, ID3D11DeviceContext* ctx )
 	{
 		switch ( mesh->m_indexSize )
 		{
-		case 1:
-			ctx->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R8_UINT, 0 );
-			break;
 		case 2:
 			ctx->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R16_UINT, 0 );
 			break;
@@ -884,9 +920,10 @@ public:
 	~CRenderingDevice();
 
 public:
-	bool Create(int nWidth, int nHeight, HWND hWnd, core::FrameBuffer* frameBuffer, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack );
-	void Draw( float dt );
-	void DrawWorld( float dt, const RenderingView_s* view );
+	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack );
+	void Draw( float dt );	
+	void DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view );
+	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void PostProcessDone( uint ppID );
 	void PostProcessPrepare( uint ppID );
 	void Present();
@@ -911,16 +948,20 @@ public:
 	ID3D11DepthStencilState*  m_depthStencilStateNoZ;
 	ID3D11DepthStencilState*  m_depthStencilStateZRO;
 	ID3D11DepthStencilState*  m_depthStencilStateZRW;
+	ID3D11BlendState* m_blendStateNoColor;
 	ID3D11BlendState* m_blendStateOpaque;
-	ID3D11Buffer* m_cbuffer;
+	ID3D11Buffer* m_viewCBUF;
+	ID3D11Buffer* m_gridCBUF;
 
-	Shader m_shaders[SHADER_COUNT];
-	Mesh m_meshes[MESH_COUNT];
-	Entity m_worldEntities[ENTITY_MAX_COUNT];
-	PostProcess m_postProcesses[POST_PROCESS_COUNT];
+	Compute_s m_computes[COMPUTE_COUNT];
+	Shader_s m_shaders[SHADER_COUNT];
+	Mesh_s m_meshes[MESH_COUNT];
+	Entity_s m_entities[ENTITY_MAX_COUNT];
+	PostProcess_s m_postProcesses[POST_PROCESS_COUNT];
 	uint m_entityCount;
 
 	Cube_s m_cube;
+	Grid_s m_grid;
 
 	core::IHeap* m_heap;
 	core::IStack* m_stack;
@@ -943,6 +984,7 @@ CRenderingDevice::~CRenderingDevice()
 
 void CRenderingDevice::PostProcessPrepare( uint ppID )
 {
+#if USE_PP
 	switch (ppID)
 	{
 		case POST_PROCESS_DEPTH_LINEARISATION:
@@ -953,13 +995,14 @@ void CRenderingDevice::PostProcessPrepare( uint ppID )
 		}
 		break;
 	}
+#endif
 }
 
 void CRenderingDevice::PostProcessDone( uint ppID )
 {
 }
 
-bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::FrameBuffer* frameBuffer, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack )
+bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack )
 {
 	m_heap = heap;
 	m_stack = stack;
@@ -1143,6 +1186,16 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::FrameBu
 		blendState.AlphaToCoverageEnable = false;
 		blendState.IndependentBlendEnable = false;
 		blendState.RenderTarget[0].BlendEnable = FALSE;
+		blendState.RenderTarget[0].RenderTargetWriteMask = 0;
+		
+		V6_ASSERT_D3D11( m_device->CreateBlendState( &blendState, &m_blendStateNoColor ) );
+	}
+
+	{
+		D3D11_BLEND_DESC blendState = {};
+		blendState.AlphaToCoverageEnable = false;
+		blendState.IndependentBlendEnable = false;
+		blendState.RenderTarget[0].BlendEnable = FALSE;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
 		V6_ASSERT_D3D11( m_device->CreateBlendState( &blendState, &m_blendStateOpaque ) );
@@ -1157,12 +1210,27 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::FrameBu
 		bufDesc.MiscFlags = 0;
 		bufDesc.StructureByteStride = 0;
 
-		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_cbuffer ) );
+		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_viewCBUF ) );
 	}
+
+	{
+		D3D11_BUFFER_DESC bufDesc = {};	
+		bufDesc.Usage = D3D11_USAGE_DYNAMIC;
+		bufDesc.ByteWidth = sizeof( v6::hlsl::CBGrid );
+		bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bufDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bufDesc.MiscFlags = 0;
+		bufDesc.StructureByteStride = 0;
+
+		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_gridCBUF ) );
+	}
+
+	Compute_Create( m_device, &m_computes[COMPUTE_GRIDCLEAR], "grid_clear_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_GRIDFILL], "grid_fill_cs.cso", fileSystem, stack );
 		
 	Shader_Create( m_device, &m_shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
-	Shader_Create( m_device, &m_shaders[SHADER_CLOUD], "cloud_vs.cso", "cloud_ps.cso", 0, fileSystem, stack );
 	Shader_Create( m_device, &m_shaders[SHADER_DEPTH_LINEARISATION], "fullscreen_triangle_vs.cso", "fullscreen_depth_linearisation_ps.cso", 0, fileSystem, stack );
+	Shader_Create( m_device, &m_shaders[SHADER_GRIDFILL], "cube_vs.cso", "cube_ps.cso", VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F3, fileSystem, stack );
 
 	Mesh_CreateTriangle( m_device, &m_meshes[MESH_TRIANGLE] );	
 	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_WIREFRAME], core::Color_Make( 255, 255, 255, 255 ), true );
@@ -1172,24 +1240,23 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::FrameBu
 	Mesh_CreateVirtualTriangle( m_device, &m_meshes[MESH_VIRTUAL_TRIANGLE] );
 	Mesh_CreateCube( m_device, &m_meshes[MESH_CUBE] );
 	
-	//RenderableCreateCloud( m_device, &m_renderables[m_renderableCount++], SHADER_CLOUD, frameBuffer, stack );
-
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f), 500.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_TRIANGLE, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, -500.0f), 5.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_RED, SHADER_BASIC, core::Vec3_Make( -190.0f, 100.0f, -200.0f), 20.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( -190.0f, 100.0f, -200.0f), 20.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_GREEN, SHADER_BASIC, core::Vec3_Make( 110.0f, 200.0f, -120.0f), 100.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 110.0f, 200.0f, -120.0f), 100.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 10.0f, -300.0f, -300.0f), 50.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 10.0f, -300.0f, -300.0f), 50.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_GREEN, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
-	Entity_Create( &m_worldEntities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f), 500.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_TRIANGLE, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, -500.0f), 5.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_RED, SHADER_BASIC, core::Vec3_Make( -190.0f, 100.0f, -200.0f), 20.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( -190.0f, 100.0f, -200.0f), 20.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_GREEN, SHADER_BASIC, core::Vec3_Make( 110.0f, 200.0f, -120.0f), 100.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 110.0f, 200.0f, -120.0f), 100.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 10.0f, -300.0f, -300.0f), 50.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 10.0f, -300.0f, -300.0f), 50.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_GREEN, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
 	
 	PostProcess_Create( &m_postProcesses[POST_PROCESS_DEPTH_LINEARISATION], SHADER_DEPTH_LINEARISATION );
 	
-	Cube_Create( m_device, &m_cube, FRAME_SIZE );
+	Cube_Create( m_device, &m_cube, CUBE_SIZE );
+	Grid_Create( m_device, &m_grid, GRID_SIZE );
 	
 	m_width = nWidth;
 	m_height = nHeight;
@@ -1200,15 +1267,15 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::FrameBu
 	return true;
 }
 
-void CRenderingDevice::DrawWorld( float dt, const RenderingView_s* view )
-{	
-	for ( uint entityID = 0; entityID < m_entityCount; ++entityID )
+void CRenderingDevice::DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view )
+{
+	for ( uint entityRank = 0; entityRank < count; ++entityRank )
 	{
-		Entity* entity = &m_worldEntities[entityID];
+		Entity_s* entity = &entities[entityRank];
 		
 		{
 			D3D11_MAPPED_SUBRESOURCE res;
-			V6_ASSERT_D3D11( m_ctx->Map( m_cbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+			V6_ASSERT_D3D11( m_ctx->Map( m_viewCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
 
 			v6::hlsl::CBView* cbView = (v6::hlsl::CBView*)res.pData;
 
@@ -1223,15 +1290,55 @@ void CRenderingDevice::DrawWorld( float dt, const RenderingView_s* view )
 			cbView->frameHeight = view->frameHeight;
 			cbView->zFar = ZFAR;
 
-			m_ctx->Unmap( m_cbuffer, 0 );
+			m_ctx->Unmap( m_viewCBUF, 0 );
 		}
 
-		m_ctx->VSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_cbuffer );
+		m_ctx->VSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF );
 		
-		Mesh* mesh = &m_meshes[entity->meshID];
-		Shader* shader = &m_shaders[entity->shaderID];
+		Mesh_s* mesh = &m_meshes[entity->meshID];
+		Shader_s* shader = &m_shaders[entity->shaderID];
 		Mesh_Draw( mesh, shader, m_ctx );		
 	}
+}
+
+void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
+{	
+	// Rasterization state
+	m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
+		
+	// Viewport
+	{
+		D3D11_VIEWPORT viewport = {};
+		viewport.TopLeftX = 0;
+		viewport.TopLeftY = 0;
+		viewport.Width = (float)m_width;
+		viewport.Height = (float)m_height;
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		m_ctx->RSSetViewports( 1, &viewport );
+	}
+	
+	// RT
+	m_ctx->OMSetRenderTargets( 1, &m_pColorView, m_pDepthStencilView );
+
+	// Clear
+	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	m_ctx->ClearRenderTargetView( m_pColorView, pRGBA );
+	m_ctx->ClearDepthStencilView( m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+		
+	// View
+	RenderingView_s view;
+	view.viewMatrix = *viewMatrix;
+	view.projMatrix = m_projMatrix;	
+	view.frameWidth = m_width;
+	view.frameHeight = m_height;
+
+	DrawEntities( m_entities, m_entityCount, &view );
+
+	// un RT
+	m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
 void CRenderingDevice::Draw( float dt )
@@ -1276,7 +1383,7 @@ void CRenderingDevice::Draw( float dt )
 	static float headOffsetX = 0.0f;
 	static float headOffsetZ = 0.0f;
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
-	const static float KEY_TRANSLATION_SPEED = 1.0f;
+	const static float KEY_TRANSLATION_SPEED = 50.0f;
 	
 	yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
 	pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
@@ -1302,73 +1409,90 @@ void CRenderingDevice::Draw( float dt )
 
 	const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( yaw );
 	const core::Mat4x4 pitchMatrix = core::Mat4x4_RotationX( pitch );
-	
-	// Depth write pass
-	m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
-	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
+	core::Mat4x4 viewMatrix;
+	core::Mat4x4_Mul( &viewMatrix, yawMatrix, pitchMatrix );
+	core::Mat4x4_SetTranslation( &viewMatrix, headOffset );
+	core::Mat4x4_AffineInverse( &viewMatrix );
 
-	// Render cube map
-
+	if ( g_drawCube )
 	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_cube.size;
-		viewport.Height = (float)m_cube.size;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
+		// Rasterization state
+		m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+		m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
 
-		m_ctx->RSSetViewports( 1, &viewport );
-	}
+		// Viewport
+		{
+			D3D11_VIEWPORT viewport = {};
+			viewport.TopLeftX = 0;
+			viewport.TopLeftY = 0;
+			viewport.Width = (float)m_cube.size;
+			viewport.Height = (float)m_cube.size;
+			viewport.MinDepth = 0.0f;
+			viewport.MaxDepth = 1.0f;
 
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-	{
-		m_ctx->OMSetRenderTargets( 1, &m_cube.colorViews[faceID], m_cube.depthViews[faceID] );
+			m_ctx->RSSetViewports( 1, &viewport );
+		}
 
-		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		m_ctx->ClearRenderTargetView( m_cube.colorViews[faceID], pRGBA );
-		m_ctx->ClearDepthStencilView( m_cube.depthViews[faceID], D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+		for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
+		{
+			// RT
+			m_ctx->OMSetRenderTargets( 1, &m_cube.colorRTVs[faceID], m_cube.depthRTVs[faceID] );
 
-		RenderingView_s view;
-		Cube_MakeViewMatrix( &view.viewMatrix, headOffset, (CubeAxis_e)faceID );
-		view.projMatrix = m_cubeProjMatrix;
-		view.frameWidth = m_cube.size;	
-		view.frameHeight = m_cube.size;
+			// Clear
+			float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			m_ctx->ClearRenderTargetView( m_cube.colorRTVs[faceID], pRGBA );
+			m_ctx->ClearDepthStencilView( m_cube.depthRTVs[faceID], D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );						
+
+			// View
+			RenderingView_s view;
+			Cube_MakeViewMatrix( &view.viewMatrix, headOffset, (CubeAxis_e)faceID );
+			view.projMatrix = m_cubeProjMatrix;
+			view.frameWidth = m_cube.size;	
+			view.frameHeight = m_cube.size;
 		
-		DrawWorld( dt, &view );
-	}
-	
-	// Render world
+			DrawEntities( m_entities, m_entityCount, &view );
 
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
+			// un RT
+			m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
+		}
 
-		m_ctx->RSSetViewports( 1, &viewport );
-	}
+		// Clear
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDCOLOR_SLOT, 1, &m_grid.colorUAV, nullptr );
+		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDCLEAR].m_computeShader, nullptr, 0 );
+		const core::u32 gridGroupCount = m_grid.size >> 3;
+		m_ctx->Dispatch( gridGroupCount, gridGroupCount, gridGroupCount);
 
-	{		
-		m_ctx->OMSetRenderTargets( 1, &m_pColorView, m_pDepthStencilView );
+		// Fill
+		{
+			D3D11_MAPPED_SUBRESOURCE res;
+			V6_ASSERT_D3D11( m_ctx->Map( m_gridCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
 
-		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		m_ctx->ClearRenderTargetView( m_pColorView, pRGBA );
-		m_ctx->ClearDepthStencilView( m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+			v6::hlsl::CBGrid* cbGrid = (v6::hlsl::CBGrid*)res.pData;
 
-		RenderingView_s view;
-		core::Mat4x4_Mul( &view.viewMatrix, yawMatrix, pitchMatrix );
-		core::Mat4x4_SetTranslation( &view.viewMatrix, headOffset );
-		core::Mat4x4_AffineInverse( &view.viewMatrix );
-		view.projMatrix = m_projMatrix;
-		view.frameWidth = m_width;	
-		view.frameHeight = m_height;
+			cbGrid->depthLinearScale = -1.0f / ZNEAR;
+			cbGrid->depthLinearBias = 1.0f / ZNEAR;
+			cbGrid->invFrameSize = 1.0f / m_cube.size;
+			cbGrid->halfGridSize = m_grid.size * 0.5f;
+			cbGrid->invGridScale = 1.0f / 500.0f;
+
+			m_ctx->Unmap( m_gridCBUF, 0 );
+		}
 		
-		DrawWorld( dt, &view );
+		m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
+		m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
+		m_ctx->CSSetConstantBuffers( v6::hlsl::CBGridSlot, 1, &m_gridCBUF );
+		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDFILL].m_computeShader, nullptr, 0 );
+		const core::u32 cubeGroupCount = m_cube.size >> 4;
+		m_ctx->Dispatch( cubeGroupCount, cubeGroupCount, CUBE_AXIS_COUNT );
+
+		// Unset
+		static const void* nulls[8] = {};
+		m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	}
+
+	DrawWorld( &viewMatrix );
 
 #if USE_PP
 
@@ -1396,11 +1520,11 @@ void CRenderingDevice::Draw( float dt )
 
 	for ( uint ppID = 0; ppID < POST_PROCESS_COUNT; ++ppID )
 	{
-		PostProcess* pp = &m_postProcesses[ppID];
+		PostProcess_s* pp = &m_postProcesses[ppID];
 
 		PostProcessPrepare( ppID );
 		
-		Shader* shader = &m_shaders[pp->shaderID];		
+		Shader_s* shader = &m_shaders[pp->shaderID];		
 
 		Mesh_Draw( &m_meshes[MESH_VIRTUAL_TRIANGLE], shader, m_ctx );
 
@@ -1420,21 +1544,29 @@ void CRenderingDevice::Release()
 	m_ctx->ClearState();
 	
 	Cube_Release( &m_cube );
+	Grid_Release( &m_grid );
 
-	m_cbuffer->Release();
+	m_viewCBUF->Release();
+	m_gridCBUF->Release();
 
 	for ( uint meshID = 0; meshID < MESH_COUNT; ++meshID )
 	{
-		Mesh* mesh = &m_meshes[meshID];
+		Mesh_s* mesh = &m_meshes[meshID];
 		if ( mesh->m_vertexBuffer )
 			mesh->m_vertexBuffer->Release();
 		if ( mesh->m_indexBuffer )
 			mesh->m_indexBuffer->Release();
 	}
 
+	for ( uint computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
+	{
+		Compute_s* compute = &m_computes[computeID];
+		compute->m_computeShader->Release();		
+	}
+
 	for ( uint shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
 	{
-		Shader* shader = &m_shaders[shaderID];
+		Shader_s* shader = &m_shaders[shaderID];
 		shader->m_vertexShader->Release();
 		shader->m_pixelShader->Release();
 		shader->m_inputLayout->Release();
@@ -1467,49 +1599,6 @@ int main()
 	v6::core::CHeap heap;
 	v6::core::Stack stack( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
-	v6::core::FrameManager frameManager( &heap );
-	v6::core::FrameBuffer* frameBuffer = nullptr;
-
-	{
-		stack.push();
-		void* data;
-		const int nSize = filesystem.ReadFile( "d:/data/v6/frameBuffer0.frm", &data, &stack );
-		if ( nSize == -1 )
-		{
-			V6_ERROR( "Bad file" );
-			return false;
-		}
-
-		if ( nSize < 4 + sizeof(v6::core::FrameDesc) )
-		{
-			V6_ERROR( "Bad header file size" );
-			return false;
-		}
-
-		v6::core::CBufferReader bufferReader( data, nSize );
-		char magic[5] = {};
-		bufferReader.Read( 4, magic );
-		if ( magic[0] != 'V' || magic[1] != '6' || magic[2] != 'F' || magic[3] != '0')
-		{
-			V6_ERROR( "Bad magic: %s", magic );
-			return false;
-		}
-
-		v6::core::FrameDesc frameDesc;
-		bufferReader.Read( sizeof( v6::core::FrameDesc ), &frameDesc );
-
-		if ( bufferReader.GetRamaining() != v6::core::FrameManager::GetFrameBufferColorSize( &frameDesc ) + v6::core::FrameManager::GetFrameBufferDepthSize( &frameDesc ) )
-		{
-			V6_ERROR( "Bad data file size" );
-			return false;
-		}
-		
-		frameBuffer = frameManager.CreateFrameBuffer( &frameDesc );
-		bufferReader.Read( v6::core::FrameManager::GetFrameBufferColorSize( &frameDesc ), frameBuffer->colors );
-		bufferReader.Read( v6::core::FrameManager::GetFrameBufferDepthSize( &frameDesc ), frameBuffer->depths );
-				
-		stack.pop();
-	}
 
 	const int nWidth = 1280;
 	const int nHeight = 720;	
@@ -1524,7 +1613,7 @@ int main()
 	}
 
 	v6::viewer::CRenderingDevice oRenderingDevice;
-	if ( !oRenderingDevice.Create( nWidth, nHeight, hWnd, frameBuffer, &filesystem, &heap, &stack ) )
+	if ( !oRenderingDevice.Create( nWidth, nHeight, hWnd, &filesystem, &heap, &stack ) )
 	{
 		V6_ERROR("Call to CRenderingDevice::Create failed!");
 		return -1;

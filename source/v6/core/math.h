@@ -5,9 +5,6 @@
 #ifndef __V6_CORE_MATH_H__
 #define __V6_CORE_MATH_H__
 
-#include <float.h>
-#include <math.h>
-
 BEGIN_V6_CORE_NAMESPACE
 
 static const float PI = 3.1415926f;

@@ -37,9 +37,9 @@ BEGIN_ANONYMOUS_NAMESPACE
 V6_INLINE void ConvertPoint2Coords(int * vCoords, Vec3 const & vPoint, CGrid::CBuildState const & oBuildState)
 {
 	Vec3 const vDiscretPoint = (vPoint + oBuildState.m_vPoint2CoordsOffset) * oBuildState.m_vPoint2CoordsScale;
-	vCoords[0] = Clamp((int)vDiscretPoint.m_fX, 0, oBuildState.m_vCellCount[0] - 1);
-	vCoords[1] = Clamp((int)vDiscretPoint.m_fY, 0, oBuildState.m_vCellCount[1] - 1);
-	vCoords[2] = Clamp((int)vDiscretPoint.m_fZ, 0, oBuildState.m_vCellCount[2] - 1);
+	vCoords[0] = Clamp((int)vDiscretPoint.x, 0, oBuildState.m_vCellCount[0] - 1);
+	vCoords[1] = Clamp((int)vDiscretPoint.y, 0, oBuildState.m_vCellCount[1] - 1);
+	vCoords[2] = Clamp((int)vDiscretPoint.z, 0, oBuildState.m_vCellCount[2] - 1);
 }
 
 END_ANONYMOUS_NAMESPACE
@@ -85,7 +85,7 @@ void CGrid::Build(SBox const * pBoxes, int nBoxes, float fAverageObjectPerCell)
 	m_pBuildState->m_fEpsilon = vExtent.Length() * 0.00001f;
 	m_pBuildState->m_vPoint2CoordsOffset = -m_pBuildState->m_oBox.m_vMin;
 	Vec3 vNormalizedExtent = vExtent.Normalized();
-	const float fK = Pow(nBoxes / (fAverageObjectPerCell * vNormalizedExtent.m_fX * vNormalizedExtent.m_fY * vNormalizedExtent.m_fZ), 0.333333f);
+	const float fK = Pow(nBoxes / (fAverageObjectPerCell * vNormalizedExtent.x * vNormalizedExtent.y * vNormalizedExtent.z), 0.333333f);
 	const Vec3 vCellCount = vNormalizedExtent * fK + 0.5f;
 	for (int i = 0; i < 3; ++i)
 	{
@@ -188,7 +188,7 @@ void CGrid::Build(Vec3 const * pPoints, int nPoints, float fAverageObjectPerCell
 	m_pBuildState->m_fEpsilon = vExtent.Length() * 0.00001f;
 	m_pBuildState->m_vPoint2CoordsOffset = -m_pBuildState->m_oBox.m_vMin;
 	Vec3 vNormalizedExtent = vExtent.Normalized();
-	const float fK = Pow(nPoints / (fAverageObjectPerCell * vNormalizedExtent.m_fX * vNormalizedExtent.m_fY * vNormalizedExtent.m_fZ), 0.333333f);
+	const float fK = Pow(nPoints / (fAverageObjectPerCell * vNormalizedExtent.x * vNormalizedExtent.y * vNormalizedExtent.z), 0.333333f);
 	const Vec3 vCellCount = vNormalizedExtent * fK + 0.5f;
 	for (int i = 0; i < 3; ++i)
 	{

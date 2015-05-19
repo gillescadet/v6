@@ -5,8 +5,6 @@
 #ifndef __V6_CORE_MEMORY_H__
 #define __V6_CORE_MEMORY_H__
 
-#include <new>
-
 BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator
@@ -49,8 +47,8 @@ public:
 class IStack : public IHeap
 {
 public:
-	virtual void	free(void * p) override {}
-	virtual void *	realloc(void * p, int nSize) override { return alloc( nSize ); }
+	virtual void	free( void* ) override {}
+	virtual void *	realloc( void*, int nSize) override { return alloc( nSize ); }
 
 	virtual void	push() = 0;
 	virtual void	pop() = 0;

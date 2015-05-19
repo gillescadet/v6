@@ -19,12 +19,12 @@ public:
 public:
 	void Clear()
 	{
-		m_vMin.m_fX = FLT_MAX;
-		m_vMin.m_fY = FLT_MAX;
-		m_vMin.m_fZ = FLT_MAX;
-		m_vMax.m_fX = -FLT_MAX;
-		m_vMax.m_fY = -FLT_MAX;
-		m_vMax.m_fZ = -FLT_MAX;
+		m_vMin.x = FLT_MAX;
+		m_vMin.y = FLT_MAX;
+		m_vMin.z = FLT_MAX;
+		m_vMax.x = -FLT_MAX;
+		m_vMax.y = -FLT_MAX;
+		m_vMax.z = -FLT_MAX;
 	}
 
 	void Extend(Vec3 const & vPoint)

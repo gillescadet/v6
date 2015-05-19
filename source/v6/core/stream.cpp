@@ -24,7 +24,7 @@ bool CFileWriter::Open(const char * pFilename)
 {
 	if (m_pFile != nullptr)
 	{
-		V6_ASSERT(!"File already open");
+		V6_ASSERT( !"File already open" );
 		return false;
 	}
 
@@ -49,14 +49,14 @@ void CFileWriter::Close()
 	}
 }
 
-void CFileWriter::Write( const void * pData, int nSize)
+void CFileWriter::Write( const void * pData, int nSize )
 {
-	fwrite(pData, nSize, 1, (FILE *)m_pFile);
+	fwrite( pData, (size_t)nSize, 1, (FILE *)m_pFile );
 	m_nPos += nSize;
 	m_nSize += nSize;
 }
 
-CMemoryWriter::CMemoryWriter(IHeap & oHeap)
+CMemoryWriter::CMemoryWriter(IHeap* oHeap)
 : m_oHeap(oHeap)
 , m_pBuffer(nullptr)
 , m_nPos(0)
@@ -71,7 +71,7 @@ CMemoryWriter::~CMemoryWriter()
 
 void CMemoryWriter::Clear()
 {
-	m_oHeap.free(m_pBuffer);
+	m_oHeap->free(m_pBuffer);
 	m_pBuffer = nullptr;
 	m_nPos = 0;
 	m_nSize = 0;
@@ -88,7 +88,7 @@ void CMemoryWriter::Resize(int nSize)
 		else
 		{
 			m_nSize = nSize;
-			m_pBuffer = m_oHeap.realloc(m_pBuffer, m_nSize);
+			m_pBuffer = m_oHeap->realloc(m_pBuffer, m_nSize);
 			m_nPos = Min(m_nPos, m_nSize);
 		}
 	}
@@ -99,9 +99,9 @@ void CMemoryWriter::Write( const void * pData, int nSize)
 	if (m_nPos + nSize > m_nSize)
 	{
 		m_nSize += Max(m_nSize, nSize);
-		m_pBuffer = m_oHeap.realloc(m_pBuffer, m_nSize);
+		m_pBuffer = m_oHeap->realloc(m_pBuffer, m_nSize);
 	}
-	memcpy((char *)m_pBuffer + m_nPos, pData, nSize);
+	memcpy((char *)m_pBuffer + m_nPos, pData, (size_t)nSize);
 	m_nPos += nSize;
 }
 
@@ -119,7 +119,7 @@ void CBufferReader::Read( int nSize, void * pData )
 		V6_ASSERT(!"Buffer overrun");
 		return;
 	}
-	memcpy( pData, (char *)m_pBuffer + m_nPos, nSize);
+	memcpy( pData, (char *)m_pBuffer + m_nPos, (size_t)nSize);
 	m_nPos += nSize;
 }
 
@@ -137,7 +137,7 @@ void CBufferWriter::Write( const void * pData, int nSize)
 		V6_ASSERT(!"Buffer overflow");
 		return;
 	}
-	memcpy((char *)m_pBuffer + m_nPos, pData, nSize);
+	memcpy((char *)m_pBuffer + m_nPos, pData, (size_t)nSize);
 	m_nPos += nSize;
 }
 

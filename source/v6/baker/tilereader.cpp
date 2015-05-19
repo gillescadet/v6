@@ -13,8 +13,6 @@
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 
-#include <math.h>
-
 BEGIN_V6_BAKER_NAMESPACE
 
 struct STileExtra;

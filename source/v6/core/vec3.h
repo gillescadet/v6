@@ -12,23 +12,9 @@ BEGIN_V6_CORE_NAMESPACE
 struct Vec3
 {
 public:
-	union
-	{
-		struct
-		{
-			float m_fX;
-			float m_fY;
-			float m_fZ;
-		};
-		float m_fValues[3];
-		struct
-		{
-			float x;
-			float y;
-			float z;
-		};		
-		float values[3];
-	};	
+	float x;
+	float y;
+	float z;
 
 public:
 	float Length() const
@@ -38,7 +24,7 @@ public:
 
 	float LengthSq() const
 	{
-		return m_fX * m_fX + m_fY * m_fY + m_fZ * m_fZ;
+		return x * x + y * y + z * z;
 	}
 
 	Vec3 Normalized() const
@@ -48,9 +34,9 @@ public:
 		{
 			float const fInvL = 1.0f / fL;
 			Vec3 v;
-			v.m_fX = m_fX * fInvL;
-			v.m_fY = m_fY * fInvL;
-			v.m_fZ = m_fZ * fInvL;
+			v.x = x * fInvL;
+			v.y = y * fInvL;
+			v.z = z * fInvL;
 			return v;
 		}
 		return *this;
@@ -62,148 +48,148 @@ public:
 		if (fL > FLT_EPSILON)
 		{
 			float const fInvL = 1.0f / fL;
-			m_fX *= fInvL;
-			m_fY *= fInvL;
-			m_fZ *= fInvL;
+			x *= fInvL;
+			y *= fInvL;
+			z *= fInvL;
 		}
 	}
 
-	float operator[](int nIndex) const { return ((float*)&m_fX)[nIndex]; }
-	float & operator[](int nIndex) { return ((float*)&m_fX)[nIndex]; }
+	float operator[](int nIndex) const { return ((float*)&x)[nIndex]; }
+	float & operator[](int nIndex) { return ((float*)&x)[nIndex]; }
 
 	Vec3 operator-() const
 	{
 		Vec3 v;
-		v.m_fX = -m_fX;
-		v.m_fY = -m_fY;
-		v.m_fZ = -m_fZ;
+		v.x = -x;
+		v.y = -y;
+		v.z = -z;
 		return v;
 	}
 
 	Vec3 operator*=(Vec3 const & v2)
 	{
-		m_fX *= v2.m_fX;
-		m_fY *= v2.m_fY;
-		m_fZ *= v2.m_fZ;
+		x *= v2.x;
+		y *= v2.y;
+		z *= v2.z;
 	}
 	
 	Vec3 operator+=(Vec3 const & v2)
 	{
-		m_fX += v2.m_fX;
-		m_fY += v2.m_fY;
-		m_fZ += v2.m_fZ;
+		x += v2.x;
+		y += v2.y;
+		z += v2.z;
 	}
 
 	Vec3 operator-=(Vec3 const & v2)
 	{
-		m_fX -= v2.m_fX;
-		m_fY -= v2.m_fY;
-		m_fZ -= v2.m_fZ;
+		x -= v2.x;
+		y -= v2.y;
+		z -= v2.z;
 	}
 };
 
 V6_INLINE Vec3 Vec3_Make( float x, float y, float z )
 {
 	Vec3 v;
-	v.m_fX = x;
-	v.m_fY = y;
-	v.m_fZ = z;
+	v.x = x;
+	v.y = y;
+	v.z = z;
 
 	return v;
 }
 
 V6_INLINE float Dot(Vec3 const & v1, Vec3 const & v2)
 {
-	return v1.m_fX * v2.m_fX + v1.m_fY * v2.m_fY + v1.m_fZ * v2.m_fZ;
+	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
 }
 
 V6_INLINE Vec3 Cross(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fY * v2.m_fZ - v1.m_fZ * v2.m_fY;
-	v.m_fY = v1.m_fZ * v2.m_fX - v1.m_fX * v2.m_fZ;
-	v.m_fZ = v1.m_fX * v2.m_fY - v1.m_fY * v2.m_fX;
+	v.x = v1.y * v2.z - v1.z * v2.y;
+	v.y = v1.z * v2.x - v1.x * v2.z;
+	v.z = v1.x * v2.y - v1.y * v2.x;
 	return v;
 }
 
 V6_INLINE Vec3 Min(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = Min(v1.m_fX, v2.m_fX);
-	v.m_fY = Min(v1.m_fY, v2.m_fY);
-	v.m_fZ = Min(v1.m_fZ, v2.m_fZ);
+	v.x = Min(v1.x, v2.x);
+	v.y = Min(v1.y, v2.y);
+	v.z = Min(v1.z, v2.z);
 	return v;
 }
 
 V6_INLINE Vec3 Max(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = Max(v1.m_fX, v2.m_fX);
-	v.m_fY = Max(v1.m_fY, v2.m_fY);
-	v.m_fZ = Max(v1.m_fZ, v2.m_fZ);
+	v.x = Max(v1.x, v2.x);
+	v.y = Max(v1.y, v2.y);
+	v.z = Max(v1.z, v2.z);
 	return v;
 }
 
 V6_INLINE Vec3 operator*(Vec3 const & v1, float f)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX * f;
-	v.m_fY = v1.m_fY * f;
-	v.m_fZ = v1.m_fZ * f;
+	v.x = v1.x * f;
+	v.y = v1.y * f;
+	v.z = v1.z * f;
 	return v;
 }
 
 V6_INLINE Vec3 operator+(Vec3 const & v1, float f)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX + f;
-	v.m_fY = v1.m_fY + f;
-	v.m_fZ = v1.m_fZ + f;
+	v.x = v1.x + f;
+	v.y = v1.y + f;
+	v.z = v1.z + f;
 	return v;
 }
 
 V6_INLINE Vec3 operator-(Vec3 const & v1, float f)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX - f;
-	v.m_fY = v1.m_fY - f;
-	v.m_fZ = v1.m_fZ - f;
+	v.x = v1.x - f;
+	v.y = v1.y - f;
+	v.z = v1.z - f;
 	return v;
 }
 
 V6_INLINE Vec3 operator-(float f, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = f - v2.m_fX;
-	v.m_fY = f - v2.m_fY;
-	v.m_fZ = f - v2.m_fZ;
+	v.x = f - v2.x;
+	v.y = f - v2.y;
+	v.z = f - v2.z;
 	return v;
 }
 
 V6_INLINE Vec3 operator*(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX * v2.m_fX;
-	v.m_fY = v1.m_fY * v2.m_fY;
-	v.m_fZ = v1.m_fZ * v2.m_fZ;
+	v.x = v1.x * v2.x;
+	v.y = v1.y * v2.y;
+	v.z = v1.z * v2.z;
 	return v;
 }
 
 V6_INLINE Vec3 operator+(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX + v2.m_fX;
-	v.m_fY = v1.m_fY + v2.m_fY;
-	v.m_fZ = v1.m_fZ + v2.m_fZ;
+	v.x = v1.x + v2.x;
+	v.y = v1.y + v2.y;
+	v.z = v1.z + v2.z;
 	return v;
 }
 
 V6_INLINE Vec3 operator-(Vec3 const & v1, Vec3 const & v2)
 {
 	Vec3 v;
-	v.m_fX = v1.m_fX - v2.m_fX;
-	v.m_fY = v1.m_fY - v2.m_fY;
-	v.m_fZ = v1.m_fZ - v2.m_fZ;
+	v.x = v1.x - v2.x;
+	v.y = v1.y - v2.y;
+	v.z = v1.z - v2.z;
 	return v;
 }
 

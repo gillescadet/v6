@@ -129,13 +129,14 @@ V6_INLINE void Mat4x4_Scale( Mat4x4* r, float scale )
 	r->m_row3 = Vec4_Make( 0.0, 0.0, 0.0, 1.0 );
 }
 
-V6_INLINE Mat4x4 Mat4x4_Rotation( const Vec3& right, const Vec3& up, const Vec3& forward )
+V6_INLINE Mat4x4 Mat4x4_Rotation( const Vec3& lookAt, const Vec3& up )
 {
+	const Vec3 right = Cross( lookAt, up );
 	Mat4x4 m;
-	m.m_row0 = Vec4_Make( right.x,		right.y,	right.z,	0 );
-	m.m_row1 = Vec4_Make( up.x,			up.y,		up.z,		0 );
-	m.m_row2 = Vec4_Make( -forward.x,	-forward.y,	-forward.z,	0 );
-	m.m_row3 = Vec4_Make( 0,			0,			0,			1 );
+	m.m_row0 = Vec4_Make( right.x, up.x, -lookAt.x, 0 );
+	m.m_row1 = Vec4_Make( right.y, up.y, -lookAt.y, 0 );
+	m.m_row2 = Vec4_Make( right.z, up.z, -lookAt.z, 0 );
+	m.m_row3 = Vec4_Make( 0,       0,     0,        1 );
 
 	return m;
 }
@@ -197,7 +198,7 @@ V6_INLINE Mat4x4 Mat4x4_Projection( float n, float f, float fov, float aspectRat
 	Mat4x4 m;
 	m.m_row0 = Vec4_Make(  w, 0, 0, 0 );
 	m.m_row1 = Vec4_Make(  0, h, 0, 0 );
-#if 1
+#if 0
 	m.m_row2 = Vec4_Make(  0, 0, q, n * q );
 #else
 	// Infinite far

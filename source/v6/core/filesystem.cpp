@@ -1,11 +1,13 @@
 /*V6*/
 
+#pragma warning( push, 3 )
+#include <windows.h>
+#pragma warning( pop )
+
 #include <v6/core/common.h>
 #include <v6/core/filesystem.h>
 
 #include <v6/core/memory.h>
-
-#include <windows.h>
 
 BEGIN_V6_CORE_NAMESPACE
 
