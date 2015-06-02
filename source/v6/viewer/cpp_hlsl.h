@@ -8,7 +8,7 @@
 #define BEGIN_V6_HLSL_NAMESPACE
 #define END_V6_HLSL_NAMESPACE
 
-#define CBUFFER( NAME, SLOT ) cbuffer NAME : register( c##SLOT )
+#define CBUFFER( NAME, SLOT ) cbuffer NAME : register( b##SLOT )
 
 #else
 

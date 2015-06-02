@@ -3,7 +3,7 @@
 #pragma warning( push, 3 )
 #include <windows.h>
 #include <Windowsx.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
 #pragma warning( pop )
 
 #include <v6/viewer/common.h>
@@ -31,9 +31,6 @@ BEGIN_V6_VIEWER_NAMESPACE
 static const float ZNEAR					= 10.0f;
 static const float ZFAR						= 1000.0f;
 static const core::u32 CUBE_SIZE			= 256;
-static const core::u32 GRID_SIZE			= 128;
-
-static_assert( (GRID_SIZE & 7) == 0, "GRID_SIZE should me multiple of 8" );
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 256;
@@ -199,6 +196,7 @@ enum
 {
 	COMPUTE_GRIDCLEAR,
 	COMPUTE_GRIDFILL,
+	COMPUTE_GRIDPACK,
 
 	COMPUTE_COUNT
 };
@@ -207,7 +205,7 @@ enum
 {
 	SHADER_BASIC,
 	SHADER_DEPTH_LINEARISATION,
-	SHADER_GRIDFILL,
+	SHADER_GRID_RENDER,
 
 	SHADER_COUNT
 };
@@ -221,6 +219,7 @@ enum
 	MESH_BOX_GREEN,
 	MESH_VIRTUAL_TRIANGLE,
 	MESH_CUBE,
+	MESH_GRID,
 
 	MESH_COUNT
 };
@@ -242,6 +241,16 @@ enum CubeAxis_e
 	CUBE_AXIS_NEGATIVE_Z,
 
 	CUBE_AXIS_COUNT
+};
+
+enum
+{
+	GRID_BUFFER_BLOCK_COLOR,
+	GRID_BUFFER_BLOCK_ID,
+	GRID_BUFFER_BLOCK_INDIRECT_ARGS,
+	GRID_BUFFER_BLOCK_PACKED_COLOR,
+
+	GRID_BUFFER_COUNT
 };
 
 struct BasicVertex_s
@@ -318,12 +327,10 @@ struct Cube_s
 };
 
 struct Grid_s
-{
-	ID3D11Texture3D* colorBuffer;
-	ID3D11ShaderResourceView* colorSRV;
-	ID3D11UnorderedAccessView* colorUAV;
-	
-	core::u32 size;
+{	
+	ID3D11Buffer* buffers[GRID_BUFFER_COUNT];
+	ID3D11ShaderResourceView* srvs[GRID_BUFFER_COUNT];
+	ID3D11UnorderedAccessView* uavs[GRID_BUFFER_COUNT];	
 };
 
 static void Cube_GetLookAt( core::Vec3& lookAt, core::Vec3& up, CubeAxis_e axis )
@@ -658,52 +665,153 @@ static void Cube_Release( Cube_s* cube )
 	}
 }
 
-static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 size )
+static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShift )
 {
+	const core::u32 width = 1 << macroShift;
+	const core::u32 blockCount = width * width * width;
+
+	// RWStructuredBuffer< GridBlockColor >
+
 	{
-		D3D11_TEXTURE3D_DESC texDesc = {};
-		texDesc.Width = size;
-		texDesc.Height = size;
-		texDesc.Depth = size;
-		texDesc.MipLevels = 1;
-		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-		texDesc.CPUAccessFlags = 0;
-		texDesc.MiscFlags = 0;
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = blockCount * sizeof( hlsl::GridBlockColor );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = sizeof( hlsl::GridBlockColor );
 		
-		V6_ASSERT_D3D11( device->CreateTexture3D( &texDesc, nullptr, &grid->colorBuffer ) );
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &grid->buffers[GRID_BUFFER_BLOCK_COLOR] ) );
 	}
 
 	{
-		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
-		viewDesc.Texture3D.MipLevels = 1;
-		viewDesc.Texture3D.MostDetailedMip = 0;
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = blockCount;
 
-		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->colorBuffer, &viewDesc, &grid->colorSRV ) );
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_COLOR], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_COLOR] ) );
 	}
 
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-		uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
-		uavDesc.Texture3D.MipSlice = 0;
-		uavDesc.Texture3D.FirstWSlice = 0;
-		uavDesc.Texture3D.WSize = size;
+		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.Flags = 0;
 
-		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->colorBuffer, &uavDesc, &grid->colorUAV ) );
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_COLOR], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_COLOR] ) );
 	}
 
-	grid->size = size;
+	// RWStructuredBuffer< uint > with counter
+
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = blockCount * sizeof( uint );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = sizeof( uint );
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &grid->buffers[GRID_BUFFER_BLOCK_ID] ) );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = blockCount;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_ID], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_ID] ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_COUNTER;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_ID], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_ID] ) );
+	}
+
+	// RWStructuredBuffer< GridIndirectArgs > only one element
+
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = sizeof( hlsl::GridIndirectArgs );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = sizeof( hlsl::GridIndirectArgs );
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &grid->buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS] ) );
+	}
+
+	grid->srvs[GRID_BUFFER_BLOCK_INDIRECT_ARGS] = nullptr;
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = 1;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_INDIRECT_ARGS] ) );
+	}
+
+	// RWStructuredBuffer< GridBlockPackedColor >
+
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = blockCount * sizeof( hlsl::GridBlockPackedColor );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = sizeof( hlsl::GridBlockPackedColor );
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &grid->buffers[GRID_BUFFER_BLOCK_PACKED_COLOR] ) );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = blockCount;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_PACKED_COLOR], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_PACKED_COLOR] ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_PACKED_COLOR], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_PACKED_COLOR] ) );
+	}
 }
 
 static void Grid_Release( Grid_s* grid )
 {
-	grid->colorBuffer->Release();
-	grid->colorSRV->Release();
-	grid->colorUAV->Release();
+	for ( core::u32 bufferID = 0; bufferID < GRID_BUFFER_COUNT; ++bufferID )
+	{
+		grid->buffers[bufferID]->Release();
+		if ( bufferID != GRID_BUFFER_BLOCK_INDIRECT_ARGS)
+			grid->srvs[bufferID]->Release();
+		grid->uavs[bufferID]->Release();
+	}
 }
 
 static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -860,6 +968,31 @@ static void Mesh_CreateCube( ID3D11Device* device, Mesh_s* mesh )
 	Mesh_Create( device, mesh, vertices, 24, sizeof( CubeVertex_s ), VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F3, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 }
 
+static void Mesh_CreateGrid( ID3D11Device* device, Mesh_s* mesh )
+{
+#if 0
+	const core::u16 indices[6] = { 0, 1, 2, 2, 1, 3 };
+
+	Mesh_Create( device, mesh, nullptr, 4, 0, 0, indices, 6, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+#else
+	const core::u16 indices[36] = { 
+			0, 2, 3,
+			0, 3, 1,
+			1, 3, 7, 
+			1, 7, 5, 
+			5, 7, 6,
+			5, 6, 4,
+			4, 6, 2,
+			4, 2, 0, 
+			2, 6, 7, 
+			2, 7, 3,
+			1, 5, 4,
+			1, 4, 0 };
+
+	Mesh_Create( device, mesh, nullptr, 4, 0, 0, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+#endif	
+}
+
 void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderID, const core::Vec3& pos, float scale )
 {
 	entity->meshID = meshID;
@@ -873,9 +1006,10 @@ void PostProcess_Create( PostProcess_s* postProcess, core::u32 shaderID )
 	postProcess->shaderID = shaderID;
 }
 
-void Mesh_Draw( Mesh_s* mesh, Shader_s* shader, ID3D11DeviceContext* ctx )
+void Mesh_Draw( Mesh_s* mesh, core::u32 instanceCount, Shader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs )
 {
 	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
+	V6_ASSERT( instanceCount > 0 );
 
 	ctx->IASetInputLayout( shader->m_inputLayout );
 	ctx->VSSetShader( shader->m_vertexShader, nullptr, 0 );
@@ -901,7 +1035,12 @@ void Mesh_Draw( Mesh_s* mesh, Shader_s* shader, ID3D11DeviceContext* ctx )
 			V6_ASSERT( !"Not supported");
 		}
 
-		ctx->DrawIndexed( mesh->m_indexCount, 0, 0 );
+		if ( bufferArgs )
+			ctx->DrawIndexedInstancedIndirect( bufferArgs, 0 );
+		else if ( instanceCount == 1 )
+			ctx->DrawIndexed( mesh->m_indexCount, 0, 0 );
+		else
+			ctx->DrawIndexedInstanced( mesh->m_indexCount, instanceCount, 0, 0, 0 );
 	}
 	else
 	{
@@ -909,7 +1048,12 @@ void Mesh_Draw( Mesh_s* mesh, Shader_s* shader, ID3D11DeviceContext* ctx )
 		ctx->IASetIndexBuffer( nullptr, DXGI_FORMAT_R16_UINT, 0 );
 
 		V6_ASSERT( mesh->m_vertexCount > 0 );
-		ctx->Draw( mesh->m_vertexCount, 0 );
+		if ( bufferArgs )
+			ctx->DrawInstancedIndirect( bufferArgs, 0 );
+		else if ( instanceCount == 1 )
+			ctx->Draw( mesh->m_vertexCount, 0 );
+		else
+			ctx->DrawInstanced( mesh->m_vertexCount, instanceCount, 0, 0 );
 	}
 }
 
@@ -934,6 +1078,7 @@ public:
 	ID3D11Device* m_device;
 	D3D_FEATURE_LEVEL m_nFeatureLevel;
 	ID3D11DeviceContext* m_ctx;
+	ID3DUserDefinedAnnotation* m_userDefinedAnnotation;
 	ID3D11Texture2D* m_pColorBuffer;
 	ID3D11Texture2D* m_pColorBufferStaging;
 	ID3D11Texture2D* m_pDepthStencilBuffer;
@@ -1051,6 +1196,8 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 			&m_nFeatureLevel,
 			&m_ctx) );
 	}
+
+	V6_ASSERT_D3D11( m_ctx->QueryInterface( IID_PPV_ARGS( &m_userDefinedAnnotation ) ) );
 
 	V6_ASSERT_D3D11( m_pSwapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&m_pColorBuffer ) );
 	
@@ -1227,10 +1374,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDCLEAR], "grid_clear_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDFILL], "grid_fill_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_GRIDPACK], "grid_pack_cs.cso", fileSystem, stack );
 		
 	Shader_Create( m_device, &m_shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( m_device, &m_shaders[SHADER_DEPTH_LINEARISATION], "fullscreen_triangle_vs.cso", "fullscreen_depth_linearisation_ps.cso", 0, fileSystem, stack );
-	Shader_Create( m_device, &m_shaders[SHADER_GRIDFILL], "cube_vs.cso", "cube_ps.cso", VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F3, fileSystem, stack );
+	Shader_Create( m_device, &m_shaders[SHADER_GRID_RENDER], "grid_render_vs.cso", "grid_render_ps.cso", 0, fileSystem, stack );
 
 	Mesh_CreateTriangle( m_device, &m_meshes[MESH_TRIANGLE] );	
 	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_WIREFRAME], core::Color_Make( 255, 255, 255, 255 ), true );
@@ -1239,6 +1387,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
 	Mesh_CreateVirtualTriangle( m_device, &m_meshes[MESH_VIRTUAL_TRIANGLE] );
 	Mesh_CreateCube( m_device, &m_meshes[MESH_CUBE] );
+	Mesh_CreateGrid( m_device, &m_meshes[MESH_GRID] );
 	
 	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f), 500.0f );
 	Entity_Create( &m_entities[m_entityCount++], MESH_TRIANGLE, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, -500.0f), 5.0f );
@@ -1256,7 +1405,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	PostProcess_Create( &m_postProcesses[POST_PROCESS_DEPTH_LINEARISATION], SHADER_DEPTH_LINEARISATION );
 	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
-	Grid_Create( m_device, &m_grid, GRID_SIZE );
+	Grid_Create( m_device, &m_grid, HLSL_GRID_MACRO_SHIFT );
 	
 	m_width = nWidth;
 	m_height = nHeight;
@@ -1297,7 +1446,7 @@ void CRenderingDevice::DrawEntities( Entity_s* entities, core::u32 count, const 
 		
 		Mesh_s* mesh = &m_meshes[entity->meshID];
 		Shader_s* shader = &m_shaders[entity->shaderID];
-		Mesh_Draw( mesh, shader, m_ctx );		
+		Mesh_Draw( mesh, 1, shader, m_ctx, nullptr );
 	}
 }
 
@@ -1392,17 +1541,17 @@ void CRenderingDevice::Draw( float dt )
 	{
 		headOffsetX += keyDeltaX * KEY_TRANSLATION_SPEED * dt;
 	}
-	else if ( fabs( headOffsetX - 0.0f ) > 0.001f )
+	else if ( fabs( headOffsetX ) > 0.001f )
 	{
-		headOffsetX += (headOffsetX > 0 ? -1 : 1) * KEY_TRANSLATION_SPEED * dt;
+		headOffsetX += -headOffsetX * core::Min( 0.5f, KEY_TRANSLATION_SPEED * dt );
 	}
 	if ( keyDeltaZ )
 	{
 		headOffsetZ += -keyDeltaZ * KEY_TRANSLATION_SPEED * dt;
 	}
-	else if ( fabs( headOffsetZ - 0.0f ) > 0.001f )
+	else if ( fabs( headOffsetZ ) > 0.001f )
 	{
-		headOffsetZ += (headOffsetZ > 0 ? -1 : 1) * KEY_TRANSLATION_SPEED * dt;
+		headOffsetZ += -headOffsetZ * core::Min( 0.5f, KEY_TRANSLATION_SPEED * dt );
 	}
 
 	const core::Vec3 headOffset = core::Vec3_Make( headOffsetX, 0.0, headOffsetZ );
@@ -1416,6 +1565,8 @@ void CRenderingDevice::Draw( float dt )
 
 	if ( g_drawCube )
 	{
+		m_userDefinedAnnotation->BeginEvent( L"Draw Cube Map");
+		
 		// Rasterization state
 		m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
 		m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
@@ -1435,6 +1586,8 @@ void CRenderingDevice::Draw( float dt )
 
 		for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 		{
+			m_userDefinedAnnotation->BeginEvent( L"Draw Face");
+
 			// RT
 			m_ctx->OMSetRenderTargets( 1, &m_cube.colorRTVs[faceID], m_cube.depthRTVs[faceID] );
 
@@ -1445,7 +1598,7 @@ void CRenderingDevice::Draw( float dt )
 
 			// View
 			RenderingView_s view;
-			Cube_MakeViewMatrix( &view.viewMatrix, headOffset, (CubeAxis_e)faceID );
+			Cube_MakeViewMatrix( &view.viewMatrix, core::Vec3_Make( 0.0f, 0.0f, 0.0f ), (CubeAxis_e)faceID );
 			view.projMatrix = m_cubeProjMatrix;
 			view.frameWidth = m_cube.size;	
 			view.frameHeight = m_cube.size;
@@ -1454,15 +1607,39 @@ void CRenderingDevice::Draw( float dt )
 
 			// un RT
 			m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
+			
+			m_userDefinedAnnotation->EndEvent();
 		}
 
-		// Clear
-		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDCOLOR_SLOT, 1, &m_grid.colorUAV, nullptr );
-		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDCLEAR].m_computeShader, nullptr, 0 );
-		const core::u32 gridGroupCount = m_grid.size >> 3;
-		m_ctx->Dispatch( gridGroupCount, gridGroupCount, gridGroupCount);
+		m_userDefinedAnnotation->EndEvent();
 
-		// Fill
+		static const void* nulls[8] = {};
+
+		// Clear
+		m_userDefinedAnnotation->BeginEvent( L"Clear");
+		
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_COLOR_SLOT, 3, m_grid.uavs, (core::u32*)nulls );
+		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDCLEAR].m_computeShader, nullptr, 0 );
+		const core::u32 clearBlockGroupCount = HLSL_GRID_BLOCK_COUNT / HLSL_GRID_CLEAR_GROUP_SIZE;
+		m_ctx->Dispatch( clearBlockGroupCount, 1, 1 );
+
+		m_userDefinedAnnotation->EndEvent();
+
+		// Update constant buffers
+
+		{
+			D3D11_MAPPED_SUBRESOURCE res;
+			V6_ASSERT_D3D11( m_ctx->Map( m_viewCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+			v6::hlsl::CBView* cbView = (v6::hlsl::CBView*)res.pData;
+
+			cbView->objectToView = viewMatrix;
+			cbView->viewToProj = m_projMatrix;
+
+			m_ctx->Unmap( m_viewCBUF, 0 );
+		
+		}
+
 		{
 			D3D11_MAPPED_SUBRESOURCE res;
 			V6_ASSERT_D3D11( m_ctx->Map( m_gridCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
@@ -1472,27 +1649,94 @@ void CRenderingDevice::Draw( float dt )
 			cbGrid->depthLinearScale = -1.0f / ZNEAR;
 			cbGrid->depthLinearBias = 1.0f / ZNEAR;
 			cbGrid->invFrameSize = 1.0f / m_cube.size;
-			cbGrid->halfGridSize = m_grid.size * 0.5f;
+			cbGrid->gridScale = 500.f;
 			cbGrid->invGridScale = 1.0f / 500.0f;
 
 			m_ctx->Unmap( m_gridCBUF, 0 );
 		}
+
+		// Fill
+
+		m_userDefinedAnnotation->BeginEvent( L"Fill");
 		
 		m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
 		m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
+		m_ctx->CSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF );
 		m_ctx->CSSetConstantBuffers( v6::hlsl::CBGridSlot, 1, &m_gridCBUF );
 		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDFILL].m_computeShader, nullptr, 0 );
 		const core::u32 cubeGroupCount = m_cube.size >> 4;
 		m_ctx->Dispatch( cubeGroupCount, cubeGroupCount, CUBE_AXIS_COUNT );
 
-		// Unset
-		static const void* nulls[8] = {};
+		// Unset		
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_COLOR_SLOT, 2, (ID3D11UnorderedAccessView**)nulls, nullptr );
 		m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 		m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	}
+		
+		m_userDefinedAnnotation->EndEvent();
 
-	DrawWorld( &viewMatrix );
+		// Pack
+
+		m_userDefinedAnnotation->BeginEvent( L"Pack");
+		
+		m_ctx->CSSetShaderResources( HLSL_GRIDBLOCK_COLOR_SLOT, 2, m_grid.srvs );
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_PACKEDCOLOR_SLOT, 1, &m_grid.uavs[GRID_BUFFER_BLOCK_PACKED_COLOR], nullptr );
+		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDPACK].m_computeShader, nullptr, 0 );
+		const core::u32 packBlockGroupCount = HLSL_GRID_BLOCK_COUNT / HLSL_GRID_PACK_GROUP_SIZE;
+		m_ctx->Dispatch( packBlockGroupCount, 1, 1 );
+
+		// Unset
+		m_ctx->CSSetShaderResources( HLSL_GRIDBLOCK_COLOR_SLOT, 2, (ID3D11ShaderResourceView**)nulls );
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_INDIRECT_ARGS_SLOT, 2, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+		m_userDefinedAnnotation->EndEvent();
+
+		m_userDefinedAnnotation->BeginEvent( L"Render");
+
+		// Rasterization state
+		m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+		m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
+		
+		// Viewport
+		{
+			D3D11_VIEWPORT viewport = {};
+			viewport.TopLeftX = 0;
+			viewport.TopLeftY = 0;
+			viewport.Width = (float)m_width;
+			viewport.Height = (float)m_height;
+			viewport.MinDepth = 0.0f;
+			viewport.MaxDepth = 1.0f;
+
+			m_ctx->RSSetViewports( 1, &viewport );
+		}
+	
+		// RT
+		m_ctx->OMSetRenderTargets( 1, &m_pColorView, m_pDepthStencilView );
+
+		// Render
+		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		m_ctx->ClearRenderTargetView( m_pColorView, pRGBA );
+		m_ctx->ClearDepthStencilView( m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+		
+		m_ctx->VSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF );
+		m_ctx->VSSetConstantBuffers( v6::hlsl::CBGridSlot, 1, &m_gridCBUF );
+
+		m_ctx->VSSetShaderResources( HLSL_GRIDBLOCK_PACKEDCOLOR_SLOT, 1, &m_grid.srvs[GRID_BUFFER_BLOCK_PACKED_COLOR] );
+
+		//Mesh_Draw( &m_meshes[MESH_GRID], -1, &m_shaders[SHADER_GRID_RENDER], m_ctx, m_grid.buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS] );
+		Mesh_Draw( &m_meshes[MESH_GRID], 23936, &m_shaders[SHADER_GRID_RENDER], m_ctx, nullptr );
+
+		// unset
+		m_ctx->VSSetShaderResources( HLSL_GRIDBLOCK_PACKEDCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+
+		// un RT
+		m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
+
+		m_userDefinedAnnotation->EndEvent();
+	}
+	else
+	{
+		DrawWorld( &viewMatrix );
+	}
 
 #if USE_PP
 
@@ -1526,7 +1770,7 @@ void CRenderingDevice::Draw( float dt )
 		
 		Shader_s* shader = &m_shaders[pp->shaderID];		
 
-		Mesh_Draw( &m_meshes[MESH_VIRTUAL_TRIANGLE], shader, m_ctx );
+		Mesh_Draw( &m_meshes[MESH_VIRTUAL_TRIANGLE], 1, shader, m_ctx );
 
 		PostProcessDone( ppID );
 	}
