@@ -7,10 +7,10 @@
 
 #include "common_shared.h"
 
-StructuredBuffer< GridBlockColor > gridBlockColors : register( HLSL_GRIDBLOCK_COLOR_SRV );
-StructuredBuffer< uint > gridBlockAssignedIDs : register( HLSL_GRIDBLOCK_ASSIGNED_ID_SRV );
+StructuredBuffer< GridBlockColor > gridBlockColors					: register( HLSL_GRIDBLOCK_COLOR_SRV );
+Buffer< uint > gridBlockPositions									: register( HLSL_GRIDBLOCK_POS_SRV );
 
-RWStructuredBuffer< GridIndirectArgs > gridIndirectArgs		: register( HLSL_GRIDBLOCK_INDIRECT_ARGS_UAV );
-RWStructuredBuffer< GridBlockPackedColor > gridBlockPackedColors : register( HLSL_GRIDBLOCK_PACKEDCOLOR_UAV );
+RWBuffer< uint > gridIndirectArgs									: register( HLSL_GRIDBLOCK_INDIRECT_ARGS_UAV );
+RWStructuredBuffer< GridBlockPackedColor > gridBlockPackedColors	: register( HLSL_GRIDBLOCK_PACKEDCOLOR_UAV );
 
 #endif // __V6_HLSL_GRID_PACK_H__

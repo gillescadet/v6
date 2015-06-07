@@ -25,6 +25,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 {		
 	const int4 coords = int4( DTid.x, DTid.y, DTid.z, 0 );
 	const float3 cubeColor = colors.Load( coords ).rgb;
+	// todo: check if rcp is not too coarse
 	const float cubeDepth = rcp( mad ( depths.Load( coords ), depthLinearScale, depthLinearBias ) );	
 
 	const float3 lookAt = lookAts[DTid.z];
@@ -40,22 +41,24 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const int3 gridBlockCoords = gridCoords >> HLSL_GRID_BLOCK_SHIFT;
 		const int gridBlockPos = (gridBlockCoords.z << HLSL_GRID_MACRO_2XSHIFT) | (gridBlockCoords.y << HLSL_GRID_MACRO_SHIFT) | gridBlockCoords.x;
 
-		uint blockID = gridBlockAssignedIDs[gridBlockPos];
-		if ( blockID == HLSL_GRID_BLOCK_INVALID )
-		{
-			blockID = gridBlockAssignedIDs.IncrementCounter()-1;
-			uint prevBlockID;
-			InterlockedCompareExchange( gridBlockAssignedIDs[gridBlockPos], HLSL_GRID_BLOCK_INVALID, blockID, prevBlockID );
-			if ( prevBlockID != HLSL_GRID_BLOCK_INVALID )
-				blockID = prevBlockID;
-		}
-
 		const int3 gridCellCoords = gridCoords & HLSL_GRID_BLOCK_MASK;
-		const int cellPos = (gridCellCoords.z << HLSL_GRID_BLOCK_2XSHIFT) | (gridCellCoords.y << HLSL_GRID_BLOCK_SHIFT) | gridBlockCoords.x;
+		const int cellPos = (gridCellCoords.z << HLSL_GRID_BLOCK_2XSHIFT) | (gridCellCoords.y << HLSL_GRID_BLOCK_SHIFT) | gridCellCoords.x;
 
-		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].r, uint( cubeColor.r * 255.0 ) );
-		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, uint( cubeColor.g * 255.0 ) );
-		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, uint( cubeColor.b * 255.0 ) );
-		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].a, 1 );
+		uint preInc;
+		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].r, uint( cubeColor.r * 255.0 ) );
+		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].g, uint( cubeColor.g * 255.0 ) );
+		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].b, uint( cubeColor.b * 255.0 ) );
+		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].a, 1, preInc );
+
+		if ( preInc == 0 )
+		{
+			uint blockID;
+			InterlockedAdd( gridIndirectArgs_blockCount, 1, blockID );
+
+			const uint blockCount = blockID+1;
+			InterlockedMax( gridIndirectArgs_threadGroupCountX, (blockCount + HLSL_GRID_PACK_GROUP_SIZE - 1) / HLSL_GRID_PACK_GROUP_SIZE );		
+			
+			gridBlockPositions[blockID] = gridBlockPos;
+		}
 	}
 }

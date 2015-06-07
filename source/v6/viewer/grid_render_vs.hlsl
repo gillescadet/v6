@@ -4,13 +4,13 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 {
 	PixelInput o;
 
-	const uint gridBlockID = instanceID >> HLSL_GRID_BLOCK_3XSHIFT;
+	const uint blockID = instanceID >> HLSL_GRID_BLOCK_3XSHIFT;
 	const uint cellPos = instanceID & HLSL_GRID_BLOCK_CELL_POS_MASK;
 		
-	const GridPackedColor packedColor = gridBlockPackedColors[gridBlockID].colors[cellPos];
+	const uint packedColor = gridBlockPackedColors[blockID].colors[cellPos];
 
 	[branch]
-	if ( (packedColor.rgba & 0xFF) == 0 )
+	if ( (packedColor & 0xFF) == 0 )
 	{
 		o.color = (float3)0;
 		o.position = float4( -2.0, -2.0, -2.0, 1.0 );
@@ -18,14 +18,12 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	}
 		
 	const float normalizationRatio = 1.0 / 255.0;
-	o.color = float3( (packedColor.rgba >> 24) & 0xFF, (packedColor.rgba >> 16) & 0xFF, (packedColor.rgba >> 8) & 0xFF ) * normalizationRatio;
+	o.color = float3( (packedColor >> 24) & 0xFF, (packedColor >> 16) & 0xFF, (packedColor >> 8) & 0xFF ) * normalizationRatio;
 
-	uint gridPosBits = (gridBlockPackedColors[gridBlockID].blockPos << HLSL_GRID_BLOCK_3XSHIFT) | cellPos;
-	const int x = gridPosBits & HLSL_GRID_MASK;
-	gridPosBits >>= HLSL_GRID_SHIFT;
-	const uint y = gridPosBits & HLSL_GRID_MASK;
-	gridPosBits >>= HLSL_GRID_SHIFT;
-	const int z = gridPosBits;
+	const uint blockPos = gridBlockPositions[blockID];
+	const int x = (((blockPos >> 0						) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
+	const int y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);
+	const int z = (((blockPos >> HLSL_GRID_MACRO_2XSHIFT) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_2XSHIFT	) & HLSL_GRID_BLOCK_MASK);
 
 	const int4 gridCoords = int4( x, y, z, 0 );	
 
