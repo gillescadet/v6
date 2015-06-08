@@ -1,6 +1,6 @@
 #include "grid_pack.h"
 
-[numthreads( HLSL_GRID_PACK_GROUP_SIZE, 1, 1 )]
+[numthreads( HLSL_GRID_THREAD_GROUP_SIZE, 1, 1 )]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint blockID = DTid.x;
@@ -8,17 +8,16 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	
 	if ( blockID < blockCount )
 	{
+		const GridBlockColor blockColor = gridBlockColors[blockID];
+		
 		GridBlockPackedColor packedColor;
 
-		const uint gridBlockPos = gridBlockPositions[blockID];
-		const GridBlockColor blockColor = gridBlockColors[gridBlockPos];
-		
 		[unroll]
 		for ( uint cellID = 0; cellID < HLSL_GRID_BLOCK_CELL_COUNT; ++cellID )
 		{
 			const uint4 gridColor = blockColor.colors[cellID];
 			const float invCount = 1.0 / min( 1, gridColor.a );
-			const float3 color = float3( gridColor.r, gridColor.g, gridColor.b ) * invCount;
+			const float3 color = min( float3( gridColor.r, gridColor.g, gridColor.b ) * invCount, 255.0 );
 						
 			packedColor.colors[cellID] = uint( color.r ) << 24 | uint( color.g ) << 16 | uint( color.b ) << 8 | (gridColor.a > 0 ? 255 : 0);
 		}

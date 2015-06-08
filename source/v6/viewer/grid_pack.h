@@ -8,7 +8,6 @@
 #include "common_shared.h"
 
 StructuredBuffer< GridBlockColor > gridBlockColors					: register( HLSL_GRIDBLOCK_COLOR_SRV );
-Buffer< uint > gridBlockPositions									: register( HLSL_GRIDBLOCK_POS_SRV );
 
 RWBuffer< uint > gridIndirectArgs									: register( HLSL_GRIDBLOCK_INDIRECT_ARGS_UAV );
 RWStructuredBuffer< GridBlockPackedColor > gridBlockPackedColors	: register( HLSL_GRIDBLOCK_PACKEDCOLOR_UAV );

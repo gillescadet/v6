@@ -9,7 +9,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 		
 	const uint packedColor = gridBlockPackedColors[blockID].colors[cellPos];
 
-	[branch]
+	// Discard empty cell
 	if ( (packedColor & 0xFF) == 0 )
 	{
 		o.color = (float3)0;

@@ -30,7 +30,8 @@ BEGIN_V6_VIEWER_NAMESPACE
 
 static const float ZNEAR					= 10.0f;
 static const float ZFAR						= 1000.0f;
-static const core::u32 CUBE_SIZE			= 256;
+static const core::u32 CUBE_SIZE			= 1024;
+static const float GRID_SCALE				= 500.0f;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 256;
@@ -45,7 +46,7 @@ static int g_keyDownPressed = false;
 
 static int g_frameLimitation = true;
 
-static int g_drawCube = false;
+static int g_drawCube = true;
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -73,7 +74,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'S': g_keyDownPressed = pressed; break;
 			case 'W': g_keyUpPressed = pressed; break;
 			case 'F': g_frameLimitation = !pressed; break;
-			case 'C': g_drawCube = pressed; break;
+			case 'C': g_drawCube = !pressed; break;
 			}
 		}
 		break;
@@ -245,6 +246,7 @@ enum CubeAxis_e
 
 enum
 {
+	GRID_BUFFER_BLOCK_ID,
 	GRID_BUFFER_BLOCK_COLOR,
 	GRID_BUFFER_BLOCK_POS,
 	GRID_BUFFER_BLOCK_INDIRECT_ARGS,
@@ -667,16 +669,52 @@ static void Cube_Release( Cube_s* cube )
 	}
 }
 
-static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShift )
+static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShift, core::IHeap* heap )
 {
 	const core::u32 width = 1 << macroShift;
-	const core::u32 blockCount = width * width * width;
+	const core::u32 realBlockCount = width * width * width;
+	const core::u32 estimatedBlockCount = width * width * 6 * 2; // 2 layers of full panorama ( 6 cube faces )
 
-	// RWStructuredBuffer< GridBlockColor >
+	// RWBuffer< uint > gridBlockIDs
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = blockCount * sizeof( hlsl::GridBlockColor );
+		bufferDesc.ByteWidth = realBlockCount * sizeof( uint );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = 0;
+		bufferDesc.StructureByteStride = 0;
+		
+		void* ids = heap->alloc( bufferDesc.ByteWidth );
+		memset( ids, 0xFF, bufferDesc.ByteWidth );
+
+		D3D11_SUBRESOURCE_DATA subRes = {}; 
+		subRes.pSysMem = ids;
+
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, &subRes, &grid->buffers[GRID_BUFFER_BLOCK_ID] ) );
+
+		heap->free( ids );
+	}
+
+	grid->srvs[GRID_BUFFER_BLOCK_ID] = nullptr;
+	
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_R32_UINT;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = realBlockCount;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_ID], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_ID] ) );
+	}
+
+	// RWStructuredBuffer< GridBlockColor > gridBlockColors
+
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = estimatedBlockCount * sizeof( hlsl::GridBlockColor );
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -691,7 +729,7 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = blockCount;
+        srvDesc.Buffer.NumElements = estimatedBlockCount;
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_COLOR], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_COLOR] ) );
 	}
@@ -701,17 +739,17 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.NumElements = estimatedBlockCount;
 		uavDesc.Buffer.Flags = 0;
 
 		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_COLOR], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_COLOR] ) );
 	}
 
-	// RWBuffer< uint >
+	// RWBuffer< uint > gridBlockPositions
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = blockCount * sizeof( uint );
+		bufferDesc.ByteWidth = estimatedBlockCount * sizeof( uint );
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -726,7 +764,7 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		srvDesc.Format = DXGI_FORMAT_R32_UINT;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = blockCount;
+        srvDesc.Buffer.NumElements = estimatedBlockCount;
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_POS], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_POS] ) );
 	}
@@ -736,13 +774,13 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		uavDesc.Format = DXGI_FORMAT_R32_UINT;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.NumElements = estimatedBlockCount;
 		uavDesc.Buffer.Flags = 0;
 
 		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_POS], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_POS] ) );
 	}
 
-	// RWStructuredBuffer< GridIndirectArgs > only one element
+	// RWStructuredBuffer< GridIndirectArgs > gridIndirectArgs
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
@@ -768,7 +806,7 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = sizeof( hlsl::GridIndirectArgs );
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
-		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
 		bufferDesc.StructureByteStride = 0;
@@ -776,7 +814,15 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &grid->buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS] ) );
 	}
 	
-	grid->srvs[GRID_BUFFER_BLOCK_INDIRECT_ARGS] = nullptr;
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_R32_UINT;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = sizeof( hlsl::GridIndirectArgs ) / sizeof( core::u32 );
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_INDIRECT_ARGS] ) );
+	}
 
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
@@ -789,11 +835,11 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_INDIRECT_ARGS] ) );
 	}
 
-	// RWStructuredBuffer< GridBlockPackedColor >
+	// RWStructuredBuffer< GridBlockPackedColor > gridBlockPackedColors
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = blockCount * sizeof( hlsl::GridBlockPackedColor );
+		bufferDesc.ByteWidth = estimatedBlockCount * sizeof( hlsl::GridBlockPackedColor );
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -808,7 +854,7 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = blockCount;
+        srvDesc.Buffer.NumElements = estimatedBlockCount;
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( grid->buffers[GRID_BUFFER_BLOCK_PACKED_COLOR], &srvDesc, &grid->srvs[GRID_BUFFER_BLOCK_PACKED_COLOR] ) );
 	}
@@ -818,7 +864,7 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = blockCount;
+		uavDesc.Buffer.NumElements = estimatedBlockCount;
 		uavDesc.Buffer.Flags = 0;
 
 		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( grid->buffers[GRID_BUFFER_BLOCK_PACKED_COLOR], &uavDesc, &grid->uavs[GRID_BUFFER_BLOCK_PACKED_COLOR] ) );
@@ -830,10 +876,10 @@ static void Grid_Release( Grid_s* grid )
 	for ( core::u32 bufferID = 0; bufferID < GRID_BUFFER_COUNT; ++bufferID )
 	{
 		grid->buffers[bufferID]->Release();
-		if ( bufferID != GRID_BUFFER_BLOCK_INDIRECT_ARGS && bufferID != GRID_BUFFER_BLOCK_INDIRECT_ARGS_INIT )
+		if ( grid->srvs[bufferID] )
 			grid->srvs[bufferID]->Release();
-		if ( bufferID != GRID_BUFFER_BLOCK_INDIRECT_ARGS_INIT )
-		grid->uavs[bufferID]->Release();
+		if ( grid->uavs[bufferID] )
+			grid->uavs[bufferID]->Release();
 	}
 }
 
@@ -1424,13 +1470,13 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 10.0f, -300.0f, -300.0f), 50.0f );
 	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_GREEN, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
 	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( -120.0f, -150.0f, -50.0f), 80.0f );
-	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
-	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 300.0f, 0.0f, 400.0f), 120.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_BLUE, SHADER_BASIC, core::Vec3_Make( 450.0f, 0.0f, 450.0f ), 50.0f );
+	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 450.0f, 0.0f, 450.0f ), 50.0f );
 	
 	PostProcess_Create( &m_postProcesses[POST_PROCESS_DEPTH_LINEARISATION], SHADER_DEPTH_LINEARISATION );
 	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
-	Grid_Create( m_device, &m_grid, HLSL_GRID_MACRO_SHIFT );
+	Grid_Create( m_device, &m_grid, HLSL_GRID_MACRO_SHIFT, heap );
 	
 	m_width = nWidth;
 	m_height = nHeight;
@@ -1644,11 +1690,14 @@ void CRenderingDevice::Draw( float dt )
 
 		m_userDefinedAnnotation->BeginEvent( L"Clear");
 
-		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_COLOR_SLOT, 1, &m_grid.uavs[GRID_BUFFER_BLOCK_COLOR], (core::u32*)nulls );
+		m_ctx->CSSetShaderResources( HLSL_GRIDBLOCK_POS_SLOT, 2, &m_grid.srvs[GRID_BUFFER_BLOCK_POS] );
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_ID_SLOT, 2, &m_grid.uavs[GRID_BUFFER_BLOCK_ID], (core::u32*)nulls );
 		m_ctx->CSSetShader( m_computes[COMPUTE_GRIDCLEAR].m_computeShader, nullptr, 0 );
 
-		const core::u32 clearGroupCount = HLSL_GRID_BLOCK_COUNT / HLSL_GRID_CLEAR_GROUP_SIZE;
-		m_ctx->Dispatch( clearGroupCount, 1, 1 );
+		m_ctx->DispatchIndirect( m_grid.buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS], offsetof( v6::hlsl::GridIndirectArgs, threadGroupCountX ) );
+
+		// Unset		
+		m_ctx->CSSetShaderResources( HLSL_GRIDBLOCK_POS_SLOT, 2, (ID3D11ShaderResourceView**)nulls );		
 
 		m_userDefinedAnnotation->EndEvent();
 
@@ -1682,8 +1731,8 @@ void CRenderingDevice::Draw( float dt )
 			cbGrid->depthLinearScale = -1.0f / ZNEAR;
 			cbGrid->depthLinearBias = 1.0f / ZNEAR;
 			cbGrid->invFrameSize = 1.0f / m_cube.size;
-			cbGrid->gridScale = 500.f;
-			cbGrid->invGridScale = 1.0f / 500.0f;
+			cbGrid->gridScale = GRID_SCALE;
+			cbGrid->invGridScale = 1.0f / GRID_SCALE;
 
 			m_ctx->Unmap( m_gridCBUF, 0 );
 		}
@@ -1701,7 +1750,7 @@ void CRenderingDevice::Draw( float dt )
 		// Unset		
 		m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 		m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_COLOR_SLOT, 2, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		m_ctx->CSSetUnorderedAccessViews( HLSL_GRIDBLOCK_ID_SLOT, 3, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 		m_userDefinedAnnotation->EndEvent();
 

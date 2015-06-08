@@ -1,8 +1,17 @@
 #include "grid_clear.h"
 
-[numthreads( HLSL_GRID_CLEAR_GROUP_SIZE, 1, 1 )]
+[numthreads( HLSL_GRID_THREAD_GROUP_SIZE, 1, 1 )]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-	const uint gridBlockPos = DTid.x;
-	gridBlockColors[gridBlockPos] = (GridBlockColor)0;
+	const uint blockID = DTid.x;
+	const uint blockCount = gridIndirectArgs_blockCount;
+
+	if ( blockID < blockCount )
+	{
+		GridBlockPackedColor packedColor;
+
+		const uint gridBlockPos = gridBlockPositions[blockID];
+		gridBlockIDs[gridBlockPos] = HLSL_GRID_BLOCK_INVALID;
+		gridBlockColors[blockID] = (GridBlockColor)0;
+	}
 }

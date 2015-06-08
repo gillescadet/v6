@@ -44,21 +44,59 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const int3 gridCellCoords = gridCoords & HLSL_GRID_BLOCK_MASK;
 		const int cellPos = (gridCellCoords.z << HLSL_GRID_BLOCK_2XSHIFT) | (gridCellCoords.y << HLSL_GRID_BLOCK_SHIFT) | gridCellCoords.x;
 
-		uint preInc;
-		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].r, uint( cubeColor.r * 255.0 ) );
-		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].g, uint( cubeColor.g * 255.0 ) );
-		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].b, uint( cubeColor.b * 255.0 ) );
-		InterlockedAdd( gridBlockColors[gridBlockPos].colors[cellPos].a, 1, preInc );
-
-		if ( preInc == 0 )
+		uint blockID = gridBlockIDs[gridBlockPos];
+		if ( blockID == HLSL_GRID_BLOCK_INVALID )
 		{
-			uint blockID;
-			InterlockedAdd( gridIndirectArgs_blockCount, 1, blockID );
+			InterlockedCompareExchange( gridBlockIDs[gridBlockPos], HLSL_GRID_BLOCK_INVALID, HLSL_GRID_BLOCK_SETTING, blockID );
+			if ( blockID == HLSL_GRID_BLOCK_INVALID )
+			{
+				InterlockedAdd( gridIndirectArgs_blockCount, 1, blockID );
 
-			const uint blockCount = blockID+1;
-			InterlockedMax( gridIndirectArgs_threadGroupCountX, (blockCount + HLSL_GRID_PACK_GROUP_SIZE - 1) / HLSL_GRID_PACK_GROUP_SIZE );		
+				uint prevBlockID;
+				InterlockedExchange( gridBlockIDs[gridBlockPos], blockID, prevBlockID );
+
+				const uint blockCount = blockID+1;
+				InterlockedMax( gridIndirectArgs_threadGroupCountX, (blockCount + HLSL_GRID_THREAD_GROUP_SIZE - 1) / HLSL_GRID_THREAD_GROUP_SIZE );		
 			
-			gridBlockPositions[blockID] = gridBlockPos;
+				gridBlockPositions[blockID] = gridBlockPos;
+			}
+			else if ( blockID == HLSL_GRID_BLOCK_SETTING )
+			{
+				do
+				{
+					InterlockedCompareExchange( gridBlockIDs[gridBlockPos], HLSL_GRID_BLOCK_INVALID, HLSL_GRID_BLOCK_SETTING, blockID );
+				} while ( blockID == HLSL_GRID_BLOCK_SETTING );
+#if HLSL_DEBUG_FILL
+				InterlockedAdd( gridIndirectArgs_waitCount0, 1 );
+#endif // #if HLSL_DEBUG_FILL
+			}
+#if HLSL_DEBUG_FILL
+			else
+			{
+				InterlockedAdd( gridIndirectArgs_conflictCount, 1 );
+			}			
+#endif // #if HLSL_DEBUG_FILL
 		}
+		else if ( blockID == HLSL_GRID_BLOCK_SETTING )
+		{
+			do
+			{
+				InterlockedCompareExchange( gridBlockIDs[gridBlockPos], HLSL_GRID_BLOCK_INVALID, HLSL_GRID_BLOCK_SETTING, blockID );
+			} while ( blockID == HLSL_GRID_BLOCK_SETTING );
+#if HLSL_DEBUG_FILL
+			InterlockedAdd( gridIndirectArgs_waitCount1, 1 );			
+#endif // #if HLSL_DEBUG_FILL
+		}
+#if HLSL_DEBUG_FILL
+		else
+		{
+			InterlockedAdd( gridIndirectArgs_reuseCount, 1 );			
+		}
+#endif // #if HLSL_DEBUG_FILL
+
+		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].r, uint( cubeColor.r * 255.0 ) );
+		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, uint( cubeColor.g * 255.0 ) );
+		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, uint( cubeColor.b * 255.0 ) );
+		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].a, 1 );
 	}
 }
