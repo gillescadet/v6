@@ -34,6 +34,7 @@
 #include <math.h>
 #include <new>
 #include <stdio.h>
+#include <stdlib.h>
 #pragma warning( pop )
 
 #include <v6/core/types.h>

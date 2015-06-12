@@ -33,7 +33,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const float3 right = cross( lookAt, up );
 	const float2 scale = (DTid.xy + 0.5) * invFrameSize * 2.0 - 1.0;
 	const float3 dir = lookAt + right * scale.x - up * scale.y;	
-	const float3 pos = (dir * cubeDepth) * invGridScale;
+	const float3 posWS = (dir * cubeDepth) + offset2;
+	const float3 pos = posWS * invGridScale;
+
 	if ( all( abs( pos ) < 1.0 ) )
 	{		
 		const int3 gridCoords = int3( mad( pos, HLSL_GRID_HALF_WIDTH, HLSL_GRID_HALF_WIDTH ) );

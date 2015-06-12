@@ -79,10 +79,8 @@ CBUFFER( CBGrid, 1 )
 	float		depthLinearBias;
 	float		invFrameSize;
 	float		gridScale;
-	float		invGridScale;
-	float		_pad0;
-	float		_pad1;
-	float		_pad2;
+	float3		offset2;
+	float		invGridScale;	
 };
 
 struct GridBlockColor
