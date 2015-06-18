@@ -66,27 +66,40 @@ public:
 		return v;
 	}
 
-	Vec3 operator*=(Vec3 const & v2)
+	Vec3& operator*=(Vec3 const & v2)
 	{
 		x *= v2.x;
 		y *= v2.y;
 		z *= v2.z;
+		return *this;
 	}
 	
-	Vec3 operator+=(Vec3 const & v2)
+	Vec3& operator+=(Vec3 const & v2)
 	{
 		x += v2.x;
 		y += v2.y;
 		z += v2.z;
+		return *this;
 	}
 
-	Vec3 operator-=(Vec3 const & v2)
+	Vec3& operator-=(Vec3 const & v2)
 	{
 		x -= v2.x;
 		y -= v2.y;
 		z -= v2.z;
+		return *this;
 	}
 };
+
+V6_INLINE Vec3 Vec3_Zero()
+{
+	Vec3 v;
+	v.x = 0.0f;
+	v.y = 0.0f;
+	v.z = 0.0f;
+
+	return v;
+}
 
 V6_INLINE Vec3 Vec3_Make( float x, float y, float z )
 {
@@ -94,6 +107,18 @@ V6_INLINE Vec3 Vec3_Make( float x, float y, float z )
 	v.x = x;
 	v.y = y;
 	v.z = z;
+
+	return v;
+}
+
+V6_INLINE Vec3 Vec3_Rand()
+{
+	static const float s_invRandSize = 2.0f / RAND_MAX;
+	
+	Vec3 v;
+	v.x = -1.0f + rand() * s_invRandSize;
+	v.y = -1.0f + rand() * s_invRandSize;
+	v.z = -1.0f + rand() * s_invRandSize;
 
 	return v;
 }

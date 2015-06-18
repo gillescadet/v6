@@ -33,7 +33,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const float3 right = cross( lookAt, up );
 	const float2 scale = (DTid.xy + 0.5) * invFrameSize * 2.0 - 1.0;
 	const float3 dir = lookAt + right * scale.x - up * scale.y;	
-	const float3 posWS = (dir * cubeDepth) + offset2;
+	const float3 posWS = (dir * cubeDepth) + offset;
 	const float3 pos = posWS * invGridScale;
 
 	if ( all( abs( pos ) < 1.0 ) )
@@ -58,7 +58,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 				InterlockedExchange( gridBlockIDs[gridBlockPos], blockID, prevBlockID );
 
 				const uint blockCount = blockID+1;
-				InterlockedMax( gridIndirectArgs_threadGroupCountX, (blockCount + HLSL_GRID_THREAD_GROUP_SIZE - 1) / HLSL_GRID_THREAD_GROUP_SIZE );		
+				InterlockedMax( gridIndirectArgs_packThreadGroupCount, (blockCount + HLSL_GRID_THREAD_GROUP_SIZE - 1) / HLSL_GRID_THREAD_GROUP_SIZE );		
 			
 				gridBlockPositions[blockID] = gridBlockPos;
 			}
@@ -100,5 +100,12 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, uint( cubeColor.g * 255.0 ) );
 		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, uint( cubeColor.b * 255.0 ) );
 		InterlockedAdd( gridBlockColors[blockID].colors[cellPos].a, 1 );
+	}
+
+	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )
+	{
+		for ( uint bucket = 0; bucket < HLSL_GRID_BUCKET_COUNT; ++bucket )
+			gridIndirectArgs_packedBlockCounts( bucket ) = 0;
+		gridIndirectArgs_cellCount = 0;
 	}
 }

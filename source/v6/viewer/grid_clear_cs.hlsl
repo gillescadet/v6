@@ -8,8 +8,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	if ( blockID < blockCount )
 	{
-		GridBlockPackedColor packedColor;
-
 		const uint gridBlockPos = gridBlockPositions[blockID];
 		gridBlockIDs[gridBlockPos] = HLSL_GRID_BLOCK_INVALID;
 		gridBlockColors[blockID] = (GridBlockColor)0;
