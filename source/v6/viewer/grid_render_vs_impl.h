@@ -25,6 +25,12 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	const uint blockPos = gridBlockPackedColors[packedID];
 	const uint cellPos = packedColor & 0xFF;
 
+#if 0
+	o.color.r = 0.25 + ((cellPos >> 0) & 3) * 0.25;
+	o.color.g = 0.25 + ((cellPos >> 2) & 3) * 0.25;
+	o.color.b = 0.25 + ((cellPos >> 4) & 3) * 0.25;
+#endif	
+
 	const uint x = (((blockPos >> 0						) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
 	const uint y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);
 	const uint z = (((blockPos >> HLSL_GRID_MACRO_2XSHIFT) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_2XSHIFT	) & HLSL_GRID_BLOCK_MASK);

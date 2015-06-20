@@ -1,6 +1,6 @@
 #include "grid_pack.h"
 
-void fillCells( inout RWBuffer< uint > packedColors, uint blockPos, const GridBlockColor blockColor, uint bucket )
+void packCells( inout RWBuffer< uint > packedColors, uint blockPos, const GridBlockColor blockColor, uint bucket )
 {
 	uint blockID;
 	InterlockedAdd( gridIndirectArgs_packedBlockCounts( bucket ), 1, blockID );
@@ -56,15 +56,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const uint blockPos = gridBlockPositions[blockID];
 		
 		if ( filledCellCount <= 4 )
-			fillCells( gridBlockPackedColors4, blockPos, blockColor, 0 );
+			packCells( gridBlockPackedColors4, blockPos, blockColor, 0 );
 		else if ( filledCellCount <= 8 )
-			fillCells( gridBlockPackedColors8, blockPos, blockColor, 1 );
+			packCells( gridBlockPackedColors8, blockPos, blockColor, 1 );
 		else if ( filledCellCount <= 16 )
-			fillCells( gridBlockPackedColors16, blockPos, blockColor, 2 );
+			packCells( gridBlockPackedColors16, blockPos, blockColor, 2 );
 		else if ( filledCellCount <= 32 )
-			fillCells( gridBlockPackedColors32, blockPos, blockColor, 3 );
+			packCells( gridBlockPackedColors32, blockPos, blockColor, 3 );
 		else
-			fillCells( gridBlockPackedColors64, blockPos, blockColor, 4 );
+			packCells( gridBlockPackedColors64, blockPos, blockColor, 4 );
 
 #if HLSL_GRIDBLOCK_CELL_STATS
 		InterlockedAdd( gridIndirectArgs_cellCount, filledCellCount );

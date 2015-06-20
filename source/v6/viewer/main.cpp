@@ -28,16 +28,17 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
+static const core::u32 ZOOM					= 8;
 static const float ZNEAR					= 10.0f;
 static const float ZFAR						= 10000.0f;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
-static const core::u32 GRID_MAX_COUNT		= 1; 
+static const core::u32 GRID_MAX_COUNT		= 10;
 static const float GRID_MAX_SCALE			= 1000.0f;
 static const float GRID_MIN_SCALE			= 100.0f;
-static const float GRID_SCALE				= 1000.0f;
-static const int SAMPLE_MAX_COUNT			= 4;
+static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
+static const int SAMPLE_MAX_COUNT			= 1;
 static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 1024;
+static const core::u32 RANDOM_CUBE_COUNT	= 16;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 4096;
@@ -361,6 +362,8 @@ struct Grid_s
 	ID3D11Buffer* indirectArgsStaging;
 	ID3D11ShaderResourceView* srvs[GRID_BUFFER_COUNT];
 	ID3D11UnorderedAccessView* uavs[GRID_BUFFER_COUNT];	
+	core::u32 blockMaxCount;
+	core::u32 bucketMaxCounts[HLSL_GRID_BUCKET_COUNT];
 };
 
 static void Cube_GetLookAt( core::Vec3& lookAt, core::Vec3& up, CubeAxis_e axis )
@@ -699,8 +702,9 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 {
 	const core::u32 width = 1 << macroShift;
 	const core::u32 realBlockCount = width * width * width;
-	const core::u32 estimatedBlockCount = width * width * 6 * 2; // 2 layers of full panorama ( 6 cube faces )
+	const core::u32 estimatedBlockCount = 2 * width * width * 6; // 1 layer of full panorama ( 6 cube faces )
 	printf( "estimated block count: %d\n", estimatedBlockCount );
+	grid->blockMaxCount = estimatedBlockCount;
 
 	// RWBuffer< uint > gridBlockIDs
 
@@ -882,11 +886,20 @@ static void Grid_Create( ID3D11Device* device, Grid_s* grid, core::u32 macroShif
 
 	// RWBuffer< uint > gridBlockPackedColors
 
+	static const core::u32 repartition[HLSL_GRID_BUCKET_COUNT] = { 32, 32, 128, 16, 1 };
+	static core::u32 sumRepartion = 0;
+	if ( sumRepartion  == 0 ) 
+	{
+		for ( core::u32 bucket = 0; bucket < HLSL_GRID_BUCKET_COUNT; ++bucket )
+			sumRepartion += repartition[bucket];
+	}
+
 	for ( core::u32 bucket = 0; bucket < HLSL_GRID_BUCKET_COUNT; ++bucket )
 	{
 		const core::u32 packedCount = 1 + (1 << (bucket+2));
-		const core::u32 estimatedBlockCountPerBucket = estimatedBlockCount / HLSL_GRID_BUCKET_COUNT;
+		const core::u32 estimatedBlockCountPerBucket = estimatedBlockCount * repartition[bucket] / sumRepartion;
 		printf( "estimated block count for bucket #%d: %d\n", bucket ,estimatedBlockCountPerBucket );
+		grid->bucketMaxCounts[bucket] = estimatedBlockCountPerBucket;
 
 		{
 			D3D11_BUFFER_DESC bufferDesc = {};
@@ -1192,12 +1205,12 @@ public:
 	~CRenderingDevice();
 
 public:
-	void Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear );
-	void Capture( Grid_s* grid, const core::Vec3* sampleOffset );
+	void Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear, float gridScale );
+	void Capture( const core::Vec3* sampleOffset );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack );
 	void Draw( float dt );	
 	void DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view );
-	void DrawBlocks( Grid_s* grid, const core::Mat4x4* viewMatrix );
+	void DrawGrid( Grid_s* grid, float gridScale );
 	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void PostProcessDone( uint ppID );
 	void PostProcessPrepare( uint ppID );
@@ -1551,7 +1564,9 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	PostProcess_Create( &m_postProcesses[POST_PROCESS_DEPTH_LINEARISATION], SHADER_DEPTH_LINEARISATION );
 	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
-	for ( core::u32 gridID = 0; gridID < GRID_MAX_COUNT; ++gridID )
+
+	V6_ASSERT( GRID_COUNT < GRID_MAX_COUNT );
+	for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID )
 		Grid_Create( m_device, &m_grids[gridID], HLSL_GRID_MACRO_SHIFT, heap );
 	
 	m_width = nWidth;
@@ -1641,27 +1656,10 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
-void CRenderingDevice::Capture( Grid_s* grid, const core::Vec3* sampleOffset )
+void CRenderingDevice::Capture( const core::Vec3* sampleOffset )
 {
 	m_userDefinedAnnotation->BeginEvent( L"Draw Cube Map");
 		
-	// Rasterization state
-	m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
-	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
-
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_cube.size;
-		viewport.Height = (float)m_cube.size;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
-
-		m_ctx->RSSetViewports( 1, &viewport );
-	}
-
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		m_userDefinedAnnotation->BeginEvent( L"Draw Face");
@@ -1692,7 +1690,7 @@ void CRenderingDevice::Capture( Grid_s* grid, const core::Vec3* sampleOffset )
 	m_userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear  )
+void CRenderingDevice::Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear, float gridScale  )
 {
 	static const void* nulls[8] = {};
 		
@@ -1732,8 +1730,8 @@ void CRenderingDevice::Accumulate( Grid_s* grid, const core::Vec3* sampleOffset,
 		cbGrid->depthLinearScale = -1.0f / ZNEAR;
 		cbGrid->depthLinearBias = 1.0f / ZNEAR;
 		cbGrid->invFrameSize = 1.0f / m_cube.size;
-		cbGrid->gridScale = GRID_SCALE;
-		cbGrid->invGridScale = 1.0f / GRID_SCALE;
+		cbGrid->gridScale = gridScale;
+		cbGrid->invGridScale = 1.0f / gridScale;
 		cbGrid->offset = *sampleOffset;
 
 		m_ctx->Unmap( m_gridCBUF, 0 );
@@ -1773,47 +1771,25 @@ void CRenderingDevice::Accumulate( Grid_s* grid, const core::Vec3* sampleOffset,
 	m_userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::DrawBlocks( Grid_s* grid, const core::Mat4x4* viewMatrix )
+void CRenderingDevice::DrawGrid( Grid_s* grid, float gridScale )
 {
 	m_userDefinedAnnotation->BeginEvent( L"Render");
 
-	// Rasterization state
-	m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
-	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
-		
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
-
-		m_ctx->RSSetViewports( 1, &viewport );
-	}
-	
-	// RT
-	m_ctx->OMSetRenderTargets( 1, &m_pColorView, m_pDepthStencilView );
-
 	{
 		D3D11_MAPPED_SUBRESOURCE res;
-		V6_ASSERT_D3D11( m_ctx->Map( m_viewCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+		V6_ASSERT_D3D11( m_ctx->Map( m_gridCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
 
-		v6::hlsl::CBView* cbView = (v6::hlsl::CBView*)res.pData;
+		v6::hlsl::CBGrid* cbGrid = (v6::hlsl::CBGrid*)res.pData;
 
-		cbView->objectToView = *viewMatrix;
-		cbView->viewToProj = m_projMatrix;
+		cbGrid->depthLinearScale = -1.0f / ZNEAR;
+		cbGrid->depthLinearBias = 1.0f / ZNEAR;
+		cbGrid->invFrameSize = 1.0f / m_cube.size;
+		cbGrid->gridScale = gridScale;
+		cbGrid->invGridScale = 1.0f / gridScale;
+		cbGrid->offset = core::Vec3_Zero();
 
-		m_ctx->Unmap( m_viewCBUF, 0 );
-		
+		m_ctx->Unmap( m_gridCBUF, 0 );
 	}
-
-	// Render
-	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	m_ctx->ClearRenderTargetView( m_pColorView, pRGBA );
-	m_ctx->ClearDepthStencilView( m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 		
 	m_ctx->VSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF );
 	m_ctx->VSSetConstantBuffers( v6::hlsl::CBGridSlot, 1, &m_gridCBUF );
@@ -1831,10 +1807,7 @@ void CRenderingDevice::DrawBlocks( Grid_s* grid, const core::Mat4x4* viewMatrix 
 		// unset
 		static const void* nulls[8] = {};
 		m_ctx->VSSetShaderResources( HLSL_GRIDBLOCK_PACKEDCOLOR4_SLOT + bucket, 1, (ID3D11ShaderResourceView**)nulls );
-	}
-
-	// un RT
-	m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
+	}	
 
 	m_userDefinedAnnotation->EndEvent();
 }
@@ -1917,34 +1890,106 @@ void CRenderingDevice::Draw( float dt )
 		{
 			const core::Vec3 sampleOffset = m_sampleOffsets[g_sample];
 
-			Capture( &m_grids[0], &sampleOffset );
-			Accumulate( &m_grids[0], &sampleOffset, g_sample == 0 );
+			// Rasterization state
+			m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+			m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
 
+			// Viewport
 			{
-#if 1
-				m_ctx->CopyResource( m_grids[0].indirectArgsStaging, m_grids[0].buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS] );
+				D3D11_VIEWPORT viewport = {};
+				viewport.TopLeftX = 0;
+				viewport.TopLeftY = 0;
+				viewport.Width = (float)m_cube.size;
+				viewport.Height = (float)m_cube.size;
+				viewport.MinDepth = 0.0f;
+				viewport.MaxDepth = 1.0f;
 
-				D3D11_MAPPED_SUBRESOURCE res;
-				V6_ASSERT_D3D11( m_ctx->Map( m_grids[0].indirectArgsStaging, 0, D3D11_MAP_READ, 0, &res ) );
-
-				v6::hlsl::GridIndirectArgs* indirectArgs = (v6::hlsl::GridIndirectArgs*)res.pData;
-				printf( "Sample #%03d: %d blocks\n", g_sample, indirectArgs->blockCount );				
-				printf( " => %dx4, %dx8, %dx16, %dx32, %dx64\n",				
-					indirectArgs->packedBlockCounts[0], indirectArgs->packedBlockCounts[1], indirectArgs->packedBlockCounts[2], indirectArgs->packedBlockCounts[3], indirectArgs->packedBlockCounts[4] );
-				const core::u32 combinedCellCount = 
-					indirectArgs->packedBlockCounts[0] * 4 + 
-					indirectArgs->packedBlockCounts[1] * 8 + 
-					indirectArgs->packedBlockCounts[2] * 16 + 
-					indirectArgs->packedBlockCounts[3] * 32 +
-					indirectArgs->packedBlockCounts[4] * 64;
-				printf( " => %d combined cells, %d total cells, overhead %.1f%%\n", combinedCellCount, indirectArgs->cellCount, (combinedCellCount - indirectArgs->cellCount) * 100.0f / indirectArgs->cellCount );
-				
-				m_ctx->Unmap( m_grids[0].indirectArgsStaging, 0 );
-#endif
+				m_ctx->RSSetViewports( 1, &viewport );
 			}
+
+			Capture( &sampleOffset );
+			
+			float gridScale = GRID_MIN_SCALE;
+			for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			{				
+				Accumulate( &m_grids[gridID], &sampleOffset, g_sample == 0, gridScale );
+
+				{
+					m_ctx->CopyResource( m_grids[gridID].indirectArgsStaging, m_grids[gridID].buffers[GRID_BUFFER_BLOCK_INDIRECT_ARGS] );
+
+					D3D11_MAPPED_SUBRESOURCE res;
+					V6_ASSERT_D3D11( m_ctx->Map( m_grids[gridID].indirectArgsStaging, 0, D3D11_MAP_READ, 0, &res ) );
+
+					v6::hlsl::GridIndirectArgs* indirectArgs = (v6::hlsl::GridIndirectArgs*)res.pData;
+					V6_ASSERT( indirectArgs->blockCount <= m_grids[gridID].blockMaxCount );
+					for ( core::u32 bucket = 0; bucket < HLSL_GRID_BUCKET_COUNT; ++bucket)
+					{
+						if ( indirectArgs->packedBlockCounts[bucket] > m_grids[gridID].bucketMaxCounts[bucket] )
+						{
+							printf( "bucket #%d overflows with %d blocks used for %d blocks allocated", bucket, indirectArgs->packedBlockCounts[bucket], m_grids[gridID].bucketMaxCounts[bucket] );
+							V6_ASSERT( !"Bucket overflow" );
+						}
+					}
+					printf( "Sample #%03d/%d [%g->%g]: %d blocks\n", g_sample, gridID, gridScale * 0.5f, gridScale, indirectArgs->blockCount );				
+					printf( " => %dx4, %dx8, %dx16, %dx32, %dx64\n",				
+						indirectArgs->packedBlockCounts[0], indirectArgs->packedBlockCounts[1], indirectArgs->packedBlockCounts[2], indirectArgs->packedBlockCounts[3], indirectArgs->packedBlockCounts[4] );
+					const core::u32 combinedCellCount = 
+						indirectArgs->packedBlockCounts[0] * 4 + 
+						indirectArgs->packedBlockCounts[1] * 8 + 
+						indirectArgs->packedBlockCounts[2] * 16 + 
+						indirectArgs->packedBlockCounts[3] * 32 +
+						indirectArgs->packedBlockCounts[4] * 64;
+					printf( " => %d combined cells, %d total cells, overhead %.1f%%\n", combinedCellCount, indirectArgs->cellCount, (combinedCellCount - indirectArgs->cellCount) * 100.0f / indirectArgs->cellCount );
+				
+					m_ctx->Unmap( m_grids[gridID].indirectArgsStaging, 0 );
+				}
+			}			
 		}
+
+		// Rasterization state
+		m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+		m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
 		
-		DrawBlocks( &m_grids[0], &viewMatrix );
+		// Viewport
+		{
+			D3D11_VIEWPORT viewport = {};
+			viewport.TopLeftX = 0;
+			viewport.TopLeftY = 0;
+			viewport.Width = (float)m_width;
+			viewport.Height = (float)m_height;
+			viewport.MinDepth = 0.0f;
+			viewport.MaxDepth = 1.0f;
+
+			m_ctx->RSSetViewports( 1, &viewport );
+		}
+
+		// RT
+		m_ctx->OMSetRenderTargets( 1, &m_pColorView, m_pDepthStencilView );
+
+		{
+			D3D11_MAPPED_SUBRESOURCE res;
+			V6_ASSERT_D3D11( m_ctx->Map( m_viewCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+			v6::hlsl::CBView* cbView = (v6::hlsl::CBView*)res.pData;
+
+			cbView->objectToView = viewMatrix;
+			cbView->viewToProj = m_projMatrix;
+
+			m_ctx->Unmap( m_viewCBUF, 0 );
+		
+		}
+
+		// Render
+		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		m_ctx->ClearRenderTargetView( m_pColorView, pRGBA );
+		m_ctx->ClearDepthStencilView( m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+
+		float gridScale = GRID_MIN_SCALE;
+		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			DrawGrid( &m_grids[gridID], gridScale );
+
+		// un RT
+		m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
 	}
 	else
 	{
@@ -2001,7 +2046,7 @@ void CRenderingDevice::Release()
 	m_ctx->ClearState();
 	
 	Cube_Release( &m_cube );
-	for ( core::u32 gridID = 0; gridID < GRID_MAX_COUNT; ++gridID )
+	for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID )
 		Grid_Release( &m_grids[gridID] );
 
 	m_viewCBUF->Release();
@@ -2058,8 +2103,8 @@ int main()
 	v6::core::Stack stack( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
 
-	const int nWidth = HLSL_GRID_WIDTH >> 1;
-	const int nHeight = HLSL_GRID_WIDTH >> 1;	
+	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
+	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;	
 
 	const char* const title = "V6 Player | version: 0.1";
 
