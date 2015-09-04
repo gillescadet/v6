@@ -1,4 +1,4 @@
-#include "grid_fill.h"
+#include "grid_fill.hlsli"
 
 static const float3 lookAts[6] = 
 {
@@ -20,69 +20,33 @@ static const float3 ups[6] =
 	float3( 0.0f,  1.0f,  0.0f )
 };
 
-void UnsetCoverage( inout uint2 coverage, uint i, uint j, uint k )
+void SetCoverage( inout uint2 coverage, uint i, uint j, uint k )
 {
 	const uint bit = k * (HLSL_GRID_BLOCK_WIDTH * HLSL_GRID_BLOCK_WIDTH) + j * HLSL_GRID_BLOCK_WIDTH + i;
 	const uint bucket = bit >> 5;
 	const uint mask = (1 << (bit & 31));
-	coverage[bucket] &= ~mask;
+	coverage[bucket] |= mask;
 }
 
 uint2 ComputeCoverage( float3 pixelRelativePos, float pixelRadius  )
 {
-	const float step = 1.0 / HLSL_GRID_BLOCK_WIDTH;
-	const float halfStep = step * 0.5;
-	const float limits[HLSL_GRID_BLOCK_WIDTH] = { step * 0.0f + halfStep, step * 1.0f + halfStep, step * 2.0f + halfStep, step * 3.0f + halfStep };
+	const float step = 0.25;
+	const float halfStep = 0.125;
+	const float pos[4] = { step * 0.0f + halfStep, step * 1.0f + halfStep, step * 2.0f + halfStep, step * 3.0f + halfStep };
 
-	uint2 coverage = uint2( 0xFFFFFFFF, 0xFFFFFFFF );
-
-	[unroll]
-	for ( uint i = 0; i < HLSL_GRID_BLOCK_WIDTH; ++i )
-	{
-		if ( limits[i] < pixelRelativePos.x - pixelRadius || limits[i] > pixelRelativePos.x + pixelRadius )
-		{
-			[unroll]
-			for ( uint j = 0; j < HLSL_GRID_BLOCK_WIDTH; ++j )
-			{
-				[unroll]
-				for ( uint k = 0; k < HLSL_GRID_BLOCK_WIDTH; ++k )
-				{
-					UnsetCoverage( coverage, i, j, k );
-				}
-			}
-		}
-	}
+	uint2 coverage = uint2( 0, 0 );
 
 	[unroll]
-	for ( uint j = 0; j < HLSL_GRID_BLOCK_WIDTH; ++j )
+	for ( uint k = 0; k < 4; ++k )
 	{
-		if ( limits[j] < pixelRelativePos.y - pixelRadius || limits[j] > pixelRelativePos.y + pixelRadius )
+		[unroll]
+		for ( uint j = 0; j < 4; ++j )
 		{
 			[unroll]
-			for ( uint i = 0; i < HLSL_GRID_BLOCK_WIDTH; ++i )
+			for ( uint i = 0; i < 4; ++i )
 			{
-				[unroll]
-				for ( uint k = 0; k < HLSL_GRID_BLOCK_WIDTH; ++k )
-				{
-					UnsetCoverage( coverage, i, j, k );
-				}
-			}
-		}
-	}
-
-	[unroll]
-	for ( uint k = 0; k < HLSL_GRID_BLOCK_WIDTH; ++k )
-	{
-		if ( limits[k] < pixelRelativePos.z - pixelRadius || limits[k] > pixelRelativePos.z + pixelRadius )
-		{
-			[unroll]
-			for ( uint j = 0; j < HLSL_GRID_BLOCK_WIDTH; ++j )
-			{
-				[unroll]
-				for ( uint i = 0; i < HLSL_GRID_BLOCK_WIDTH; ++i )
-				{
-					UnsetCoverage( coverage, i, j, k );
-				}
+				if ( all( abs( float3( pos[i], pos[j], pos[k] ) - pixelRelativePos ) < pixelRadius ) )
+					SetCoverage( coverage, i, j, k );
 			}
 		}
 	}
@@ -150,25 +114,10 @@ void GetBlockIDAndCellPos( uint3 gridCoords, out uint blockID, out uint cellPos 
 #endif // #if HLSL_DEBUG_FILL
 }
 
-[numthreads( 16, 16, 1 )]
-void main( uint3 DTid : SV_DispatchThreadID )
-{		
-	const int4 coords = int4( DTid.x, DTid.y, DTid.z, 0 );
-	const float3 cubeColor = colors.Load( coords ).rgb;
-	// todo: check if rcp is not too coarse
-	//const float cubeDepth = rcp( mad ( depths.Load( coords ), depthLinearScale, depthLinearBias ) );	
-	const float cubeDepth = 1.0f / ( mad ( depths.Load( coords ), depthLinearScale, depthLinearBias ) );	
-
-	const float3 lookAt = lookAts[DTid.z];
-	const float3 up = ups[DTid.z];
-	const float3 right = cross( lookAt, up );
-	const float2 scale = (DTid.xy + 0.5) * invFrameSize * 2.0 - 1.0;
-	const float3 dir = lookAt + right * scale.x - up * scale.y;	
-	const float3 pos = (dir * cubeDepth) + offset;	
-	const float3 gridSignedPos = pos * invGridScale * HLSL_GRID_HALF_WIDTH;
-	const int3 gridSignedCoords = int3( gridSignedPos );
-	const float pixelRadius = cubeDepth * invFrameSize;
-	const float3 pixelRelativePos = frac( gridSignedPos );
+void FillCell( float3 gridPos, float3 cubeColor )
+{
+	const int3 gridSignedCoords = int3( gridPos ) - HLSL_GRID_HALF_WIDTH;	
+	const float3 pixelRelativePos = frac( gridPos );
 
 	if ( any( abs( gridSignedCoords ) >= HLSL_GRID_QUARTER_WIDTH ) && all( abs( gridSignedCoords ) < HLSL_GRID_HALF_WIDTH ) )
 	{
@@ -184,11 +133,55 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			uint cellPos;
 			GetBlockIDAndCellPos( gridSignedCoords + HLSL_GRID_HALF_WIDTH, blockID, cellPos );
 			const float scaleFactor = 255.0f * weight;
+#if 1
 			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].r, uint( cubeColor.r * scaleFactor ) );
 			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, uint( cubeColor.g * scaleFactor ) );
 			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, uint( cubeColor.b * scaleFactor ) );
+#elif 0
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].r, uint( (DTid.x << 5) & 255 ) );
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, uint( (DTid.y << 5) & 255 ) );
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, uint( (DTid.z << 5) & 255 ) );
+#elif 1
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].r, ((weight<<2)-1) * weight );
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].g, ((weight<<2)-1) * weight );
+			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].b, ((weight<<2)-1) * weight );
+#endif
 			InterlockedAdd( gridBlockColors[blockID].colors[cellPos].a, weight );
 		}
+	}
+}
+
+[numthreads( 16, 16, 1 )]
+void main( uint3 DTid : SV_DispatchThreadID )
+{		
+	
+	{
+		const int4 coords = int4( DTid.x, DTid.y, DTid.z, 0 );
+		const float3 cubeColor = colors.Load( coords ).rgb;
+		const float cubeDepth = 1.0f / ( mad ( depths.Load( coords ), depthLinearScale, depthLinearBias ) );
+
+		const float3 lookAt = lookAts[DTid.z];
+		const float3 up = ups[DTid.z];
+		const float3 right = cross( lookAt, up );
+		const float2 scale = (DTid.xy + 0.5) * invFrameSize * 2.0 - 1.0;
+		const float3 dir = lookAt + right * scale.x - up * scale.y;	
+		const float3 pos = (dir * cubeDepth) + offset;	
+		const float3 gridPos = (1.0 + pos * invGridScale) * HLSL_GRID_HALF_WIDTH;
+		const float cellRadius = 0.5 * cubeDepth * invFrameSize * invGridScale * HLSL_GRID_HALF_WIDTH;
+
+#if 0
+		[unroll]
+		for ( uint sample = 0; sample < 8 ; ++sample )
+		{
+			float3 cornerPos = gridPos;
+			cornerPos.x += (sample & 1) ? -cellRadius : cellRadius;
+			cornerPos.y += (sample & 2) ? -cellRadius : cellRadius;
+			cornerPos.z += (sample & 4) ? -cellRadius : cellRadius;
+			FillCell( cornerPos, cubeColor );
+		}
+#else
+		FillCell( gridPos, cubeColor );
+#endif
 	}
 
 	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )

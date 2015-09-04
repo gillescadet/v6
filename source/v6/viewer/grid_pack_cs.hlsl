@@ -1,4 +1,4 @@
-#include "grid_pack.h"
+#include "grid_pack.hlsli"
 
 void packCells( inout RWBuffer< uint > packedColors, uint blockPos, const GridBlockColor blockColor, uint bucket )
 {

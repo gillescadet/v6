@@ -1,4 +1,4 @@
-#include "grid_clear.h"
+#include "grid_clear.hlsli"
 
 [numthreads( HLSL_GRID_THREAD_GROUP_SIZE, 1, 1 )]
 void main( uint3 DTid : SV_DispatchThreadID )
