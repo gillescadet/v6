@@ -29,12 +29,13 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRIDBLOCK_PACKEDCOLOR64_SLOT			10
 
 #define HLSL_COLLECTED_SAMPLE_SLOT					2
-#define HLSL_SORTED_SAMPLE_SLOT						3
-#define HLSL_SAMPLE_INDIRECT_ARGS_SLOT				4
-#define HLSL_SAMPLE_NODE_OFFSET_SLOT				5
-#define HLSL_FIRST_CHILD_OFFSET_SLOT				6
-#define HLSL_OCTREE_LEAF_SLOT						7
-#define HLSL_GRID_PACKEDCOLOR_SLOT					8
+#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT	3
+#define HLSL_SORTED_SAMPLE_SLOT						4
+#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT		5
+#define HLSL_SAMPLE_NODE_OFFSET_SLOT				6
+#define HLSL_FIRST_CHILD_OFFSET_SLOT				7
+#define HLSL_OCTREE_LEAF_SLOT						8
+#define HLSL_GRID_PACKEDCOLOR_SLOT					9
 
 #define HLSL_COLOR_SRV								CONCAT( t, HLSL_COLOR_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
@@ -50,8 +51,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRIDBLOCK_PACKEDCOLOR64_SRV			CONCAT( t, HLSL_GRIDBLOCK_PACKEDCOLOR64_SLOT )
 
 #define HLSL_COLLECTED_SAMPLE_SRV					CONCAT( t, HLSL_COLLECTED_SAMPLE_SLOT )
+#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SRV		CONCAT( t, HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT )
 #define HLSL_SORTED_SAMPLE_SRV						CONCAT( t, HLSL_SORTED_SAMPLE_SLOT )
-#define HLSL_SAMPLE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
+#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SRV		CONCAT( t, HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT )
+
 #define HLSL_SAMPLE_NODE_OFFSET_SRV					CONCAT( t, HLSL_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_FIRST_CHILD_OFFSET_SRV					CONCAT( t, HLSL_FIRST_CHILD_OFFSET_SLOT )
 #define HLSL_OCTREE_LEAF_SRV						CONCAT( t, HLSL_OCTREE_LEAF_SLOT )
@@ -68,8 +71,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRIDBLOCK_PACKEDCOLOR64_UAV			CONCAT( u, HLSL_GRIDBLOCK_PACKEDCOLOR64_SLOT )
 
 #define HLSL_COLLECTED_SAMPLE_UAV					CONCAT( u, HLSL_COLLECTED_SAMPLE_SLOT )
+#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_UAV		CONCAT( u, HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT )
 #define HLSL_SORTED_SAMPLE_UAV						CONCAT( u, HLSL_SORTED_SAMPLE_SLOT )
-#define HLSL_SAMPLE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
+#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_UAV		CONCAT( u, HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT )
+
 #define HLSL_SAMPLE_NODE_OFFSET_UAV					CONCAT( u, HLSL_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_FIRST_CHILD_OFFSET_UAV					CONCAT( u, HLSL_FIRST_CHILD_OFFSET_SLOT )
 #define HLSL_OCTREE_LEAF_UAV						CONCAT( u, HLSL_OCTREE_LEAF_SLOT )
@@ -79,7 +84,7 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_GRID_BUCKET_COUNT						5
 
-#define HLSL_GRID_MACRO_SHIFT						9
+#define HLSL_GRID_MACRO_SHIFT						7
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)w
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -145,7 +150,7 @@ CBUFFER( CBSample, 2 )
 	float4		c_mipBoundariesB;
 	float4		c_mipBoundariesC;
 	float4		c_mipBoundariesD;
-	float		c_invGridScales[HLSL_MIP_MAX_COUNT];	
+	float4		c_invGridScales[HLSL_MIP_MAX_COUNT];	
 };
 
 CBUFFER( CBOctree, 3 )
@@ -236,11 +241,12 @@ struct OctreeLeaf
 #define gridIndirectArgs_cellCount						gridIndirectArgs[38]
 #endif
 
-#define sample_sortGroupCountX							sampleIndirectArgs[0] // ThreadGroupCountX
-#define sample_sortGroupCountY							sampleIndirectArgs[1] // ThreadGroupCountY
-#define sample_sortGroupCountZ							sampleIndirectArgs[2] // ThreadGroupCountZ
-#define sample_count									sampleIndirectArgs[3]
-#define	sample_cellPerLevelCount( MIP )					sampleIndirectArgs[4+MIP]
+#define sample_sortGroupCountX							collectedSampleIndirectArgs[0] // ThreadGroupCountX
+#define sample_sortGroupCountY							collectedSampleIndirectArgs[1] // ThreadGroupCountY
+#define sample_sortGroupCountZ							collectedSampleIndirectArgs[2] // ThreadGroupCountZ
+#define sample_count									collectedSampleIndirectArgs[3]
+
+#define	sample_cellPerLevelCount( MIP )					sortedSampleIndirectArgs[MIP]
 
 #define octree_nodeCount								sampleIndirectArgs[0]
 #define octree_leaftCount								sampleIndirectArgs[1]

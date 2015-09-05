@@ -23,6 +23,7 @@
 #pragma comment(lib, "d3d11.lib")
 
 #define V6_DISABLE_OLD_GRID		1
+#define V6_D3D_DEBUG			0
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
@@ -393,7 +394,8 @@ struct Sample_s
 {
 	GPUBuffer_s collectedSamples;
 	GPUBuffer_s sortedSamples;
-	GPUBuffer_s indirectArgs;
+	GPUBuffer_s collectedIndirectArgs;
+	GPUBuffer_s sortedIndirectArgs;
 };
 
 static const char* ModeToString( DrawMode_e drawMode )
@@ -648,6 +650,43 @@ static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
 	}
 }
 
+void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 count, const char* name )
+{
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = count * sizeof( core::u32 );
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
+		bufferDesc.StructureByteStride = 0;
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
+		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_R32_UINT;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = count;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_R32_UINT;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = count;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( buffer->buf, &uavDesc, &buffer->uav ) );
+	}
+}
+
 void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORMAT format, core::u32 count, const char* name )
 {
 	{
@@ -660,7 +699,7 @@ void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORM
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		printf( "GPUBuffer %s: %d MB\n", MB( bufferDesc.ByteWidth ) );
+		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
 	}
 
 	{
@@ -676,6 +715,43 @@ void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORM
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = format;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = count;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( buffer->buf, &uavDesc, &buffer->uav ) );
+	}
+}
+
+void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 elementSize, core::u32 count, const char* name )
+{
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = count * elementSize;
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bufferDesc.StructureByteStride = elementSize;
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
+		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = count;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 		uavDesc.Buffer.FirstElement = 0;
 		uavDesc.Buffer.NumElements = count;
@@ -1056,18 +1132,21 @@ static void Grid_Release( Grid_s* grid )
 
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
-static void Sample_Create( ID3D11Device* device, Sample_s* sample, core::u32 macroShift, core::IHeap* heap )
+static void Sample_Create( ID3D11Device* device, Sample_s* sample, core::u32 cubeSize, core::IHeap* heap )
 {
-	GPUBuffer_CreateTyped( device, &sample->collectedSamples, DXGI_FORMAT_R32_UINT, 1, "collectedSamples" );
-	GPUBuffer_CreateTyped( device, &sample->sortedSamples, DXGI_FORMAT_R32_UINT, 1, "sortedSamples" );
-	GPUBuffer_CreateTyped( device, &sample->indirectArgs, DXGI_FORMAT_R32_UINT, 4 + HLSL_MIP_MAX_COUNT, "indirectArgs" );
+	const core::u32 sampleCount = cubeSize * cubeSize * 6;
+	GPUBuffer_CreateStructured( device, &sample->collectedSamples, sizeof( hlsl::Sample ), sampleCount, "collectedSamples" );
+	GPUBuffer_CreateStructured( device, &sample->sortedSamples, sizeof( hlsl::Sample ), sampleCount, "sortedSamples" );
+	GPUBuffer_CreateIndirectArgs( device, &sample->collectedIndirectArgs, 4, "collectedIndirectArgs" );
+	GPUBuffer_CreateIndirectArgs( device, &sample->sortedIndirectArgs, HLSL_MIP_MAX_COUNT, "sortedIndirectArgs" );
 }
 
 static void Sample_Release( ID3D11Device* device, Sample_s* sample )
 {
 	GPUBuffer_Release( device, &sample->collectedSamples );
 	GPUBuffer_Release( device, &sample->sortedSamples );
-	GPUBuffer_Release( device, &sample->indirectArgs );
+	GPUBuffer_Release( device, &sample->collectedIndirectArgs );
+	GPUBuffer_Release( device, &sample->sortedIndirectArgs );
 }
 
 static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -1325,6 +1404,7 @@ public:
 	void Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear, float gridScale );
 #endif // #if V6_DISABLE_OLD_GRID == 0
 	void Capture( const core::Vec3* sampleOffset );
+	void Collect( const core::Vec3* sampleOffset );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack );
 	void Draw( float dt );	
 	void DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view );
@@ -1335,6 +1415,7 @@ public:
 	void Present();
 	void Release();
 	void ReleaseObject(IUnknown** unknow);
+	void Sort();
 
 	IDXGISwapChain* m_pSwapChain;
 	ID3D11Device* m_device;
@@ -1352,7 +1433,10 @@ public:
 	ID3D11BlendState* m_blendStateNoColor;
 	ID3D11BlendState* m_blendStateOpaque;
 	ID3D11Buffer* m_viewCBUF;
+#if V6_DISABLE_OLD_GRID == 0
 	ID3D11Buffer* m_gridCBUF;
+#endif // #if V6_DISABLE_OLD_GRID == 0
+	ID3D11Buffer* m_sampleCBUF;
 
 	Compute_s m_computes[COMPUTE_COUNT];
 	Shader_s m_shaders[SHADER_COUNT];
@@ -1424,11 +1508,16 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		m_nFeatureLevel = (D3D_FEATURE_LEVEL)0;
 		m_ctx = NULL;
 
+#if V6_D3D_DEBUG == 1
+		const core::u32 createFlags = D3D11_CREATE_DEVICE_DEBUG;		
+#else
+		const core::u32 createFlags = 0;		
+#endif
 		V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
 			NULL,
 			D3D_DRIVER_TYPE_HARDWARE,
 			NULL,
-			0,
+			createFlags,
 			pFeatureLevels,
 			1,
 			D3D11_SDK_VERSION,
@@ -1560,6 +1649,18 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	}
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
+	{
+		D3D11_BUFFER_DESC bufDesc = {};	
+		bufDesc.Usage = D3D11_USAGE_DYNAMIC;
+		bufDesc.ByteWidth = sizeof( v6::hlsl::CBSample );
+		bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bufDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bufDesc.MiscFlags = 0;
+		bufDesc.StructureByteStride = 0;
+
+		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_sampleCBUF ) );
+	}
+
 #if V6_DISABLE_OLD_GRID == 0
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDCLEAR], "grid_clear_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDFILL], "grid_fill_cs.cso", fileSystem, stack );
@@ -1617,7 +1718,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		Grid_Create( m_device, &m_grids[gridID], HLSL_GRID_MACRO_SHIFT, heap );
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
-	Sample_Create( m_device, &m_sample, HLSL_GRID_MACRO_SHIFT, heap );
+	Sample_Create( m_device, &m_sample, CUBE_SIZE, heap );
 	
 	m_width = nWidth;
 	m_height = nHeight;
@@ -1866,6 +1967,109 @@ void CRenderingDevice::DrawGrid( Grid_s* grid, float gridScale )
 
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
+void CRenderingDevice::Collect( const core::Vec3* sampleOffset  )
+{
+	static const void* nulls[8] = {};
+
+	m_userDefinedAnnotation->BeginEvent( L"Collect");
+
+	// Update buffers
+				
+	{			
+		V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+
+		float gridScales[HLSL_MIP_MAX_COUNT];
+		float gridScale = GRID_MIN_SCALE;
+		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			gridScales[gridID] = gridScale;
+		for ( core::u32 gridID = GRID_COUNT; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+			gridScales[gridID] = gridScales[GRID_COUNT-1];
+
+		D3D11_MAPPED_SUBRESOURCE res;
+		V6_ASSERT_D3D11( m_ctx->Map( m_sampleCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+		v6::hlsl::CBSample* cbSample = (v6::hlsl::CBSample*)res.pData;
+
+		cbSample->c_depthLinearScale = -1.0f / ZNEAR;
+		cbSample->c_depthLinearBias = 1.0f / ZNEAR;
+		cbSample->c_invCubeSize.x = 1.0f / CUBE_SIZE;
+		cbSample->c_invCubeSize.y = 1.0f / CUBE_SIZE;
+		cbSample->c_cubeCenter = *sampleOffset;
+		cbSample->c_currentMip = 0;
+		cbSample->c_mipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
+		cbSample->c_mipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
+		cbSample->c_mipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
+		cbSample->c_mipBoundariesD = core::Vec4_Make( gridScales[12], gridScales[13], gridScales[14], gridScales[15] );
+		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+			cbSample->c_invGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
+
+		m_ctx->Unmap( m_sampleCBUF, 0 );		
+	}
+
+	core::u32 values[4] = {};
+	m_ctx->ClearUnorderedAccessViewUint( m_sample.collectedIndirectArgs.uav, values );
+		
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &m_sampleCBUF );
+	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
+	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_SLOT, 1, &m_sample.collectedSamples.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.collectedIndirectArgs.uav, nullptr );
+	m_ctx->CSSetShader( m_computes[COMPUTE_SAMPLECOLLECT].m_computeShader, nullptr, 0 );
+		
+	const core::u32 cubeGroupCount = m_cube.size >> 4;
+	m_ctx->Dispatch( cubeGroupCount, cubeGroupCount, CUBE_AXIS_COUNT );
+
+	// Unset		
+	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	m_userDefinedAnnotation->EndEvent();
+}
+
+void CRenderingDevice::Sort()
+{
+	static const void* nulls[8] = {};
+
+	m_userDefinedAnnotation->BeginEvent( L"Sort");
+
+	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+
+	core::u32 values[4] = {};
+	m_ctx->ClearUnorderedAccessViewUint( m_sample.sortedIndirectArgs.uav, values );
+
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &m_sampleCBUF );
+	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_SLOT, 1, &m_sample.collectedSamples.srv );
+	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.collectedIndirectArgs.srv );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.uav, nullptr );
+	m_ctx->CSSetShader( m_computes[COMPUTE_SAMPLESORT].m_computeShader, nullptr, 0 );
+
+	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	{
+		// Update buffers				
+		{
+			D3D11_MAPPED_SUBRESOURCE res;
+			V6_ASSERT_D3D11( m_ctx->Map( m_sampleCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+			v6::hlsl::CBSample* cbSample = (v6::hlsl::CBSample*)res.pData;
+			cbSample->c_currentMip = mip;
+			m_ctx->Unmap( m_sampleCBUF, 0 );		
+		}		
+		
+		m_ctx->DispatchIndirect( m_sample.collectedIndirectArgs.buf, 0 );		
+	}
+
+	// Unset
+	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	m_userDefinedAnnotation->EndEvent();
+}
+
 void CRenderingDevice::Draw( float dt )
 {
 	static int lastMousePosX = -1;
@@ -2018,6 +2222,31 @@ void CRenderingDevice::Draw( float dt )
 
 		m_userDefinedAnnotation->EndEvent();
 	}
+	else if ( g_drawMode == DRAW_MODE_GET )
+	{
+		const core::Vec3 sampleOffset = m_sampleOffsets[0];
+
+		// Rasterization state
+		m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
+		m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
+
+		// Viewport
+		{
+			D3D11_VIEWPORT viewport = {};
+			viewport.TopLeftX = 0;
+			viewport.TopLeftY = 0;
+			viewport.Width = (float)m_cube.size;
+			viewport.Height = (float)m_cube.size;
+			viewport.MinDepth = 0.0f;
+			viewport.MaxDepth = 1.0f;
+
+			m_ctx->RSSetViewports( 1, &viewport );
+		}
+
+		Capture( &sampleOffset );
+		Collect( &sampleOffset );
+		Sort();
+	}
 #if V6_DISABLE_OLD_GRID == 0
 	else if ( g_drawMode == DRAW_MODE_GRID )
 	{
@@ -2150,7 +2379,10 @@ void CRenderingDevice::Release()
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
 	m_viewCBUF->Release();
+#if V6_DISABLE_OLD_GRID == 0
 	m_gridCBUF->Release();
+#endif // #if V6_DISABLE_OLD_GRID == 0
+	m_sampleCBUF->Release();
 
 	for ( uint meshID = 0; meshID < MESH_COUNT; ++meshID )
 	{
