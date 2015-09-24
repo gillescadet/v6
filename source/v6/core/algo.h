@@ -5,15 +5,9 @@
 #ifndef __V6_CORE_ALGO_H__
 #define __V6_CORE_ALGO_H__
 
-BEGIN_V6_CORE_NAMESPACE
+#include <v6/core/math.h>
 
-template <typename T>
-void Swap(T & v1, T & v2)
-{
-	T t = v1;
-	v1 = v2;
-	v2 = t;
-}
+BEGIN_V6_CORE_NAMESPACE
 
 template <typename T>
 void QuickSort(T * pValues, int nFirst, int nLast)

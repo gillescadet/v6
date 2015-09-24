@@ -27,9 +27,9 @@
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
-#define KB( X )		((X) >> 10)
-#define MB( X )		((X) >> 20)
-#define GB( X )		((X) >> 30)
+#define KB( X )					((X) >> 10)
+#define MB( X )					((X) >> 20)
+#define GB( X )					((X) >> 30)
 
 BEGIN_V6_VIEWER_NAMESPACE
 
@@ -41,158 +41,6 @@ enum DrawMode_e
 	
 	DRAW_MODE_COUNT
 };
-
-static const core::u32 ZOOM					= 1;
-static const float ZNEAR					= 10.0f;
-static const float ZFAR						= 10000.0f;
-static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
-static const core::u32 GRID_MAX_COUNT		= 10;
-static const float GRID_MAX_SCALE			= 1000.0f;
-static const float GRID_MIN_SCALE			= 100.0f;
-static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 1;
-static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 64;
-
-static const uint VERTEX_INPUT_MAX_COUNT	= 6;
-static const uint ENTITY_MAX_COUNT			= 4096;
-
-static bool g_mousePressed = false;
-static int g_mousePosX = 0;
-static int g_mousePosY = 0;
-static int g_keyLeftPressed = false;
-static int g_keyRightPressed = false;
-static int g_keyUpPressed = false;
-static int g_keyDownPressed = false;
-
-static int g_frameLimitation = true;
-
-static DrawMode_e g_drawMode = DRAW_MODE_DEFAULT;
-
-static int g_sample = 0;
-
-static int g_limit = false; 
-
-static float s_yaw = 0.0f;
-static float s_pitch = 0.0f;
-static core::Vec3 s_headOffset = core::Vec3_Zero();
-
-LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
-{
-	switch (message)
-	{
-	case WM_CHAR:
-		switch (wParam)
-		{
-		case 0x1B:
-			DestroyWindow(hWnd);
-			break;
-		};
-		break;
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		break;
-	case WM_KEYDOWN:
-	case WM_KEYUP:
-		{
-			const bool pressed = message == WM_KEYDOWN;
-			switch( wParam )
-			{
-			case 'A': g_keyLeftPressed = pressed; break;
-			case 'D': g_keyRightPressed = pressed; break;
-			case 'S': g_keyDownPressed = pressed; break;
-			case 'W': g_keyUpPressed = pressed; break;
-			case 'F': g_frameLimitation = !pressed; break;
-			case 'C': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_CUBE ? DRAW_MODE_DEFAULT : DRAW_MODE_CUBE) : g_drawMode; break;
-			case 'G': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_GET ? DRAW_MODE_DEFAULT : DRAW_MODE_GET) : g_drawMode; break;
-			case 'R': g_sample = 0; break;
-			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
-			case ' ':
-				s_yaw = 0.0f;
-				s_pitch = 0.0f;
-				s_headOffset = core::Vec3_Zero();
-				break;
-			}
-		}
-		break;
-	case WM_LBUTTONDOWN:
-	case WM_LBUTTONUP:
-		{
-			g_mousePressed = message == WM_LBUTTONDOWN;
-			g_mousePosX = GET_X_LPARAM( lParam ); 
-			g_mousePosY = GET_Y_LPARAM( lParam );
-
-			if ( g_mousePressed )
-			{				
-				SetCapture( hWnd ) ;
-				ShowCursor( false );
-			}
-			else
-			{
-				ShowCursor( true );
-				ReleaseCapture();				
-			}
-		}
-		break;
-	case WM_MOUSEMOVE:
-		{
-			if ( g_mousePressed )
-			{
-				g_mousePosX = GET_X_LPARAM( lParam ); 
-				g_mousePosY = GET_Y_LPARAM( lParam );
-			}
-		}
-		break;
-	default:
-		return DefWindowProcA(hWnd, message, wParam, lParam);
-		break;
-	}
-
-	return 0;
-}
-
-HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
-{
-	WNDCLASSEXA wcex;
-
-	wcex.cbSize = sizeof(WNDCLASSEX);
-	wcex.style = CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc = WndProc;
-	wcex.cbClsExtra = 0;
-	wcex.cbWndExtra = 0;
-	wcex.hInstance = NULL;
-	wcex.hIcon = NULL;
-	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wcex.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	wcex.lpszMenuName = NULL;
-	wcex.lpszClassName = "v6";
-	wcex.hIconSm = NULL;
-
-	if (!RegisterClassExA(&wcex))
-	{
-		V6_ERROR("Call to RegisterClassEx failed!");
-		return 0;
-	}
-
-	const int style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU| WS_MINIMIZEBOX;
-		
-	RECT rect = { 0, 0, nWidth, nHeight };
-	AdjustWindowRect( &rect, style, false );
-
-	HWND hWnd = CreateWindowA(
-		"v6",
-		sTitle,
-		style,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		rect.right - rect.left, rect.bottom - rect.top,
-		NULL,
-		NULL,
-		NULL,
-		NULL
-		);
-
-	return hWnd;
-}
 
 enum
 {
@@ -240,6 +88,10 @@ enum
 
 	COMPUTE_SAMPLECOLLECT,
 	COMPUTE_SAMPLESORT,
+	COMPUTE_BUILDINNER,
+	COMPUTE_BUILDLEAF,
+	COMPUTE_FILLLEAF,
+	COMPUTE_PACKCOLOR,
 
 	COMPUTE_COUNT
 };
@@ -285,6 +137,8 @@ enum CubeAxis_e
 	CUBE_AXIS_COUNT
 };
 
+#if V6_DISABLE_OLD_GRID == 0
+
 enum
 {
 	GRID_BUFFER_BLOCK_ID,
@@ -300,6 +154,8 @@ enum
 	GRID_BUFFER_COUNT
 };
 
+#endif // #if V6_DISABLE_OLD_GRID == 0
+
 struct BasicVertex_s
 {
 	core::Vec3 position;
@@ -312,9 +168,15 @@ struct CubeVertex_s
 	core::Vec2 uv;
 };
 
+enum GPUBufferCreationFlag_e
+{
+	GPUBUFFER_CREATION_FLAG_READ_BACK = 1 << 0
+};
+
 struct GPUBuffer_s
 {
 	ID3D11Buffer*					buf;
+	ID3D11Buffer*					staging;
 	ID3D11ShaderResourceView*		srv;
 	ID3D11UnorderedAccessView*		uav;
 };
@@ -397,6 +259,177 @@ struct Sample_s
 	GPUBuffer_s collectedIndirectArgs;
 	GPUBuffer_s sortedIndirectArgs;
 };
+
+struct Octree_s
+{
+	GPUBuffer_s sampleNodeOffsets;
+	GPUBuffer_s firstChildOffsets;
+	ID3D11UnorderedAccessView* firstChildOffsetsLimitedUAV;
+	GPUBuffer_s leaves;
+	GPUBuffer_s indirectArgs;
+};
+
+struct Packed_s
+{
+	GPUBuffer_s packedColors;
+	GPUBuffer_s indirectArgs;
+};
+
+static const core::u32 ZOOM					= 1;
+static const float ZNEAR					= 10.0f;
+static const float ZFAR						= 10000.0f;
+static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
+static const core::u32 GRID_MAX_COUNT		= 10;
+static const float GRID_MAX_SCALE			= 1000.0f;
+static const float GRID_MIN_SCALE			= 100.0f;
+static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
+static const int SAMPLE_MAX_COUNT			= 1;
+static const float FREE_SCALE				= 50.0f;
+static const core::u32 RANDOM_CUBE_COUNT	= 64;
+
+static const uint VERTEX_INPUT_MAX_COUNT	= 6;
+static const uint ENTITY_MAX_COUNT			= 4096;
+
+static bool g_mousePressed					= false;
+static int g_mousePosX						= 0;
+static int g_mousePosY						= 0;
+static int g_keyLeftPressed					= false;
+static int g_keyRightPressed				= false;
+static int g_keyUpPressed					= false;
+static int g_keyDownPressed					= false;
+
+static int g_frameLimitation				= true;
+
+static DrawMode_e g_drawMode				= DRAW_MODE_DEFAULT;
+
+static int g_sample							= 0;
+
+static int g_limit							= false; 
+
+static float s_yaw							= 0.0f;
+static float s_pitch						= 0.0f;
+static core::Vec3 s_headOffset				= core::Vec3_Zero();
+
+static core::u32 gpuMemory					= 0;
+
+static bool s_logReadBack					= false;
+
+LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
+{
+	switch (message)
+	{
+	case WM_CHAR:
+		switch (wParam)
+		{
+		case 0x1B:
+			DestroyWindow(hWnd);
+			break;
+		};
+		break;
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		break;
+	case WM_KEYDOWN:
+	case WM_KEYUP:
+		{
+			const bool pressed = message == WM_KEYDOWN;
+			switch( wParam )
+			{
+			case 'A': g_keyLeftPressed = pressed; break;
+			case 'D': g_keyRightPressed = pressed; break;
+			case 'S': g_keyDownPressed = pressed; break;
+			case 'W': g_keyUpPressed = pressed; break;
+			case 'F': g_frameLimitation = !pressed; break;
+			case 'C': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_CUBE ? DRAW_MODE_DEFAULT : DRAW_MODE_CUBE) : g_drawMode; break;
+			case 'G': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_GET ? DRAW_MODE_DEFAULT : DRAW_MODE_GET) : g_drawMode; break;
+			case 'R': if ( pressed ) { g_sample = 0; s_logReadBack = true; } break;
+			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
+			case ' ':
+				s_yaw = 0.0f;
+				s_pitch = 0.0f;
+				s_headOffset = core::Vec3_Zero();
+				break;
+			}
+		}
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+		{
+			g_mousePressed = message == WM_LBUTTONDOWN;
+			g_mousePosX = GET_X_LPARAM( lParam ); 
+			g_mousePosY = GET_Y_LPARAM( lParam );
+
+			if ( g_mousePressed )
+			{				
+				SetCapture( hWnd ) ;
+				ShowCursor( false );
+			}
+			else
+			{
+				ShowCursor( true );
+				ReleaseCapture();				
+			}
+		}
+		break;
+	case WM_MOUSEMOVE:
+		{
+			if ( g_mousePressed )
+			{
+				g_mousePosX = GET_X_LPARAM( lParam ); 
+				g_mousePosY = GET_Y_LPARAM( lParam );
+			}
+		}
+		break;
+	default:
+		return DefWindowProcA(hWnd, message, wParam, lParam);
+		break;
+	}
+
+	return 0;
+}
+
+static HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
+{
+	WNDCLASSEXA wcex;
+
+	wcex.cbSize = sizeof(WNDCLASSEX);
+	wcex.style = CS_HREDRAW | CS_VREDRAW;
+	wcex.lpfnWndProc = WndProc;
+	wcex.cbClsExtra = 0;
+	wcex.cbWndExtra = 0;
+	wcex.hInstance = NULL;
+	wcex.hIcon = NULL;
+	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
+	wcex.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	wcex.lpszMenuName = NULL;
+	wcex.lpszClassName = "v6";
+	wcex.hIconSm = NULL;
+
+	if (!RegisterClassExA(&wcex))
+	{
+		V6_ERROR("Call to RegisterClassEx failed!");
+		return 0;
+	}
+
+	const int style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU| WS_MINIMIZEBOX;
+		
+	RECT rect = { 0, 0, nWidth, nHeight };
+	AdjustWindowRect( &rect, style, false );
+
+	HWND hWnd = CreateWindowA(
+		"v6",
+		sTitle,
+		style,
+		CW_USEDEFAULT, CW_USEDEFAULT,
+		rect.right - rect.left, rect.bottom - rect.top,
+		NULL,
+		NULL,
+		NULL,
+		NULL
+		);
+
+	return hWnd;
+}
 
 static const char* ModeToString( DrawMode_e drawMode )
 {
@@ -641,8 +674,11 @@ static bool Shader_Create( ID3D11Device* device, Shader_s* shader, const char* v
 static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
 {
 	switch( format )
-	{
+	{	
+	case DXGI_FORMAT_D32_FLOAT:		
+	case DXGI_FORMAT_R8G8B8A8_UNORM:
 	case DXGI_FORMAT_R32_UINT:
+	case DXGI_FORMAT_R32_TYPELESS:
 		return 4;
 	default:
 		V6_ASSERT( !"Not supported" );
@@ -650,8 +686,26 @@ static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
 	}
 }
 
-void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 count, const char* name )
+static void ReadBack_Log( const char* res, core::u32 value, const char* name )
 {
+	printf( "%-16s %-30s: %8d\n", res, name, value );
+}
+
+static void GPUResource_LogMemory( const char* res, core::u32 size, const char* name )
+{
+	printf( "%-16s %-30s: %8d MB\n", res, name, MB( size ) );
+	gpuMemory += size;
+}
+
+static void GPUResource_LogMemoryUsage()
+{
+	printf( "%-16s %-30s: %8d MB\n", "GPU", "total", MB( gpuMemory ) );
+}
+
+static void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 count, core::u32 flags, const char* name )
+{
+	memset( buffer, 0, sizeof( *buffer ) );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * sizeof( core::u32 );
@@ -662,7 +716,21 @@ void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, co
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
+		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+	}
+
+	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
+	{
+		D3D11_BUFFER_DESC bufferDesc = {};
+		bufferDesc.ByteWidth = count * sizeof( core::u32 );
+		bufferDesc.Usage = D3D11_USAGE_STAGING;
+		bufferDesc.BindFlags = 0;
+		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		bufferDesc.MiscFlags = 0;
+		bufferDesc.StructureByteStride = 0;
+		
+		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
+		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
 	}
 
 	{
@@ -687,8 +755,10 @@ void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, co
 	}
 }
 
-void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORMAT format, core::u32 count, const char* name )
+static void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORMAT format, core::u32 count, const char* name )
 {
+	memset( buffer, 0, sizeof( *buffer ) );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * DXGIFormat_Size( format );
@@ -699,7 +769,7 @@ void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORM
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
+		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
 	}
 
 	{
@@ -724,8 +794,10 @@ void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DXGI_FORM
 	}
 }
 
-void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 elementSize, core::u32 count, const char* name )
+static void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 elementSize, core::u32 count, const char* name )
 {
+	memset( buffer, 0, sizeof( *buffer ) );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * elementSize;
@@ -736,7 +808,7 @@ void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffer, core
 		bufferDesc.StructureByteStride = elementSize;
 		
 		V6_ASSERT_D3D11( device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		printf( "GPUBuffer %s: %d MB\n", name, MB( bufferDesc.ByteWidth ) );
+		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
 	}
 
 	{
@@ -761,11 +833,26 @@ void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffer, core
 	}
 }
 
-void GPUBuffer_Release( ID3D11Device* device, GPUBuffer_s* buffer )
+static void GPUBuffer_Release( ID3D11Device* device, GPUBuffer_s* buffer )
 {
 	buffer->buf->Release();
 	buffer->srv->Release();
 	buffer->uav->Release();
+}
+
+template < typename T >
+static T* GPUBUffer_MapReadBack( ID3D11DeviceContext* context, GPUBuffer_s* buffer )
+{
+	context->CopyResource( buffer->staging, buffer->buf );
+
+	D3D11_MAPPED_SUBRESOURCE res;
+	V6_ASSERT_D3D11( context->Map( buffer->staging, 0, D3D11_MAP_READ, 0, &res ) );
+	return (T*)res.pData;
+}
+
+static void GPUBUffer_UnmapReadBack( ID3D11DeviceContext* context, GPUBuffer_s* buffer )
+{
+	context->Unmap( buffer->staging, 0 );
 }
 
 static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
@@ -785,6 +872,7 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.MiscFlags = 0;
 		
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->colorBuffer) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "cubeColors" );
 	}
 
 	{
@@ -812,20 +900,21 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 	}
 	
 	{
-		D3D11_TEXTURE2D_DESC depthStencilDesc = {};
-		depthStencilDesc.Width = size;
-		depthStencilDesc.Height = size;
-		depthStencilDesc.MipLevels = 1;
-		depthStencilDesc.ArraySize = 6;
-		depthStencilDesc.Format = DXGI_FORMAT_R32_TYPELESS;		
-		depthStencilDesc.SampleDesc.Count = 1;
-		depthStencilDesc.SampleDesc.Quality = 0;
-		depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
-		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-		depthStencilDesc.CPUAccessFlags = 0;
-		depthStencilDesc.MiscFlags = 0;
+		D3D11_TEXTURE2D_DESC texDesc = {};
+		texDesc.Width = size;
+		texDesc.Height = size;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 6;
+		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;		
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
 
-		V6_ASSERT_D3D11( device->CreateTexture2D( &depthStencilDesc, nullptr, &cube->depthBuffer ) );
+		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->depthBuffer ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "cubeDepths" );
 	}
 
 	{
@@ -1137,8 +1226,8 @@ static void Sample_Create( ID3D11Device* device, Sample_s* sample, core::u32 cub
 	const core::u32 sampleCount = cubeSize * cubeSize * 6;
 	GPUBuffer_CreateStructured( device, &sample->collectedSamples, sizeof( hlsl::Sample ), sampleCount, "collectedSamples" );
 	GPUBuffer_CreateStructured( device, &sample->sortedSamples, sizeof( hlsl::Sample ), sampleCount, "sortedSamples" );
-	GPUBuffer_CreateIndirectArgs( device, &sample->collectedIndirectArgs, 4, "collectedIndirectArgs" );
-	GPUBuffer_CreateIndirectArgs( device, &sample->sortedIndirectArgs, HLSL_MIP_MAX_COUNT, "sortedIndirectArgs" );
+	GPUBuffer_CreateIndirectArgs( device, &sample->collectedIndirectArgs, collectedSample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "collectedSampleIndirectArgs" );
+	GPUBuffer_CreateIndirectArgs( device, &sample->sortedIndirectArgs, sortedSample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "sortedSampleIndirectArgs" );
 }
 
 static void Sample_Release( ID3D11Device* device, Sample_s* sample )
@@ -1147,6 +1236,52 @@ static void Sample_Release( ID3D11Device* device, Sample_s* sample )
 	GPUBuffer_Release( device, &sample->sortedSamples );
 	GPUBuffer_Release( device, &sample->collectedIndirectArgs );
 	GPUBuffer_Release( device, &sample->sortedIndirectArgs );
+}
+
+static void Octree_Create( ID3D11Device* device, Octree_s* octree, core::u32 cubeSize, core::u32 gridWidth, core::IHeap* heap )
+{
+	const core::u32 sampleCount = cubeSize * cubeSize * 6;
+	const core::u32 leafCount = gridWidth * gridWidth * 6 * 2;
+	const core::u32 nodeCount = leafCount * 8 / 7;
+	
+	GPUBuffer_CreateTyped( device, &octree->sampleNodeOffsets, DXGI_FORMAT_R32_UINT, sampleCount, "octreeSampleNodeOffsets" );
+	GPUBuffer_CreateTyped( device, &octree->firstChildOffsets, DXGI_FORMAT_R32_UINT, nodeCount, "octreeFirstChildOffsets" );
+	
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_R32_UINT;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = GRID_COUNT * 8;
+		uavDesc.Buffer.Flags = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( octree->firstChildOffsets.buf, &uavDesc, &octree->firstChildOffsetsLimitedUAV ) );
+	}
+
+	GPUBuffer_CreateStructured( device, &octree->leaves, sizeof( hlsl::OctreeLeaf ), leafCount, "octreeLeaves" );
+	GPUBuffer_CreateIndirectArgs( device, &octree->indirectArgs, octree_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "octreeIndirectArgs" );
+}
+
+static void Octree_Release( ID3D11Device* device, Octree_s* octree )
+{
+	GPUBuffer_Release( device, &octree->sampleNodeOffsets );
+	GPUBuffer_Release( device, &octree->firstChildOffsets );
+	GPUBuffer_Release( device, &octree->leaves );
+	GPUBuffer_Release( device, &octree->indirectArgs );
+}
+
+static void Packed_Create( ID3D11Device* device, Packed_s* packed, core::u32 gridWidth, core::IHeap* heap )
+{
+	const core::u32 cellCount = gridWidth * gridWidth * 6 * 2 * 5 / 4;
+	
+	GPUBuffer_CreateTyped( device, &packed->packedColors, DXGI_FORMAT_R32_UINT, cellCount, "packedColors" );
+	GPUBuffer_CreateIndirectArgs( device, &packed->indirectArgs, packed_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "packedIndirectArgs" );
+}
+
+static void Packed_Release( ID3D11Device* device, Packed_s* packed )
+{
+	GPUBuffer_Release( device, &packed->packedColors );
+	GPUBuffer_Release( device, &packed->indirectArgs );
 }
 
 static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -1331,7 +1466,7 @@ static void Mesh_CreateGrid( ID3D11Device* device, Mesh_s* mesh )
 #endif	
 }
 
-void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderID, const core::Vec3& pos, float scale )
+static void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderID, const core::Vec3& pos, float scale )
 {
 	entity->meshID = meshID;
 	entity->shaderID = shaderID;
@@ -1339,7 +1474,7 @@ void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderID, cons
 	entity->scale = scale;
 }
 
-void Mesh_Draw( Mesh_s* mesh, core::u32 instanceCount, Shader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, core::u32 offsetArgs )
+static void Mesh_Draw( Mesh_s* mesh, core::u32 instanceCount, Shader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, core::u32 offsetArgs )
 {
 	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
 	V6_ASSERT( instanceCount > 0 );
@@ -1403,6 +1538,7 @@ public:
 #if V6_DISABLE_OLD_GRID == 0
 	void Accumulate( Grid_s* grid, const core::Vec3* sampleOffset, bool clear, float gridScale );
 #endif // #if V6_DISABLE_OLD_GRID == 0
+	void BuildNode();
 	void Capture( const core::Vec3* sampleOffset );
 	void Collect( const core::Vec3* sampleOffset );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IHeap* heap, core::IStack* stack );
@@ -1412,6 +1548,8 @@ public:
 	void DrawGrid( Grid_s* grid, float gridScale );
 #endif // #if V6_DISABLE_OLD_GRID == 0
 	void DrawWorld( const core::Mat4x4* viewMatrix );
+	void FillLeaf();
+	void PackColor();
 	void Present();
 	void Release();
 	void ReleaseObject(IUnknown** unknow);
@@ -1437,6 +1575,7 @@ public:
 	ID3D11Buffer* m_gridCBUF;
 #endif // #if V6_DISABLE_OLD_GRID == 0
 	ID3D11Buffer* m_sampleCBUF;
+	ID3D11Buffer* m_octreeCBUF;
 
 	Compute_s m_computes[COMPUTE_COUNT];
 	Shader_s m_shaders[SHADER_COUNT];
@@ -1447,12 +1586,13 @@ public:
 	uint m_entityCount;
 
 	Cube_s m_cube;
+	Sample_s m_sample;
+	Octree_s m_octree;
+	Packed_s m_packed;
 
 #if V6_DISABLE_OLD_GRID == 0
 	Grid_s m_grids[GRID_MAX_COUNT];
 #endif // #if V6_DISABLE_OLD_GRID == 0
-
-	Sample_s m_sample;
 
 	core::IHeap* m_heap;
 	core::IStack* m_stack;
@@ -1551,20 +1691,21 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	V6_ASSERT_D3D11( m_device->CreateRenderTargetView( m_pColorBuffer, 0, &m_pColorView ) );
 	
 	{
-		D3D11_TEXTURE2D_DESC oDepthStencilDesc;
-		oDepthStencilDesc.Width = nWidth;
-		oDepthStencilDesc.Height = nHeight;
-		oDepthStencilDesc.MipLevels = 1;
-		oDepthStencilDesc.ArraySize = 1;
-		oDepthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;	
-		oDepthStencilDesc.SampleDesc.Count = 1;
-		oDepthStencilDesc.SampleDesc.Quality = 0;
-		oDepthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
-		oDepthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-		oDepthStencilDesc.CPUAccessFlags = 0;
-		oDepthStencilDesc.MiscFlags = 0;
+		D3D11_TEXTURE2D_DESC texDesc;
+		texDesc.Width = nWidth;
+		texDesc.Height = nHeight;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 1;
+		texDesc.Format = DXGI_FORMAT_D32_FLOAT;	
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
 
-		V6_ASSERT_D3D11( m_device->CreateTexture2D( &oDepthStencilDesc, 0, &m_pDepthStencilBuffer ) );
+		V6_ASSERT_D3D11( m_device->CreateTexture2D( &texDesc, 0, &m_pDepthStencilBuffer ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "mainDepths" );
 	}
 
 	{
@@ -1661,6 +1802,18 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_sampleCBUF ) );
 	}
 
+	{
+		D3D11_BUFFER_DESC bufDesc = {};	
+		bufDesc.Usage = D3D11_USAGE_DYNAMIC;
+		bufDesc.ByteWidth = sizeof( v6::hlsl::CBOctree );
+		bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bufDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bufDesc.MiscFlags = 0;
+		bufDesc.StructureByteStride = 0;
+
+		V6_ASSERT_D3D11( m_device->CreateBuffer( &bufDesc, nullptr, &m_octreeCBUF ) );
+	}
+
 #if V6_DISABLE_OLD_GRID == 0
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDCLEAR], "grid_clear_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_GRIDFILL], "grid_fill_cs.cso", fileSystem, stack );
@@ -1669,6 +1822,10 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	
 	Compute_Create( m_device, &m_computes[COMPUTE_SAMPLECOLLECT], "sample_collect_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_SAMPLESORT], "sample_sort_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_BUILDINNER], "octree_build_inner_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_BUILDLEAF], "octree_build_leaf_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_FILLLEAF], "octree_fill_leaf_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_PACKCOLOR], "octree_pack_cs.cso", fileSystem, stack );
 		
 	Shader_Create( m_device, &m_shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( m_device, &m_shaders[SHADER_CUBE_RENDER], "cube_render_vs.cso", "cube_render_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, fileSystem, stack );
@@ -1711,6 +1868,9 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	}
 	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
+	Sample_Create( m_device, &m_sample, CUBE_SIZE, heap );
+	Octree_Create( m_device, &m_octree, CUBE_SIZE, HLSL_GRID_WIDTH, heap );
+	Packed_Create( m_device, &m_packed, HLSL_GRID_WIDTH, heap );
 
 #if V6_DISABLE_OLD_GRID == 0
 	V6_ASSERT( GRID_COUNT < GRID_MAX_COUNT );
@@ -1718,8 +1878,6 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		Grid_Create( m_device, &m_grids[gridID], HLSL_GRID_MACRO_SHIFT, heap );
 #endif // #if V6_DISABLE_OLD_GRID == 0
 
-	Sample_Create( m_device, &m_sample, CUBE_SIZE, heap );
-	
 	m_width = nWidth;
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
@@ -1730,6 +1888,8 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_sampleOffsets[0] = core::Vec3_Make( 0.0f, 0.0f, 0.0f );
 	for ( core::u32 sample = 1; sample < SAMPLE_MAX_COUNT; ++sample )
 		m_sampleOffsets[sample] = core::Vec3_Rand() * FREE_SCALE;
+
+	GPUResource_LogMemoryUsage();
 	
 	return true;
 }
@@ -1990,18 +2150,18 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset  )
 
 		v6::hlsl::CBSample* cbSample = (v6::hlsl::CBSample*)res.pData;
 
-		cbSample->c_depthLinearScale = -1.0f / ZNEAR;
-		cbSample->c_depthLinearBias = 1.0f / ZNEAR;
-		cbSample->c_invCubeSize.x = 1.0f / CUBE_SIZE;
-		cbSample->c_invCubeSize.y = 1.0f / CUBE_SIZE;
-		cbSample->c_cubeCenter = *sampleOffset;
-		cbSample->c_currentMip = 0;
-		cbSample->c_mipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
-		cbSample->c_mipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
-		cbSample->c_mipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
-		cbSample->c_mipBoundariesD = core::Vec4_Make( gridScales[12], gridScales[13], gridScales[14], gridScales[15] );
+		cbSample->c_sampleDepthLinearScale = -1.0f / ZNEAR;
+		cbSample->c_sampleDepthLinearBias = 1.0f / ZNEAR;
+		cbSample->c_sampleInvCubeSize.x = 1.0f / CUBE_SIZE;
+		cbSample->c_sampleInvCubeSize.y = 1.0f / CUBE_SIZE;
+		cbSample->c_sampleCubeCenter = *sampleOffset;
+		cbSample->c_sampleCurrentMip = 0;
+		cbSample->c_sampleMipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
+		cbSample->c_sampleMipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
+		cbSample->c_sampleMipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
+		cbSample->c_sampleMipBoundariesD = core::Vec4_Make( gridScales[12], gridScales[13], gridScales[14], gridScales[15] );
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
-			cbSample->c_invGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
+			cbSample->c_sampleInvGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
 
 		m_ctx->Unmap( m_sampleCBUF, 0 );		
 	}
@@ -2026,6 +2186,21 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset  )
 	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 	m_userDefinedAnnotation->EndEvent();
+	
+	if ( s_logReadBack )
+	{
+		// Read back
+		core::u32* collectedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.collectedIndirectArgs );
+		
+		printf( "\n" );
+		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_sortGroupCountX_offset], "sortGroupCountX"  );
+		V6_ASSERT( collectedIndirectArgs[collectedSample_sortGroupCountY_offset] == 1 );
+		V6_ASSERT( collectedIndirectArgs[collectedSample_sortGroupCountZ_offset] == 1 );
+		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_count_offset], "count"  );
+		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_error_offset], "error"  );
+
+		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.collectedIndirectArgs );
+	}
 }
 
 void CRenderingDevice::Sort()
@@ -2054,7 +2229,7 @@ void CRenderingDevice::Sort()
 			V6_ASSERT_D3D11( m_ctx->Map( m_sampleCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
 
 			v6::hlsl::CBSample* cbSample = (v6::hlsl::CBSample*)res.pData;
-			cbSample->c_currentMip = mip;
+			cbSample->c_sampleCurrentMip = mip;
 			m_ctx->Unmap( m_sampleCBUF, 0 );		
 		}		
 		
@@ -2068,6 +2243,256 @@ void CRenderingDevice::Sort()
 	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 	m_userDefinedAnnotation->EndEvent();
+
+	if ( s_logReadBack )
+	{
+		// Read back
+		core::u32* sortedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.sortedIndirectArgs );
+
+		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+		{
+			if ( sortedIndirectArgs[sortedSample_count_offset( mip )] == 0 )
+				continue;
+
+			printf( "\n" );
+			ReadBack_Log( "sortedSample", mip, "mip" );
+			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_groupCountX_offset( mip )], "groupCountX" );
+			V6_ASSERT( sortedIndirectArgs[sortedSample_groupCountY_offset( mip )] == 1 );
+			V6_ASSERT( sortedIndirectArgs[sortedSample_groupCountZ_offset( mip )] == 1 );
+			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_count_offset( mip )], "count" );
+			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_sum_offset( mip )], "sum" );
+		}
+		
+		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.sortedIndirectArgs );
+	}
+}
+
+void CRenderingDevice::BuildNode()
+{
+	static const void* nulls[8] = {};
+
+	m_userDefinedAnnotation->BeginEvent( L"BuildNode");
+
+	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+
+	core::u32 values[4] = {};
+	m_ctx->ClearUnorderedAccessViewUint( m_octree.indirectArgs.uav, values );
+	m_ctx->ClearUnorderedAccessViewUint( m_octree.firstChildOffsetsLimitedUAV, values );
+
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &m_octreeCBUF );
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.srv );
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.srv );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, &m_octree.sampleNodeOffsets.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, &m_octree.firstChildOffsets.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, &m_octree.leaves.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &m_octree.indirectArgs.uav, nullptr );		
+
+	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	{
+		m_ctx->CSSetShader( m_computes[COMPUTE_BUILDINNER].m_computeShader, nullptr, 0 );
+
+		for ( core::u32 level = 0; level < HLSL_GRID_SHIFT; ++level )
+		{
+			// Update buffers				
+			{
+				D3D11_MAPPED_SUBRESOURCE res;
+				V6_ASSERT_D3D11( m_ctx->Map( m_octreeCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+				v6::hlsl::CBOctree* cbOctree = (v6::hlsl::CBOctree*)res.pData;
+				cbOctree->c_octreeCurrentMip = mip;
+				cbOctree->c_octreeCurrentLevel = level;
+				cbOctree->c_octreeCurrentBucket = 0;
+				m_ctx->Unmap( m_octreeCBUF, 0 );		
+			}
+
+			if ( level == HLSL_GRID_SHIFT-1 )
+				m_ctx->CSSetShader( m_computes[COMPUTE_BUILDLEAF].m_computeShader, nullptr, 0 );
+
+			m_ctx->DispatchIndirect( m_sample.sortedIndirectArgs.buf, sortedSample_groupCountX_offset( mip ) * sizeof( core::u32 ) );
+		}		
+	}
+
+	// Unset
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	m_userDefinedAnnotation->EndEvent();
+
+	if ( s_logReadBack )
+	{
+		core::u32* octreeIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_octree.indirectArgs );
+
+		printf( "\n" );
+		ReadBack_Log( "octree", octreeIndirectArgs[octree_nodeCount_offset], "nodeCount" );
+
+		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+		{
+			if ( octreeIndirectArgs[octree_leafCount_offset( mip )] == 0 )
+				continue;
+
+			printf( "\n" );
+			ReadBack_Log( "octree", mip, "mip" );
+			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafGroupCountX_offset( mip )], "leafGroupCountX" );
+			V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountY_offset( mip )] == 1 );
+			V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountZ_offset( mip )] == 1 );
+			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafCount_offset( mip )], "leafCount" );
+			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafSum_offset( mip )], "leafSum" );
+		}
+
+		GPUBUffer_UnmapReadBack( m_ctx, &m_octree.indirectArgs );
+	}
+}
+
+void CRenderingDevice::FillLeaf()
+{
+	static const void* nulls[8] = {};
+
+	m_userDefinedAnnotation->BeginEvent( L"FillLeaf");
+
+	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &m_octreeCBUF );
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.srv );
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.srv );
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, &m_octree.sampleNodeOffsets.srv );
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, &m_octree.firstChildOffsets.srv );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, &m_octree.leaves.uav, nullptr );
+	m_ctx->CSSetShader( m_computes[COMPUTE_FILLLEAF].m_computeShader, nullptr, 0 );
+
+	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	{
+		// Update buffers				
+		{
+			D3D11_MAPPED_SUBRESOURCE res;
+			V6_ASSERT_D3D11( m_ctx->Map( m_octreeCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+			v6::hlsl::CBOctree* cbOctree = (v6::hlsl::CBOctree*)res.pData;
+			cbOctree->c_octreeCurrentMip = mip;
+			cbOctree->c_octreeCurrentLevel = 0;
+			cbOctree->c_octreeCurrentBucket = 0;
+			m_ctx->Unmap( m_octreeCBUF, 0 );		
+		}
+
+		m_ctx->DispatchIndirect( m_sample.sortedIndirectArgs.buf, sortedSample_groupCountX_offset( mip ) * sizeof( core::u32 ) );
+	}
+
+	// Unset
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	m_userDefinedAnnotation->EndEvent();
+}
+
+void CRenderingDevice::PackColor()
+{
+	static const void* nulls[8] = {};
+
+	m_userDefinedAnnotation->BeginEvent( L"Pack");
+
+	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+
+	core::u32 values[4] = {};
+	m_ctx->ClearUnorderedAccessViewUint( m_packed.indirectArgs.uav, values );
+
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &m_octreeCBUF );
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, &m_octree.firstChildOffsets.srv );
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_LEAF_SLOT, 1, &m_octree.leaves.srv );
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &m_octree.indirectArgs.srv );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PACKED_COLOR_SLOT, 1, &m_packed.packedColors.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PACKED_INDIRECT_ARGS_SLOT, 1, &m_packed.indirectArgs.uav, nullptr );
+	m_ctx->CSSetShader( m_computes[COMPUTE_PACKCOLOR].m_computeShader, nullptr, 0 );
+
+	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	{
+		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+		{
+			// Update buffers
+			{
+				D3D11_MAPPED_SUBRESOURCE res;
+				V6_ASSERT_D3D11( m_ctx->Map( m_octreeCBUF, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
+
+				v6::hlsl::CBOctree* cbOctree = (v6::hlsl::CBOctree*)res.pData;
+				cbOctree->c_octreeCurrentMip = mip;
+				cbOctree->c_octreeCurrentLevel = 0;
+				cbOctree->c_octreeCurrentBucket = bucket;
+				m_ctx->Unmap( m_octreeCBUF, 0 );		
+			}
+
+			m_ctx->DispatchIndirect( m_octree.indirectArgs.buf, octree_leafGroupCountX_offset( mip ) * sizeof( core::u32 ) );
+		}
+	}
+
+	// Unset
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PACKED_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PACKED_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	m_userDefinedAnnotation->EndEvent();
+
+	if ( s_logReadBack )
+	{
+		core::u32* packedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_packed.indirectArgs );
+
+		core::u32 allRealCellCount = 0;
+		core::u32 allMaxCellCount = 0; 
+		core::u32 realCellPerMipCounts[HLSL_MIP_MAX_COUNT] = {};
+		core::u32 maxCellPerMipCounts[HLSL_MIP_MAX_COUNT] = {}; 
+
+		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+		{
+			for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+			{
+				if ( packedIndirectArgs[packed_blockCount_offset( mip, bucket )] == 0 )
+					continue;
+
+				static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
+				const core::u32 maxCellCount = packedIndirectArgs[packed_blockCount_offset( mip, bucket )] * cellPerBucketCounts[bucket];
+
+				printf( "\n" );
+				ReadBack_Log( "packed", mip, "mip" );
+				ReadBack_Log( "packed", bucket, "bucket" );
+				V6_ASSERT( packedIndirectArgs[packed_vertexCountPerInstance_offset( mip, bucket )] == 1 );
+				ReadBack_Log( "packed", packedIndirectArgs[packed_renderInstanceCount_offset( mip, bucket )], "renderInstanceCount" );
+				V6_ASSERT( packedIndirectArgs[packed_startVertexLocation_offset( mip, bucket )] == 0 );
+				ReadBack_Log( "packed", packedIndirectArgs[packed_renderInstanceLocation_offset( mip, bucket )], "renderInstanceLocation" );
+				ReadBack_Log( "packed", packedIndirectArgs[packed_blockCount_offset( mip, bucket )], "blockCount" );
+				ReadBack_Log( "packed", packedIndirectArgs[packed_blockSum_offset( mip, bucket )], "blockSum" );
+				ReadBack_Log( "packed", packedIndirectArgs[packed_cellCount_offset( mip, bucket )], "realCellCount" );
+				ReadBack_Log( "packed", maxCellCount, "maxCellCount" );
+
+				realCellPerMipCounts[mip] += packedIndirectArgs[packed_cellCount_offset( mip, bucket )];
+				maxCellPerMipCounts[mip] += maxCellCount;
+			}
+
+			if ( maxCellPerMipCounts[mip] )
+			{
+				printf( "\n" );
+				ReadBack_Log( "packed_mip", mip, "mip" );
+				ReadBack_Log( "packed_mip", realCellPerMipCounts[mip], "realCellCount" );
+				ReadBack_Log( "packed_mip", maxCellPerMipCounts[mip], "maxCellCount" );
+				allRealCellCount += realCellPerMipCounts[mip];
+				allMaxCellCount += maxCellPerMipCounts[mip];
+			}
+		}
+
+		if ( allMaxCellCount )
+		{
+			printf( "\n" );
+			ReadBack_Log( "packed_all", allRealCellCount, "realCellCount" );
+			ReadBack_Log( "packed_all", allMaxCellCount, "maxCellCount" );
+		}
+
+		GPUBUffer_UnmapReadBack( m_ctx, &m_packed.indirectArgs );
+	}
 }
 
 void CRenderingDevice::Draw( float dt )
@@ -2246,6 +2671,11 @@ void CRenderingDevice::Draw( float dt )
 		Capture( &sampleOffset );
 		Collect( &sampleOffset );
 		Sort();
+		BuildNode();
+		FillLeaf();
+		PackColor();
+
+		s_logReadBack = false;
 	}
 #if V6_DISABLE_OLD_GRID == 0
 	else if ( g_drawMode == DRAW_MODE_GRID )
@@ -2372,6 +2802,9 @@ void CRenderingDevice::Release()
 	m_ctx->ClearState();
 	
 	Cube_Release( &m_cube );
+	Sample_Release( m_device, &m_sample );
+	Octree_Release( m_device, &m_octree );
+	Packed_Release( m_device, &m_packed );
 
 #if V6_DISABLE_OLD_GRID == 0
 	for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID )
@@ -2383,6 +2816,7 @@ void CRenderingDevice::Release()
 	m_gridCBUF->Release();
 #endif // #if V6_DISABLE_OLD_GRID == 0
 	m_sampleCBUF->Release();
+	m_octreeCBUF->Release();
 
 	for ( uint meshID = 0; meshID < MESH_COUNT; ++meshID )
 	{

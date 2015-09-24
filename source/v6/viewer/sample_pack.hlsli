@@ -13,7 +13,7 @@ void Sample_Pack( out Sample s, uint3 coords, uint mip, uint3 color )
 	s.row1 = (coords.z << 20) | (color.g << 12) | (color.b << 4) | mip;
 }
 
-void Sample_Unpack( Sample s, out uint3 coords, out uint mip, out uint3 color  )
+void Sample_Unpack( Sample s, out uint3 coords, out uint mip, out uint3 color )
 {
 	coords.x = s.row0 >> 20;
 	coords.y = (s.row0 >> 8) & 0xFFF;
@@ -28,7 +28,35 @@ void Sample_Unpack( Sample s, out uint3 coords, out uint mip, out uint3 color  )
 
 uint Sample_UnpackMip( Sample s )
 {
-	return s.row1 & 0xF;
+	uint3 coords;
+	uint mip;
+	uint3 color;
+	Sample_Unpack( s, coords, mip, color );
+	return mip;
+}
+
+uint3 Sample_UnpackCoords( Sample s )
+{
+	uint3 coords;
+	uint mip;
+	uint3 color;
+	Sample_Unpack( s, coords, mip, color );
+	return coords;
+}
+
+void Sample_UnpackCoordsAndMip( Sample s, out uint3 coords, out uint mip )
+{
+	uint3 color;
+	Sample_Unpack( s, coords, mip, color );
+}
+
+uint3 Sample_UnpackColor( Sample s )
+{
+	uint3 coords;
+	uint mip;
+	uint3 color;
+	Sample_Unpack( s, coords, mip, color );
+	return color;
 }
 
 #endif // __V6_HLSL_SAMPLE_PACK_H__
