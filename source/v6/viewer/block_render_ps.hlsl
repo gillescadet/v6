@@ -1,4 +1,4 @@
-#include "grid_render.hlsli"
+#include "block_render.hlsli"
 
 float4 main( PixelInput i ) : SV_TARGET
 {
