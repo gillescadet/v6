@@ -16,10 +16,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_COLOR_SLOT								0
 #define HLSL_DEPTH_SLOT								1
 
-#define HLSL_COLLECTED_SAMPLE_SLOT					2
-#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT	3
-#define HLSL_SORTED_SAMPLE_SLOT						4
-#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT		5
+#define HLSL_SAMPLE_SLOT							2
+#define HLSL_SAMPLE_INDIRECT_ARGS_SLOT				3
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT			6
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT			7
 #define HLSL_OCTREE_LEAF_SLOT						8
@@ -30,10 +28,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_COLOR_SRV								CONCAT( t, HLSL_COLOR_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
 
-#define HLSL_COLLECTED_SAMPLE_SRV					CONCAT( t, HLSL_COLLECTED_SAMPLE_SLOT )
-#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SRV		CONCAT( t, HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT )
-#define HLSL_SORTED_SAMPLE_SRV						CONCAT( t, HLSL_SORTED_SAMPLE_SLOT )
-#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SRV		CONCAT( t, HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT )
+#define HLSL_SAMPLE_SRV								CONCAT( t, HLSL_SAMPLE_SLOT )
+#define HLSL_SAMPLE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
 
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_SRV			CONCAT( t, HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV			CONCAT( t, HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT )
@@ -43,10 +39,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_COLOR_SRV						CONCAT( t, HLSL_BLOCK_COLOR_SLOT )
 #define HLSL_BLOCK_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 
-#define HLSL_COLLECTED_SAMPLE_UAV					CONCAT( u, HLSL_COLLECTED_SAMPLE_SLOT )
-#define HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_UAV		CONCAT( u, HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT )
-#define HLSL_SORTED_SAMPLE_UAV						CONCAT( u, HLSL_SORTED_SAMPLE_SLOT )
-#define HLSL_SORTED_SAMPLE_INDIRECT_ARGS_UAV		CONCAT( u, HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT )
+#define HLSL_SAMPLE_UAV								CONCAT( u, HLSL_SAMPLE_SLOT )
+#define HLSL_SAMPLE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
 
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_UAV			CONCAT( u, HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_UAV			CONCAT( u, HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT )
@@ -104,7 +98,7 @@ CBUFFER( CBSample, 1 )
 	float				c_sampleDepthLinearBias;
 	float2				c_sampleInvCubeSize;
 	float3				c_sampleCubeCenter;
-	uint				c_sampleCurrentMip;
+	float				c_samplePad0;
 	float4				c_sampleMipBoundariesA;
 	float4				c_sampleMipBoundariesB;
 	float4				c_sampleMipBoundariesC;
@@ -114,17 +108,15 @@ CBUFFER( CBSample, 1 )
 
 CBUFFER( CBOctree, 2 )
 {
-	uint				c_octreeCurrentMip;
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeCurrentBucket;
-	uint				c_octreePad;
+	float				c_octreePad0;
+	float				c_octreePad1;
 };
 
 CBUFFER( CBBlock, 3 )
 {
-	uint				c_blockCurrentMip;
-	float				c_blockGridScale;
-	float2				c_blockPad;
+	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
 };
 
 struct Sample
@@ -135,75 +127,60 @@ struct Sample
 
 struct OctreeLeaf
 {
-	uint x8_r;
-	uint y8_g;
-	uint z8_b;
-	uint x4y4z4_count;
+	uint x8_r24;
+	uint y8_g24;
+	uint z8_b24;
+	uint x4y4z4_mip4_count16;
 };
 
-#define collectedSample_sortGroupCountX_offset				0
-#define collectedSample_sortGroupCountY_offset				1
-#define collectedSample_sortGroupCountZ_offset				2
-#define collectedSample_count_offset						3
+#define sample_groupCountX_offset							0
+#define sample_groupCountY_offset							1
+#define sample_groupCountZ_offset							2
+#define sample_count_offset									3
 #if HLSL_DEBUG_COLLECT == 1
-#define collectedSample_error_offset						4
-#define collectedSample_all_offset							5
+#define sample_error_offset									4
+#define sample_all_offset									5
 #else
-#define collectedSample_all_offset							4
+#define sample_all_offset									4
 #endif // #if HLSL_DEBUG_COLLECT == 1
 
-#define sample_sortGroupCountX								collectedSampleIndirectArgs[collectedSample_sortGroupCountX_offset] // ThreadGroupCountX
-#define sample_sortGroupCountY								collectedSampleIndirectArgs[collectedSample_sortGroupCountY_offset] // ThreadGroupCountY
-#define sample_sortGroupCountZ								collectedSampleIndirectArgs[collectedSample_sortGroupCountZ_offset] // ThreadGroupCountZ
+#define sample_groupCountX									sampleIndirectArgs[sample_groupCountX_offset] // ThreadGroupCountX
+#define sample_groupCountY									sampleIndirectArgs[sample_groupCountY_offset] // ThreadGroupCountY
+#define sample_groupCountZ									sampleIndirectArgs[sample_groupCountZ_offset] // ThreadGroupCountZ
 #if HLSL_DEBUG_COLLECT == 1
-#define sample_error										collectedSampleIndirectArgs[collectedSample_error_offset]
+#define sample_error										sampleIndirectArgs[sample_error_offset]
 #endif // #if HLSL_DEBUG_COLLECT == 1
-#define sample_count										collectedSampleIndirectArgs[collectedSample_count_offset]
+#define sample_count										sampleIndirectArgs[sample_count_offset]
 
-#define sortedSample_groupCountX_offset( MIP )				(MIP*3 + 0)
-#define sortedSample_groupCountY_offset( MIP )				(MIP*3 + 1)
-#define sortedSample_groupCountZ_offset( MIP )				(MIP*3 + 2)
-#define sortedSample_count_offset( MIP )					(HLSL_MIP_MAX_COUNT*3 + MIP + 1)
-#define sortedSample_sum_offset( MIP )						(sortedSample_count_offset( HLSL_MIP_MAX_COUNT ) + MIP + 1)
-#define sortedSample_all_offset								sortedSample_sum_offset( HLSL_MIP_MAX_COUNT )
+#define octree_leafGroupCountX_offset						0
+#define octree_leafGroupCountY_offset						1
+#define octree_leafGroupCountZ_offset						2
+#define octree_leafCount_offset								3
+#define octree_nodeCount_offset								4
+#define octree_all_offset									5
 
-#define sortedSample_groupCountX( MIP )						sortedSampleIndirectArgs[sortedSample_groupCountX_offset( MIP )] // ThreadGroupCountX
-#define sortedSample_groupCountY( MIP )						sortedSampleIndirectArgs[sortedSample_groupCountY_offset( MIP )] // ThreadGroupCountY
-#define sortedSample_groupCountZ( MIP )						sortedSampleIndirectArgs[sortedSample_groupCountZ_offset( MIP )] // ThreadGroupCountZ
-#define sortedSample_count( MIP )							sortedSampleIndirectArgs[sortedSample_count_offset( MIP )]
-#define sortedSample_sum( MIP )								sortedSampleIndirectArgs[sortedSample_sum_offset( MIP )]
-
-#define octree_leafGroupCountX_offset( MIP )				(MIP*3 + 0)
-#define octree_leafGroupCountY_offset( MIP )				(MIP*3 + 1)
-#define octree_leafGroupCountZ_offset( MIP )				(MIP*3 + 2)
-#define octree_leafCount_offset( MIP )						(HLSL_MIP_MAX_COUNT*3 + MIP + 1)
-#define octree_leafSum_offset( MIP )						(octree_leafCount_offset( HLSL_MIP_MAX_COUNT ) + MIP + 1)
-#define octree_nodeCount_offset								octree_leafSum_offset( HLSL_MIP_MAX_COUNT )
-#define octree_all_offset									(octree_nodeCount_offset + 1)
-
-#define octree_leafGroupCountX( MIP )						octreeIndirectArgs[octree_leafGroupCountX_offset( MIP )] // ThreadGroupCountX
-#define octree_leafGroupCountY( MIP )						octreeIndirectArgs[octree_leafGroupCountY_offset( MIP )] // ThreadGroupCountY
-#define octree_leafGroupCountZ( MIP )						octreeIndirectArgs[octree_leafGroupCountZ_offset( MIP )] // ThreadGroupCountZ
-#define octree_leafCount( MIP )								octreeIndirectArgs[octree_leafCount_offset( MIP )]
-#define octree_leafSum( MIP )								octreeIndirectArgs[octree_leafSum_offset( MIP )]
+#define octree_leafGroupCountX								octreeIndirectArgs[octree_leafGroupCountX_offset] // ThreadGroupCountX
+#define octree_leafGroupCountY								octreeIndirectArgs[octree_leafGroupCountY_offset] // ThreadGroupCountY
+#define octree_leafGroupCountZ								octreeIndirectArgs[octree_leafGroupCountZ_offset] // ThreadGroupCountZ
+#define octree_leafCount									octreeIndirectArgs[octree_leafCount_offset]
 #define octree_nodeCount									octreeIndirectArgs[octree_nodeCount_offset]
 
-#define block_vertexCountPerInstance_offset( MIP, BUCKET )	((MIP*HLSL_BUCKET_COUNT + BUCKET) * 4 + 0)
-#define block_renderInstanceCount_offset( MIP, BUCKET )		((MIP*HLSL_BUCKET_COUNT + BUCKET) * 4 + 1)
-#define block_startVertexLocation_offset( MIP, BUCKET )		((MIP*HLSL_BUCKET_COUNT + BUCKET) * 4 + 2)
-#define block_renderInstanceLocation_offset( MIP, BUCKET )	((MIP*HLSL_BUCKET_COUNT + BUCKET) * 4 + 3)
-#define block_count_offset( MIP, BUCKET )					(block_renderInstanceLocation_offset( HLSL_MIP_MAX_COUNT, HLSL_BUCKET_COUNT ) + MIP*HLSL_BUCKET_COUNT + BUCKET + 1)
-#define block_packedOffset_offset( MIP, BUCKET )			(block_count_offset( HLSL_MIP_MAX_COUNT, HLSL_BUCKET_COUNT ) + MIP*HLSL_BUCKET_COUNT + BUCKET + 1)
-#define block_cellCount_offset( MIP, BUCKET )				(block_packedOffset_offset( HLSL_MIP_MAX_COUNT, HLSL_BUCKET_COUNT ) + MIP*HLSL_BUCKET_COUNT + BUCKET)
-#define block_all_offset									block_cellCount_offset( HLSL_MIP_MAX_COUNT, HLSL_BUCKET_COUNT )
+#define block_vertexCountPerInstance_offset( BUCKET )		(BUCKET * 4 + 0)
+#define block_renderInstanceCount_offset( BUCKET )			(BUCKET * 4 + 1)
+#define block_startVertexLocation_offset( BUCKET )			(BUCKET * 4 + 2)
+#define block_renderInstanceLocation_offset( BUCKET )		(BUCKET * 4 + 3)
+#define block_count_offset(	BUCKET )						(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define block_packedOffset_offset( BUCKET )					(block_count_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define block_cellCount_offset( BUCKET )					(block_packedOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET)
+#define block_all_offset									block_cellCount_offset( HLSL_BUCKET_COUNT )
 
-#define block_vertexCountPerInstance( MIP, BUCKET )			blockIndirectArgs[block_vertexCountPerInstance_offset( MIP, BUCKET )]
-#define block_renderInstanceCount( MIP, BUCKET )			blockIndirectArgs[block_renderInstanceCount_offset( MIP, BUCKET )]
-#define block_startVertexLocation( MIP, BUCKET )			blockIndirectArgs[block_startVertexLocation_offset( MIP, BUCKET )]
-#define block_renderInstanceLocation( MIP, BUCKET )			blockIndirectArgs[block_renderInstanceLocation_offset( MIP, BUCKET )]
-#define block_count( MIP, BUCKET )							blockIndirectArgs[block_count_offset( MIP, BUCKET )]
-#define block_packedOffset( MIP, BUCKET )					blockIndirectArgs[block_packedOffset_offset( MIP, BUCKET )]
-#define block_cellCount( MIP, BUCKET )						blockIndirectArgs[block_cellCount_offset( MIP, BUCKET )]
+#define block_vertexCountPerInstance( BUCKET )				blockIndirectArgs[block_vertexCountPerInstance_offset( BUCKET )]
+#define block_renderInstanceCount( BUCKET )					blockIndirectArgs[block_renderInstanceCount_offset( BUCKET )]
+#define block_startVertexLocation( BUCKET )					blockIndirectArgs[block_startVertexLocation_offset( BUCKET )]
+#define block_renderInstanceLocation( BUCKET )				blockIndirectArgs[block_renderInstanceLocation_offset( BUCKET )]
+#define block_count( BUCKET )								blockIndirectArgs[block_count_offset( BUCKET )]
+#define block_packedOffset( BUCKET )						blockIndirectArgs[block_packedOffset_offset( BUCKET )]
+#define block_cellCount( BUCKET )							blockIndirectArgs[block_cellCount_offset( BUCKET )]
 
 END_V6_HLSL_NAMESPACE
 

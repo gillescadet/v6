@@ -25,8 +25,8 @@ static const float3 ups[6] =
 Texture2DArray< float4 > colors					: register( HLSL_COLOR_SRV );
 Texture2DArray< float > depths					: register( HLSL_DEPTH_SRV );
 
-RWStructuredBuffer< Sample > collectedSamples	: register( HLSL_COLLECTED_SAMPLE_UAV );
-RWBuffer< uint > collectedSampleIndirectArgs	: register( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_UAV );
+RWStructuredBuffer< Sample > collectedSamples	: register( HLSL_SAMPLE_UAV );
+RWBuffer< uint > sampleIndirectArgs				: register( HLSL_SAMPLE_INDIRECT_ARGS_UAV );
 
 uint GetMip( float p )
 {
@@ -69,13 +69,13 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			Sample_Pack( collectedSamples[sampleID], coords, mip, color );
 
 			uint sampleCount = sampleID+1;
-			InterlockedMax( sample_sortGroupCountX, GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
+			InterlockedMax( sample_groupCountX, GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 		}
 	}
 
 	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )
 	{
-		sample_sortGroupCountY = 1;
-		sample_sortGroupCountZ = 1;
+		sample_groupCountY = 1;
+		sample_groupCountZ = 1;
 	}
 }

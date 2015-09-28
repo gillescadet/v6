@@ -3,8 +3,8 @@
 #include "common_shared.h"
 #include "sample_pack.hlsli"
 
-StructuredBuffer< Sample > samples				: register( HLSL_SORTED_SAMPLE_SRV );
-Buffer< uint > sortedSampleIndirectArgs 		: register( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SRV );
+StructuredBuffer< Sample > samples				: register( HLSL_SAMPLE_SRV );
+Buffer< uint > sampleIndirectArgs 				: register( HLSL_SAMPLE_INDIRECT_ARGS_SRV );
 
 RWBuffer< uint > sampleNodeOffsets 				: register( HLSL_OCTREE_SAMPLE_NODE_OFFSET_UAV );
 RWBuffer< uint > firstChildOffsets				: register( HLSL_OCTREE_FIRST_CHILD_OFFSET_UAV );
@@ -14,25 +14,22 @@ RWBuffer< uint > octreeIndirectArgs 			: register( HLSL_OCTREE_INDIRECT_ARGS_UAV
 [ numthreads( HLSL_SAMPLE_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-	uint sampleID = DTid.x;
+	const uint sampleID = DTid.x;
 		
-	if ( sampleID >= sortedSample_count( c_octreeCurrentMip ) )
+	if ( sampleID >= sample_count )
 		return;
 
 #if BUILD_INNER == 0
-	const uint newLeafOffset = octree_leafSum( c_octreeCurrentMip-1 ) + octree_leafCount( c_octreeCurrentMip-1 );
-
 	if ( DTid.x == 0 )
 	{
-		octree_leafSum( c_octreeCurrentMip ) = newLeafOffset;
-		octree_leafGroupCountY( c_octreeCurrentMip ) = 1;
-		octree_leafGroupCountZ( c_octreeCurrentMip ) = 1;
+		octree_leafGroupCountY = 1;
+		octree_leafGroupCountZ = 1;
 	}
 #endif // #if BUILD_INNER == 0
 
-	sampleID += sortedSample_sum( c_octreeCurrentMip );
-
-	const uint3 coords = Sample_UnpackCoords( samples[sampleID] );
+	uint3 coords;
+	uint mip;
+	Sample_UnpackCoordsAndMip( samples[sampleID], coords, mip );
 	
 	// Node levels			: [ 0 .. HLSL_GRID_SHIFT-2 ]
 	// Leaf level			: HLSL_GRID_SHIFT-1
@@ -43,7 +40,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	uint childOffset;
 	if ( c_octreeCurrentLevel == 0 )
 	{		
-		childOffset = c_octreeCurrentMip * 8 + cellOffset;
+		childOffset = mip * 8 + cellOffset;
 	}
 	else
 	{
@@ -78,17 +75,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	firstChildOffsets[childOffset] = HLSL_NODE_CREATED | newChildOffset;	
 #else	
 	uint newLeafID;
-	InterlockedAdd( octree_leafCount( c_octreeCurrentMip ), 1, newLeafID );
+	InterlockedAdd( octree_leafCount, 1, newLeafID );
 		
 	const uint newLeafCount = newLeafID + 1;
-	InterlockedMax( octree_leafGroupCountX( c_octreeCurrentMip ), GROUP_COUNT( newLeafCount, HLSL_OCTREE_THREAD_GROUP_SIZE ) );
+	InterlockedMax( octree_leafGroupCountX, GROUP_COUNT( newLeafCount, HLSL_OCTREE_THREAD_GROUP_SIZE ) );
 	
-	newLeafID += newLeafOffset;
-
-	octreeLeaves[newLeafID].x8_r = (coords.x & ~0xF) << 20;
-	octreeLeaves[newLeafID].y8_g = (coords.y & ~0xF) << 20;
-	octreeLeaves[newLeafID].z8_b = (coords.z & ~0xF) << 20;
-	octreeLeaves[newLeafID].x4y4z4_count = (coords.x & 0xF) << 28 | (coords.y & 0xF) << 24 | (coords.z & 0xF) << 20;
+	octreeLeaves[newLeafID].x8_r24 = (coords.x & ~0xF) << 20;
+	octreeLeaves[newLeafID].y8_g24 = (coords.y & ~0xF) << 20;
+	octreeLeaves[newLeafID].z8_b24 = (coords.z & ~0xF) << 20;
+	octreeLeaves[newLeafID].x4y4z4_mip4_count16 = (coords.x & 0xF) << 28 | (coords.y & 0xF) << 24 | (coords.z & 0xF) << 20 | (mip << 16);
 
 	firstChildOffsets[childOffset] = HLSL_NODE_CREATED | newLeafID;
 #endif

@@ -80,7 +80,6 @@ enum
 enum
 {
 	COMPUTE_SAMPLECOLLECT,
-	COMPUTE_SAMPLESORT,
 	COMPUTE_BUILDINNER,
 	COMPUTE_BUILDLEAF,
 	COMPUTE_FILLLEAF,
@@ -225,10 +224,8 @@ struct Config_s
 
 struct Sample_s
 {
-	GPUBuffer_s collectedSamples;
-	GPUBuffer_s sortedSamples;
-	GPUBuffer_s collectedIndirectArgs;
-	GPUBuffer_s sortedIndirectArgs;
+	GPUBuffer_s samples;
+	GPUBuffer_s indirectArgs;
 };
 
 struct Octree_s
@@ -253,9 +250,9 @@ static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
 static const float GRID_MAX_SCALE			= 1000.0f;
 static const float GRID_MIN_SCALE			= 100.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 1;
+static const int SAMPLE_MAX_COUNT			= 16;
 static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 100;
+static const core::u32 RANDOM_CUBE_COUNT	= 8000;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 16384;
@@ -1019,18 +1016,14 @@ static void Config_Log( const Config_s* config )
 
 static void Sample_Create( ID3D11Device* device, Sample_s* sample, const Config_s* config, core::IHeap* heap )
 {
-	GPUBuffer_CreateStructured( device, &sample->collectedSamples, sizeof( hlsl::Sample ), config->sampleCount, "collectedSamples" );
-	GPUBuffer_CreateStructured( device, &sample->sortedSamples, sizeof( hlsl::Sample ), config->sampleCount, "sortedSamples" );
-	GPUBuffer_CreateIndirectArgs( device, &sample->collectedIndirectArgs, collectedSample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "collectedSampleIndirectArgs" );
-	GPUBuffer_CreateIndirectArgs( device, &sample->sortedIndirectArgs, sortedSample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "sortedSampleIndirectArgs" );
+	GPUBuffer_CreateStructured( device, &sample->samples, sizeof( hlsl::Sample ), config->sampleCount, "samples" );
+	GPUBuffer_CreateIndirectArgs( device, &sample->indirectArgs, sample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "sampleIndirectArgs" );
 }
 
 static void Sample_Release( ID3D11Device* device, Sample_s* sample )
 {
-	GPUBuffer_Release( device, &sample->collectedSamples );
-	GPUBuffer_Release( device, &sample->sortedSamples );
-	GPUBuffer_Release( device, &sample->collectedIndirectArgs );
-	GPUBuffer_Release( device, &sample->sortedIndirectArgs );
+	GPUBuffer_Release( device, &sample->samples );
+	GPUBuffer_Release( device, &sample->indirectArgs );
 }
 
 static void Octree_Create( ID3D11Device* device, Octree_s* octree, const Config_s* config, core::IHeap* heap )
@@ -1337,7 +1330,6 @@ public:
 	void Present();
 	void Release();
 	void ReleaseObject(IUnknown** unknow);
-	void Sort();
 
 	IDXGISwapChain* m_pSwapChain;
 	ID3D11Device* m_device;
@@ -1550,7 +1542,6 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	ConstantBuffer_Create( m_device, &m_blockCBUF, sizeof( v6::hlsl::CBBlock ), "block" );
 
 	Compute_Create( m_device, &m_computes[COMPUTE_SAMPLECOLLECT], "sample_collect_cs.cso", fileSystem, stack );
-	Compute_Create( m_device, &m_computes[COMPUTE_SAMPLESORT], "sample_sort_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_BUILDINNER], "octree_build_inner_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_BUILDLEAF], "octree_build_leaf_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_FILLLEAF], "octree_fill_leaf_cs.cso", fileSystem, stack );
@@ -1820,7 +1811,6 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 		cbSample->c_sampleInvCubeSize.x = 1.0f / CUBE_SIZE;
 		cbSample->c_sampleInvCubeSize.y = 1.0f / CUBE_SIZE;
 		cbSample->c_sampleCubeCenter = *sampleOffset;
-		cbSample->c_sampleCurrentMip = 0;
 		cbSample->c_sampleMipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
 		cbSample->c_sampleMipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
 		cbSample->c_sampleMipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
@@ -1832,13 +1822,13 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 	}
 
 	core::u32 values[4] = {};
-	m_ctx->ClearUnorderedAccessViewUint( m_sample.collectedIndirectArgs.uav, values );
+	m_ctx->ClearUnorderedAccessViewUint( m_sample.indirectArgs.uav, values );
 		
 	m_ctx->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &m_sampleCBUF.buf );
 	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
 	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_SLOT, 1, &m_sample.collectedSamples.uav, nullptr );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.collectedIndirectArgs.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &m_sample.samples.uav, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.uav, nullptr );
 	m_ctx->CSSetShader( m_computes[COMPUTE_SAMPLECOLLECT].m_computeShader, nullptr, 0 );
 		
 	const core::u32 cubeGroupCount = m_cube.size >> 4;
@@ -1847,87 +1837,26 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 	// Unset		
 	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	m_ctx->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 	m_userDefinedAnnotation->EndEvent();
 	
 	if ( s_logReadBack )
 	{
 		// Read back
-		core::u32* collectedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.collectedIndirectArgs );
+		core::u32* collectedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.indirectArgs );
 		
 		printf( "\n" );
-		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_sortGroupCountX_offset], "sortGroupCountX"  );
-		V6_ASSERT( collectedIndirectArgs[collectedSample_sortGroupCountY_offset] == 1 );
-		V6_ASSERT( collectedIndirectArgs[collectedSample_sortGroupCountZ_offset] == 1 );
-		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_count_offset], "count"  );
-		ReadBack_Log( "collectedSample", collectedIndirectArgs[collectedSample_error_offset], "error"  );
-		V6_ASSERT( collectedIndirectArgs[collectedSample_count_offset] < m_config.sampleCount );
-		V6_ASSERT( collectedIndirectArgs[collectedSample_error_offset] == 0 );
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_groupCountX_offset], "groupCountX"  );
+		V6_ASSERT( collectedIndirectArgs[sample_groupCountY_offset] == 1 );
+		V6_ASSERT( collectedIndirectArgs[sample_groupCountZ_offset] == 1 );
+		ReadBack_Log( "collectedSample", collectedIndirectArgs[sample_count_offset], "count"  );
+		ReadBack_Log( "collectedSample", collectedIndirectArgs[sample_error_offset], "error"  );
+		V6_ASSERT( collectedIndirectArgs[sample_count_offset] < m_config.sampleCount );
+		V6_ASSERT( collectedIndirectArgs[sample_error_offset] == 0 );
 
-		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.collectedIndirectArgs );
-	}
-}
-
-void CRenderingDevice::Sort()
-{
-	static const void* nulls[8] = {};
-
-	m_userDefinedAnnotation->BeginEvent( L"Sort");
-
-	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
-
-	core::u32 values[4] = {};
-	m_ctx->ClearUnorderedAccessViewUint( m_sample.sortedIndirectArgs.uav, values );
-
-	m_ctx->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &m_sampleCBUF.buf );
-	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_SLOT, 1, &m_sample.collectedSamples.srv );
-	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.collectedIndirectArgs.srv );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.uav, nullptr );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.uav, nullptr );
-	m_ctx->CSSetShader( m_computes[COMPUTE_SAMPLESORT].m_computeShader, nullptr, 0 );
-
-	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
-	{
-		// Update buffers				
-		{
-			v6::hlsl::CBSample* cbSample = ConstantBuffer_MapWrite< v6::hlsl::CBSample >( m_ctx, &m_sampleCBUF );
-			cbSample->c_sampleCurrentMip = mip;
-			ConstantBuffer_UnmapWrite( m_ctx, &m_sampleCBUF );		
-		}		
-		
-		m_ctx->DispatchIndirect( m_sample.collectedIndirectArgs.buf, 0 );		
-	}
-
-	// Unset
-	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
-	m_ctx->CSSetShaderResources( HLSL_COLLECTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
-	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	m_ctx->CSSetUnorderedAccessViews( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-				
-	m_userDefinedAnnotation->EndEvent();
-
-	if ( s_logReadBack )
-	{
-		// Read back
-		core::u32* sortedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.sortedIndirectArgs );
-
-		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
-		{
-			if ( sortedIndirectArgs[sortedSample_count_offset( mip )] == 0 )
-				continue;
-
-			printf( "\n" );
-			ReadBack_Log( "sortedSample", mip, "mip" );
-			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_groupCountX_offset( mip )], "groupCountX" );
-			V6_ASSERT( sortedIndirectArgs[sortedSample_groupCountY_offset( mip )] == 1 );
-			V6_ASSERT( sortedIndirectArgs[sortedSample_groupCountZ_offset( mip )] == 1 );
-			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_count_offset( mip )], "count" );
-			ReadBack_Log( "sortedSample", sortedIndirectArgs[sortedSample_sum_offset( mip )], "sum" );
-		}
-		
-		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.sortedIndirectArgs );
+		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.indirectArgs );
 	}
 }
 
@@ -1947,46 +1876,40 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 	}
 
 	m_ctx->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &m_octreeCBUF.buf );
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.srv );
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.srv );
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_SLOT, 1, &m_sample.samples.srv );
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.srv );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, &m_octree.sampleNodeOffsets.uav, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, &m_octree.firstChildOffsets.uav, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, &m_octree.leaves.uav, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &m_octree.indirectArgs.uav, nullptr );		
 
-	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	m_ctx->CSSetShader( m_computes[COMPUTE_BUILDINNER].m_computeShader, nullptr, 0 );
+
+	for ( core::u32 level = 0; level < HLSL_GRID_SHIFT; ++level )
 	{
-		m_ctx->CSSetShader( m_computes[COMPUTE_BUILDINNER].m_computeShader, nullptr, 0 );
-
-		for ( core::u32 level = 0; level < HLSL_GRID_SHIFT; ++level )
+		// Update buffers				
 		{
-			// Update buffers				
-			{
-				v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
-				cbOctree->c_octreeCurrentMip = mip;
-				cbOctree->c_octreeCurrentLevel = level;
-				cbOctree->c_octreeCurrentBucket = 0;
-				ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );
-			}
+			v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
+			cbOctree->c_octreeCurrentLevel = level;
+			cbOctree->c_octreeCurrentBucket = 0;
+			ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );
+		}
 
-			if ( level == HLSL_GRID_SHIFT-1 )
-				m_ctx->CSSetShader( m_computes[COMPUTE_BUILDLEAF].m_computeShader, nullptr, 0 );
+		if ( level == HLSL_GRID_SHIFT-1 )
+			m_ctx->CSSetShader( m_computes[COMPUTE_BUILDLEAF].m_computeShader, nullptr, 0 );
 
-			m_ctx->DispatchIndirect( m_sample.sortedIndirectArgs.buf, sortedSample_groupCountX_offset( mip ) * sizeof( core::u32 ) );
-		}		
+		m_ctx->DispatchIndirect( m_sample.indirectArgs.buf, sample_groupCountX_offset * sizeof( core::u32 ) );
 	}
 
 	// Unset
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 	m_userDefinedAnnotation->EndEvent();
-
-	core::u32 leafCount = 0;
 
 	core::u32* octreeIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_octree.indirectArgs );	
 
@@ -1995,33 +1918,14 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 		printf( "\n" );
 		ReadBack_Log( "octree", octreeIndirectArgs[octree_nodeCount_offset], "nodeCount" );
 		V6_ASSERT( octreeIndirectArgs[octree_nodeCount_offset] < m_config.nodeCount );
-
-		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
-		{
-			if ( octreeIndirectArgs[octree_leafCount_offset( mip )] == 0 )
-				continue;
-
-			printf( "\n" );
-			ReadBack_Log( "octree", mip, "mip" );
-			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafGroupCountX_offset( mip )], "leafGroupCountX" );
-			V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountY_offset( mip )] == 1 );
-			V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountZ_offset( mip )] == 1 );
-			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafCount_offset( mip )], "leafCount" );
-			ReadBack_Log( "octree", octreeIndirectArgs[octree_leafSum_offset( mip )], "leafSum" );
-			V6_ASSERT( octreeIndirectArgs[octree_leafCount_offset( mip )] + octreeIndirectArgs[octree_leafCount_offset( mip )] < m_config.leafCount );
-
-			leafCount += octreeIndirectArgs[octree_leafCount_offset( mip )];
-			V6_ASSERT( leafCount < m_config.leafCount );
-		}
+		ReadBack_Log( "octree", octreeIndirectArgs[octree_leafGroupCountX_offset], "leafGroupCountX" );
+		V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountY_offset] == 1 );
+		V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountZ_offset] == 1 );
+		ReadBack_Log( "octree", octreeIndirectArgs[octree_leafCount_offset], "leafCount" );
 	}
-	else
-	{
-		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
-		{
-			leafCount += octreeIndirectArgs[octree_leafCount_offset( mip )];
-			V6_ASSERT( leafCount < m_config.leafCount );
-		}
-	}
+
+	const core::u32 leafCount = octreeIndirectArgs[octree_leafCount_offset];
+	V6_ASSERT( leafCount < m_config.leafCount );
 
 	GPUBUffer_UnmapReadBack( m_ctx, &m_octree.indirectArgs );
 
@@ -2037,30 +1941,26 @@ void CRenderingDevice::FillLeaf()
 	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
 
 	m_ctx->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &m_octreeCBUF.buf );
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, &m_sample.sortedSamples.srv );
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.sortedIndirectArgs.srv );
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_SLOT, 1, &m_sample.samples.srv );
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.srv );
 	m_ctx->CSSetShaderResources( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, &m_octree.sampleNodeOffsets.srv );
 	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, &m_octree.firstChildOffsets.srv );
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, &m_octree.leaves.uav, nullptr );
 	m_ctx->CSSetShader( m_computes[COMPUTE_FILLLEAF].m_computeShader, nullptr, 0 );
 
-	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	// Update buffers				
 	{
-		// Update buffers				
-		{
-			v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
-			cbOctree->c_octreeCurrentMip = mip;
-			cbOctree->c_octreeCurrentLevel = 0;
-			cbOctree->c_octreeCurrentBucket = 0;
-			ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );		
-		}
-
-		m_ctx->DispatchIndirect( m_sample.sortedIndirectArgs.buf, sortedSample_groupCountX_offset( mip ) * sizeof( core::u32 ) );
+		v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
+		cbOctree->c_octreeCurrentLevel = 0;
+		cbOctree->c_octreeCurrentBucket = 0;
+		ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );		
 	}
 
+	m_ctx->DispatchIndirect( m_sample.indirectArgs.buf, sample_groupCountX_offset * sizeof( core::u32 ) );
+
 	// Unset
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
-	m_ctx->CSSetShaderResources( HLSL_SORTED_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
+	m_ctx->CSSetShaderResources( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	m_ctx->CSSetShaderResources( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	m_ctx->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	m_ctx->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -2087,21 +1987,17 @@ void CRenderingDevice::PackColor()
 	m_ctx->CSSetUnorderedAccessViews( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_block.indirectArgs.uav, nullptr );
 	m_ctx->CSSetShader( m_computes[COMPUTE_PACKCOLOR].m_computeShader, nullptr, 0 );
 
-	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+		// Update buffers
 		{
-			// Update buffers
-			{
-				v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
-				cbOctree->c_octreeCurrentMip = mip;
-				cbOctree->c_octreeCurrentLevel = 0;
-				cbOctree->c_octreeCurrentBucket = bucket;
-				ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );		
-			}
-
-			m_ctx->DispatchIndirect( m_octree.indirectArgs.buf, octree_leafGroupCountX_offset( mip ) * sizeof( core::u32 ) );
+			v6::hlsl::CBOctree* cbOctree = ConstantBuffer_MapWrite< v6::hlsl::CBOctree >( m_ctx, &m_octreeCBUF );
+			cbOctree->c_octreeCurrentLevel = 0;
+			cbOctree->c_octreeCurrentBucket = bucket;
+			ConstantBuffer_UnmapWrite( m_ctx, &m_octreeCBUF );		
 		}
+
+		m_ctx->DispatchIndirect( m_octree.indirectArgs.buf, octree_leafGroupCountX_offset * sizeof( core::u32 ) );
 	}
 
 	// Unset
@@ -2119,45 +2015,29 @@ void CRenderingDevice::PackColor()
 
 		core::u32 allRealCellCount = 0;
 		core::u32 allMaxCellCount = 0; 
-		core::u32 realCellPerMipCounts[HLSL_MIP_MAX_COUNT] = {};
-		core::u32 maxCellPerMipCounts[HLSL_MIP_MAX_COUNT] = {}; 
 
-		for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip )
+		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 		{
-			for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
-			{
-				if ( blockIndirectArgs[block_count_offset( mip, bucket )] == 0 )
-					continue;
+			if ( blockIndirectArgs[block_count_offset( bucket )] == 0 )
+				continue;
 
-				static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
-				const core::u32 maxCellCount = blockIndirectArgs[block_count_offset( mip, bucket )] * cellPerBucketCounts[bucket];
+			static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
+			const core::u32 maxCellCount = blockIndirectArgs[block_count_offset( bucket )] * cellPerBucketCounts[bucket];
 
-				printf( "\n" );
-				ReadBack_Log( "block", mip, "mip" );
-				ReadBack_Log( "block", bucket, "bucket" );
-				V6_ASSERT( blockIndirectArgs[block_vertexCountPerInstance_offset( mip, bucket )] == 1 );
-				ReadBack_Log( "block", blockIndirectArgs[block_renderInstanceCount_offset( mip, bucket )], "renderInstanceCount" );
-				V6_ASSERT( blockIndirectArgs[block_startVertexLocation_offset( mip, bucket )] == 0 );
-				V6_ASSERT( blockIndirectArgs[block_renderInstanceLocation_offset( mip, bucket )] == 0 );
-				ReadBack_Log( "block", blockIndirectArgs[block_count_offset( mip, bucket )], "blockCount" );
-				ReadBack_Log( "block", blockIndirectArgs[block_packedOffset_offset( mip, bucket )], "packedOffset" );
-				ReadBack_Log( "block", blockIndirectArgs[block_cellCount_offset( mip, bucket )], "realCellCount" );
-				ReadBack_Log( "block", maxCellCount, "maxCellCount" );
+			printf( "\n" );
+			ReadBack_Log( "block", bucket, "bucket" );
+			V6_ASSERT( blockIndirectArgs[block_vertexCountPerInstance_offset( bucket )] == 1 );
+			ReadBack_Log( "block", blockIndirectArgs[block_renderInstanceCount_offset( bucket )], "renderInstanceCount" );
+			V6_ASSERT( blockIndirectArgs[block_startVertexLocation_offset( bucket )] == 0 );
+			V6_ASSERT( blockIndirectArgs[block_renderInstanceLocation_offset( bucket )] == 0 );
+			ReadBack_Log( "block", blockIndirectArgs[block_count_offset( bucket )], "blockCount" );
+			ReadBack_Log( "block", blockIndirectArgs[block_packedOffset_offset( bucket )], "packedOffset" );
+			ReadBack_Log( "block", blockIndirectArgs[block_cellCount_offset( bucket )], "realCellCount" );
+			ReadBack_Log( "block", maxCellCount, "maxCellCount" );
 
-				realCellPerMipCounts[mip] += blockIndirectArgs[block_cellCount_offset( mip, bucket )];
-				maxCellPerMipCounts[mip] += maxCellCount;
-			}
-
-			if ( maxCellPerMipCounts[mip] )
-			{
-				printf( "\n" );
-				ReadBack_Log( "packed_mip", mip, "mip" );
-				ReadBack_Log( "packed_mip", realCellPerMipCounts[mip], "realCellCount" );
-				ReadBack_Log( "packed_mip", maxCellPerMipCounts[mip], "maxCellCount" );
-				allRealCellCount += realCellPerMipCounts[mip];
-				allMaxCellCount += maxCellPerMipCounts[mip];
-			}
-		}
+			allRealCellCount += blockIndirectArgs[block_cellCount_offset( bucket )];
+			allMaxCellCount += maxCellCount;
+		}		
 
 		if ( allMaxCellCount )
 		{
@@ -2218,28 +2098,25 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix )
 	m_ctx->VSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_block.indirectArgs.srv );
 
 	float gridScale = GRID_MIN_SCALE;
-	for ( core::u32 mip = 0; mip < GRID_COUNT; ++mip, gridScale *= 2 )
+
 	{
-		m_userDefinedAnnotation->BeginEvent( L"Draw Mip");
+		v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( m_ctx, &m_blockCBUF );
 
-		{
-			v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( m_ctx, &m_blockCBUF );
+		float gridScale = GRID_MIN_SCALE;
+		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
+		for ( core::u32 gridID = GRID_COUNT; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( 0.0f, 0.0f, 0.0f, 0.0f );
 
-			cbBlock->c_blockCurrentMip = mip;
-			cbBlock->c_blockGridScale = gridScale;
+		ConstantBuffer_UnmapWrite( m_ctx, &m_blockCBUF );
+	}		
 
-			ConstantBuffer_UnmapWrite( m_ctx, &m_blockCBUF );
-		}		
-
-		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
-		{
-			m_userDefinedAnnotation->BeginEvent( L"Draw Bucket");
+	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+	{
+		m_userDefinedAnnotation->BeginEvent( L"Draw Bucket");
 			
-			Mesh_Draw( &m_meshes[MESH_POINT], -1, &m_shaders[SHADER_BLOCK_RENDER4+bucket], m_ctx, m_block.indirectArgs.buf, block_vertexCountPerInstance_offset( mip, bucket ) * 4 );
+		Mesh_Draw( &m_meshes[MESH_POINT], -1, &m_shaders[SHADER_BLOCK_RENDER4+bucket], m_ctx, m_block.indirectArgs.buf, block_vertexCountPerInstance_offset( bucket ) * sizeof( core::u32 ) );
 			
-			m_userDefinedAnnotation->EndEvent();
-		}	
-
 		m_userDefinedAnnotation->EndEvent();
 	}
 
@@ -2346,7 +2223,6 @@ void CRenderingDevice::Draw( float dt )
 			Capture( &sampleOffset );
 		
 			Collect( &sampleOffset );
-			Sort();
 			static core::u32 sumLeafCount = 0;
 			if ( g_sample == 0 )
 				sumLeafCount = 0;

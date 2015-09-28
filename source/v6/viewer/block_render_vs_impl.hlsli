@@ -12,7 +12,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	PixelInput o;	
 
 	const uint blockID = instanceID >> GRID_CELL_SHIFT;
-	const uint packedOffset = block_packedOffset( c_blockCurrentMip, GRID_CELL_BUCKET );	
+	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );	
 	const uint packedCount = 1 + GRID_CELL_COUNT;
 	const uint packedBaseID = packedOffset + blockID * packedCount;	
 	const uint packedRank = 1 + (instanceID & GRID_CELL_MASK);
@@ -29,8 +29,10 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	const float normalizationRatio = 1.0 / 255.0;
 	o.color = float3( (packedColor >> 24) & 0xFF, (packedColor >> 16) & 0xFF, (packedColor >> 8) & 0xFF ) * normalizationRatio;
 
-	const uint blockPos = blockColors[packedBaseID];
-	const uint cellPos = packedColor & 0xFF;
+	const uint packedPos = blockColors[packedBaseID];
+	const uint mip = ((packedPos >> 28) & 0xC) | ((packedColor >> 6) & 3);
+	const uint blockPos = packedPos & 0x3FFFFFFF;
+	const uint cellPos = packedColor & 0x3F;
 
 #if 0
 	o.color.r = 0.25 + ((cellPos >> 0) & 3) * 0.25;
@@ -39,9 +41,9 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 #endif
 
 #if 1
-	o.color.r = (c_blockCurrentMip+1) & 1 ? 255 : 0;
-	o.color.g = (c_blockCurrentMip+1) & 2 ? 255 : 0;
-	o.color.b = (c_blockCurrentMip+1) & 4 ? 255 : 0;
+	o.color.r = (mip+1) & 1 ? 255 : 0;
+	o.color.g = (mip+1) & 2 ? 255 : 0;
+	o.color.b = (mip+1) & 4 ? 255 : 0;
 #endif	
 
 	const uint x = (((blockPos >> 0						 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
@@ -50,8 +52,9 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 
 	const int4 cellCoords = int4( x, y, z, 0 );	
 
-	const float halfCellSize = c_blockGridScale * HLSL_GRID_INV_WIDTH;
-	float3 posOS = mad( cellCoords.xyz, halfCellSize * 2.0, -c_blockGridScale + halfCellSize );
+	const float gridScale = c_blockGridScales[mip].x;
+	const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
+	float3 posOS = mad( cellCoords.xyz, halfCellSize * 2.0, -gridScale + halfCellSize );
 
 #if HLSL_DEBUG_BLOCK == 1
 	posOS.x += ((vertexID & 1) == 0) ? -halfCellSize : halfCellSize;

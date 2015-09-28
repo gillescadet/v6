@@ -11,27 +11,27 @@ RWBuffer< uint > blockIndirectArgs 				: register( HLSL_BLOCK_INDIRECT_ARGS_UAV 
 [ numthreads( HLSL_OCTREE_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-	uint leafID = DTid.x;
-	if ( leafID >= octree_leafCount( c_octreeCurrentMip ) )
+	const uint leafID = DTid.x;
+	if ( leafID >= octree_leafCount )
 		return;
 		
 	const uint buckets[] = { 0, 4, 8, 16, 32, 64 };
 	
-	const uint packedOffset = block_packedOffset( c_octreeCurrentMip, c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentMip, c_octreeCurrentBucket-1 ) * (1 + buckets[c_octreeCurrentBucket]);
+	const uint packedOffset = block_packedOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 ) * (1 + buckets[c_octreeCurrentBucket]);
 		
 	if ( DTid.x == 0 )
 	{
-		block_packedOffset( c_octreeCurrentMip, c_octreeCurrentBucket ) = packedOffset;
-		block_vertexCountPerInstance( c_octreeCurrentMip, c_octreeCurrentBucket ) = 1;
-		block_renderInstanceLocation( c_octreeCurrentMip, c_octreeCurrentBucket ) = 0;
+		block_packedOffset( c_octreeCurrentBucket ) = packedOffset;
+		block_vertexCountPerInstance( c_octreeCurrentBucket ) = 1;
+		block_renderInstanceLocation( c_octreeCurrentBucket ) = 0;
 	}
 
-	leafID += octree_leafSum( c_octreeCurrentMip );
-
 	uint3 coords;
-	coords.x = ((octreeLeaves[leafID].x8_r >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_count >> 28) & 0xF);
-	coords.y = ((octreeLeaves[leafID].y8_g >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_count >> 24) & 0xF);
-	coords.z = ((octreeLeaves[leafID].z8_b >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_count >> 20) & 0xF);
+	coords.x = ((octreeLeaves[leafID].x8_r24 >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_mip4_count16 >> 28) & 0xF);
+	coords.y = ((octreeLeaves[leafID].y8_g24 >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_mip4_count16 >> 24) & 0xF);
+	coords.z = ((octreeLeaves[leafID].z8_b24 >> 20) & ~0xF) | ((octreeLeaves[leafID].x4y4z4_mip4_count16 >> 20) & 0xF);
+
+	const uint mip = (octreeLeaves[leafID].x4y4z4_mip4_count16 >> 16) & 0xF;
 
 	const uint packLevel = HLSL_GRID_SHIFT-3;
 
@@ -46,7 +46,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		int childOffset;
 		if ( level == 0 )
 		{
-			childOffset = c_octreeCurrentMip * 8 + cellOffset;
+			childOffset = mip * 8 + cellOffset;
 		}
 		else
 		{
@@ -80,12 +80,12 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 					firstLeafID = min( firstLeafID, childLeafID );
 
-					const uint sampleCount = octreeLeaves[childLeafID].x4y4z4_count & 0xFFFF;
-					const uint r = (octreeLeaves[childLeafID].x8_r & 0x00FFFFFF) / sampleCount;
-					const uint g = (octreeLeaves[childLeafID].y8_g & 0x00FFFFFF) / sampleCount;
-					const uint b = (octreeLeaves[childLeafID].z8_b & 0x00FFFFFF) / sampleCount;
+					const uint sampleCount = octreeLeaves[childLeafID].x4y4z4_mip4_count16 & 0xFFFF;
+					const uint r = (octreeLeaves[childLeafID].x8_r24 & 0x00FFFFFF) / sampleCount;
+					const uint g = (octreeLeaves[childLeafID].y8_g24 & 0x00FFFFFF) / sampleCount;
+					const uint b = (octreeLeaves[childLeafID].z8_b24 & 0x00FFFFFF) / sampleCount;
 					const uint cellPos = ((childID0&4)<<3) | ((childID1&4)<<2) | ((childID0&2)<<2) | ((childID1&2)<<1) | ((childID0&1)<<1) | ((childID1&1)<<0);
-					cellRGBA[cellCount] = (r << 24) | (g << 16) | (b << 8) | cellPos;
+					cellRGBA[cellCount] = (r << 24) | (g << 16) | (b << 8) | ((mip & 3) << 6) | cellPos;
 					++cellCount;
 				}
 			}
@@ -99,21 +99,21 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	if ( firstLeafID != leafID || cellCount < cellMinCount || cellCount > cellMaxCount )
 		return;
 
-	InterlockedAdd( block_cellCount( c_octreeCurrentMip, c_octreeCurrentBucket ), cellCount );
+	InterlockedAdd( block_cellCount( c_octreeCurrentBucket ), cellCount );
 			
 	uint blockID;
-	InterlockedAdd( block_count( c_octreeCurrentMip, c_octreeCurrentBucket ), 1, blockID );
+	InterlockedAdd( block_count( c_octreeCurrentBucket ), 1, blockID );
 		
 	const uint packedCount = 1 + cellMaxCount;
 	const uint packedBaseID = packedOffset + blockID * packedCount;	
 	const uint3 blockCoords = coords >> HLSL_GRID_BLOCK_SHIFT;
 	const uint blockPos = (blockCoords.z << HLSL_GRID_MACRO_2XSHIFT) | (blockCoords.y << HLSL_GRID_MACRO_SHIFT) | blockCoords.x;
-	blockColors[packedBaseID] = blockPos;	
+	blockColors[packedBaseID] = ((mip & 0xC) << 28) | blockPos;
 
 	[unroll]
 	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
 		blockColors[packedBaseID + cellID + 1] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_CELL_EMPTY;
 
 	const uint blockCount = blockID + 1;
-	InterlockedMax( block_renderInstanceCount( c_octreeCurrentMip, c_octreeCurrentBucket ), blockCount * cellMaxCount );
+	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), blockCount * cellMaxCount );
 }
