@@ -71,6 +71,12 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			uint sampleCount = sampleID+1;
 			InterlockedMax( sample_groupCountX, GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 		}
+		else
+		{
+#if HLSL_DEBUG_COLLECT == 1
+			InterlockedAdd( sample_out, 1 );
+#endif // #if HLSL_DEBUG_COLLECT == 1
+		}
 	}
 
 	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )

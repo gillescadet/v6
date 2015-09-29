@@ -250,9 +250,9 @@ static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
 static const float GRID_MAX_SCALE			= 1000.0f;
 static const float GRID_MIN_SCALE			= 100.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 16;
+static const int SAMPLE_MAX_COUNT			= 1024;
 static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 8000;
+static const core::u32 RANDOM_CUBE_COUNT	= 4000;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 16384;
@@ -1002,7 +1002,7 @@ static void Config_Init( Config_s* config, core::u32 cubeSize, core::u32 gridWid
 {
 	config->sampleCount = cubeSize * cubeSize * 6;
 	config->leafCount = gridWidth * gridWidth * 6 * 2;
-	config->nodeCount = config->leafCount * 8 / 7;
+	config->nodeCount = config->leafCount * 2;
 	config->cellCount = config->leafCount * 5 / 4;
 }
 
@@ -1429,7 +1429,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 			NULL,
 			D3D_DRIVER_TYPE_HARDWARE,
 			NULL,
-			createFlags,
+			createFlags | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
 			pFeatureLevels,
 			1,
 			D3D11_SDK_VERSION,
@@ -1848,13 +1848,16 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 		core::u32* collectedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.indirectArgs );
 		
 		printf( "\n" );
-		ReadBack_Log( "sample", collectedIndirectArgs[sample_groupCountX_offset], "groupCountX"  );
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_groupCountX_offset], "groupCountX" );
 		V6_ASSERT( collectedIndirectArgs[sample_groupCountY_offset] == 1 );
 		V6_ASSERT( collectedIndirectArgs[sample_groupCountZ_offset] == 1 );
-		ReadBack_Log( "collectedSample", collectedIndirectArgs[sample_count_offset], "count"  );
-		ReadBack_Log( "collectedSample", collectedIndirectArgs[sample_error_offset], "error"  );
-		V6_ASSERT( collectedIndirectArgs[sample_count_offset] < m_config.sampleCount );
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_count_offset], "count" );		
+		V6_ASSERT( collectedIndirectArgs[sample_count_offset] <= m_config.sampleCount );
+#if HLSL_DEBUG_COLLECT == 1
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_out_offset], "out" );
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_error_offset], "error" );
 		V6_ASSERT( collectedIndirectArgs[sample_error_offset] == 0 );
+#endif // #if HLSL_DEBUG_COLLECT == 1
 
 		GPUBUffer_UnmapReadBack( m_ctx, &m_sample.indirectArgs );
 	}
@@ -1917,7 +1920,7 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 	{
 		printf( "\n" );
 		ReadBack_Log( "octree", octreeIndirectArgs[octree_nodeCount_offset], "nodeCount" );
-		V6_ASSERT( octreeIndirectArgs[octree_nodeCount_offset] < m_config.nodeCount );
+		V6_ASSERT( octreeIndirectArgs[octree_nodeCount_offset] <= m_config.nodeCount );
 		ReadBack_Log( "octree", octreeIndirectArgs[octree_leafGroupCountX_offset], "leafGroupCountX" );
 		V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountY_offset] == 1 );
 		V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountZ_offset] == 1 );
@@ -1925,7 +1928,7 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 	}
 
 	const core::u32 leafCount = octreeIndirectArgs[octree_leafCount_offset];
-	V6_ASSERT( leafCount < m_config.leafCount );
+	V6_ASSERT( leafCount <= m_config.leafCount );
 
 	GPUBUffer_UnmapReadBack( m_ctx, &m_octree.indirectArgs );
 
@@ -2228,20 +2231,22 @@ void CRenderingDevice::Draw( float dt )
 				sumLeafCount = 0;
 			const core::u32 newLeafCount = BuildNode( g_sample == 0 ) - sumLeafCount;
 			sumLeafCount += newLeafCount;
-			FillLeaf();
-			PackColor();
+			FillLeaf();			
 
 			printf( "\rCapturing sample #%03d: %13s cells added\n", g_sample, FormatInteger_Unsafe( newLeafCount ) );
 			
 			++g_sample;
 
 			if ( g_sample == SAMPLE_MAX_COUNT )
+			{
+				PackColor();
 				printf( "          all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
+			}
 		}
 
 		DrawBlock( &viewMatrix );
 
-		s_logReadBack = false;
+		// s_logReadBack = false;
 	}
 }
 

@@ -138,8 +138,9 @@ struct OctreeLeaf
 #define sample_groupCountZ_offset							2
 #define sample_count_offset									3
 #if HLSL_DEBUG_COLLECT == 1
-#define sample_error_offset									4
-#define sample_all_offset									5
+#define sample_out_offset									4
+#define sample_error_offset									5
+#define sample_all_offset									6
 #else
 #define sample_all_offset									4
 #endif // #if HLSL_DEBUG_COLLECT == 1
@@ -148,6 +149,7 @@ struct OctreeLeaf
 #define sample_groupCountY									sampleIndirectArgs[sample_groupCountY_offset] // ThreadGroupCountY
 #define sample_groupCountZ									sampleIndirectArgs[sample_groupCountZ_offset] // ThreadGroupCountZ
 #if HLSL_DEBUG_COLLECT == 1
+#define sample_out											sampleIndirectArgs[sample_out_offset]
 #define sample_error										sampleIndirectArgs[sample_error_offset]
 #endif // #if HLSL_DEBUG_COLLECT == 1
 #define sample_count										sampleIndirectArgs[sample_count_offset]

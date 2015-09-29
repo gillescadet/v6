@@ -40,7 +40,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	o.color.b = 0.25 + ((cellPos >> 4) & 3) * 0.25;
 #endif
 
-#if 1
+#if 0
 	o.color.r = (mip+1) & 1 ? 255 : 0;
 	o.color.g = (mip+1) & 2 ? 255 : 0;
 	o.color.b = (mip+1) & 4 ? 255 : 0;
@@ -56,7 +56,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
 	float3 posOS = mad( cellCoords.xyz, halfCellSize * 2.0, -gridScale + halfCellSize );
 
-#if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_BLOCK == 0
 	posOS.x += ((vertexID & 1) == 0) ? -halfCellSize : halfCellSize;
 	posOS.y += ((vertexID & 2) == 0) ? -halfCellSize : halfCellSize;
 	posOS.z += ((vertexID & 4) == 0) ? -halfCellSize : halfCellSize;
