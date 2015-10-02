@@ -84,6 +84,7 @@ enum
 	COMPUTE_BUILDLEAF,
 	COMPUTE_FILLLEAF,
 	COMPUTE_PACKCOLOR,
+	COMPUTE_FILTERPIXEL,
 
 	COMPUTE_COUNT
 };
@@ -153,7 +154,14 @@ struct GPUBuffer_s
 	ID3D11UnorderedAccessView*		uav;
 };
 
-struct ConstantBuffer_s
+struct GPUTexture2D_s
+{
+	ID3D11Texture2D*				tex;
+	ID3D11ShaderResourceView*		srv;
+	ID3D11UnorderedAccessView*		uav;
+};
+
+struct GPUConstantBuffer_s
 {
 	ID3D11Buffer*					buf;
 };
@@ -216,6 +224,8 @@ struct Cube_s
 
 struct Config_s
 {
+	core::u32 screenWidth;
+	core::u32 screenHeight;
 	core::u32 sampleCount;
 	core::u32 leafCount;
 	core::u32 nodeCount;
@@ -243,16 +253,22 @@ struct Block_s
 	GPUBuffer_s indirectArgs;
 };
 
-static const core::u32 ZOOM					= 1;
+struct Pixel_s
+{
+	GPUTexture2D_s colors;
+};
+
+static const core::u32 ZOOM					= 2;
 static const float ZNEAR					= 10.0f;
 static const float ZFAR						= 10000.0f;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
 static const float GRID_MAX_SCALE			= 1000.0f;
 static const float GRID_MIN_SCALE			= 100.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 1024;
+static const int SAMPLE_MAX_COUNT			= 16;
 static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 4000;
+//static const float FREE_SCALE				= 400.0f;
+static const core::u32 RANDOM_CUBE_COUNT	= 1000;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint ENTITY_MAX_COUNT			= 16384;
@@ -260,12 +276,12 @@ static const uint ENTITY_MAX_COUNT			= 16384;
 static bool g_mousePressed					= false;
 static int g_mousePosX						= 0;
 static int g_mousePosY						= 0;
-static int g_keyLeftPressed					= false;
+static int g_keyLeftPressed					= false;	
 static int g_keyRightPressed				= false;
 static int g_keyUpPressed					= false;
 static int g_keyDownPressed					= false;
 
-static int g_frameLimitation				= true;
+static int g_filterPixel					= true;
 
 static DrawMode_e g_drawMode				= DRAW_MODE_DEFAULT;
 
@@ -306,7 +322,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'D': g_keyRightPressed = pressed; break;
 			case 'S': g_keyDownPressed = pressed; break;
 			case 'W': g_keyUpPressed = pressed; break;
-			case 'F': g_frameLimitation = !pressed; break;
+			case 'F': g_filterPixel = !pressed; break;
 			case 'C': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_CUBE ? DRAW_MODE_DEFAULT : DRAW_MODE_CUBE) : g_drawMode; break;
 			case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
 			case 'R': if ( pressed ) { g_sample = 0; s_logReadBack = true; } break;
@@ -861,7 +877,54 @@ static void GPUBUffer_UnmapReadBack( ID3D11DeviceContext* context, GPUBuffer_s* 
 	context->Unmap( buffer->staging, 0 );
 }
 
-static void ConstantBuffer_Create( ID3D11Device* device, ConstantBuffer_s* buffer, core::u32 sizeOfStruct, const char* name )
+static void Texture2D_CreateRW( ID3D11Device* device, GPUTexture2D_s* tex, core::u32 width, core::u32 height, const char* name )
+{
+	{
+		D3D11_TEXTURE2D_DESC texDesc = {};
+		texDesc.Width = width;
+		texDesc.Height = height;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 1;
+		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
+		
+		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &tex->tex ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), name );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;		
+		srvDesc.Texture2D.MipLevels = 1;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( tex->tex, &srvDesc, &tex->srv ) );
+	}
+
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;		
+		uavDesc.Texture2D.MipSlice = 0;
+
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( tex->tex, &uavDesc, &tex->uav ) );
+	}
+}
+
+static void Texture2D_Release( ID3D11Device* device, GPUTexture2D_s* tex )
+{
+	tex->tex->Release();
+	tex->srv->Release();
+	tex->uav->Release();
+}
+
+static void ConstantBuffer_Create( ID3D11Device* device, GPUConstantBuffer_s* buffer, core::u32 sizeOfStruct, const char* name )
 {
 	D3D11_BUFFER_DESC bufDesc = {};	
 	bufDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -875,20 +938,20 @@ static void ConstantBuffer_Create( ID3D11Device* device, ConstantBuffer_s* buffe
 	GPUResource_LogMemory( "ConstantBuffer", bufDesc.ByteWidth, name );
 }
 
-static void ConstantBuffer_Release( ConstantBuffer_s* buffer )
+static void ConstantBuffer_Release( GPUConstantBuffer_s* buffer )
 {
 	buffer->buf->Release();
 }
 
 template < typename T >
-static T* ConstantBuffer_MapWrite( ID3D11DeviceContext* context, ConstantBuffer_s* buffer )
+static T* ConstantBuffer_MapWrite( ID3D11DeviceContext* context, GPUConstantBuffer_s* buffer )
 {
 	D3D11_MAPPED_SUBRESOURCE res;
 	V6_ASSERT_D3D11( context->Map( buffer->buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &res ) );
 	return (T*)res.pData;
 }
 
-static void ConstantBuffer_UnmapWrite( ID3D11DeviceContext* context, ConstantBuffer_s* buffer )
+static void ConstantBuffer_UnmapWrite( ID3D11DeviceContext* context, GPUConstantBuffer_s* buffer )
 {
 	context->Unmap( buffer->buf, 0 );
 }
@@ -998,8 +1061,10 @@ static void Cube_Release( Cube_s* cube )
 	}
 }
 
-static void Config_Init( Config_s* config, core::u32 cubeSize, core::u32 gridWidth )
+static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 screenHeight, core::u32 cubeSize, core::u32 gridWidth )
 {
+	config->screenWidth = screenWidth;
+	config->screenHeight = screenHeight;
 	config->sampleCount = cubeSize * cubeSize * 6;
 	config->leafCount = gridWidth * gridWidth * 6 * 2;
 	config->nodeCount = config->leafCount * 2;
@@ -1008,6 +1073,8 @@ static void Config_Init( Config_s* config, core::u32 cubeSize, core::u32 gridWid
 
 static void Config_Log( const Config_s* config )
 {
+	printf( "%-16s: %d\n", "config.screenWidth", config->screenWidth );
+	printf( "%-16s: %d\n", "config.screenHeight", config->screenHeight );
 	printf( "%-16s: %13s\n", "config.sample", FormatInteger_Unsafe( config->sampleCount ) );
 	printf( "%-16s: %13s\n", "config.leaf", FormatInteger_Unsafe( config->leafCount ) );
 	printf( "%-16s: %13s\n", "config.node", FormatInteger_Unsafe( config->nodeCount ) );
@@ -1064,6 +1131,16 @@ static void Block_Release( ID3D11Device* device, Block_s* block )
 {
 	GPUBuffer_Release( device, &block->colors );
 	GPUBuffer_Release( device, &block->indirectArgs );
+}
+
+static void Pixel_Create( ID3D11Device* device, Pixel_s* pixel, const Config_s* config, core::IHeap* heap )
+{
+	Texture2D_CreateRW( device, &pixel->colors, config->screenWidth, config->screenHeight, "pixelColors" );
+}
+
+static void Pixel_Release( ID3D11Device* device, Pixel_s* pixel )
+{
+	Texture2D_Release( device, &pixel->colors );
 }
 
 static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -1327,6 +1404,7 @@ public:
 	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void FillLeaf();
 	void PackColor();	
+	void PixelFilter();
 	void Present();
 	void Release();
 	void ReleaseObject(IUnknown** unknow);
@@ -1339,17 +1417,19 @@ public:
 	ID3D11Texture2D* m_pColorBuffer;
 	ID3D11Texture2D* m_pDepthStencilBuffer;
 	ID3D11RenderTargetView* m_pColorView;
+	ID3D11ShaderResourceView* m_pColorSRV;
 	ID3D11DepthStencilView* m_pDepthStencilView;
-	ID3D11RenderTargetView* m_pLinearDepthView;
+	ID3D11ShaderResourceView* m_pDepthStencilSRV;
 	ID3D11DepthStencilState*  m_depthStencilStateNoZ;
 	ID3D11DepthStencilState*  m_depthStencilStateZRO;
 	ID3D11DepthStencilState*  m_depthStencilStateZRW;
 	ID3D11BlendState* m_blendStateNoColor;
 	ID3D11BlendState* m_blendStateOpaque;
-	ConstantBuffer_s m_viewCBUF;
-	ConstantBuffer_s m_sampleCBUF;
-	ConstantBuffer_s m_octreeCBUF;
-	ConstantBuffer_s m_blockCBUF;
+	GPUConstantBuffer_s m_viewCBUF;
+	GPUConstantBuffer_s m_sampleCBUF;
+	GPUConstantBuffer_s m_octreeCBUF;
+	GPUConstantBuffer_s m_blockCBUF;
+	GPUConstantBuffer_s m_pixelCBUF;
 
 	Config_s m_config;
 
@@ -1365,6 +1445,7 @@ public:
 	Sample_s m_sample;
 	Octree_s m_octree;
 	Block_s m_block;
+	Pixel_s m_pixel;
 
 	core::IHeap* m_heap;
 	core::IStack* m_stack;
@@ -1391,6 +1472,12 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_stack = stack;
 	core::ScopedStack scopedStack( stack );
 
+	m_width = nWidth;
+	m_height = nHeight;
+	m_aspectRatio = (float)nWidth / nHeight;
+	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );	
+	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
+
 	{
 		DXGI_SWAP_CHAIN_DESC oSwapChainDesc = {};
 
@@ -1407,7 +1494,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		oSampleDesc.Count = 1;
 		oSampleDesc.Quality = 0;
 
-		oSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		oSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
 		oSwapChainDesc.BufferCount = 2;
 		oSwapChainDesc.OutputWindow = hWnd;
 		oSwapChainDesc.Windowed = true;
@@ -1459,7 +1546,8 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	V6_ASSERT_D3D11( m_ctx->QueryInterface( IID_PPV_ARGS( &m_userDefinedAnnotation ) ) );
 
 	V6_ASSERT_D3D11( m_pSwapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&m_pColorBuffer ) );
-	
+
+	V6_ASSERT_D3D11( m_device->CreateShaderResourceView( m_pColorBuffer, 0, &m_pColorSRV ) );	
 	V6_ASSERT_D3D11( m_device->CreateRenderTargetView( m_pColorBuffer, 0, &m_pColorView ) );
 	
 	{
@@ -1468,16 +1556,26 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		texDesc.Height = nHeight;
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_D32_FLOAT;	
+		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;	
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 		texDesc.CPUAccessFlags = 0;
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( m_device->CreateTexture2D( &texDesc, 0, &m_pDepthStencilBuffer ) );
 		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "mainDepths" );
+	}
+	
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		viewDesc.Texture2D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( m_device->CreateShaderResourceView( m_pDepthStencilBuffer, &viewDesc, &m_pDepthStencilSRV ) );
 	}
 
 	{
@@ -1540,12 +1638,14 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	ConstantBuffer_Create( m_device, &m_sampleCBUF, sizeof( v6::hlsl::CBSample), "sample" );
 	ConstantBuffer_Create( m_device, &m_octreeCBUF, sizeof( v6::hlsl::CBOctree ), "octree" );
 	ConstantBuffer_Create( m_device, &m_blockCBUF, sizeof( v6::hlsl::CBBlock ), "block" );
+	ConstantBuffer_Create( m_device, &m_pixelCBUF, sizeof( v6::hlsl::CBPixel), "pixel" );
 
 	Compute_Create( m_device, &m_computes[COMPUTE_SAMPLECOLLECT], "sample_collect_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_BUILDINNER], "octree_build_inner_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_BUILDLEAF], "octree_build_leaf_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_FILLLEAF], "octree_fill_leaf_cs.cso", fileSystem, stack );
 	Compute_Create( m_device, &m_computes[COMPUTE_PACKCOLOR], "octree_pack_cs.cso", fileSystem, stack );
+	Compute_Create( m_device, &m_computes[COMPUTE_FILTERPIXEL], "pixel_filter_cs.cso", fileSystem, stack );
 		
 	Shader_Create( m_device, &m_shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( m_device, &m_shaders[SHADER_CUBE_RENDER], "cube_render_vs.cso", "cube_render_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, fileSystem, stack );
@@ -1584,19 +1684,13 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 		++randomCubeID;
 	}
-	
-	Config_Init( &m_config, CUBE_SIZE, HLSL_GRID_WIDTH );
+	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
 	Sample_Create( m_device, &m_sample, &m_config, heap );
 	Octree_Create( m_device, &m_octree, &m_config, heap );
 	Block_Create( m_device, &m_block, &m_config, heap );
-
-	m_width = nWidth;
-	m_height = nHeight;
-	m_aspectRatio = (float)nWidth / nHeight;
-	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );	
-	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
-
+	Pixel_Create( m_device, &m_pixel, &m_config, heap );
+	
 	g_sample = 0;
 	m_sampleOffsets[0] = core::Vec3_Make( 0.0f, 0.0f, 0.0f );
 	for ( core::u32 sample = 1; sample < SAMPLE_MAX_COUNT; ++sample )
@@ -2134,6 +2228,54 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix )
 	m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
+void CRenderingDevice::PixelFilter()
+{
+	// Render
+
+	m_userDefinedAnnotation->BeginEvent( L"Filter Pixels");
+	
+	// set
+
+	m_ctx->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &m_pixelCBUF.buf );
+
+	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_pColorSRV );
+	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_pDepthStencilSRV );	
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PIXEL_COLOR_SLOT, 1, &m_pixel.colors.uav, nullptr );
+	m_ctx->CSSetShader( m_computes[COMPUTE_FILTERPIXEL].m_computeShader, nullptr, 0 );
+
+	float gridScale = GRID_MIN_SCALE;
+
+	{
+		v6::hlsl::CBPixel* cbPixel = ConstantBuffer_MapWrite< v6::hlsl::CBPixel >( m_ctx, &m_pixelCBUF );
+				
+		cbPixel->c_pixelDepthLinearScale = -1.0f / ZNEAR;
+		cbPixel->c_pixelDepthLinearBias = 1.0f / ZNEAR;
+		float gridScale = GRID_MIN_SCALE;
+		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			cbPixel->c_pixelInvCellSizes[gridID] = core::Vec4_Make( HLSL_GRID_WIDTH / (gridScale * 2.0f), 0.0f, 0.0f, 0.0f );
+
+		ConstantBuffer_UnmapWrite( m_ctx, &m_pixelCBUF  );
+	}		
+
+	V6_ASSERT( (m_width & 0xF) == 0 );
+	V6_ASSERT( (m_height & 0xF) == 0 );
+	const core::u32 pixelGroupWidth = m_width >> 4;
+	const core::u32 pixelGroupHeight = m_height >> 4;
+	m_ctx->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+	// unset
+	static const void* nulls[8] = {};
+	m_ctx->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	m_ctx->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );	
+	m_ctx->CSSetUnorderedAccessViews( HLSL_PIXEL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+	// Blit
+
+	m_ctx->CopyResource( m_pColorBuffer, m_pixel.colors.tex );
+
+	m_userDefinedAnnotation->EndEvent();	
+}
+
 void CRenderingDevice::Draw( float dt )
 {
 	static int lastMousePosX = -1;
@@ -2245,8 +2387,10 @@ void CRenderingDevice::Draw( float dt )
 		}
 
 		DrawBlock( &viewMatrix );
+		if ( g_filterPixel )
+			PixelFilter();
 
-		// s_logReadBack = false;
+		s_logReadBack = false;
 	}
 }
 
@@ -2263,11 +2407,13 @@ void CRenderingDevice::Release()
 	Sample_Release( m_device, &m_sample );
 	Octree_Release( m_device, &m_octree );
 	Block_Release( m_device, &m_block );
+	Pixel_Release( m_device, &m_pixel );
 
 	ConstantBuffer_Release( &m_viewCBUF );
 	ConstantBuffer_Release( &m_sampleCBUF );
 	ConstantBuffer_Release( &m_octreeCBUF );
 	ConstantBuffer_Release( &m_blockCBUF );
+	ConstantBuffer_Release( &m_pixelCBUF );
 
 	for ( uint meshID = 0; meshID < MESH_COUNT; ++meshID )
 	{
@@ -2320,8 +2466,8 @@ int main()
 	v6::core::Stack stack( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
 
-	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
-	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;	
+	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;
+	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;	
 
 	const char* const title = "V6 Player | version: 0.1";
 
@@ -2349,7 +2495,7 @@ int main()
 		__int64 frameDelta = frameTick - frameTickLast;
 
 		float dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
-		while ( dt < 0.0095f && v6::viewer::g_frameLimitation )
+		while ( dt < 0.0095f )
 		{
 			Sleep( 1 );
 			frameTick = v6::core::GetTickCount(); 

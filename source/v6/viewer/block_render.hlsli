@@ -9,8 +9,8 @@
 
 struct PixelInput
 {
-	float4 position		: SV_POSITION;
-	float3 color		: COLOR;
+	nointerpolation float4 position	: SV_POSITION;
+	nointerpolation float4 color	: COLOR;
 };
 
 #endif // __V6_HLSL_GRID_RENDER_H__
