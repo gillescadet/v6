@@ -12,7 +12,7 @@
 
 int main()
 {
-	V6_LOG("Baker 0.0");
+	V6_MSG( "Baker 0.0\n" );
 
 	v6::core::CHeap oHeap;
 	v6::baker::CBaker oBaker(oHeap);
@@ -28,8 +28,8 @@ int main()
 	float fMinDepth, fMaxDepth;
 	oTileReader.GetDepthRange(fMinDepth, fMaxDepth);
 
-	V6_LOG("Image size  : %dx%d", nWidth, nHeight);
-	V6_LOG("Depth range : %g -> %g", fMinDepth, fMaxDepth);
+	V6_MSG( "Image size  : %dx%d\n", nWidth, nHeight);
+	V6_MSG( "Depth range : %g -> %g\n", fMinDepth, fMaxDepth);
 
 #if 1
 	{

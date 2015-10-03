@@ -11,6 +11,84 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
+void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath )
+{
+	V6_ASSERT( path ) ;
+	V6_ASSERT( maxSize > 0 ) ;
+	V6_ASSERT( filePath ) ;
+
+	const char *c = filePath;
+	const char* lastSeparator = nullptr; 
+	while ( *c )
+	{
+		if ( *c == '/' || *c == '\\' )
+			lastSeparator = c;
+		++c;
+	}
+
+	if ( !lastSeparator )
+	{
+		path[0] = 0;
+		return;	
+	}
+
+	while ( *lastSeparator == '/' || *lastSeparator == '\\' )
+		--lastSeparator;
+
+	const u32 count = lastSeparator - filePath + 1;
+	strncpy_s( path, maxSize, filePath, count );
+}
+
+void FilePath_ExtractFilename( char* filename, u32 maxSize, const char* filePath )
+{
+	V6_ASSERT( filename ) ;
+	V6_ASSERT( maxSize > 0 ) ;
+	V6_ASSERT( filePath ) ;
+
+	const char *c = filePath;
+	const char* lastSeparator = filename; 
+	while ( *c )
+	{
+		if ( *c == '/' || *c == '\\' )
+			lastSeparator = c;
+		++c;
+	}
+
+	if ( lastSeparator )
+		++lastSeparator;
+	
+	strcpy_s( filename, maxSize, lastSeparator );
+}
+
+void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename )
+{
+	V6_ASSERT( filePath ) ;
+	V6_ASSERT( maxSize > 0 ) ;
+	V6_ASSERT( path ) ;
+	V6_ASSERT( filename ) ;
+
+	strcpy_s( filePath, maxSize, path );
+
+	u32 pathLen = strlen( filePath );
+	if ( pathLen )
+	{
+		char *c = filePath + pathLen - 1;
+		while ( *c == '/' || *c == '\\' ) 
+		{
+			--c;
+			--pathLen;
+		}
+		filePath[pathLen] = 0;	
+	
+		V6_ASSERT( pathLen < maxSize );
+		filePath[pathLen] = '/';
+		++pathLen;
+		filePath[pathLen] = 0;
+	}
+
+	strcat_s( filePath, maxSize - pathLen, filename );
+}
+
 CFileSystem::CFileSystem()
 {
 }

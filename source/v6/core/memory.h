@@ -13,6 +13,12 @@ public:
 	virtual void *	alloc(int nSize) = 0;
 
 	template <typename T>
+	T *				newArray( u32 count )
+	{
+		return (T*)alloc( sizeof(T) * count );
+	}
+
+	template <typename T>
 	T *				newInstance()
 	{
 		void * p = alloc(sizeof(T));
@@ -32,6 +38,12 @@ public:
 class IHeap : public IAllocator
 {
 public:
+	template <typename T>
+	void			deleteArray( T * p )
+	{
+		free( p );
+	}
+
 	template <typename T>
 	void			deleteInstance(T * p)
 	{

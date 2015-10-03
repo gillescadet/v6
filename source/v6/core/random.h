@@ -7,7 +7,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-float RandFloat()
+inline float RandFloat()
 {
 	static float fInvRandMax = 1.0f / RAND_MAX;
 	return rand() * fInvRandMax;

@@ -247,8 +247,8 @@ void CGrid::Build(Vec3 const * pPoints, int nPoints, float fAverageObjectPerCell
 
 void CGrid::PrintBuildStatistics() const
 {
-	V6_LOG("Grid Statistics:");
-	if (m_pBuildState)
+	V6_MSG( "Grid Statistics:\n" );
+	if ( m_pBuildState )
 	{
 		int const nCellCount = m_pBuildState->m_vCellCount[0] * m_pBuildState->m_vCellCount[1] * m_pBuildState->m_vCellCount[2];
 		int nReferenceCount = 0;
@@ -262,14 +262,14 @@ void CGrid::PrintBuildStatistics() const
 			nMaxCellCount = Max(nMaxCellCount, m_pBuildState->m_pGridCounters[i]);
 		}
 
-		V6_LOG("- cell count: %d (%dx%dx%d)", nCellCount, m_pBuildState->m_vCellCount[0], m_pBuildState->m_vCellCount[1], m_pBuildState->m_vCellCount[2]);
-		V6_LOG("- reference count: %d", nReferenceCount);
-		V6_LOG("- empty cell count: %d", nEmptyCellCount);
-		V6_LOG("- max cell count: %d", nMaxCellCount);
+		V6_MSG( "- cell count: %d (%dx%dx%d)\n", nCellCount, m_pBuildState->m_vCellCount[0], m_pBuildState->m_vCellCount[1], m_pBuildState->m_vCellCount[2]);
+		V6_MSG( "- reference count: %d\n", nReferenceCount);
+		V6_MSG( "- empty cell count: %d\n", nEmptyCellCount);
+		V6_MSG( "- max cell count: %d\n", nMaxCellCount);
 	}
 	else
 	{
-		V6_LOG("- no data");
+		V6_MSG( "- no data\n" );
 	}
 }
 

@@ -20,6 +20,8 @@
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
 
+#include <v6/viewer/obj_reader.h>
+
 #pragma comment(lib, "d3d11.lib")
 
 #define V6_D3D_DEBUG			0
@@ -710,18 +712,18 @@ static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
 
 static void ReadBack_Log( const char* res, core::u32 value, const char* name )
 {
-	printf( "%-16s %-30s: %8d\n", res, name, value );
+	V6_MSG( "%-16s %-30s: %8d\n", res, name, value );
 }
 
 static void GPUResource_LogMemory( const char* res, core::u32 size, const char* name )
 {
-	printf( "%-16s %-30s: %8d MB\n", res, name, MB( size ) );
+	V6_MSG( "%-16s %-30s: %8d MB\n", res, name, MB( size ) );
 	gpuMemory += size;
 }
 
 static void GPUResource_LogMemoryUsage()
 {
-	printf( "%-16s %-30s: %8d MB\n", "GPU", "total", MB( gpuMemory ) );
+	V6_MSG( "%-16s %-30s: %8d MB\n", "GPU", "total", MB( gpuMemory ) );
 }
 
 static void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 count, core::u32 flags, const char* name )
@@ -1073,12 +1075,12 @@ static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 scre
 
 static void Config_Log( const Config_s* config )
 {
-	printf( "%-16s: %d\n", "config.screenWidth", config->screenWidth );
-	printf( "%-16s: %d\n", "config.screenHeight", config->screenHeight );
-	printf( "%-16s: %13s\n", "config.sample", FormatInteger_Unsafe( config->sampleCount ) );
-	printf( "%-16s: %13s\n", "config.leaf", FormatInteger_Unsafe( config->leafCount ) );
-	printf( "%-16s: %13s\n", "config.node", FormatInteger_Unsafe( config->nodeCount ) );
-	printf( "%-16s: %13s\n", "config.cell", FormatInteger_Unsafe( config->cellCount ) );
+	V6_MSG( "%-16s: %d\n", "config.screenWidth", config->screenWidth );
+	V6_MSG( "%-16s: %d\n", "config.screenHeight", config->screenHeight );
+	V6_MSG( "%-16s: %13s\n", "config.sample", FormatInteger_Unsafe( config->sampleCount ) );
+	V6_MSG( "%-16s: %13s\n", "config.leaf", FormatInteger_Unsafe( config->leafCount ) );
+	V6_MSG( "%-16s: %13s\n", "config.node", FormatInteger_Unsafe( config->nodeCount ) );
+	V6_MSG( "%-16s: %13s\n", "config.cell", FormatInteger_Unsafe( config->cellCount ) );
 }
 
 static void Sample_Create( ID3D11Device* device, Sample_s* sample, const Config_s* config, core::IHeap* heap )
@@ -1539,7 +1541,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 			break;
 		
 		if ( maxQualityLevel > 0 )
-			printf ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );		
+			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );		
 	}
 #endif
 
@@ -1941,7 +1943,7 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 		// Read back
 		core::u32* collectedIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( m_ctx, &m_sample.indirectArgs );
 		
-		printf( "\n" );
+		V6_MSG( "\n" );
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_groupCountX_offset], "groupCountX" );
 		V6_ASSERT( collectedIndirectArgs[sample_groupCountY_offset] == 1 );
 		V6_ASSERT( collectedIndirectArgs[sample_groupCountZ_offset] == 1 );
@@ -2012,7 +2014,7 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 
 	if ( s_logReadBack )
 	{
-		printf( "\n" );
+		V6_MSG( "\n" );
 		ReadBack_Log( "octree", octreeIndirectArgs[octree_nodeCount_offset], "nodeCount" );
 		V6_ASSERT( octreeIndirectArgs[octree_nodeCount_offset] <= m_config.nodeCount );
 		ReadBack_Log( "octree", octreeIndirectArgs[octree_leafGroupCountX_offset], "leafGroupCountX" );
@@ -2121,7 +2123,7 @@ void CRenderingDevice::PackColor()
 			static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
 			const core::u32 maxCellCount = blockIndirectArgs[block_count_offset( bucket )] * cellPerBucketCounts[bucket];
 
-			printf( "\n" );
+			V6_MSG( "\n" );
 			ReadBack_Log( "block", bucket, "bucket" );
 			V6_ASSERT( blockIndirectArgs[block_vertexCountPerInstance_offset( bucket )] == 1 );
 			ReadBack_Log( "block", blockIndirectArgs[block_renderInstanceCount_offset( bucket )], "renderInstanceCount" );
@@ -2138,7 +2140,7 @@ void CRenderingDevice::PackColor()
 
 		if ( allMaxCellCount )
 		{
-			printf( "\n" );
+			V6_MSG( "\n" );
 			ReadBack_Log( "packed_all", allRealCellCount, "realCellCount" );
 			ReadBack_Log( "packed_all", allMaxCellCount, "maxCellCount" );
 		}
@@ -2361,7 +2363,7 @@ void CRenderingDevice::Draw( float dt )
 	{		
 		if ( g_sample < SAMPLE_MAX_COUNT )
 		{
-			printf( "Capturing sample #%03d...", g_sample );
+			V6_MSG( "Capturing sample #%03d...", g_sample );
 
 			const core::Vec3 sampleOffset = m_sampleOffsets[g_sample];
 
@@ -2375,14 +2377,14 @@ void CRenderingDevice::Draw( float dt )
 			sumLeafCount += newLeafCount;
 			FillLeaf();			
 
-			printf( "\rCapturing sample #%03d: %13s cells added\n", g_sample, FormatInteger_Unsafe( newLeafCount ) );
+			V6_MSG( "\rCapturing sample #%03d: %13s cells added\n", g_sample, FormatInteger_Unsafe( newLeafCount ) );
 			
 			++g_sample;
 
 			if ( g_sample == SAMPLE_MAX_COUNT )
 			{
 				PackColor();
-				printf( "          all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
+				V6_MSG( "          all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
 			}
 		}
 
@@ -2460,11 +2462,28 @@ END_V6_VIEWER_NAMESPACE
 
 int main()
 {
-	V6_LOG( "Viewer 0.1" );
+	V6_MSG( "Viewer 0.1\n" );
 
 	v6::core::CHeap heap;
 	v6::core::Stack stack( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
+
+	{
+		stack.push();
+		
+		v6::viewer::ObjScene_s objScene;
+		
+		const char* filenameOBJ = "D:/media/obj/sponza.obj";
+		V6_MSG( "Loading %s...\n",  filenameOBJ );
+		if ( !v6::viewer::Obj_ReadObjectFile( &objScene, filenameOBJ, &stack ) )
+		{
+			V6_ERROR( "Unable to load %s\n", filenameOBJ );
+			return -1;
+		}
+		V6_MSG( "%d meshes loaded\n",  objScene.meshCount );
+		
+		stack.pop();
+	}
 
 	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;
 	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;	

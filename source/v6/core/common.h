@@ -14,10 +14,9 @@
 #define END_V6_CORE_NAMESPACE		} }
 
 #define V6_ASSERT( EXP )			assert(EXP)
-#define V6_PRINT( ... )				printf(__VA_ARGS__)
-#define V6_LOG( ... )				{ printf("[LOG] "); printf(__VA_ARGS__); printf("\n"); }
-#define V6_WARNING( ... )			{ printf("[WARNING] "); printf(__VA_ARGS__); printf("\n"); }
-#define V6_ERROR( ... )				{ printf("[ERROR] "); printf(__VA_ARGS__); printf("\n"); }
+#define V6_MSG( ... )				{ printf("[MSG] "); printf(__VA_ARGS__); }
+#define V6_WARNING( ... )			{ printf("[WARNING] "); printf(__VA_ARGS__); }
+#define V6_ERROR( ... )				{ printf("[ERROR] "); printf(__VA_ARGS__); }
 
 #define V6_INLINE					__inline
 
