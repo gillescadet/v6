@@ -17,6 +17,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 #include <v6/core/time.h>
+#include <v6/core/thread.h>
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
 
@@ -2460,30 +2461,44 @@ void CRenderingDevice::ReleaseObject(IUnknown** unknow)
 
 END_V6_VIEWER_NAMESPACE
 
+struct LoadSceneContext_s
+{
+	v6::core::IAllocator* allocator;
+	v6::viewer::ObjScene_s objScene;
+};
+
+static void CreateScene( LoadSceneContext_s* loadSceneContext )
+{
+	V6_MSG( "Create scene\n" );
+}
+
+static void LoadScene( LoadSceneContext_s* loadSceneContext )
+{
+	const char* filenameOBJ = "D:/media/obj/sponza.obj";
+	if ( v6::viewer::Obj_ReadObjectFile( &loadSceneContext->objScene, filenameOBJ, loadSceneContext->allocator ) )
+	{
+		V6_MSG( "%d meshes loaded\n",  loadSceneContext->objScene.meshCount );
+		v6::core::Job_Launch( CreateScene, loadSceneContext );
+		return;
+	}
+
+	loadSceneContext->objScene.meshCount = 0;
+	V6_ERROR( "Unable to load %s\n", filenameOBJ );
+	return;
+}
+
+
 int main()
 {
 	V6_MSG( "Viewer 0.1\n" );
 
 	v6::core::CHeap heap;
 	v6::core::Stack stack( &heap, 100 * 1024 * 1024 );
+	v6::core::Stack stackScene( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
-
-	{
-		stack.push();
 		
-		v6::viewer::ObjScene_s objScene;
-		
-		const char* filenameOBJ = "D:/media/obj/sponza.obj";
-		V6_MSG( "Loading %s...\n",  filenameOBJ );
-		if ( !v6::viewer::Obj_ReadObjectFile( &objScene, filenameOBJ, &stack ) )
-		{
-			V6_ERROR( "Unable to load %s\n", filenameOBJ );
-			return -1;
-		}
-		V6_MSG( "%d meshes loaded\n",  objScene.meshCount );
-		
-		stack.pop();
-	}
+	LoadSceneContext_s loadSceneContext = { &stackScene };
+	v6::core::Job_Launch( LoadScene, &loadSceneContext );
 
 	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;
 	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;	
