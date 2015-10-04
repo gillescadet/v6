@@ -12,9 +12,49 @@ BEGIN_V6_CORE_NAMESPACE
 u64				g_jobID							= 0;
 JobBackend_s	g_jobBackends[JOB_BUFFER_SIZE]	= {};
 
+u32 Atomic_Add( u32* v, u32 inc )
+{
+	return InterlockedExchangeAdd( v, inc );
+}
+
+u64 Atomic_Add( u64* v, u64 inc )
+{
+	return InterlockedExchangeAdd( v, inc );
+}
+
+u32 Atomic_Inc( u32* v )
+{
+	return InterlockedIncrement( v )-1;
+}
+
 u64 Atomic_Inc( u64* v )
 {
 	return InterlockedIncrement( v )-1;
+}
+
+void Signal_Create( Signal_s* signal )
+{
+	signal->handle = CreateEvent( nullptr, false, false, nullptr );
+}
+
+void Signal_Emit( Signal_s* signal )
+{
+	SetEvent( signal->handle );
+}
+
+void Signal_Reset( Signal_s* signal )
+{
+	ResetEvent( signal->handle );
+}
+
+void Signal_Release( Signal_s* signal )
+{
+	CloseHandle( signal->handle );
+}
+
+void Signal_Wait( Signal_s* signal )
+{
+	WaitForSingleObject( signal->handle, INFINITE );
 }
 
 void Thread_Create( unsigned long (__stdcall *process)( void* ), void* ctx )

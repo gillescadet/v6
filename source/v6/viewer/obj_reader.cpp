@@ -336,42 +336,45 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			V6_ASSERT( n % 3 == 0 );
 			const core::u32 vertexCount = n / 3;
 			V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			const core::u32 newTriangleCount = vertexCount-2;
-			V6_ASSERT( triangleID + newTriangleCount <= triangleCount );
 			
+			V6_ASSERT( triangleID < triangleCount );			
 			ObjTriangle_s* triangle = &scene->triangles[triangleID];
 			
-			triangle->vertices[0].posID = ids[0];
-			triangle->vertices[0].normalID = ids[1];
-			triangle->vertices[0].uvID = ids[2];
+			triangle->vertices[0].posID = ids[0]-1;
+			triangle->vertices[0].uvID = ids[1]-1;
+			triangle->vertices[0].normalID = ids[2]-1;
 
-			triangle->vertices[1].posID = ids[3];
-			triangle->vertices[1].normalID = ids[4];
-			triangle->vertices[1].uvID = ids[5];
+			triangle->vertices[1].posID = ids[3]-1;
+			triangle->vertices[1].uvID = ids[4]-1;
+			triangle->vertices[1].normalID = ids[5]-1;
 
-			triangle->vertices[2].posID = ids[6];
-			triangle->vertices[2].normalID = ids[7];
-			triangle->vertices[2].uvID = ids[8];
-			
-			if ( newTriangleCount == 2 )
-			{
-				++triangle;
-				
-				triangle->vertices[0].posID = ids[3];
-				triangle->vertices[0].normalID = ids[4];
-				triangle->vertices[0].uvID = ids[5];
+			triangle->vertices[2].posID = ids[6]-1;
+			triangle->vertices[2].uvID = ids[7]-1;
+			triangle->vertices[2].normalID = ids[8]-1;
 
-				triangle->vertices[1].posID = ids[9];
-				triangle->vertices[1].normalID = ids[10];
-				triangle->vertices[1].uvID = ids[11];
-
-				triangle->vertices[2].posID = ids[6];
-				triangle->vertices[2].normalID = ids[7];
-				triangle->vertices[2].uvID = ids[8];				
-			}
-
-			triangleID += newTriangleCount;
+			++triangleID;
 			++mesh->triangleCount;
+						
+			if ( vertexCount == 4 )
+			{
+				V6_ASSERT( triangleID < triangleCount );			
+				ObjTriangle_s* triangle = &scene->triangles[triangleID];
+				
+				triangle->vertices[0].posID = ids[0]-1;
+				triangle->vertices[0].uvID = ids[1]-1;
+				triangle->vertices[0].normalID = ids[2]-1;				
+
+				triangle->vertices[1].posID = ids[6]-1;
+				triangle->vertices[1].uvID = ids[7]-1;
+				triangle->vertices[1].normalID = ids[8]-1;
+
+				triangle->vertices[2].posID = ids[9]-1;
+				triangle->vertices[2].uvID = ids[10]-1;
+				triangle->vertices[2].normalID = ids[11]-1;
+
+				++triangleID;
+				++mesh->triangleCount;
+			}			
 		}
 		else if ( _strnicmp( token, "mtllib", 6 ) == 0 )
 		{

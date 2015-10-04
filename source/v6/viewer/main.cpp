@@ -35,6 +35,22 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
+static const core::u32 ZOOM					= 2;
+static const float ZNEAR					= 10.0f;
+static const float ZFAR						= 10000.0f;
+static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
+static const float GRID_MAX_SCALE			= 1000.0f;
+static const float GRID_MIN_SCALE			= 100.0f;
+static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
+static const int SAMPLE_MAX_COUNT			= 16;
+static const float FREE_SCALE				= 50.0f;
+//static const float FREE_SCALE				= 400.0f;
+static const core::u32 RANDOM_CUBE_COUNT	= 1000;
+
+static const uint VERTEX_INPUT_MAX_COUNT	= 6;
+static const uint MESH_MAX_COUNT			= 1024;
+static const uint ENTITY_MAX_COUNT			= 16384;
+
 enum DrawMode_e
 {
 	DRAW_MODE_DEFAULT,
@@ -169,12 +185,12 @@ struct GPUConstantBuffer_s
 	ID3D11Buffer*					buf;
 };
 
-struct Compute_s
+struct GPUCompute_s
 {
 	ID3D11ComputeShader* m_computeShader;
 };
 
-struct Shader_s
+struct GPUShader_s
 {
 	ID3D11VertexShader* m_vertexShader;
 	ID3D11PixelShader* m_pixelShader;
@@ -184,7 +200,7 @@ struct Shader_s
 	uint m_vertexFormat;
 };
 
-struct Mesh_s
+struct GPUMesh_s
 {
 	ID3D11Buffer* m_vertexBuffer;
 	ID3D11Buffer* m_indexBuffer;	
@@ -202,6 +218,14 @@ struct Entity_s
 	uint shaderID;
 	core::Vec3 pos;
 	float scale;
+};
+
+struct Scene_s
+{
+	GPUMesh_s	meshes[MESH_MAX_COUNT];	
+	Entity_s	entities[ENTITY_MAX_COUNT];
+	core::u32	meshCount;
+	core::u32	entityCount;
 };
 
 struct RenderingView_s
@@ -261,21 +285,6 @@ struct Pixel_s
 	GPUTexture2D_s colors;
 };
 
-static const core::u32 ZOOM					= 2;
-static const float ZNEAR					= 10.0f;
-static const float ZFAR						= 10000.0f;
-static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
-static const float GRID_MAX_SCALE			= 1000.0f;
-static const float GRID_MIN_SCALE			= 100.0f;
-static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 16;
-static const float FREE_SCALE				= 50.0f;
-//static const float FREE_SCALE				= 400.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 1000;
-
-static const uint VERTEX_INPUT_MAX_COUNT	= 6;
-static const uint ENTITY_MAX_COUNT			= 16384;
-
 static bool g_mousePressed					= false;
 static int g_mousePosX						= 0;
 static int g_mousePosY						= 0;
@@ -299,6 +308,8 @@ static core::Vec3 s_headOffset				= core::Vec3_Zero();
 static core::u32 gpuMemory					= 0;
 
 static bool s_logReadBack					= false;
+
+static Scene_s* s_activeScene				= nullptr;
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -511,7 +522,7 @@ static void Cube_MakeViewMatrix( core::Mat4x4* matrix, const core::Vec3& center,
 	Mat4x4_AffineInverse( matrix );
 }
 
-static bool Compute_Create( ID3D11Device* device, Compute_s* compute, const char* cs, core::CFileSystem* fileSystem, core::IStack* stack )
+static bool Compute_Create( ID3D11Device* device, GPUCompute_s* compute, const char* cs, core::CFileSystem* fileSystem, core::IStack* stack )
 {
 	core::ScopedStack scopedStack( stack );
 
@@ -534,7 +545,7 @@ static bool Compute_Create( ID3D11Device* device, Compute_s* compute, const char
 	return true;
 }
 
-static bool Shader_Create( ID3D11Device* device, Shader_s* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
+static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
 {
 	core::ScopedStack scopedStack( stack );
 
@@ -719,7 +730,7 @@ static void ReadBack_Log( const char* res, core::u32 value, const char* name )
 static void GPUResource_LogMemory( const char* res, core::u32 size, const char* name )
 {
 	V6_MSG( "%-16s %-30s: %8d MB\n", res, name, MB( size ) );
-	gpuMemory += size;
+	core::Atomic_Add( &gpuMemory, size );
 }
 
 static void GPUResource_LogMemoryUsage()
@@ -1146,7 +1157,7 @@ static void Pixel_Release( ID3D11Device* device, Pixel_s* pixel )
 	Texture2D_Release( device, &pixel->colors );
 }
 
-static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
+static void Mesh_Create( ID3D11Device* device, GPUMesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
 {
 	mesh->m_vertexBuffer = nullptr;
 	mesh->m_vertexCount = vertexCount;
@@ -1202,7 +1213,21 @@ static void Mesh_Create( ID3D11Device* device, Mesh_s* mesh, const void* vertice
 	mesh->m_topology = topology;
 }
 
-static void Mesh_CreateTriangle( ID3D11Device* device, Mesh_s* mesh )
+static void Mesh_Release( GPUMesh_s* mesh )
+{
+	if ( mesh->m_vertexBuffer )
+	{
+		mesh->m_vertexBuffer->Release();
+		mesh->m_vertexBuffer = nullptr;
+	}
+	if ( mesh->m_indexBuffer )
+	{
+		mesh->m_indexBuffer->Release();
+		mesh->m_indexBuffer = nullptr;
+	}
+}
+
+static void Mesh_CreateTriangle( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	const BasicVertex_s vertices[3] = 
 	{
@@ -1217,7 +1242,7 @@ static void Mesh_CreateTriangle( ID3D11Device* device, Mesh_s* mesh )
 
 }
 
-static void Mesh_CreateBox( ID3D11Device* device, Mesh_s* mesh, const core::SColor color, bool wireframe )
+static void Mesh_CreateBox( ID3D11Device* device, GPUMesh_s* mesh, const core::SColor color, bool wireframe )
 {
 	const BasicVertex_s vertices[8] = 
 	{
@@ -1260,12 +1285,12 @@ static void Mesh_CreateBox( ID3D11Device* device, Mesh_s* mesh, const core::SCol
 	}
 }
 
-static void Mesh_CreateVirtualTriangle( ID3D11Device* device, Mesh_s* mesh )
+static void Mesh_CreateVirtualTriangle( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	Mesh_Create( device, mesh, nullptr, 3, 0, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );	
 }
 
-static void Mesh_CreateCube( ID3D11Device* device, Mesh_s* mesh )
+static void Mesh_CreateCube( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	CubeVertex_s vertices[24];
 	core::u16 indices[36];
@@ -1303,7 +1328,7 @@ static void Mesh_CreateCube( ID3D11Device* device, Mesh_s* mesh )
 	Mesh_Create( device, mesh, vertices, 24, sizeof( CubeVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 }
 
-static void Mesh_CreateGrid( ID3D11Device* device, Mesh_s* mesh )
+static void Mesh_CreateGrid( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	const core::u16 indices[36] = { 
 			0, 2, 3,
@@ -1322,7 +1347,7 @@ static void Mesh_CreateGrid( ID3D11Device* device, Mesh_s* mesh )
 	Mesh_Create( device, mesh, nullptr, 4, 0, 0, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 }
 
-static void Mesh_CreatePoint( ID3D11Device* device, Mesh_s* mesh )
+static void Mesh_CreatePoint( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	Mesh_Create( device, mesh, nullptr, 0, 0, 0, nullptr, 0, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_POINTLIST );
 }
@@ -1335,7 +1360,7 @@ static void Entity_Create( Entity_s* entity, core::u32 meshID, core::u32 shaderI
 	entity->scale = scale;
 }
 
-static void Mesh_Draw( Mesh_s* mesh, core::u32 instanceCount, Shader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, core::u32 offsetArgs )
+static void Mesh_Draw( GPUMesh_s* mesh, core::u32 instanceCount, GPUShader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, core::u32 offsetArgs )
 {
 	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
 	V6_ASSERT( instanceCount > 0 );
@@ -1389,6 +1414,168 @@ static void Mesh_Draw( Mesh_s* mesh, core::u32 instanceCount, Shader_s* shader, 
 	}
 }
 
+void Scene_Create( Scene_s* scene )
+{
+	scene->meshCount= 0;
+	scene->entityCount = 0;
+}
+
+void Scene_Release( Scene_s* scene )
+{
+	for ( core::u32 meshID = 0; meshID < scene->meshCount; ++meshID )
+		Mesh_Release( &scene->meshes[meshID] );
+	scene->meshCount= 0;
+	scene->entityCount = 0;
+}
+
+struct SceneContext_s
+{
+	v6::core::IStack*	allocator;
+	ObjScene_s			objScene;
+	Scene_s*			scene;
+	ID3D11Device*		device;
+	v6::core::Signal_s	deviceReady;
+	v6::core::Signal_s	loadDone;
+};
+
+static void SceneContext_Create( SceneContext_s* sceneContext, v6::core::IStack* allocator )
+{
+	allocator->push();;
+
+	sceneContext->allocator = allocator;
+	sceneContext->objScene.meshCount = 0;
+	sceneContext->scene = nullptr;
+	sceneContext->device = nullptr;
+	core::Signal_Create( &sceneContext->deviceReady );
+	core::Signal_Create( &sceneContext->loadDone );
+}
+
+static void SceneContext_Release( SceneContext_s* sceneContext )
+{
+	if ( sceneContext->scene )
+		Scene_Release( sceneContext->scene );
+	core::Signal_Release( &sceneContext->deviceReady );
+	core::Signal_Release( &sceneContext->loadDone );
+
+	sceneContext->allocator->pop();
+}
+
+static void SceneContext_SetDevice( SceneContext_s* sceneContext, ID3D11Device* device )
+{
+	sceneContext->device = device;
+	Signal_Emit( &sceneContext->deviceReady );
+}
+
+static void SceneContext_Load( SceneContext_s* sceneContext )
+{
+	V6_MSG( "Load scene\n" );
+
+	const char* filenameOBJ = "D:/media/obj/sponza.obj";
+	if ( !Obj_ReadObjectFile( &sceneContext->objScene, filenameOBJ, sceneContext->allocator ) )
+	{
+		sceneContext->objScene.meshCount = 0;
+		V6_ERROR( "Unable to load %s\n", filenameOBJ );
+		core::Signal_Emit( &sceneContext->loadDone );
+		return;
+	}
+	
+	V6_MSG( "%d meshes loaded\n",  sceneContext->objScene.meshCount );
+	
+	core::Signal_Wait( &sceneContext->deviceReady );
+
+	V6_MSG( "Init scene\n" );
+
+	ObjScene_s* objScene = &sceneContext->objScene;
+	Scene_s* scene = sceneContext->allocator->newInstance< Scene_s >();
+	Scene_Create( scene );
+
+	for ( core::u32 meshID = 0; meshID < objScene->meshCount; ++meshID )
+	{
+		sceneContext->allocator->push();
+
+		ObjMesh_s* mesh = &objScene->meshes[meshID];
+		ObjMaterial_s* material = &objScene->materials[mesh->materialID];
+		
+#if 0
+		const core::u8 r = (core::u8)core::Clamp( material->kd.x * 255.0f, 0.0f, 255.0f );
+		const core::u8 g = (core::u8)core::Clamp( material->kd.y * 255.0f, 0.0f, 255.0f );
+		const core::u8 b = (core::u8)core::Clamp( material->kd.z * 255.0f, 0.0f, 255.0f );
+#else
+		const core::u8 r = rand() * 255 / RAND_MAX;
+		const core::u8 g = rand() * 255 / RAND_MAX;
+		const core::u8 b = rand() * 255 / RAND_MAX;
+#endif
+
+		const core::SColor color = core::Color_Make( r, g, b, 255 );
+
+		BasicVertex_s* vertices = sceneContext->allocator->newArray< BasicVertex_s >( mesh->triangleCount * 3 );
+		
+		ObjTriangle_s* triangle = &objScene->triangles[mesh->firstTriangleID];
+		BasicVertex_s* vertex = vertices;
+		for ( core::u32 triangleID = 0; triangleID < mesh->triangleCount; ++triangleID, ++triangle, vertex += 3 )
+		{
+			vertex[0].position = objScene->positions[triangle->vertices[0].posID];
+			vertex[0].color = color;
+			vertex[1].position = objScene->positions[triangle->vertices[1].posID];
+			vertex[1].color = color;
+			vertex[2].position = objScene->positions[triangle->vertices[2].posID];
+			vertex[2].color = color;			
+		}
+
+		Mesh_Create( sceneContext->device, &scene->meshes[meshID], vertices, mesh->triangleCount * 3, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+		++scene->meshCount;
+
+		Entity_Create( &scene->entities[meshID], meshID, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f ), 1.0f );
+		++scene->entityCount;
+
+		sceneContext->allocator->pop();
+	}
+
+	V6_MSG( "%d entities created\n", scene->entityCount );
+	
+	GPUResource_LogMemoryUsage();
+
+	sceneContext->scene = scene;
+	s_activeScene = scene;
+
+	core::Signal_Emit( &sceneContext->loadDone );
+}
+
+void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
+{
+	Scene_Create( scene );
+
+	Mesh_CreateTriangle( device, &scene->meshes[MESH_TRIANGLE] );	
+	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_WIREFRAME], core::Color_Make( 255, 255, 255, 255 ), true );
+	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_RED], core::Color_Make( 255, 0, 0, 255 ), false );
+	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
+	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
+	Mesh_CreateVirtualTriangle( device, &scene->meshes[MESH_VIRTUAL_TRIANGLE] );
+	Mesh_CreateCube( device, &scene->meshes[MESH_CUBE] );
+	Mesh_CreateGrid( device, &scene->meshes[MESH_GRID] );
+	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
+	
+	Entity_Create( &scene->entities[scene->entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f), GRID_MAX_SCALE );
+	Entity_Create( &scene->entities[scene->entityCount++], MESH_TRIANGLE, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, -GRID_MAX_SCALE ), 5.0f );
+	for ( core::u32 randomCubeID = 0; randomCubeID < RANDOM_CUBE_COUNT;  )
+	{
+		const core::Vec3 center = core::Vec3_Rand() * (GRID_MAX_SCALE - FREE_SCALE);
+		const float size = 1.0f + 74.0f * rand() / RAND_MAX;
+		if ( 
+			center.x - size < FREE_SCALE && center.x + size > -FREE_SCALE &&
+			center.y - size < FREE_SCALE && center.y + size > -FREE_SCALE &&
+			center.z - size < FREE_SCALE && center.z + size > -FREE_SCALE ) continue;
+		if ( fabsf( center.x ) + size > GRID_MAX_SCALE ) continue;
+		if ( fabsf( center.y ) + size > GRID_MAX_SCALE ) continue;
+		if ( fabsf( center.z ) + size > GRID_MAX_SCALE ) continue;
+		
+		Entity_Create( &scene->entities[scene->entityCount++], MESH_BOX_RED + (randomCubeID % 3), SHADER_BASIC, center, size );
+		Entity_Create( &scene->entities[scene->entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, center, size );
+
+		++randomCubeID;
+	}
+}
+
 class CRenderingDevice
 {
 public:
@@ -1403,7 +1590,7 @@ public:
 	void Draw( float dt );
 	void DrawBlock( const core::Mat4x4* viewMatrix );
 	void DrawCube( const core::Mat4x4* viewMatrix );	
-	void DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view );
+	void DrawScene( Scene_s* scene, const RenderingView_s* view );
 	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void FillLeaf();
 	void PackColor();	
@@ -1428,6 +1615,7 @@ public:
 	ID3D11DepthStencilState*  m_depthStencilStateZRW;
 	ID3D11BlendState* m_blendStateNoColor;
 	ID3D11BlendState* m_blendStateOpaque;
+	ID3D11RasterizerState* m_rasterState;
 	GPUConstantBuffer_s m_viewCBUF;
 	GPUConstantBuffer_s m_sampleCBUF;
 	GPUConstantBuffer_s m_octreeCBUF;
@@ -1436,19 +1624,17 @@ public:
 
 	Config_s m_config;
 
-	Compute_s m_computes[COMPUTE_COUNT];
-	Shader_s m_shaders[SHADER_COUNT];
-	Mesh_s m_meshes[MESH_COUNT];
-	Entity_s m_entities[ENTITY_MAX_COUNT];
+	GPUCompute_s m_computes[COMPUTE_COUNT];
+	GPUShader_s m_shaders[SHADER_COUNT];	
 	core::Vec3 m_sampleOffsets[SAMPLE_MAX_COUNT];
-
-	uint m_entityCount;
-
+	
 	Cube_s m_cube;
 	Sample_s m_sample;
 	Octree_s m_octree;
 	Block_s m_block;
 	Pixel_s m_pixel;
+
+	Scene_s m_defaultScene;	
 
 	core::IHeap* m_heap;
 	core::IStack* m_stack;
@@ -1637,6 +1823,22 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 		V6_ASSERT_D3D11( m_device->CreateBlendState( &blendState, &m_blendStateOpaque ) );
 	}
 
+	{
+		D3D11_RASTERIZER_DESC rasterDesc = {};
+		rasterDesc.FillMode = D3D11_FILL_SOLID;
+		rasterDesc.CullMode = D3D11_CULL_NONE;
+		rasterDesc.FrontCounterClockwise = false;
+		rasterDesc.DepthBias = 0;
+		rasterDesc.DepthBiasClamp = 0;
+		rasterDesc.SlopeScaledDepthBias = 0.0f;
+		rasterDesc.DepthClipEnable = true;
+		rasterDesc.ScissorEnable = false;
+		rasterDesc.MultisampleEnable = false;
+		rasterDesc.AntialiasedLineEnable = false;
+		
+		V6_ASSERT_D3D11( m_device->CreateRasterizerState( &rasterDesc, &m_rasterState ) );
+	}
+
 	ConstantBuffer_Create( m_device, &m_viewCBUF, sizeof( v6::hlsl::CBView ), "view" );
 	ConstantBuffer_Create( m_device, &m_sampleCBUF, sizeof( v6::hlsl::CBSample), "sample" );
 	ConstantBuffer_Create( m_device, &m_octreeCBUF, sizeof( v6::hlsl::CBOctree ), "octree" );
@@ -1658,35 +1860,9 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Shader_Create( m_device, &m_shaders[SHADER_BLOCK_RENDER32], "block_render_x32_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( m_device, &m_shaders[SHADER_BLOCK_RENDER64], "block_render_x64_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 
-	Mesh_CreateTriangle( m_device, &m_meshes[MESH_TRIANGLE] );	
-	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_WIREFRAME], core::Color_Make( 255, 255, 255, 255 ), true );
-	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_RED], core::Color_Make( 255, 0, 0, 255 ), false );
-	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
-	Mesh_CreateBox( m_device, &m_meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
-	Mesh_CreateVirtualTriangle( m_device, &m_meshes[MESH_VIRTUAL_TRIANGLE] );
-	Mesh_CreateCube( m_device, &m_meshes[MESH_CUBE] );
-	Mesh_CreateGrid( m_device, &m_meshes[MESH_GRID] );
-	Mesh_CreatePoint( m_device, &m_meshes[MESH_POINT] );
-	
-	Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, 0.0f), GRID_MAX_SCALE );
-	Entity_Create( &m_entities[m_entityCount++], MESH_TRIANGLE, SHADER_BASIC, core::Vec3_Make( 0.0f, 0.0f, -GRID_MAX_SCALE ), 5.0f );
-	for ( core::u32 randomCubeID = 0; randomCubeID < RANDOM_CUBE_COUNT;  )
-	{
-		const core::Vec3 center = core::Vec3_Rand() * (GRID_MAX_SCALE - FREE_SCALE);
-		const float size = 1.0f + 74.0f * rand() / RAND_MAX;
-		if ( 
-			center.x - size < FREE_SCALE && center.x + size > -FREE_SCALE &&
-			center.y - size < FREE_SCALE && center.y + size > -FREE_SCALE &&
-			center.z - size < FREE_SCALE && center.z + size > -FREE_SCALE ) continue;
-		if ( fabsf( center.x ) + size > GRID_MAX_SCALE ) continue;
-		if ( fabsf( center.y ) + size > GRID_MAX_SCALE ) continue;
-		if ( fabsf( center.z ) + size > GRID_MAX_SCALE ) continue;
-		
-		Entity_Create( &m_entities[m_entityCount++], MESH_BOX_RED + (randomCubeID % 3), SHADER_BASIC, center, size );
-		Entity_Create( &m_entities[m_entityCount++], MESH_BOX_WIREFRAME, SHADER_BASIC, center, size );
+	Scene_CreateDefault( &m_defaultScene, m_device );
+	s_activeScene = &m_defaultScene;
 
-		++randomCubeID;
-	}
 	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );	
 	Cube_Create( m_device, &m_cube, CUBE_SIZE );
 	Sample_Create( m_device, &m_sample, &m_config, heap );
@@ -1706,11 +1882,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	return true;
 }
 
-void CRenderingDevice::DrawEntities( Entity_s* entities, core::u32 count, const RenderingView_s* view )
+void CRenderingDevice::DrawScene( Scene_s* scene, const RenderingView_s* view )
 {
-	for ( uint entityRank = 0; entityRank < count; ++entityRank )
+	for ( uint entityRank = 0; entityRank < scene->entityCount; ++entityRank )
 	{
-		Entity_s* entity = &entities[entityRank];
+		Entity_s* entity = &scene->entities[entityRank];
 		
 		{
 			v6::hlsl::CBView* cbView = ConstantBuffer_MapWrite< v6::hlsl::CBView >( m_ctx, &m_viewCBUF );
@@ -1730,8 +1906,8 @@ void CRenderingDevice::DrawEntities( Entity_s* entities, core::u32 count, const 
 
 		m_ctx->VSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF.buf );
 		
-		Mesh_s* mesh = &m_meshes[entity->meshID];
-		Shader_s* shader = &m_shaders[entity->shaderID];
+		GPUMesh_s* mesh = &scene->meshes[entity->meshID];
+		GPUShader_s* shader = &m_shaders[entity->shaderID];
 		Mesh_Draw( mesh, 1, shader, m_ctx, nullptr, 0 );
 	}
 }
@@ -1740,7 +1916,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 {	
 	// Rasterization state
 	m_ctx->OMSetDepthStencilState( m_depthStencilStateZRW, 0 );
-	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );
+	m_ctx->OMSetBlendState( m_blendStateOpaque, nullptr, 0XFFFFFFFF );	
 		
 	// Viewport
 	{
@@ -1753,6 +1929,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 		viewport.MaxDepth = 1.0f;
 
 		m_ctx->RSSetViewports( 1, &viewport );
+		m_ctx->RSSetState( m_rasterState );
 	}
 	
 	// RT
@@ -1770,7 +1947,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	view.frameWidth = m_width;
 	view.frameHeight = m_height;
 
-	DrawEntities( m_entities, m_entityCount, &view );
+	DrawScene( s_activeScene, &view );
 
 	// un RT
 	m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
@@ -1793,6 +1970,7 @@ void CRenderingDevice::Capture( const core::Vec3* sampleOffset )
 		viewport.MaxDepth = 1.0f;
 
 		m_ctx->RSSetViewports( 1, &viewport );
+		m_ctx->RSSetState( m_rasterState );
 	}
 
 	m_userDefinedAnnotation->BeginEvent( L"Capture");
@@ -1816,7 +1994,7 @@ void CRenderingDevice::Capture( const core::Vec3* sampleOffset )
 		view.frameWidth = m_cube.size;	
 		view.frameHeight = m_cube.size;
 		
-		DrawEntities( m_entities, m_entityCount, &view );
+		DrawScene( s_activeScene, &view );
 
 		// un RT
 		m_ctx->OMSetRenderTargets( 0, nullptr, nullptr );
@@ -1844,6 +2022,7 @@ void CRenderingDevice::DrawCube( const core::Mat4x4* viewMatrix )
 		viewport.MaxDepth = 1.0f;
 
 		m_ctx->RSSetViewports( 1, &viewport );
+		m_ctx->RSSetState( m_rasterState );
 	}
 
 	m_userDefinedAnnotation->BeginEvent( L"Render");
@@ -1871,7 +2050,7 @@ void CRenderingDevice::DrawCube( const core::Mat4x4* viewMatrix )
 	m_ctx->PSSetConstantBuffers( v6::hlsl::CBViewSlot, 1, &m_viewCBUF.buf );
 	m_ctx->PSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
 
-	Mesh_Draw( &m_meshes[MESH_CUBE], 1, &m_shaders[SHADER_CUBE_RENDER], m_ctx, nullptr, 0 );
+	Mesh_Draw( &m_defaultScene.meshes[MESH_CUBE], 1, &m_shaders[SHADER_CUBE_RENDER], m_ctx, nullptr, 0 );
 
 	// unset
 	static const void* nulls[8] = {};
@@ -2168,6 +2347,7 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix )
 		viewport.MaxDepth = 1.0f;
 
 		m_ctx->RSSetViewports( 1, &viewport );
+		m_ctx->RSSetState( m_rasterState );
 	}
 
 	// RT
@@ -2215,7 +2395,7 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix )
 	{
 		m_userDefinedAnnotation->BeginEvent( L"Draw Bucket");
 			
-		Mesh_Draw( &m_meshes[MESH_POINT], -1, &m_shaders[SHADER_BLOCK_RENDER4+bucket], m_ctx, m_block.indirectArgs.buf, block_vertexCountPerInstance_offset( bucket ) * sizeof( core::u32 ) );
+		Mesh_Draw( &m_defaultScene.meshes[MESH_POINT], -1, &m_shaders[SHADER_BLOCK_RENDER4+bucket], m_ctx, m_block.indirectArgs.buf, block_vertexCountPerInstance_offset( bucket ) * sizeof( core::u32 ) );
 			
 		m_userDefinedAnnotation->EndEvent();
 	}
@@ -2418,24 +2598,17 @@ void CRenderingDevice::Release()
 	ConstantBuffer_Release( &m_blockCBUF );
 	ConstantBuffer_Release( &m_pixelCBUF );
 
-	for ( uint meshID = 0; meshID < MESH_COUNT; ++meshID )
-	{
-		Mesh_s* mesh = &m_meshes[meshID];
-		if ( mesh->m_vertexBuffer )
-			mesh->m_vertexBuffer->Release();
-		if ( mesh->m_indexBuffer )
-			mesh->m_indexBuffer->Release();
-	}
+	Scene_Release( &m_defaultScene );
 
 	for ( uint computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
 	{
-		Compute_s* compute = &m_computes[computeID];
+		GPUCompute_s* compute = &m_computes[computeID];
 		compute->m_computeShader->Release();		
 	}
 
 	for ( uint shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
 	{
-		Shader_s* shader = &m_shaders[shaderID];
+		GPUShader_s* shader = &m_shaders[shaderID];
 		shader->m_vertexShader->Release();
 		shader->m_pixelShader->Release();
 		shader->m_inputLayout->Release();
@@ -2461,33 +2634,6 @@ void CRenderingDevice::ReleaseObject(IUnknown** unknow)
 
 END_V6_VIEWER_NAMESPACE
 
-struct LoadSceneContext_s
-{
-	v6::core::IAllocator* allocator;
-	v6::viewer::ObjScene_s objScene;
-};
-
-static void CreateScene( LoadSceneContext_s* loadSceneContext )
-{
-	V6_MSG( "Create scene\n" );
-}
-
-static void LoadScene( LoadSceneContext_s* loadSceneContext )
-{
-	const char* filenameOBJ = "D:/media/obj/sponza.obj";
-	if ( v6::viewer::Obj_ReadObjectFile( &loadSceneContext->objScene, filenameOBJ, loadSceneContext->allocator ) )
-	{
-		V6_MSG( "%d meshes loaded\n",  loadSceneContext->objScene.meshCount );
-		v6::core::Job_Launch( CreateScene, loadSceneContext );
-		return;
-	}
-
-	loadSceneContext->objScene.meshCount = 0;
-	V6_ERROR( "Unable to load %s\n", filenameOBJ );
-	return;
-}
-
-
 int main()
 {
 	V6_MSG( "Viewer 0.1\n" );
@@ -2497,8 +2643,10 @@ int main()
 	v6::core::Stack stackScene( &heap, 100 * 1024 * 1024 );
 	v6::core::CFileSystem filesystem;
 		
-	LoadSceneContext_s loadSceneContext = { &stackScene };
-	v6::core::Job_Launch( LoadScene, &loadSceneContext );
+	v6::viewer::SceneContext_s sceneContext;
+	SceneContext_Create( &sceneContext, &stackScene );
+
+	v6::core::Job_Launch( v6::viewer::SceneContext_Load, &sceneContext );
 
 	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;
 	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;	
@@ -2518,6 +2666,8 @@ int main()
 		V6_ERROR("Call to CRenderingDevice::Create failed!");
 		return -1;
 	}
+
+	SceneContext_SetDevice( &sceneContext, oRenderingDevice.m_device );
 
 	ShowWindow(hWnd, SW_SHOWNORMAL);
 	UpdateWindow(hWnd);
@@ -2562,6 +2712,8 @@ int main()
 			if (msg.message == WM_QUIT)
 			{
 				oRenderingDevice.Release();
+				v6::core::Signal_Wait( &sceneContext.loadDone );
+				SceneContext_Release( &sceneContext );
 				return 0;
 			}
 		}

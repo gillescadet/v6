@@ -24,10 +24,24 @@ struct JobBackend_s
 	void*			context;
 };
 
+struct Signal_s
+{
+	void*			handle;
+};
+
+u32 Atomic_Add( u32* v, u32 inc );
+u64 Atomic_Add( u64* v, u64 inc );
+u32 Atomic_Inc( u32* v );
 u64 Atomic_Inc( u64* v );
 
 template  < typename T >
 void Job_Launch( typename Job_s< T >::Process_f process,  T* context );
+
+void Signal_Create( Signal_s* signal );
+void Signal_Emit( Signal_s* signal );
+void Signal_Reset( Signal_s* signal );
+void Signal_Release( Signal_s* signal );
+void Signal_Wait( Signal_s* signal );
 
 void Thread_Create( unsigned long (__stdcall *process)( void* ), void* ctx );
 
