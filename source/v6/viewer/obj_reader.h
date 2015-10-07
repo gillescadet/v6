@@ -5,6 +5,7 @@
 #ifndef __V6_VIEWER_OBJ_READER_H__
 #define __V6_VIEWER_OBJ_READER_H__
 
+#include <v6/core/image.h>
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
 
@@ -19,10 +20,9 @@ BEGIN_V6_VIEWER_NAMESPACE
 struct ObjMaterial_s
 {
 	char			name[64];
-	char			mapKa[256];
 	char			mapKd[256];
 	char			mapD[256];
-	char			mapBump[256];	
+	char			mapBump[256];
 	core::Vec3		ka;
 	core::Vec3		kd;
 	core::Vec3		ks;
@@ -62,6 +62,7 @@ struct ObjScene_s
 	ObjTriangle_s*	triangles;
 	ObjMaterial_s*	materials;
 	ObjMesh_s*		meshes;
+	core::u32		materialCount;
 	core::u32		meshCount;
 };
 

@@ -9,8 +9,10 @@ BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
 
+void FilePath_ExtractExtension( char* extension, u32 maxSize, const char* filePath );
 void FilePath_ExtractFilename( char* filename, u32 maxSize, const char* filePath );
 void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath );
+bool FilePath_HasExtension( const char* filePath, const char* extension );
 void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename );
 
 class CFileSystem

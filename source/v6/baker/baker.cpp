@@ -8,7 +8,7 @@
 
 BEGIN_V6_BAKER_NAMESPACE
 
-CBaker::CBaker(core::IHeap & oHeap)
+CBaker::CBaker(core::IAllocator & oHeap)
 	: m_oHeap(oHeap)
 	, m_pFileSystem(oHeap.newInstance<core::CFileSystem>())
 {	

@@ -10,7 +10,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-class IHeap;
+class IAllocator;
 
 struct FrameDesc
 {
@@ -20,7 +20,7 @@ struct FrameDesc
 
 struct FrameBuffer
 {
-	SColor* colors;
+	Color_s* colors;
 	float* depths;
 	uint width;
 	uint height;
@@ -29,7 +29,7 @@ struct FrameBuffer
 class FrameManager
 {
 public:
-	FrameManager( IHeap* heap );
+	FrameManager( IAllocator* heap );
 	~FrameManager();
 
 public:
@@ -41,7 +41,7 @@ public:
 	void ReleaseFrameBuffer( FrameBuffer* frameBuffer );
 
 private:
-	IHeap* m_heap;
+	IAllocator* m_heap;
 };
 
 END_V6_CORE_NAMESPACE

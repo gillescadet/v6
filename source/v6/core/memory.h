@@ -33,11 +33,7 @@ public:
 		T * t = new (p)T(arg1);
 		return t;
 	}
-};
 
-class IHeap : public IAllocator
-{
-public:
 	template <typename T>
 	void			deleteArray( T * p )
 	{
@@ -51,12 +47,12 @@ public:
 		free(p);
 	}
 
-	virtual void	free(void * p) = 0;	
+	virtual void	free(void * p) {};	
 
-	virtual void *	realloc(void * p, int nSize) = 0;
+	virtual void *	realloc(void * p, int nSize) { return nullptr; };
 };
 
-class IStack : public IHeap
+class IStack : public IAllocator
 {
 public:
 	virtual void	free( void* ) override {}
@@ -66,7 +62,7 @@ public:
 	virtual void	pop() = 0;
 };
 
-class CHeap : public IHeap
+class CHeap : public IAllocator
 {
 public:
 	virtual void *	alloc(int nSize) override;
@@ -77,7 +73,7 @@ public:
 class Stack : public IStack
 {
 public:
-					Stack( IHeap* heap, uint capacity = 1024 * 1024 );
+					Stack( IAllocator* heap, uint capacity = 1024 * 1024 );
 	virtual			~Stack();
 
 public:
@@ -86,7 +82,7 @@ public:
 	virtual void	pop() override;
 
 private:
-	IHeap*			m_heap;
+	IAllocator*			m_heap;
 	uint*			m_stack;
 	void*			m_buffer;
 	uint			m_size;
@@ -114,20 +110,20 @@ struct Block_s;
 
 struct BlockAllocator_s
 {
-	IHeap*	 heap;
+	IAllocator*	 heap;
 	Block_s* firstBlock;
 	u32		 blockCapacity;
 };
 
 void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size );
 void BlockAllocator_Clear( BlockAllocator_s* allocator );
-void BlockAllocator_Create( BlockAllocator_s* allocator, IHeap* heap, u32 blockCapacity );
+void BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u32 blockCapacity );
 void BlockAllocator_Release( BlockAllocator_s* allocator );
 
 class CBlockAllocator : public IAllocator
 {
 public:
-	CBlockAllocator( IHeap & oHeap, int nBlockCapacity = 4096 );
+	CBlockAllocator( IAllocator & oHeap, int nBlockCapacity = 4096 );
 	virtual ~CBlockAllocator();
 
 public:
@@ -140,7 +136,7 @@ private:
 
 struct GrowingAllocator_s
 {
-	IHeap*	heap;
+	IAllocator*	heap;
 	void*	data;
 	u32		size;
 	u32		capacity;
@@ -149,7 +145,7 @@ struct GrowingAllocator_s
 template < typename T >
 T* GrowingAllocator_Add( BlockAllocator_s* allocator, u32 count );
 void GrowingAllocator_Extend( BlockAllocator_s* allocator, u32 size );
-void GrowingAllocator_Create( GrowingAllocator_s* allocator, IHeap* heap );
+void GrowingAllocator_Create( GrowingAllocator_s* allocator, IAllocator* heap );
 template < typename T >
 T* GrowingAllocator_Get( GrowingAllocator_s* allocator, u32 index );
 void GrowingAllocator_Release( GrowingAllocator_s* allocator );

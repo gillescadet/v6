@@ -50,8 +50,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const float3 right = cross( lookAt, up );
 
 		const float2 scale = (DTid.xy + 0.5) * c_sampleInvCubeSize * 2.0 - 1.0;
-		const float3 dir = lookAt + right * scale.x - up * scale.y;	
-		const float3 pos = (dir * cubeDepth) + c_sampleCubeCenter;	
+		const float3 dir = lookAt + right * scale.x - up * scale.y;
+		const float3 pos = (dir * cubeDepth) + c_sampleOffset;
 		const uint mip = max( GetMip( abs( pos.x ) ), max( GetMip( abs( pos.y ) ), GetMip( abs( pos.z ) ) ) );
 
 		if ( mip < HLSL_MIP_MAX_COUNT )

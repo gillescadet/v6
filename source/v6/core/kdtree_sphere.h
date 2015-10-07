@@ -10,7 +10,7 @@
 BEGIN_V6_CORE_NAMESPACE
 
 class CBlockAllocator;
-class IHeap;
+class IAllocator;
 
 class CKDTreeSphere
 {
@@ -22,14 +22,14 @@ public:
 	};
 
 public:
-	CKDTreeSphere(IHeap & oHeap);
+	CKDTreeSphere(IAllocator & oHeap);
 	~CKDTreeSphere();
 
 public:
 	void Build(SSPhere const * pSpheres, int nSphereCount);
 
 private:
-	IHeap & m_oHeap;
+	IAllocator & m_oHeap;
 	CBlockAllocator * m_pBlockAllocator;
 };
 

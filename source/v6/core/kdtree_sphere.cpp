@@ -12,7 +12,7 @@ struct SKDTreeSphereBuildState
 	int * m_pSphereIds[3];
 };
 
-CKDTreeSphere::CKDTreeSphere(IHeap & oHeap)
+CKDTreeSphere::CKDTreeSphere(IAllocator & oHeap)
 : m_oHeap(oHeap)
 , m_pBlockAllocator(oHeap.newInstance<core::CBlockAllocator>(oHeap))
 {

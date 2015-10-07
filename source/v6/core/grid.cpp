@@ -13,7 +13,7 @@ BEGIN_V6_CORE_NAMESPACE
 class CGrid::CBuildState
 {
 public:
-	CGrid::CBuildState(IHeap & oHeap)
+	CGrid::CBuildState(IAllocator & oHeap)
 		: m_oAllocator(oHeap)
 	{
 	}
@@ -44,7 +44,7 @@ V6_INLINE void ConvertPoint2Coords(int * vCoords, Vec3 const & vPoint, CGrid::CB
 
 END_ANONYMOUS_NAMESPACE
 
-CGrid::CGrid(IHeap & oHeap)
+CGrid::CGrid(IAllocator & oHeap)
 : m_oHeap(oHeap)
 , m_pBuildState(nullptr)
 {

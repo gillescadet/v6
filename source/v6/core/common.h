@@ -13,10 +13,13 @@
 #define BEGIN_V6_CORE_NAMESPACE		namespace v6 { namespace core {
 #define END_V6_CORE_NAMESPACE		} }
 
-#define V6_ASSERT( EXP )			assert(EXP)
+#define V6_ASSERT( EXP )			assert( EXP )
+#define V6_ASSERT_ALWAYS( EXP )		assert( false && (EXP) )
+#define V6_ASSERT_NOT_SUPPORTED()	V6_ASSERT_ALWAYS( "Not supported" )
+
 #define V6_MSG( ... )				{ printf("[MSG] "); printf(__VA_ARGS__); }
-#define V6_WARNING( ... )			{ printf("[WARNING] "); printf(__VA_ARGS__); }
-#define V6_ERROR( ... )				{ printf("[ERROR] "); printf(__VA_ARGS__); }
+#define V6_WARNING( ... )			{ printf("[WRN] "); printf(__VA_ARGS__); }
+#define V6_ERROR( ... )				{ printf("[ERR] "); printf(__VA_ARGS__); }
 
 #define V6_INLINE					__inline
 

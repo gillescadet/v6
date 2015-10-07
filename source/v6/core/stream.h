@@ -7,7 +7,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-class IHeap;
+class IAllocator;
 
 class IStreamWriter
 {
@@ -50,7 +50,7 @@ private:
 class CMemoryWriter : public IStreamWriter
 {
 public:
-	CMemoryWriter(IHeap* oHeap);
+	CMemoryWriter(IAllocator* oHeap);
 	virtual ~CMemoryWriter();
 
 public:
@@ -62,7 +62,7 @@ public:
 	virtual void Write( const void * pData, int nSize);
 
 private:
-	IHeap* m_oHeap;
+	IAllocator* m_oHeap;
 	void * m_pBuffer;
 	int m_nPos;
 	int m_nSize;

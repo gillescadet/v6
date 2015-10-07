@@ -13,6 +13,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_BLOCK							0
 
+#define HLSL_TRILINEAR_SLOT							0
+
 #define HLSL_COLOR_SLOT								0
 #define HLSL_DEPTH_SLOT								1
 
@@ -25,6 +27,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_COLOR_SLOT						10
 #define HLSL_BLOCK_INDIRECT_ARGS_SLOT				11
 #define HLSL_PIXEL_COLOR_SLOT						12
+
+#define HLSL_GENERIC_ALBEDO_SLOT					2
+
+#define HLSL_TRILINEAR_SAMPLER						CONCAT( s, HLSL_TRILINEAR_SLOT )
 
 #define HLSL_COLOR_SRV								CONCAT( t, HLSL_COLOR_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
@@ -42,6 +48,8 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_PIXEL_COLOR_SRV						CONCAT( t, HLSL_PIXEL_COLOR_SLOT )
 
+#define HLSL_GENERIC_ALBEDO_SRV						CONCAT( t, HLSL_GENERIC_ALBEDO_SLOT )
+
 #define HLSL_SAMPLE_UAV								CONCAT( u, HLSL_SAMPLE_SLOT )
 #define HLSL_SAMPLE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
 
@@ -55,7 +63,7 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						8
+#define HLSL_GRID_MACRO_SHIFT						9
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)w
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -87,22 +95,38 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
 
-CBUFFER( CBView, 0 )
+CBUFFER( CBBasic, 0 )
 {
-	row_major	matrix	c_frameObjectToView;
-	row_major	matrix	c_frameViewToProj;
-	uint				c_frameWidth;
-	uint				c_frameHeight;
-	int					c_framePad1;
-	int					c_framePad2;
+	row_major	matrix	c_basicObjectToView;
+	row_major	matrix	c_basicViewToProj;
 };
 
-CBUFFER( CBSample, 1 )
+CBUFFER( CBGeneric, 1 )
+{
+	row_major	matrix	c_genericObjectToView;
+	row_major	matrix	c_genericViewToProj;
+	int					c_genericUseAlbedo;
+	int					c_genericPad1;
+	int					c_genericPad2;
+	int					c_genericPad3;
+};
+
+CBUFFER( CBCube, 2 )
+{
+	row_major	matrix	c_cubeObjectToView;
+	row_major	matrix	c_cubeViewToProj;
+	uint				c_cubeWidth;
+	uint				c_cubeHeight;
+	int					c_cubePad1;
+	int					c_cubePad2;
+};
+
+CBUFFER( CBSample, 3 )
 {
 	float				c_sampleDepthLinearScale;
 	float				c_sampleDepthLinearBias;
 	float2				c_sampleInvCubeSize;
-	float3				c_sampleCubeCenter;
+	float3				c_sampleOffset;
 	float				c_samplePad0;
 	float4				c_sampleMipBoundariesA;
 	float4				c_sampleMipBoundariesB;
@@ -111,7 +135,7 @@ CBUFFER( CBSample, 1 )
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];	
 };
 
-CBUFFER( CBOctree, 2 )
+CBUFFER( CBOctree, 4 )
 {
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeCurrentBucket;
@@ -119,12 +143,16 @@ CBUFFER( CBOctree, 2 )
 	float				c_octreePad1;
 };
 
-CBUFFER( CBBlock, 3 )
+CBUFFER( CBBlock, 5 )
 {
+	row_major	matrix	c_blockObjectToView;
+	row_major	matrix	c_blockViewToProj;
 	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
+	float3				c_blockCenter;
+	uint				c_blockShowMip;
 };
 
-CBUFFER( CBPixel, 4 )
+CBUFFER( CBPixel, 6 )
 {
 	float				c_pixelDepthLinearScale;
 	float				c_pixelDepthLinearBias;

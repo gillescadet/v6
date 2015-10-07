@@ -7,14 +7,14 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-class IHeap;
+class IAllocator;
 struct SBox;
 struct Vec3;
 
 class CGrid
 {
 public:
-	CGrid(IHeap & oHeap);
+	CGrid(IAllocator & oHeap);
 	~CGrid();
 
 	void Clear();
@@ -26,7 +26,7 @@ public:
 	class CBuildState;
 
 private:
-	IHeap & m_oHeap;
+	IAllocator & m_oHeap;
 	CBuildState * m_pBuildState;
 };
 

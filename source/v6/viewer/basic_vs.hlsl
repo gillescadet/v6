@@ -1,4 +1,4 @@
-#include "basic.h"
+#include "basic.hlsli"
 
 PixelInput main( VertexInput i )
 {
@@ -6,8 +6,8 @@ PixelInput main( VertexInput i )
 
 	float4 pos = float4( i.position, 1.0f );
 
-	o.position = mul( c_frameObjectToView, pos );
-	o.position = mul( c_frameViewToProj, o.position );
+	o.position = mul( c_basicObjectToView, pos );
+	o.position = mul( c_basicViewToProj, o.position );
 
 	o.color = i.color;
 

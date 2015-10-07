@@ -1,4 +1,4 @@
-#include "basic.h"
+#include "basic.hlsli"
 
 float4 main( PixelInput i ) : SV_TARGET
 {

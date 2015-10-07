@@ -11,6 +11,37 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
+void FilePath_ExtractExtension( char* extension, u32 maxSize, const char* filePath )
+{
+	V6_ASSERT( extension ) ;
+	V6_ASSERT( maxSize > 0 ) ;
+	V6_ASSERT( filePath ) ;
+	
+	const char *c = filePath;
+	const char* lastDot = nullptr; 
+	while ( *c )
+	{
+		if ( *c == '.' )
+			lastDot = c;
+		++c;
+	}
+
+	if ( !lastDot )
+	{
+		extension[0] = 0;
+		return;
+	}
+	
+	strcpy_s( extension, maxSize, lastDot+1 );
+}
+
+bool FilePath_HasExtension( const char* filePath, const char* extension )
+{
+	char extensionFound[256];
+	FilePath_ExtractExtension( extensionFound, sizeof( extension ), filePath );
+	return _stricmp( extensionFound, extension ) == 0;
+}
+
 void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath )
 {
 	V6_ASSERT( path ) ;
@@ -54,10 +85,13 @@ void FilePath_ExtractFilename( char* filename, u32 maxSize, const char* filePath
 		++c;
 	}
 
-	if ( lastSeparator )
-		++lastSeparator;
+	if ( !lastSeparator )
+	{
+		strcpy_s( filename, maxSize, filePath );
+		return;
+	}
 	
-	strcpy_s( filename, maxSize, lastSeparator );
+	strcpy_s( filename, maxSize, lastSeparator+1 );
 }
 
 void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename )

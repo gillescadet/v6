@@ -56,7 +56,7 @@ void CFileWriter::Write( const void * pData, int nSize )
 	m_nSize += nSize;
 }
 
-CMemoryWriter::CMemoryWriter(IHeap* oHeap)
+CMemoryWriter::CMemoryWriter(IAllocator* oHeap)
 : m_oHeap(oHeap)
 , m_pBuffer(nullptr)
 , m_nPos(0)

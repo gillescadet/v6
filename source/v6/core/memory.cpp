@@ -57,7 +57,7 @@ void BlockAllocator_Clear( BlockAllocator_s* allocator )
 	allocator->firstBlock = nullptr;
 }
 
-void BlockAllocator_Create( BlockAllocator_s* allocator, IHeap* heap, u32 blockCapacity )
+void BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u32 blockCapacity )
 {
 	allocator->heap = heap;
 	allocator->firstBlock = nullptr;
@@ -70,7 +70,7 @@ void BlockAllocator_Release( BlockAllocator_s* allocator )
 	memset( allocator, 0, sizeof(BlockAllocator_s) );
 }
 
-CBlockAllocator::CBlockAllocator( IHeap & oHeap, int nBlockCapacity )
+CBlockAllocator::CBlockAllocator( IAllocator & oHeap, int nBlockCapacity )
 {
 	BlockAllocator_Create( &allocator, &oHeap, (u32)nBlockCapacity );
 }
@@ -92,7 +92,7 @@ void CBlockAllocator::clear()
 
 static const uint STACK_CAPACITY = 32;
 
-Stack::Stack( IHeap* heap, uint capacity )
+Stack::Stack( IAllocator* heap, uint capacity )
 	: m_heap( heap )
 {
 	m_buffer = m_heap->alloc( (int)capacity );
@@ -140,7 +140,7 @@ void GrowingAllocator_Extend( GrowingAllocator_s* allocator, u32 size )
 	allocator->size += size;
 }
 
-void GrowingAllocator_Create( GrowingAllocator_s* allocator, IHeap* heap )
+void GrowingAllocator_Create( GrowingAllocator_s* allocator, IAllocator* heap )
 {
 	allocator->heap = heap;
 	allocator->data = nullptr;

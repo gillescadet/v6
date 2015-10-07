@@ -27,7 +27,7 @@ struct StackItem_s
 struct Octree_s
 {
 	GrowingAllocator_s allocator;
-	IHeap* heap;
+	IAllocator* heap;
 	Node_s root;
 	float radius;
 };
@@ -74,7 +74,7 @@ static void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float*
 
 // API
 
-void Octree_Create( Octree_s** out_octree, float width, IHeap* heap )
+void Octree_Create( Octree_s** out_octree, float width, IAllocator* heap )
 {
 	Octree_s* octree = (Octree_s*)heap->alloc( sizeof( Octree_s ) );
 	octree->heap = heap;
@@ -87,7 +87,7 @@ void Octree_Create( Octree_s** out_octree, float width, IHeap* heap )
 
 void Octree_Release( Octree_s* octree )
 {
-	IHeap* heap = octree->allocator.heap;
+	IAllocator* heap = octree->allocator.heap;
 	GrowingAllocator_Release( &octree->allocator );
 	heap->free( octree );
 	

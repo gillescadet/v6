@@ -180,7 +180,7 @@ void CTileReader::FillFrameBuffer( core::FrameBuffer* frameBuffer )
 		for (int y = 0; y < pTile->m_h; ++y)
 		{
 			const core::uint offset = (pTile->m_y + y) * m_nWidth + pTile->m_x;
-			core::SColor * pBakedColor = frameBuffer->colors + offset;
+			core::Color_s * pBakedColor = frameBuffer->colors + offset;
 			float* pBakedDepth = frameBuffer->depths + offset;
 			for ( int x = 0; x < pTile->m_w; ++x, pColorf += 4, ++pBakedColor, ++pDepthf, ++pBakedDepth )
 			{
@@ -211,7 +211,7 @@ void CTileReader::FillColorImage(core::CImage & oImage)
 		float * pColorf = pColorfs;
 		for (int y = 0; y < pTile->m_h; ++y)
 		{
-			core::SColor * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
+			core::Color_s * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
 			for (int x = 0; x < pTile->m_w; ++x, pColorf += 4, pColor32++)
 			{
 				pColor32->m_r = core::Clamp((int)(pColorf[0] * 255), 0, 255);
@@ -239,7 +239,7 @@ void CTileReader::FillDepthImage(core::CImage & oImage, float fMinDepth, float f
 		float * pDepthf = pDepthfs;
 		for (int y = 0; y < pTile->m_h; ++y)
 		{
-			core::SColor * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
+			core::Color_s * pColor32 = oImage.GetColors() + (pTile->m_y + y) * m_nWidth + pTile->m_x;
 			for (int x = 0; x < pTile->m_w; ++x, ++pDepthf, pColor32++)
 			{
 				float const fDepth = core::Clamp((*pDepthf - fMinDepth) * fScaleDepth, 0.0f, 1.0f);

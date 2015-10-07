@@ -42,11 +42,12 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	o.color.b = 0.25 + ((cellPos >> 4) & 3) * 0.25;
 #endif
 
-#if 0
-	o.color.r = (mip+1) & 1 ? 255 : 0;
-	o.color.g = (mip+1) & 2 ? 255 : 0;
-	o.color.b = (mip+1) & 4 ? 255 : 0;
-#endif
+	if ( c_blockShowMip )
+	{
+		o.color.r = (mip+1) & 1 ? 255 : 0;
+		o.color.g = (mip+1) & 2 ? 255 : 0;
+		o.color.b = (mip+1) & 4 ? 255 : 0;
+	}
 
 	const uint x = (((blockPos >> 0						 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
 	const uint y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);
@@ -56,7 +57,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 
 	const float gridScale = c_blockGridScales[mip].x;
 	const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
-	float3 posOS = mad( cellCoords.xyz, halfCellSize * 2.0, -gridScale + halfCellSize );
+	float3 posOS = mad( cellCoords.xyz, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockCenter;
 
 #if HLSL_DEBUG_BLOCK == 0
 	posOS.x += ((vertexID & 1) == 0) ? -halfCellSize : halfCellSize;
@@ -64,8 +65,8 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	posOS.z += ((vertexID & 4) == 0) ? -halfCellSize : halfCellSize;
 #endif
 	
-	const float4 posVS = mul( c_frameObjectToView, float4( posOS, 1.0 ) );
-	const float4 posCS = mul( c_frameViewToProj, posVS );
+	const float4 posVS = mul( c_blockObjectToView, float4( posOS, 1.0 ) );
+	const float4 posCS = mul( c_blockViewToProj, posVS );
 
 	o.position = posCS;
 	

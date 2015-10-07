@@ -7,17 +7,30 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-struct SColor
+struct Color_s
 {
-	u8 m_r;
-	u8 m_g;
-	u8 m_b;
-	u8 m_a;
+	union
+	{
+		struct
+		{
+			u8 m_r;
+			u8 m_g;
+			u8 m_b;
+			u8 m_a;
+		};
+		struct
+		{
+			u8 r;
+			u8 g;
+			u8 b;
+			u8 a;
+		};
+	};
 };
 
-V6_INLINE SColor Color_Make( u8 r, u8 g, u8 b, u8 a )
+V6_INLINE Color_s Color_Make( u8 r, u8 g, u8 b, u8 a )
 {
-	SColor c;
+	Color_s c;
 	c.m_r = r;
 	c.m_g = g;
 	c.m_b = b;

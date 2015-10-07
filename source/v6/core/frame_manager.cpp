@@ -7,7 +7,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-FrameManager::FrameManager(IHeap * heap )
+FrameManager::FrameManager(IAllocator * heap )
 : m_heap(heap)
 {
 
@@ -20,7 +20,7 @@ FrameManager::~FrameManager()
 uint FrameManager::GetFrameBufferColorSize( const FrameDesc* desc )
 {
 	const uint pixelCount = desc->width * desc->height;
-	return pixelCount * sizeof( SColor );
+	return pixelCount * sizeof( Color_s );
 }
 
 uint FrameManager::GetFrameBufferDepthSize( const FrameDesc* desc )
@@ -39,7 +39,7 @@ FrameBuffer* FrameManager::CreateFrameBuffer( const FrameDesc* desc )
 
 	FrameBuffer* frameBuffer = (FrameBuffer*)buffer;
 	buffer += sizeof( FrameBuffer );
-	frameBuffer->colors = (SColor*)buffer;
+	frameBuffer->colors = (Color_s*)buffer;
 	buffer += colorSize;
 	frameBuffer->depths = (float*)buffer;
 

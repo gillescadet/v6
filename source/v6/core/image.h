@@ -7,30 +7,38 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-class IHeap;
+class IAllocator;
 class IStreamWriter;
-struct SColor;
+struct Color_s;
 
-class CImage
+struct Image_s
+{
+	IAllocator*		heap;
+	Color_s *	pixels;	
+	u32			width;
+	u32			height;
+};
+
+class CImage : Image_s
 {
 public:
-				CImage(IHeap & oHeap, int nWidth, int nHeight);
+				CImage(IAllocator & oHeap, int nWidth, int nHeight);
 				~CImage();
 
 public:
-	SColor *	GetColors() { return m_pPixels; }
-	int			GetHeight() const { return m_nHeight; }
-	int			GetWidth() const { return m_nWidth; }
-	int			GetSize() const { return m_nWidth * m_nHeight * 4; }
-	void		WriteBitmap(core::IStreamWriter& oStream);
-	
-private:
-	IHeap &		m_oHeap;
-	int			m_nWidth;
-	int			m_nHeight;
-	SColor *	m_pPixels;
+	Color_s *	GetColors() { return pixels; }
+	int			GetHeight() const { return height; }
+	int			GetWidth() const { return width; }
+	int			GetSize() const { return width * height * 4; }
+	void		WriteBitmap( core::IStreamWriter& oStream );
 };
 
+void	Image_Clear( Image_s* image );
+void	Image_Create( Image_s* image, IAllocator* heap, u32 width, u32 height );
+u32		Image_GetSize( Image_s* image );
+void	Image_Release( Image_s* image );
+void	Image_WriteBitmap( Image_s* image, IStreamWriter* stream );
+	
 END_V6_CORE_NAMESPACE
 
 #endif // __V6_CORE_IMAGE_H__

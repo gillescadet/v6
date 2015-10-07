@@ -7,11 +7,11 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-class IHeap;
+class IAllocator;
 struct Octree_s;
 struct Vec3;
 
-void Octree_Create( Octree_s** octree, float width, IHeap* heap );
+void Octree_Create( Octree_s** octree, float width, IAllocator* heap );
 void Octree_Release( Octree_s* octree );
 void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float* radii, u32 count, const u32 firstID );
 

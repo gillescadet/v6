@@ -55,6 +55,9 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 	if ( !materialCount )
 		return 0;
 
+	char path[256];
+	core::FilePath_ExtractPath( path, sizeof( path ), filenameMTL );
+
 	*materials = (ObjMaterial_s*)allocator->alloc( materialCount * sizeof( ObjMaterial_s ) );
 
 	ObjMaterial_s* curMaterial = nullptr;
@@ -133,30 +136,23 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 			const char* ke = NextToken( token );
 			sscanf_s( ke, "%g %g %g", &curMaterial->ke.x, &curMaterial->ke.y, &curMaterial->ke.z );
 		}
-		else if ( _strnicmp( token, "map_ka", 6 ) == 0 )
-		{
-			char* mapKa = NextToken( token );
-			TrimRight( mapKa );
-			strcpy_s( curMaterial->mapKa, sizeof( curMaterial->mapKa ), mapKa );
-		}
-		else if ( _strnicmp( token, "map_kd", 6 ) == 0 )
+		else if ( _strnicmp( token, "map_ka", 6 ) == 0 || _strnicmp( token, "map_kd", 6 ) == 0 )
 		{
 			char* mapKd = NextToken( token );
 			TrimRight( mapKd );
-			strcpy_s( curMaterial->mapKd, sizeof( curMaterial->mapKd ), mapKd );
+			core::FilePath_Make( curMaterial->mapKd, sizeof( curMaterial->mapKd ), path, mapKd );
 		}
 		else if ( _strnicmp( token, "map_d", 5 ) == 0 )
 		{
 			char* mapD = NextToken( token );
 			TrimRight( mapD );
-			strcpy_s( curMaterial->mapD, sizeof( curMaterial->mapD ), mapD );
+			core::FilePath_Make( curMaterial->mapD, sizeof( curMaterial->mapD ), path, mapD );
 		}
 		else if ( _strnicmp( token, "map_bump", 8 ) == 0 || _strnicmp( token, "bump", 4 ) == 0 )
 		{
 			char* mapBump = NextToken( token );
 			TrimRight( mapBump );
-			strcpy_s( curMaterial->mapBump, sizeof( curMaterial->mapBump ), mapBump );
-		}
+			core::FilePath_Make( curMaterial->mapBump, sizeof( curMaterial->mapBump ), path, mapBump );		}
 		else
 		{
 			V6_WARNING( "Unknown token %s\n", token );
@@ -174,10 +170,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 {
 	FILE* fileOBJ = nullptr;
 	if ( fopen_s( &fileOBJ, filenameOBJ, "rb" ) != 0 )
-	{
-		fclose( fileOBJ );
 		return false;
-	}
 
 	ObjMaterial_s* materials = nullptr;
 	core::u32 materialCount = 0;
@@ -256,6 +249,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	scene->uvs = allocator->newArray< core::Vec2 >( uvCount );
 	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount );
 	scene->meshes = allocator->newArray< ObjMesh_s >( meshCount );
+	scene->materialCount = materialCount;
 	scene->meshCount = meshCount;
 
 	core::u32 positionID = 0;
