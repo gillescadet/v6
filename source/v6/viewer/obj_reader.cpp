@@ -163,7 +163,7 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 
 	V6_ASSERT( materialID == materialCount );
 
-	return 	materialCount;
+	return materialCount;
 }
 
 bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllocator* allocator )
@@ -203,6 +203,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			if ( materialCount == 0 )
 			{
 				fclose( fileOBJ );
+				V6_ERROR( "No material found.\n" );
 				return false;
 			}
 			continue;
@@ -237,7 +238,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		}		
 	}
 
-	if ( materialCount == 0 || positionCount == 0 || normalCount == 0 || uvCount == 0 || meshCount == 0 || triangleCount == 0 )
+	if ( materialCount == 0 || positionCount == 0 || uvCount == 0 || meshCount == 0 || triangleCount == 0 )
 	{
 		fclose( fileOBJ );
 		return false;
@@ -245,7 +246,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 
 	scene->materials = materials;
 	scene->positions = allocator->newArray< core::Vec3 >( positionCount );
-	scene->normals = allocator->newArray< core::Vec3 >( normalCount );
+	scene->normals = normalCount > 0 ? allocator->newArray< core::Vec3 >( normalCount ) : nullptr;
 	scene->uvs = allocator->newArray< core::Vec2 >( uvCount );
 	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount );
 	scene->meshes = allocator->newArray< ObjMesh_s >( meshCount );
@@ -316,6 +317,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			mesh->triangleCount = 0;
 			mesh->materialID = materialID;
 			++meshID;
+
+			V6_MSG( "%d/%d loaded triangles\n", triangleID, triangleCount );
 		}
 		else if ( _strnicmp( token, "g ", 2 ) == 0 )
 			; //
@@ -325,49 +328,93 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( mesh );
 			char* f = NextToken( token );
-			core::u32 ids[12];
-			const core::u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
-			V6_ASSERT( n % 3 == 0 );
-			const core::u32 vertexCount = n / 3;
-			V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
-			V6_ASSERT( triangleID < triangleCount );			
-			ObjTriangle_s* triangle = &scene->triangles[triangleID];
-			
-			triangle->vertices[0].posID = ids[0]-1;
-			triangle->vertices[0].uvID = ids[1]-1;
-			triangle->vertices[0].normalID = ids[2]-1;
-
-			triangle->vertices[1].posID = ids[3]-1;
-			triangle->vertices[1].uvID = ids[4]-1;
-			triangle->vertices[1].normalID = ids[5]-1;
-
-			triangle->vertices[2].posID = ids[6]-1;
-			triangle->vertices[2].uvID = ids[7]-1;
-			triangle->vertices[2].normalID = ids[8]-1;
-
-			++triangleID;
-			++mesh->triangleCount;
-						
-			if ( vertexCount == 4 )
+			if ( normalCount == 0 )
 			{
+				core::u32 ids[8];
+				const core::u32 n = sscanf_s( f, "%d/%d %d/%d %d/%d %d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
+				V6_ASSERT( n % 2 == 0 );
+				const core::u32 vertexCount = n / 2;
+				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
+			
 				V6_ASSERT( triangleID < triangleCount );			
 				ObjTriangle_s* triangle = &scene->triangles[triangleID];
-				
+			
 				triangle->vertices[0].posID = ids[0]-1;
 				triangle->vertices[0].uvID = ids[1]-1;
-				triangle->vertices[0].normalID = ids[2]-1;				
 
-				triangle->vertices[1].posID = ids[6]-1;
-				triangle->vertices[1].uvID = ids[7]-1;
-				triangle->vertices[1].normalID = ids[8]-1;
+				triangle->vertices[1].posID = ids[2]-1;
+				triangle->vertices[1].uvID = ids[3]-1;
 
-				triangle->vertices[2].posID = ids[9]-1;
-				triangle->vertices[2].uvID = ids[10]-1;
-				triangle->vertices[2].normalID = ids[11]-1;
+				triangle->vertices[2].posID = ids[4]-1;
+				triangle->vertices[2].uvID = ids[5]-1;
 
 				++triangleID;
 				++mesh->triangleCount;
+						
+				if ( vertexCount == 4 )
+				{
+					V6_ASSERT( triangleID < triangleCount );			
+					ObjTriangle_s* triangle = &scene->triangles[triangleID];
+				
+					triangle->vertices[0].posID = ids[0]-1;
+					triangle->vertices[0].uvID = ids[1]-1;
+
+					triangle->vertices[1].posID = ids[4]-1;
+					triangle->vertices[1].uvID = ids[5]-1;
+
+					triangle->vertices[2].posID = ids[6]-1;
+					triangle->vertices[2].uvID = ids[7]-1;
+
+					++triangleID;
+					++mesh->triangleCount;
+				}
+			}
+			else
+			{
+				core::u32 ids[12];
+				const core::u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
+				V6_ASSERT( n % 3 == 0 );
+				const core::u32 vertexCount = n / 3;
+				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
+			
+				V6_ASSERT( triangleID < triangleCount );			
+				ObjTriangle_s* triangle = &scene->triangles[triangleID];
+			
+				triangle->vertices[0].posID = ids[0]-1;
+				triangle->vertices[0].uvID = ids[1]-1;
+				triangle->vertices[0].normalID = ids[2]-1;
+
+				triangle->vertices[1].posID = ids[3]-1;
+				triangle->vertices[1].uvID = ids[4]-1;
+				triangle->vertices[1].normalID = ids[5]-1;
+
+				triangle->vertices[2].posID = ids[6]-1;
+				triangle->vertices[2].uvID = ids[7]-1;
+				triangle->vertices[2].normalID = ids[8]-1;
+
+				++triangleID;
+				++mesh->triangleCount;
+						
+				if ( vertexCount == 4 )
+				{
+					V6_ASSERT( triangleID < triangleCount );			
+					ObjTriangle_s* triangle = &scene->triangles[triangleID];
+				
+					triangle->vertices[0].posID = ids[0]-1;
+					triangle->vertices[0].uvID = ids[1]-1;
+					triangle->vertices[0].normalID = ids[2]-1;				
+
+					triangle->vertices[1].posID = ids[6]-1;
+					triangle->vertices[1].uvID = ids[7]-1;
+					triangle->vertices[1].normalID = ids[8]-1;
+
+					triangle->vertices[2].posID = ids[9]-1;
+					triangle->vertices[2].uvID = ids[10]-1;
+					triangle->vertices[2].normalID = ids[11]-1;
+
+					++triangleID;
+					++mesh->triangleCount;
+				}
 			}			
 		}
 		else if ( _strnicmp( token, "mtllib", 6 ) == 0 )
@@ -380,6 +427,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	}
 	
 	fclose( fileOBJ );
+
+	V6_MSG( "%d/%d loaded triangles\n", triangleID, triangleCount );
 
 	V6_ASSERT( positionID == positionCount );
 	V6_ASSERT( normalID == normalCount );

@@ -39,13 +39,13 @@ BEGIN_V6_VIEWER_NAMESPACE
 
 static const float AVERAGE_LAYER_COUNT		= 1.5f;
 static const core::u32 ZOOM					= 2;
-static const float ZNEAR					= 10.0f;
-static const float ZFAR						= 10000.0f;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
-static const float GRID_MIN_SCALE			= 100.0f;
+static const float GRID_MIN_SCALE			= 50.0f;
+static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
+static const float ZFAR						= 10000.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 16;
+static const int SAMPLE_MAX_COUNT			= 1;
 static const float FREE_SCALE				= 50.0f;
 //static const float FREE_SCALE				= 400.0f;
 static const core::u32 RANDOM_CUBE_COUNT	= 100;
@@ -1974,7 +1974,8 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 {
 	V6_MSG( "Load scene\n" );
 
-	const char* filenameOBJ = "D:/media/obj/sponza.obj";
+	const char* filenameOBJ = "D:/media/obj/crytek-sponza/sponza.obj";
+	//const char* filenameOBJ = "D:/media/obj/san-miguel/san-miguel.obj";
 	if ( !Obj_ReadObjectFile( &sceneContext->objScene, filenameOBJ, sceneContext->allocator ) )
 	{
 		sceneContext->objScene.meshCount = 0;
@@ -2800,7 +2801,7 @@ void CRenderingDevice::Draw( float dt )
 	}
 		
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
-	const static float KEY_TRANSLATION_SPEED = 100.0f;
+	const static float KEY_TRANSLATION_SPEED = 500.0f;
 	
 	s_yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
 	s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
@@ -2917,7 +2918,7 @@ int main()
 	v6::core::CFileSystem filesystem;
 		
 #if V6_LOAD_EXTERNAL == 1
-	v6::core::Stack stackScene( &heap, 100 * 1024 * 1024 );
+	v6::core::Stack stackScene( &heap, 400 * 1024 * 1024 );
 
 	v6::viewer::SceneContext_s sceneContext;
 	SceneContext_Create( &sceneContext, &stackScene );

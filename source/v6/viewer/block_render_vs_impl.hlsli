@@ -36,12 +36,6 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 
 	o.color.a = float( mip + 1 ) / float( HLSL_MIP_MAX_COUNT );
 
-#if 0
-	o.color.r = 0.25 + ((cellPos >> 0) & 3) * 0.25;
-	o.color.g = 0.25 + ((cellPos >> 2) & 3) * 0.25;
-	o.color.b = 0.25 + ((cellPos >> 4) & 3) * 0.25;
-#endif
-
 	if ( c_blockShowMip )
 	{
 		o.color.r = (mip+1) & 1 ? 255 : 0;
