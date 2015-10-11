@@ -12,11 +12,13 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_BLOCK							0
+#define HLSL_DEBUG_PIXEL							1
 
 #define HLSL_TRILINEAR_SLOT							0
 
 #define HLSL_COLOR_SLOT								0
-#define HLSL_DEPTH_SLOT								1
+#define HLSL_UV_SLOT								1
+#define HLSL_DEPTH_SLOT								2
 
 #define HLSL_SAMPLE_SLOT							2
 #define HLSL_SAMPLE_INDIRECT_ARGS_SLOT				3
@@ -27,12 +29,14 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_COLOR_SLOT						10
 #define HLSL_BLOCK_INDIRECT_ARGS_SLOT				11
 #define HLSL_PIXEL_COLOR_SLOT						12
+#define HLSL_PIXEL_DEBUG_SLOT						13
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 
 #define HLSL_TRILINEAR_SAMPLER						CONCAT( s, HLSL_TRILINEAR_SLOT )
 
 #define HLSL_COLOR_SRV								CONCAT( t, HLSL_COLOR_SLOT )
+#define HLSL_UV_SRV									CONCAT( t, HLSL_UV_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
 
 #define HLSL_SAMPLE_SRV								CONCAT( t, HLSL_SAMPLE_SLOT )
@@ -47,6 +51,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 
 #define HLSL_PIXEL_COLOR_SRV						CONCAT( t, HLSL_PIXEL_COLOR_SLOT )
+#define HLSL_PIXEL_DEBUG_SRV						CONCAT( t, HLSL_PIXEL_DEBUG_SLOT )
 
 #define HLSL_GENERIC_ALBEDO_SRV						CONCAT( t, HLSL_GENERIC_ALBEDO_SLOT )
 
@@ -62,8 +67,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
+#define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						9
+#define HLSL_GRID_MACRO_SHIFT						8
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)w
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -94,6 +100,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define	HLSL_MIP_MAX_COUNT							16
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
+#define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				4
 
 CBUFFER( CBBasic, 0 )
 {
@@ -150,6 +157,9 @@ CBUFFER( CBBlock, 5 )
 	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
 	float3				c_blockCenter;
 	uint				c_blockShowMip;
+	float2				c_blockFrameSize;
+	float				c_blockPad0;
+	float				c_blockPad1;
 };
 
 CBUFFER( CBPixel, 6 )
@@ -159,6 +169,13 @@ CBUFFER( CBPixel, 6 )
 	float				c_pixelPad0;
 	float				c_pixelPad1;
 	float4				c_pixelInvCellSizes[HLSL_MIP_MAX_COUNT];
+	float3				c_pixelBackColor;
+	float				c_pixelPad2;
+#if HLSL_DEBUG_PIXEL == 1	
+	uint				c_pixelMode;
+	uint				c_pixelDebug;
+	uint2				c_pixelDebugCoords;	
+#endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
 struct Sample
@@ -174,6 +191,19 @@ struct OctreeLeaf
 	uint z8_b24;
 	uint x4y4z4_mip4_count16;
 };
+
+#if HLSL_DEBUG_PIXEL == 1
+
+struct PixelDebugBuffer
+{
+	float4 colors[3][3];
+	float depths[3][3];
+	float2 uvs[3][3];
+	float3 colorBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	float depthBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+};
+
+#endif // #if HLSL_DEBUG_PIXEL == 1
 
 #define sample_groupCountX_offset							0
 #define sample_groupCountY_offset							1

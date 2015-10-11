@@ -23,6 +23,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	{
 		o.color = (float4)0;
 		o.position = float4( -2.0, -2.0, -2.0, 1.0 );
+		o.uv = float2( 0.0, 0.0 );
 		return o;
 	}
 
@@ -63,6 +64,7 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	const float4 posCS = mul( c_blockViewToProj, posVS );
 
 	o.position = posCS;
+	o.uv = mad( posCS.xy / posCS.w, 0.5f, 0.5f ) * c_blockFrameSize;
 	
 	return o;
 }

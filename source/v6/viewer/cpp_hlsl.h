@@ -12,6 +12,7 @@
 
 #else
 
+#include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
 #include <v6/core/vec4.h>
 #include <v6/core/mat4x4.h>
@@ -67,12 +68,7 @@ struct int4
 	int w;
 };
 
-struct float2
-{
-	float x;
-	float y;
-};
-
+typedef v6::core::Vec2		float2;
 typedef v6::core::Vec3		float3;
 typedef v6::core::Vec4		float4;
 typedef v6::core::Mat4x4	matrix;
