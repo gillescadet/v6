@@ -260,6 +260,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	core::u32 triangleID = 0;
 
 	ObjMesh_s* mesh = nullptr;
+
+	V6_MSG( "Loading...\n" );
 	
 	fseek( fileOBJ, 0, SEEK_SET );
 	while ( fgets( line, sizeof( line ), fileOBJ ) )
@@ -318,7 +320,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			mesh->materialID = materialID;
 			++meshID;
 
-			V6_MSG( "%d/%d loaded triangles\n", triangleID, triangleCount );
+			printf( "\r" );
+			V6_MSG( "%d/%d loaded triangles", triangleID, triangleCount );
 		}
 		else if ( _strnicmp( token, "g ", 2 ) == 0 )
 			; //
@@ -428,6 +431,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	
 	fclose( fileOBJ );
 
+	printf( "\r" );
 	V6_MSG( "%d/%d loaded triangles\n", triangleID, triangleCount );
 
 	V6_ASSERT( positionID == positionCount );

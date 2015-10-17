@@ -31,6 +31,8 @@ float3 testA( uint2 screenPos )
 			}
 		}
 	}
+	
+	float4 aroundColor = float4( 0.0f, 0.0f, 0.0f, 0.0f );
 		
 	for ( int j = -1; j <= 1; ++j )
 	{
@@ -41,10 +43,14 @@ float3 testA( uint2 screenPos )
 
 #if HLSL_DEBUG_PIXEL == 1
 			if ( debug )
-			{
-				pixelDebugBuffer[0].colors[j+1][i+1] = inputColors.Load( otherCoords );
-				pixelDebugBuffer[0].depths[j+1][i+1] = inputDepths.Load( otherCoords );
-				pixelDebugBuffer[0].uvs[j+1][i+1] = inputUVs.Load( otherCoords );
+			{				
+				PixelDebugPoint debugPoint = (PixelDebugPoint)0;
+				debugPoint.layers[0].color = inputColors.Load( otherCoords );
+				debugPoint.layers[0].depth = inputDepths.Load( otherCoords );
+				debugPoint.layers[0].uv = inputUVs.Load( otherCoords );
+				debugPoint.layerCount = 1;
+
+				pixelDebugBuffer[0].points[j+1][i+1] = debugPoint;
 			}
 #endif // #if HLSL_DEBUG_PIXEL == 1
 
@@ -52,13 +58,20 @@ float3 testA( uint2 screenPos )
 				continue;
 
 			const float otherDepth = inputDepths.Load( otherCoords );
-			const float2 otherUV = float2( i, -j ) + inputUVs.Load( otherCoords );
+			const float2 otherUV = float2( i, -j ) + inputUVs.Load( otherCoords ) * 0.5f;
 
 			const int2 pMin = int2( mad( otherUV, BUFFER_WIDTH, 2 * BUFFER_WIDTH ) ) - 2 * BUFFER_WIDTH;
 			const int uMin = max( pMin.x, 0 );
 			const int vMin = max( pMin.y, 0 );
 			const int uMax = min( pMin.x+BUFFER_WIDTH, BUFFER_WIDTH-1 );
 			const int vMax = min( pMin.y+BUFFER_WIDTH, BUFFER_WIDTH-1 );
+
+			if ( i != 0 || j != 0 )
+			{
+				const float aroundWeight = rcp( dot( otherUV, otherUV ) );
+				aroundColor.rgb += otherColor.rgb * aroundWeight;
+				aroundColor.a += aroundWeight;
+			}
 						
 			for ( int v = vMin; v <= vMax; ++v )
 			{
@@ -73,7 +86,7 @@ float3 testA( uint2 screenPos )
 			}
 		}
 	}
-
+	
 	float3 finalColor = float3( 0.0f, 0.0f, 0.0f );
 	float rasterCount = 0;
 
@@ -99,40 +112,38 @@ float3 testA( uint2 screenPos )
 #if HLSL_DEBUG_PIXEL == 1
 	if ( c_pixelMode == 1 )
 	{
-		switch ( rasterCount )	
-		{
-		case 1:
-		case 2:
-		case 3:
-			return float3( 1.0f, 0.0f, 0.0f );
-		case 4:							    
-		case 5:							    
-		case 6:							    
-		case 7:							    
+		if ( rasterCount == BUFFER_WIDTH * BUFFER_WIDTH )	
+			return float3( 0.5f, 0.5f, 0.5f );			
+		
+		if ( rasterCount >= 0.75f * BUFFER_WIDTH * BUFFER_WIDTH )	
+			return float3( 0.0f, 1.0f, 0.0f );			
+		
+		if ( rasterCount >= 0.50f * BUFFER_WIDTH * BUFFER_WIDTH )	
+			return float3( 0.0f, 0.0f, 1.0f );			
+		
+		if ( rasterCount >= 0.25f * BUFFER_WIDTH * BUFFER_WIDTH )	
 			return float3( 1.0f, 0.0f, 1.0f );
-		case 8:							    
-		case 9:							    
-		case 10:						    
-		case 11:						    
-			return float3( 0.0f, 0.0f, 1.0f );
-		case 12:						    
-		case 13:						    
-		case 14:						    
-		case 15:						    
-			return float3( 0.0f, 1.0f, 0.0f );
-		case 16:						    
-			return float3( 0.5f, 0.5f, 0.5f );
-		default:						    
-			return float3( 0.0f, 0.0f, 0.0f );
-		}
+		
+		if ( rasterCount >= 1 )	
+			return float3( 1.0f, 0.0f, 0.0f );
+		
+		return float3( 0.0f, 0.0f, 0.0f );
 	}
 
 	if ( c_pixelMode == 2 )
 		return finalColor / 16.0f;
 #endif // #if HLSL_DEBUG_PIXEL == 1
+		
 
 	if ( rasterCount == 0 )
-		return c_pixelBackColor;
+	{
+#if 0
+		if ( aroundColor.a > 0.0f )
+			return aroundColor.rgb / aroundColor.a;
+#endif
+		return c_pixelBackColor;		
+	}	
+
 	return finalColor / rasterCount;
 }
 
@@ -141,14 +152,22 @@ float3 testC( uint2 screenPos )
 	const int3 centerCoords = int3( screenPos.x, screenPos.y, 0 );
 	const float2 centerUV = inputUVs.Load( centerCoords );
 		
-	if ( centerUV.y < 0.0f )
-		return float3( 1.0f, 0.0f, 0.0f );
+	if ( c_pixelMode == 3 )
+	{
+		if ( centerUV.x < 0.0f )
+			return float3( 1.0f, 0.0f, 0.0f );
 
-	if ( centerUV.y > 0.0f )
-		return float3( 0.0f, 1.0f, 0.0f );
-	
-	if ( abs( centerUV.x ) > 0.51f || abs( centerUV.y ) > 0.51f )
-		return float3( 0.0f, 0.0f, 1.0f );
+		if ( centerUV.x > 0.0f )
+			return float3( 0.0f, 1.0f, 0.0f );
+	}
+	else
+	{
+		if ( centerUV.y < 0.0f )
+			return float3( 1.0f, 0.0f, 0.0f );
+
+		if ( centerUV.y > 0.0f )
+			return float3( 0.0f, 1.0f, 0.0f );
+	}
 
 	return float3( 0.0f, 0.0f, 0.0f );
 }
@@ -324,10 +343,74 @@ void testE()
 #endif
 }
 
+uint CountConsecutiveBitsInAByte( uint val )
+{
+	uint shortVal = val | val << 8;
+	uint c = 0;
+	uint lastVal = 0;
+
+	while ( shortVal != 0 )
+	{
+	    lastVal = shortVal;
+		shortVal &= shortVal >> 1;
+		++c;
+	}
+
+	const uint lowMask = ~(lastVal-1);
+	const uint highMask = (lastVal << c)-1;
+	const uint shortMask = highMask & lowMask;
+	const uint byteMask = (shortMask & 0xFF) | (shortMask >> 8);
+	
+	if ( (val & byteMask) == val )
+		return c;
+
+	return (uint)-1;
+}
+
+float3 testF( uint2 screenPos )
+{
+	const uint borderBits[3][3] = 
+	{
+		{  6,  5,  4 },
+		{  7, -1,  3 }, 
+		{  0,  1,  2 }
+	};
+
+	float minDepth = 1.0f;
+	uint borderMask = 0;
+
+	for ( int j = -1; j <= 1; ++j )
+	{
+		for ( int i = -1; i <= 1; ++i )
+		{
+			const int3 otherCoords = int3( screenPos.x + i, screenPos.y + j, 0 );
+			const float4 otherColor = inputColors.Load( otherCoords );
+			if ( otherColor.a > 0.0f )
+			{
+				const float otherDepth = inputDepths.Load( otherCoords );
+					
+				if ( otherDepth < minDepth )
+					minDepth = otherDepth;
+
+				if ( i == 0 && j == 0 )
+					continue;
+			
+				const uint borderBit = borderBits[i+1][j+1];
+				borderMask |= 1 << borderBit;
+			}				
+		}
+	}
+	
+	if ( CountConsecutiveBitsInAByte( borderMask ) <= 3 )
+		return float3( 0.0f, 1.0f, 0.0f );
+		
+	return float3( 0.0f, 0.0f, 0.0f );
+}
+
 [ numthreads( 16, 16, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-	switch( c_pixelMode)
+	switch( c_pixelMode )
 	{
 	case 0:
 	case 1:
@@ -335,7 +418,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		outputColors[DTid.xy] = float4( testA( DTid.xy ), 1.0f );
 		break;
 	case 3:
+	case 4:
 		outputColors[DTid.xy] = float4( testC( DTid.xy ), 1.0f );
+		break;
+	case 5:
+		outputColors[DTid.xy] = float4( testF( DTid.xy ), 1.0f );
 		break;
 	}
 }

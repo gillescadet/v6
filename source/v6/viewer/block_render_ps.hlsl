@@ -10,7 +10,7 @@ GBuffer main( PixelInput i )
 {
 	GBuffer gbuffer;
 	gbuffer.color = i.color;
-	gbuffer.uv.x = i.uv.x - i.position.x;
-	gbuffer.uv.y = i.uv.y - (c_blockFrameSize.y - i.position.y);
+	gbuffer.uv.x = 2.0f * (i.uv.x - i.position.x);
+	gbuffer.uv.y = 2.0f * (i.uv.y - (c_blockFrameSize.y - i.position.y));
 	return gbuffer;
 }

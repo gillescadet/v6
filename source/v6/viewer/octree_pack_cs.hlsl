@@ -23,7 +23,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	{
 		block_packedOffset( c_octreeCurrentBucket ) = packedOffset;
 		block_vertexCountPerInstance( c_octreeCurrentBucket ) = 1;
-		block_renderInstanceLocation( c_octreeCurrentBucket ) = 0;
+		block_indexCountPerInstance( c_octreeCurrentBucket ) = 36;
+		block_cellGroupCountY( c_octreeCurrentBucket ) = 1;
+		block_cellGroupCountZ( c_octreeCurrentBucket ) = 1;
 	}
 
 	uint3 coords;
@@ -119,5 +121,10 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		blockColors[packedBaseID + cellID + 1] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_CELL_EMPTY;
 
 	const uint blockCount = blockID + 1;
-	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), blockCount * cellMaxCount );
+	const uint instanceCount = blockCount * cellMaxCount;
+	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), instanceCount );
+	InterlockedMax( block_instanceCount( c_octreeCurrentBucket ), instanceCount );
+
+	const uint groupCount = GROUP_COUNT( instanceCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+	InterlockedMax( block_cellGroupCountX( c_octreeCurrentBucket ), groupCount );
 }
