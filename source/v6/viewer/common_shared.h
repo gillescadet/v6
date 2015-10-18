@@ -37,6 +37,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_PIXEL_DEBUG_SLOT						16
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
+#define HLSL_GENERIC_ALPHA_SLOT						3
 
 #define HLSL_TRILINEAR_SAMPLER						CONCAT( s, HLSL_TRILINEAR_SLOT )
 
@@ -62,6 +63,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_PIXEL_DEBUG_SRV						CONCAT( t, HLSL_PIXEL_DEBUG_SLOT )
 
 #define HLSL_GENERIC_ALBEDO_SRV						CONCAT( t, HLSL_GENERIC_ALBEDO_SLOT )
+#define HLSL_GENERIC_ALPHA_SRV						CONCAT( t, HLSL_GENERIC_ALPHA_SLOT )
 
 #define HLSL_COLOR_UAV								CONCAT( u, HLSL_COLOR_SLOT )
 
@@ -125,10 +127,11 @@ CBUFFER( CBBasic, 0 )
 
 CBUFFER( CBGeneric, 1 )
 {
-	row_major	matrix	c_genericObjectToView;
+	row_major	matrix	c_genericObjectToWorld;
+	row_major	matrix	c_genericWorldToView;
 	row_major	matrix	c_genericViewToProj;
 	int					c_genericUseAlbedo;
-	int					c_genericPad1;
+	int					c_genericUseAlpha;
 	int					c_genericPad2;
 	int					c_genericPad3;
 };

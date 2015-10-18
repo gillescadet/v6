@@ -27,7 +27,7 @@
 
 #pragma comment(lib, "d3d11.lib")
 
-#define V6_D3D_DEBUG			1
+#define V6_D3D_DEBUG			0
 #define V6_LOAD_EXTERNAL		1
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
@@ -205,7 +205,7 @@ struct BasicVertex_s
 struct GenericVertex_s
 {
 	core::Vec3		position;
-	core::Color_s	color;
+	core::Vec3		normal;
 	core::Vec2		uv;
 };
 
@@ -818,7 +818,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
 			idesc[inputCount].InstanceDataStepRate = 0;
 
-			stride = 4 * width;
+			stride += 4 * width;
 			++inputCount;
 		}
 
@@ -836,7 +836,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
 			idesc[inputCount].InstanceDataStepRate = 0;
 
-			stride = 4 * width;
+			stride += 4 * width;
 			++inputCount;
 		}
 
@@ -854,7 +854,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
 			idesc[inputCount].InstanceDataStepRate = 0;
 
-			stride = 4 * width;
+			stride += 4 * width;
 			++inputCount;
 		}
 
@@ -872,7 +872,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
 			idesc[inputCount].InstanceDataStepRate = 0;
 
-			stride = 4 * width;
+			stride += 4 * width;
 			++inputCount;
 		}
 
@@ -1476,7 +1476,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 		
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
-	Shader_Create( device, &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR| VERTEX_FORMAT_USER0_F2, fileSystem, stack );
+	Shader_Create( device, &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_CUBE_RENDER], "cube_render_vs.cso", "cube_render_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER4], "block_render_x4_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER8], "block_render_x8_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
@@ -2050,9 +2050,11 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 	core::Mat4x4_SetTranslation( &worlMatrix, entity->pos );
 			
 	// use this order because one matrix is "from" local space and the other is "to" local space
-	core::Mat4x4_Mul( &cbGeneric->c_genericObjectToView, view->viewMatrix, worlMatrix );
+	cbGeneric->c_genericObjectToWorld = worlMatrix;
+	cbGeneric->c_genericWorldToView = view->viewMatrix;
 	cbGeneric->c_genericViewToProj = view->projMatrix;
 	cbGeneric->c_genericUseAlbedo = material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != ENTITY_TEXTURE_INVALID;
+	cbGeneric->c_genericUseAlpha = material->textureIDs[TEXTURE_GENERIC_ALPHA] != ENTITY_TEXTURE_INVALID;
 
 	ConstantBuffer_UnmapWrite( ctx->deviceContext, &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC] );
 
@@ -2066,11 +2068,21 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 		GPUTexture2D_s* texture = &scene->textures[material->textureIDs[TEXTURE_GENERIC_DIFFUSE]];
 		if ( texture->mipmapState == GPUTEXTURE_MIPMAP_STATE_REQUIRED )
 		{
-			//ctx->deviceContext->UpdateSubresource();
 			ctx->deviceContext->GenerateMips( texture->srv );
 			texture->mipmapState = GPUTEXTURE_MIPMAP_STATE_GENERATED;
 		}
 		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, &texture->srv );
+	}
+
+	if ( material->textureIDs[TEXTURE_GENERIC_ALPHA] != ENTITY_TEXTURE_INVALID )
+	{
+		GPUTexture2D_s* texture = &scene->textures[material->textureIDs[TEXTURE_GENERIC_ALPHA]];
+		if ( texture->mipmapState == GPUTEXTURE_MIPMAP_STATE_REQUIRED )
+		{
+			ctx->deviceContext->GenerateMips( texture->srv );
+			texture->mipmapState = GPUTEXTURE_MIPMAP_STATE_GENERATED;
+		}
+		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, &texture->srv );
 	}
 		
 	GPUMesh_s* mesh = &scene->meshes[entity->meshID];
@@ -2080,6 +2092,8 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 	static const void* nulls[8] = {};
 	if ( material->textureIDs[TEXTURE_GENERIC_DIFFUSE] )
 		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	if ( material->textureIDs[TEXTURE_GENERIC_ALPHA] )
+		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 }
 
 static void Material_Create( Material_s* material, MaterialDraw_f drawFunction )
@@ -2235,12 +2249,6 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 
 		ObjMesh_s* mesh = &objScene->meshes[meshID];
 		
-		const core::u8 r = rand() * 255 / RAND_MAX;
-		const core::u8 g = rand() * 255 / RAND_MAX;
-		const core::u8 b = rand() * 255 / RAND_MAX;
-
-		const core::Color_s color = core::Color_Make( r, g, b, 255 );
-
 		GenericVertex_s* vertices = sceneContext->allocator->newArray< GenericVertex_s >( mesh->triangleCount * 3 );
 		
 		ObjTriangle_s* triangle = &objScene->triangles[mesh->firstTriangleID];
@@ -2251,16 +2259,16 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 			vertex[1].position = objScene->positions[triangle->vertices[1].posID];
 			vertex[2].position = objScene->positions[triangle->vertices[2].posID];
 
-			vertex[0].color = color;
-			vertex[1].color = color;
-			vertex[2].color = color;
+			vertex[0].normal = objScene->normals[triangle->vertices[0].normalID];
+			vertex[1].normal = objScene->normals[triangle->vertices[1].normalID];
+			vertex[2].normal = objScene->normals[triangle->vertices[2].normalID];
 
 			vertex[0].uv = objScene->uvs[triangle->vertices[0].uvID];			
 			vertex[1].uv = objScene->uvs[triangle->vertices[1].uvID];			
 			vertex[2].uv = objScene->uvs[triangle->vertices[2].uvID];
 		}	
 
-		Mesh_Create( sceneContext->device, &scene->meshes[meshID], vertices, mesh->triangleCount * 3, sizeof( GenericVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR | VERTEX_FORMAT_USER0_F2, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+		Mesh_Create( sceneContext->device, &scene->meshes[meshID], vertices, mesh->triangleCount * 3, sizeof( GenericVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 		++scene->meshCount;
 
 		Entity_Create( &scene->entities[meshID], mesh->materialID, meshID, core::Vec3_Make( 0.0f, 0.0f, 0.0f ), 1.0f );
@@ -3444,7 +3452,7 @@ int main()
 
 		float dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
 
-#if 0
+#if 1
 		while ( dt < 0.0095f )
 		{
 			Sleep( 1 );

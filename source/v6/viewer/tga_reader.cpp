@@ -31,6 +31,12 @@ void MergeBytes( core::Color_s *pixel, unsigned char *p, int bytes )
 {
 	switch (bytes)
 	{
+	case 1:
+		pixel->r = p[0];
+		pixel->g = p[0];
+		pixel->b = p[0];
+		pixel->a = 0;
+		break;
 	case 2:
 		pixel->r = (p[1] & 0x7c) << 1;
 		pixel->g = ((p[1] & 0x03) << 6) | ((p[0] & 0xe0) >> 2);
@@ -64,15 +70,15 @@ bool Tga_ReadFromFile( core::Image_s* image, const char* filenameTGA, core::IAll
 	core::u32 itemRead = fread( &header, sizeof(header), 1, fileTGA );
 	V6_ASSERT( itemRead == 1 );
 
-	if ( header.datatypecode != 2 && header.datatypecode != 10 )
+	if ( header.datatypecode != 2 && header.datatypecode != 3 && header.datatypecode != 10 )
 	{
-		V6_ASSERT_ALWAYS( "Can only handle image type 2 and 10" );
+		V6_ASSERT_ALWAYS( "Can only handle image type 2, 3 and 10" );
 		return false;
 	}
 
-	if ( header.bitsperpixel != 16 && header.bitsperpixel != 24 && header.bitsperpixel != 32 )
+	if ( header.bitsperpixel != 8 && header.bitsperpixel != 16 && header.bitsperpixel != 24 && header.bitsperpixel != 32 )
 	{
-		V6_ASSERT_ALWAYS( "Can only handle pixel depths of 16, 24, and 32" );
+		V6_ASSERT_ALWAYS( "Can only handle pixel depths of 8, 16, 24, and 32" );
 		return false;
 	}
 
@@ -94,9 +100,18 @@ bool Tga_ReadFromFile( core::Image_s* image, const char* filenameTGA, core::IAll
 	const core::u32 bytesPerPixel = header.bitsperpixel / 8;
 	for ( core::u32 pixelID = 0; pixelID < pixelCount; )
 	{
-		// Uncompressed
+		// Uncompressed - RGB
 		if ( header.datatypecode == 2 )
 		{                     
+			core::u8 p[5];
+			const core::u32 byteRead = fread( p, 1, bytesPerPixel, fileTGA );
+			V6_ASSERT( byteRead == bytesPerPixel );
+			MergeBytes( &image->pixels[pixelID], p, bytesPerPixel );
+			++pixelID;
+		}
+		// Uncompressed - Black and White
+		else if ( header.datatypecode == 3 )
+		{
 			core::u8 p[5];
 			const core::u32 byteRead = fread( p, 1, bytesPerPixel, fileTGA );
 			V6_ASSERT( byteRead == bytesPerPixel );
