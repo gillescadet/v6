@@ -10,10 +10,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
-#define HLSL_DEBUG_COLLECT							1
+#define HLSL_DEBUG_COLLECT							0
 #define HLSL_DEBUG_BLOCK							0
-#define HLSL_DEBUG_PIXEL							1
-#define HLSL_DEBUG_VOXEL							1
+#define HLSL_DEBUG_PIXEL							0
+#define HLSL_DEBUG_VOXEL							0
+#define HLSL_TRACE_USE_ALIGNED_QUAD					1
 
 #define HLSL_TRILINEAR_SLOT							0
 
@@ -207,7 +208,8 @@ struct OctreeLeaf
 
 struct BlockCellItem
 {
-	uint	r8g8b8_u4v4;
+	uint	r8g8b8a8;
+	uint	u8v8w8h8;
 	float	depth;
 	uint	nextID;
 };
@@ -224,6 +226,7 @@ struct PixelDebugLayer
 	float4 color;
 	float depth;
 	float2 uv;	
+	float2 wh;
 };
 
 struct PixelDebugPoint

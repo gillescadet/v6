@@ -68,6 +68,7 @@ PixelInput main( uint cornerID : SV_VertexID )
 	float minW = 1e32f;
 
 	const matrix mx = mul( c_basicViewToProj, c_basicObjectToView );
+	// const matrix mx = c_basicObjectToProj;
 	for ( uint vertexID = 0; vertexID < 8; ++vertexID )
 	{
 		const float4 posCS = mul( mx, float4( vertices[vertexID], 1.0 ) );

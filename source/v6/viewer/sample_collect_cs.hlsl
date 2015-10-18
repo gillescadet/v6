@@ -57,7 +57,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		if ( mip < HLSL_MIP_MAX_COUNT )
 		{
 			const uint3 coords = int3( pos * (c_sampleInvGridScales[mip].x * HLSL_GRID_HALF_WIDTH) ) + HLSL_GRID_HALF_WIDTH;
-			const uint3 color = uint3( cubeColor.rgb * 255.0 + 0.5 );
+			const uint3 color = uint3( cubeColor.rgb * 255.0f + 0.5f );
 
 #if HLSL_DEBUG_COLLECT == 1
 			if ( any( coords < 0 ) || any( coords >= HLSL_GRID_WIDTH) )

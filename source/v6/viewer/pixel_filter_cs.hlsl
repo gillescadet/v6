@@ -12,6 +12,12 @@ RWTexture2D< float4 > outputColors						: register( HLSL_PIXEL_COLOR_UAV );
 RWStructuredBuffer< PixelDebugBuffer > pixelDebugBuffer	: register( HLSL_PIXEL_DEBUG_UAV );
 #endif // #if HLSL_DEBUG_PIXEL == 1
 
+#if HLSL_DEBUG_PIXEL == 1
+static const uint s_pixelMode = c_pixelMode;
+#else
+static const uint s_pixelMode = 0;
+#endif
+
 float3 testA( uint2 screenPos )
 {
 #if HLSL_DEBUG_PIXEL == 1
@@ -109,8 +115,7 @@ float3 testA( uint2 screenPos )
 		}
 	}
 
-#if HLSL_DEBUG_PIXEL == 1
-	if ( c_pixelMode == 1 )
+	if ( s_pixelMode == 1 )
 	{
 		if ( rasterCount == BUFFER_WIDTH * BUFFER_WIDTH )	
 			return float3( 0.5f, 0.5f, 0.5f );			
@@ -130,10 +135,8 @@ float3 testA( uint2 screenPos )
 		return float3( 0.0f, 0.0f, 0.0f );
 	}
 
-	if ( c_pixelMode == 2 )
+	if ( s_pixelMode == 2 )
 		return finalColor / 16.0f;
-#endif // #if HLSL_DEBUG_PIXEL == 1
-		
 
 	if ( rasterCount == 0 )
 	{
@@ -152,7 +155,7 @@ float3 testC( uint2 screenPos )
 	const int3 centerCoords = int3( screenPos.x, screenPos.y, 0 );
 	const float2 centerUV = inputUVs.Load( centerCoords );
 		
-	if ( c_pixelMode == 3 )
+	if ( s_pixelMode == 3 )
 	{
 		if ( centerUV.x < 0.0f )
 			return float3( 1.0f, 0.0f, 0.0f );
@@ -409,8 +412,8 @@ float3 testF( uint2 screenPos )
 
 [ numthreads( 16, 16, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
-{
-	switch( c_pixelMode )
+{	
+	switch( s_pixelMode )
 	{
 	case 0:
 	case 1:

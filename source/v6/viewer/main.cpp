@@ -28,7 +28,7 @@
 #pragma comment(lib, "d3d11.lib")
 
 #define V6_D3D_DEBUG			1
-#define V6_LOAD_EXTERNAL		0
+#define V6_LOAD_EXTERNAL		1
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
@@ -573,9 +573,16 @@ static const char* ModeToString( DrawMode_e drawMode )
 {
 	switch ( drawMode )
 	{
-	case DRAW_MODE_DEFAULT: return "default";
-	case DRAW_MODE_CUBE: return "cube";
-	case DRAW_MODE_BLOCK: return g_traceMode ? "trace block" : "draw block";
+		case DRAW_MODE_DEFAULT: return "default";
+		case DRAW_MODE_CUBE: return "cube";
+		case DRAW_MODE_BLOCK: 
+		{
+			if ( g_showVoxel )
+				return "voxel block";
+			if ( g_traceMode )
+				return "trace block";
+			return "draw block";
+		}
 	}
 	return "unknown";
 }
@@ -1995,11 +2002,14 @@ static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s*
 	core::Mat4x4 worlMatrix;
 	core::Mat4x4_Scale( &worlMatrix, entity->scale );
 	core::Mat4x4_SetTranslation( &worlMatrix, entity->pos );
-			
+
 	// use this order because one matrix is "from" local space and the other is "to" local space
-	core::Mat4x4_Mul( &cbBasic->c_basicObjectToView, view->viewMatrix, worlMatrix );
+	core::Mat4x4 objectToViewMatrix;
+	core::Mat4x4_Mul( &objectToViewMatrix, view->viewMatrix, worlMatrix );	
+	
+	cbBasic->c_basicObjectToView = objectToViewMatrix;
 	cbBasic->c_basicViewToProj = view->projMatrix;
-	core::Mat4x4_Mul( &cbBasic->c_basicObjectToProj, cbBasic->c_basicViewToProj, cbBasic->c_basicObjectToView );
+	core::Mat4x4_Mul( &cbBasic->c_basicObjectToProj, objectToViewMatrix, view->projMatrix );
 
 	ConstantBuffer_UnmapWrite( ctx->deviceContext, &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
@@ -3201,10 +3211,11 @@ void CRenderingDevice::PixelTrace()
 				for ( uint layer = 0; layer < pixelDebugBuffer->points[j+1][i+1].layerCount; ++layer )
 				{
 					const hlsl::PixelDebugLayer debugLayer = pixelDebugBuffer->points[j+1][i+1].layers[layer];
-					V6_MSG( "Pixel %2d, %2d: #%d, color ( %.2f, %.2f, %.2f, %.2f ), depth %.1f, uv ( %.1f, %.1f )\n", i, j, layer, 
+					V6_MSG( "Pixel %2d, %2d: #%d, color ( %.2f, %.2f, %.2f, %.2f ), depth %.1f, uv ( %.1f, %.1f ), wh ( %.1f, %.1f )\n", i, j, layer, 
 						debugLayer.color.x, debugLayer.color.y, debugLayer.color.z, debugLayer.color.w,
 						debugLayer.depth, 
-						debugLayer.uv.x, debugLayer.uv.y );
+						debugLayer.uv.x, debugLayer.uv.y,
+						debugLayer.wh.x, debugLayer.wh.y );
 				}
 				if ( pixelDebugBuffer->points[j+1][i+1].layerCount == 0 )
 					V6_MSG( "Pixel %2d, %2d: NO LAYER\n", i, j );
@@ -3433,7 +3444,7 @@ int main()
 
 		float dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
 
-#if 1
+#if 0
 		while ( dt < 0.0095f )
 		{
 			Sleep( 1 );

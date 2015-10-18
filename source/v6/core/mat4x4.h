@@ -44,7 +44,7 @@ V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
 
 V6_INLINE void Mat4x4_Mul( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 {
-	auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
+	const auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
 	{
 		return
 			a.m_rows[raw].x * b.m_row0.m_fValues[col] +
