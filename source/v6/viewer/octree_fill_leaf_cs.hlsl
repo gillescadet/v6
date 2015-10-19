@@ -21,8 +21,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	const uint nodeOffset = sampleNodeOffsets[sampleID];
 	const uint leafID = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
-	InterlockedAdd( octreeLeaves[leafID].x8_r24, color.r );
-	InterlockedAdd( octreeLeaves[leafID].y8_g24, color.g );
-	InterlockedAdd( octreeLeaves[leafID].z8_b24, color.b );
-	InterlockedAdd( octreeLeaves[leafID].x4y4z4_mip4_count16, 1 );	
+	InterlockedAdd( octreeLeaves[leafID].x9_r23, color.r );
+	InterlockedAdd( octreeLeaves[leafID].y9_g23, color.g );
+	InterlockedAdd( octreeLeaves[leafID].z9_b23, color.b );
+	InterlockedAdd( octreeLeaves[leafID].x2y2z2_mip3_occupancy8_count15, 1 );
 }

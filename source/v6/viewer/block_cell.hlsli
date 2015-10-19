@@ -33,9 +33,9 @@ bool PackedColor_Unpack( uint packedID, out BlockCell o )
 		o.color = packedColor | 0xFF;
 
 		const uint packedPos = blockColors[packedBaseID];
-		o.mip = ((packedPos >> 28) & 0xC) | ((packedColor >> 6) & 3);
+		o.mip = packedPos >> 28;
 		
-		const uint blockPos = packedPos & 0x3FFFFFFF;
+		const uint blockPos = packedPos & 0x0FFFFFFF;
 		const uint cellPos = packedColor & 0x3F;
 		const uint x = (((blockPos >> 0						 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
 		const uint y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);

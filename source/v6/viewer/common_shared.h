@@ -113,10 +113,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				128
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				128
-#define	HLSL_MIP_MAX_COUNT							16
+#define	HLSL_MIP_MAX_COUNT							8
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				3
+#define	HLSL_OCCUPANCY_BIT							0
 
 CBUFFER( CBBasic, 0 )
 {
@@ -203,10 +204,10 @@ struct Sample
 
 struct OctreeLeaf
 {
-	uint x8_r24;
-	uint y8_g24;
-	uint z8_b24;
-	uint x4y4z4_mip4_count16;
+	uint x9_r23;
+	uint y9_g23;
+	uint z9_b23;
+	uint x2y2z2_mip3_occupancy8_count15;
 };
 
 struct BlockCellItem

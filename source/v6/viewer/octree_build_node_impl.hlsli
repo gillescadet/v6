@@ -80,10 +80,10 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint newLeafCount = newLeafID + 1;
 	InterlockedMax( octree_leafGroupCountX, GROUP_COUNT( newLeafCount, HLSL_OCTREE_THREAD_GROUP_SIZE ) );
 	
-	octreeLeaves[newLeafID].x8_r24 = (coords.x & ~0xF) << 20;
-	octreeLeaves[newLeafID].y8_g24 = (coords.y & ~0xF) << 20;
-	octreeLeaves[newLeafID].z8_b24 = (coords.z & ~0xF) << 20;
-	octreeLeaves[newLeafID].x4y4z4_mip4_count16 = (coords.x & 0xF) << 28 | (coords.y & 0xF) << 24 | (coords.z & 0xF) << 20 | (mip << 16);
+	octreeLeaves[newLeafID].x9_r23 = (coords.x & ~0x3) << 21;
+	octreeLeaves[newLeafID].y9_g23 = (coords.y & ~0x3) << 21;
+	octreeLeaves[newLeafID].z9_b23 = (coords.z & ~0x3) << 21;
+	octreeLeaves[newLeafID].x2y2z2_mip3_occupancy8_count15 = (coords.x & 0x3) << 30 | (coords.y & 0x3) << 28 | (coords.z & 0x3) << 26 | (mip << 23);
 
 	firstChildOffsets[childOffset] = HLSL_NODE_CREATED | newLeafID;
 #endif

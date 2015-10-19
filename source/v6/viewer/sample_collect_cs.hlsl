@@ -30,11 +30,19 @@ RWBuffer< uint > sampleIndirectArgs				: register( HLSL_SAMPLE_INDIRECT_ARGS_UAV
 
 uint GetMip( float p )
 {
+#if HLSL_MIP_MAX_COUNT == 8
+	return 
+		dot( step( c_sampleMipBoundariesA, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) + 
+		dot( step( c_sampleMipBoundariesB, p ), float4( 1.0, 1.0, 1.0, 1.0 ) );
+#endif
+
+#if HLSL_MIP_MAX_COUNT == 16
 	return 
 		dot( step( c_sampleMipBoundariesA, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) + 
 		dot( step( c_sampleMipBoundariesB, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) +
 		dot( step( c_sampleMipBoundariesC, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) +
 		dot( step( c_sampleMipBoundariesD, p ), float4( 1.0, 1.0, 1.0, 1.0 ) );
+#endif
 }
 
 [ numthreads( 16, 16, 1 ) ]

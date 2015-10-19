@@ -2414,7 +2414,19 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	g_sample = 0;
 	m_sampleOffsets[0] = core::Vec3_Make( 0.0f, 0.0f, 0.0f );
 	for ( core::u32 sample = 1; sample < SAMPLE_MAX_COUNT; ++sample )
-		m_sampleOffsets[sample] = core::Vec3_Rand() * FREE_SCALE;
+	{
+		if ( sample <= 8 )
+		{
+			core::u32 vertexID = sample-1;
+			m_sampleOffsets[sample].x = (vertexID&1) == 0 ? -FREE_SCALE : FREE_SCALE;
+			m_sampleOffsets[sample].y = (vertexID&2) == 0 ? -FREE_SCALE : FREE_SCALE;
+			m_sampleOffsets[sample].z = (vertexID&4) == 0 ? -FREE_SCALE : FREE_SCALE;
+		}
+		else
+		{
+			m_sampleOffsets[sample] = core::Vec3_Rand() * FREE_SCALE;
+		}
+	}
 
 	GPUResource_LogMemoryUsage();
 
@@ -2591,13 +2603,13 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 	// Update buffers
 				
 	{			
-		V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+		V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
-		float gridScales[HLSL_MIP_MAX_COUNT];
+		float gridScales[16];
 		float gridScale = GRID_MIN_SCALE;
 		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
 			gridScales[gridID] = gridScale;
-		for ( core::u32 gridID = GRID_COUNT; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+		for ( core::u32 gridID = GRID_COUNT; gridID < 16; ++gridID )
 			gridScales[gridID] = gridScales[GRID_COUNT-1];
 
 		v6::hlsl::CBSample* cbSample = ConstantBuffer_MapWrite< v6::hlsl::CBSample >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE] );		
@@ -2665,7 +2677,7 @@ core::u32 CRenderingDevice::BuildNode( bool clear )
 
 	gpuContext.userDefinedAnnotation->BeginEvent( L"BuildNode");
 
-	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+	V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
 	if ( clear )
 	{
@@ -2737,7 +2749,7 @@ void CRenderingDevice::FillLeaf()
 
 	gpuContext.userDefinedAnnotation->BeginEvent( L"FillLeaf");
 
-	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+	V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBOctreeSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_OCTREE].buf );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_SAMPLE_SLOT, 1, &m_sample.samples.srv );
@@ -2773,7 +2785,7 @@ void CRenderingDevice::PackColor()
 	
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Pack");
 
-	V6_ASSERT( GRID_COUNT < HLSL_MIP_MAX_COUNT );
+	V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.indirectArgs.uav, values );
