@@ -52,14 +52,14 @@ PixelInput main( uint cornerID : SV_VertexID )
 
 	const float3 vertices[8] =
 	{
-		float3( -1.0f, -1.0f, -1.0f ),
-		float3( -1.0f, -1.0f,  1.0f ),
-		float3( -1.0f,  1.0f, -1.0f ),
-		float3( -1.0f,  1.0f,  1.0f ),
-		float3(  1.0f, -1.0f, -1.0f ),
-		float3(  1.0f, -1.0f,  1.0f ),
-		float3(  1.0f,  1.0f, -1.0f ),
-		float3(  1.0f,  1.0f,  1.0f ),
+		float3( 0.0f, 0.0f, 0.0f ),
+		float3( 0.0f, 0.0f, 1.0f ),
+		float3( 0.0f, 1.0f, 0.0f ),
+		float3( 0.0f, 1.0f, 1.0f ),
+		float3( 1.0f, 0.0f, 0.0f ),
+		float3( 1.0f, 0.0f, 1.0f ),
+		float3( 1.0f, 1.0f, 0.0f ),
+		float3( 1.0f, 1.0f, 1.0f ),
 	};
 
 	float2 minScreenPos = float2(  1e32f,  1e32f );
@@ -67,11 +67,19 @@ PixelInput main( uint cornerID : SV_VertexID )
 	float minZ = 0.0f;
 	float minW = 1e32f;
 
+	const int3 boxMin = int3( 1, 1, 1 );
+	const int3 boxMax = int3( 1, 1, 1 );
+
+	static const float twoThirds = 2.0f / 3.0f; 
+	const float3 pointMin = mad( boxMin, twoThirds, -1.0f );
+	const float3 pointMax = mad( boxMax + 1.0f, twoThirds, -1.0f );
+	const float3 delta = pointMax - pointMin;
+
 	const matrix mx = mul( c_basicViewToProj, c_basicObjectToView );
 	// const matrix mx = c_basicObjectToProj;
 	for ( uint vertexID = 0; vertexID < 8; ++vertexID )
 	{
-		const float4 posCS = mul( mx, float4( vertices[vertexID], 1.0 ) );
+		const float4 posCS = mul( mx, float4( pointMin + delta * vertices[vertexID], 1.0 ) );
 		const float2 screenPos = posCS.xy * rcp( posCS.w );
 		if ( posCS.w < minW )
 		{

@@ -51,8 +51,7 @@ float3 testA( uint2 screenPos )
 			if ( debug )
 			{				
 				PixelDebugPoint debugPoint = (PixelDebugPoint)0;
-				debugPoint.layers[0].color = inputColors.Load( otherCoords );
-				debugPoint.layers[0].depth = inputDepths.Load( otherCoords );
+				debugPoint.layers[0].colorAndDepth = float4( inputColors.Load( otherCoords ).rgb, inputDepths.Load( otherCoords ) );
 				debugPoint.layers[0].uv = inputUVs.Load( otherCoords );
 				debugPoint.layerCount = 1;
 

@@ -17,7 +17,7 @@ float4 main( PixelInput i ) : SV_TARGET
 	if ( alpha < 0.5f )
 		discard;
 
-	const float3 ambientLight = float3( 0.2f, 0.2f, 0.2f );
+	const float3 ambientLight = float3( 0.4f, 0.4f, 0.4f );
 	const float3 skyLight = max( 0.0f, i.normal.y ) * s_skyColor;	
 	const float3 sunLight = max( 0.0f, dot( i.normal, s_sunDir ) ) * s_sunColor;	
 

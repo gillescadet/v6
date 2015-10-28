@@ -12,7 +12,7 @@ PixelInput main( VertexInput i )
 	
 	const float4 normal = float4( i.normal, 0.0f );
 
-	o.normal = mul( c_genericObjectToWorld, normal );
+	o.normal = mul( c_genericObjectToWorld, normal ).xyz;
 	
 	o.uv = i.uv;
 

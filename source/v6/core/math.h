@@ -32,7 +32,7 @@ V6_INLINE float DegToRad( float deg ) { return deg * (PI / 180.0f); }
 V6_INLINE float RadToDeg( float rad ) { return rad * (180.0f / PI); }
 
 template<typename T>
-V6_INLINE T Swap( T& x, T& y )
+V6_INLINE void Swap( T& x, T& y )
 { 
 	T tmp = x;
 	x = y;

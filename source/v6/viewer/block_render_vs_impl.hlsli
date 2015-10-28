@@ -14,9 +14,39 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 	{
 		if ( c_blockShowVoxel )
 		{
-			blockCell.posOS.x += ((vertexID & 1) == 0) ? -blockCell.halfCellSize : blockCell.halfCellSize;
-			blockCell.posOS.y += ((vertexID & 2) == 0) ? -blockCell.halfCellSize : blockCell.halfCellSize;
-			blockCell.posOS.z += ((vertexID & 4) == 0) ? -blockCell.halfCellSize : blockCell.halfCellSize;		
+#if 1
+			uint occupancyBit = 0;
+			uint3 boxMin = uint3( 2, 2, 2 );
+			uint3 boxMax = uint3( 0, 0, 0 );
+			for ( uint z = 0; z < 3; ++z )
+			{
+				for ( uint y = 0; y < 3; ++y )
+				{
+					for ( uint x = 0; x < 3; ++x, ++occupancyBit )
+					{
+						if ( (blockCell.occupancy & (1 << occupancyBit)) != 0 )
+						{
+							const uint3 p = uint3( x, y, z );
+							boxMin = min( boxMin, p );
+							boxMax = max( boxMax, p );
+						}
+					}
+				}
+			}
+#else
+			uint3 boxMin = uint3( 0, 0, 0 );
+			uint3 boxMax = uint3( 2, 2, 2 );
+#endif
+
+			const float scale = 2.0f * blockCell.halfCellSize / 3.0f; 
+			const float3 pointMin = boxMin * scale;
+			const float3 pointMax = (boxMax + 1.0f) * scale;
+			const float3 delta = pointMax - pointMin;
+
+			blockCell.posOS -= blockCell.halfCellSize;
+			blockCell.posOS.x += pointMin.x + (((vertexID & 1) != 0) ? delta.x : 0.0f);
+			blockCell.posOS.y += pointMin.y + (((vertexID & 2) != 0) ? delta.y : 0.0f);
+			blockCell.posOS.z += pointMin.z + (((vertexID & 4) != 0) ? delta.z : 0.0f);
 		}
 
 		const float4 posVS = mul( c_blockObjectToView, float4( blockCell.posOS, 1.0 ) );

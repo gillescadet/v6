@@ -10,10 +10,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
-#define HLSL_DEBUG_COLLECT							0
+#define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_BLOCK							0
 #define HLSL_DEBUG_PIXEL							0
-#define HLSL_DEBUG_VOXEL							0
 #define HLSL_TRACE_USE_ALIGNED_QUAD					1
 
 #define HLSL_TRILINEAR_SLOT							0
@@ -21,6 +20,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_COLOR_SLOT								0
 #define HLSL_UV_SLOT								1
 #define HLSL_DEPTH_SLOT								2
+#define HLSL_PIXEL_SAMPLE_POSITION_SLOT				3
 
 #define HLSL_SAMPLE_SLOT							2
 #define HLSL_SAMPLE_INDIRECT_ARGS_SLOT				3
@@ -44,6 +44,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_COLOR_SRV								CONCAT( t, HLSL_COLOR_SLOT )
 #define HLSL_UV_SRV									CONCAT( t, HLSL_UV_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
+#define HLSL_PIXEL_SAMPLE_POSITION_SRV				CONCAT( t, HLSL_PIXEL_SAMPLE_POSITION_SLOT )
 
 #define HLSL_SAMPLE_SRV								CONCAT( t, HLSL_SAMPLE_SLOT )
 #define HLSL_SAMPLE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
@@ -66,6 +67,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GENERIC_ALPHA_SRV						CONCAT( t, HLSL_GENERIC_ALPHA_SLOT )
 
 #define HLSL_COLOR_UAV								CONCAT( u, HLSL_COLOR_SLOT )
+#define HLSL_PIXEL_SAMPLE_POSITION_UAV				CONCAT( u, HLSL_PIXEL_SAMPLE_POSITION_SLOT )
 
 #define HLSL_SAMPLE_UAV								CONCAT( u, HLSL_SAMPLE_SLOT )
 #define HLSL_SAMPLE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
@@ -111,13 +113,16 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRID_QUARTER_WIDTH						(HLSL_GRID_WIDTH >> 2)
 
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
-#define HLSL_OCTREE_THREAD_GROUP_SIZE				128
+#define HLSL_OCTREE_THREAD_GROUP_SIZE				64
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				128
 #define	HLSL_MIP_MAX_COUNT							8
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				3
-#define	HLSL_OCCUPANCY_BIT							0
+#define HLSL_PIXEL_SUPER_SAMPLING_COUNT				(HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH)
+#define	HLSL_PIXEL_MULTISAMPLE_COUNT				8
+#define	HLSL_PIXEL_MULTISAMPLE_WIDTH				1024
+#define HLSL_COUNT									2
 
 CBUFFER( CBBasic, 0 )
 {
@@ -137,23 +142,13 @@ CBUFFER( CBGeneric, 1 )
 	int					c_genericPad3;
 };
 
-CBUFFER( CBCube, 2 )
-{
-	row_major	matrix	c_cubeObjectToView;
-	row_major	matrix	c_cubeViewToProj;
-	uint				c_cubeWidth;
-	uint				c_cubeHeight;
-	int					c_cubePad1;
-	int					c_cubePad2;
-};
-
-CBUFFER( CBSample, 3 )
+CBUFFER( CBSample, 2 )
 {
 	float				c_sampleDepthLinearScale;
 	float				c_sampleDepthLinearBias;
 	float2				c_sampleInvCubeSize;
 	float3				c_sampleOffset;
-	float				c_samplePad0;
+	uint				c_sampleFaceID;
 	float4				c_sampleMipBoundariesA;
 	float4				c_sampleMipBoundariesB;
 	float4				c_sampleMipBoundariesC;
@@ -161,7 +156,7 @@ CBUFFER( CBSample, 3 )
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];	
 };
 
-CBUFFER( CBOctree, 4 )
+CBUFFER( CBOctree, 3 )
 {
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeCurrentBucket;
@@ -169,7 +164,7 @@ CBUFFER( CBOctree, 4 )
 	float				c_octreePad1;
 };
 
-CBUFFER( CBBlock, 5 )
+CBUFFER( CBBlock, 4 )
 {
 	row_major	matrix	c_blockObjectToView;
 	row_major	matrix	c_blockViewToProj;
@@ -181,7 +176,7 @@ CBUFFER( CBBlock, 5 )
 	uint				c_blockShowOverdraw;	
 };
 
-CBUFFER( CBPixel, 6 )
+CBUFFER( CBPixel, 5 )
 {
 	float				c_pixelDepthLinearScale;
 	float				c_pixelDepthLinearBias;
@@ -200,6 +195,7 @@ struct Sample
 {
 	uint row0;
 	uint row1;
+	uint row2;
 };
 
 struct OctreeLeaf
@@ -207,7 +203,8 @@ struct OctreeLeaf
 	uint x9_r23;
 	uint y9_g23;
 	uint z9_b23;
-	uint x2y2z2_mip3_occupancy8_count15;
+	uint x2y2z2_mip4_count15;
+	uint occupancy27;
 };
 
 struct BlockCellItem
@@ -227,10 +224,11 @@ struct BlockContext
 
 struct PixelDebugLayer
 {
-	float4 color;
-	float depth;
+	float4 colorAndDepth;
 	float2 uv;	
 	float2 wh;
+	int2 uvMin;
+	int2 uvMax;
 };
 
 struct PixelDebugPoint
@@ -255,7 +253,9 @@ struct PixelDebugBuffer
 #if HLSL_DEBUG_COLLECT == 1
 #define sample_out_offset									4
 #define sample_error_offset									5
-#define sample_all_offset									6
+#define sample_pixelCount_offset							6
+#define sample_pixelSampleCount_offset						7
+#define sample_all_offset									8
 #else
 #define sample_all_offset									4
 #endif // #if HLSL_DEBUG_COLLECT == 1
@@ -265,6 +265,8 @@ struct PixelDebugBuffer
 #define sample_groupCountZ									sampleIndirectArgs[sample_groupCountZ_offset] // ThreadGroupCountZ
 #if HLSL_DEBUG_COLLECT == 1
 #define sample_out											sampleIndirectArgs[sample_out_offset]
+#define sample_pixelCount									sampleIndirectArgs[sample_pixelCount_offset]
+#define sample_pixelSampleCount								sampleIndirectArgs[sample_pixelSampleCount_offset]
 #define sample_error										sampleIndirectArgs[sample_error_offset]
 #endif // #if HLSL_DEBUG_COLLECT == 1
 #define sample_count										sampleIndirectArgs[sample_count_offset]

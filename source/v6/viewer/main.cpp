@@ -29,6 +29,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_LOAD_EXTERNAL		1
+#define V6_SIMPLE_SCENE			0
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
@@ -38,12 +39,17 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static const float AVERAGE_LAYER_COUNT		= 1.5f;
+static const float AVERAGE_LAYER_COUNT		= 2.0f;
+#if HLSL_PIXEL_SUPER_SAMPLING_WIDTH > 1
+static const float AVERAGE_SAMPLE_PER_PIXEL	= 0.25f * HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+#else
+static const float AVERAGE_SAMPLE_PER_PIXEL	= 1.0f;
+#endif
 static const core::u32 ZOOM					= 2;
-static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH;
+static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
-static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
+static const float ZNEAR					= GRID_MIN_SCALE * 0.1f;
 static const float ZFAR						= 10000.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
 static const int SAMPLE_MAX_COUNT			= 16;
@@ -62,8 +68,7 @@ static const uint ENTITY_TEXTURE_INVALID	= (core::u32)-1;
 
 enum DrawMode_e
 {
-	DRAW_MODE_DEFAULT,
-	DRAW_MODE_CUBE,
+	DRAW_MODE_DEFAULT,	
 	DRAW_MODE_BLOCK,
 	
 	DRAW_MODE_COUNT
@@ -109,7 +114,6 @@ enum
 {
 	CONSTANT_BUFFER_BASIC		=	hlsl::CBBasicSlot,
 	CONSTANT_BUFFER_GENERIC		=	hlsl::CBGenericSlot,
-	CONSTANT_BUFFER_CUBE		=	hlsl::CBCubeSlot,
 	CONSTANT_BUFFER_SAMPLE		=	hlsl::CBSampleSlot,
 	CONSTANT_BUFFER_OCTREE		=	hlsl::CBOctreeSlot,
 	CONSTANT_BUFFER_BLOCK		=	hlsl::CBBlockSlot,
@@ -141,12 +145,12 @@ enum
 	SHADER_BASIC,
 	SHADER_FAKE_CUBE,
 	SHADER_GENERIC,
-	SHADER_CUBE_RENDER,
 	SHADER_BLOCK_RENDER4,
 	SHADER_BLOCK_RENDER8,
 	SHADER_BLOCK_RENDER16,
 	SHADER_BLOCK_RENDER32,
 	SHADER_BLOCK_RENDER64,
+	SHADER_MSAA,
 
 	SHADER_COUNT
 };
@@ -158,8 +162,8 @@ enum
 	MESH_BOX_RED,
 	MESH_BOX_BLUE,
 	MESH_BOX_GREEN,
-	MESH_VIRTUAL_TRIANGLE,
-	MESH_CUBE,
+	MESH_QUAD,
+	MESH_VIRTUAL_QUAD,
 	MESH_FAKE_CUBE,
 	MESH_POINT,
 	MESH_VIRTUAL_BOX,
@@ -310,8 +314,6 @@ struct RenderingView_s
 {
 	core::Mat4x4	viewMatrix;
 	core::Mat4x4	projMatrix;
-	core::u16		frameWidth;
-	core::u16		frameHeight;
 };
 
 struct Material_s;
@@ -330,7 +332,8 @@ struct Entity_s
 	core::u32		materialID;
 	core::u32		meshID;
 	core::Vec3		pos;
-	float			scale;		
+	float			scale;
+	bool			visible;
 };
 
 struct Scene_s
@@ -349,11 +352,11 @@ struct Cube_s
 {	
 	ID3D11Texture2D* colorBuffer;	
 	ID3D11ShaderResourceView* colorSRV;	
-	ID3D11RenderTargetView* colorRTVs[CUBE_AXIS_COUNT];
+	ID3D11RenderTargetView* colorRTV;
 	
 	ID3D11Texture2D* depthBuffer;
 	ID3D11ShaderResourceView* depthSRV;
-	ID3D11DepthStencilView* depthRTVs[CUBE_AXIS_COUNT];
+	ID3D11DepthStencilView* depthRTV;
 
 	core::u32 size;
 };
@@ -401,6 +404,11 @@ struct Pixel_s
 #endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
+struct Msaa_s
+{
+	GPUBuffer_s					samplePositions;
+};
+
 static bool g_mousePressed					= false;
 static int g_mousePosX						= 0;
 static int g_mousePosY						= 0;
@@ -424,7 +432,9 @@ static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
 static bool g_traceMode						= false; 
 static bool g_showVoxel						= false;
-static bool g_randomBackground				= true;
+static bool g_randomBackground				= false;
+static bool g_regenerateQuarterSize			= false;
+static bool g_readMSAASamplePositions		= false;
 
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
@@ -436,6 +446,15 @@ static core::u32 gpuMemory					= 0;
 static bool s_logReadBack					= false;
 
 static Scene_s* s_activeScene				= nullptr;
+
+static core::Vec3 s_cubeCenter						= {};
+static float s_cubeSize								= {};
+static const core::u32 s_quarterWidth				= 3;
+static const core::u32 s_quarterCount				= s_quarterWidth * s_quarterWidth * s_quarterWidth;
+static Entity_s* s_quarterEntities[s_quarterCount]	= {};
+static core::u32 s_quarterCounts[s_quarterCount]	= {};
+static core::u64 s_quarterConfigs[0xFFFF]			= {};
+static core::u32 s_quarterConfigCount				= 0;
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -460,7 +479,6 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			{
 			case 'A': g_keyLeftPressed = pressed; break;
 			case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
-			case 'C': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_CUBE ? DRAW_MODE_DEFAULT : DRAW_MODE_CUBE) : g_drawMode; break;
 			case 'D': g_keyRightPressed = pressed; break;
 			case 'F': g_filterPixel = !pressed; break;
 			case 'I': if ( pressed ) { s_logReadBack = true; } break;
@@ -468,12 +486,14 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
 			case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
 			case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
+			case 'Q': if ( pressed ) { g_regenerateQuarterSize = true; } break;
 			case 'R': if ( pressed ) { g_sample = 0; } break;
 			case 'S': g_keyDownPressed = pressed; break;
 			case 'T': g_traceMode = pressed ? !g_traceMode : g_traceMode; break;
 			case 'V': g_showVoxel = pressed ? !g_showVoxel : g_showVoxel; break;			
 			case 'W': g_keyUpPressed = pressed; break;			
 			case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
+			case 'Z': if ( pressed ) { g_readMSAASamplePositions = true; } break;
 			case ' ':
 				s_yaw = 0.0f;
 				s_pitch = 0.0f;
@@ -574,7 +594,6 @@ static const char* ModeToString( DrawMode_e drawMode )
 	switch ( drawMode )
 	{
 		case DRAW_MODE_DEFAULT: return "default";
-		case DRAW_MODE_CUBE: return "cube";
 		case DRAW_MODE_BLOCK: 
 		{
 			if ( g_showVoxel )
@@ -697,6 +716,8 @@ static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
 	case DXGI_FORMAT_R32_UINT:
 	case DXGI_FORMAT_R32_TYPELESS:
 		return 4;
+	case DXGI_FORMAT_R32G32_FLOAT:
+		return 8;
 	case DXGI_FORMAT_R32G32B32A32_FLOAT:
 		return 16;
 	default:
@@ -893,6 +914,16 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 static void ReadBack_Log( const char* res, core::u32 value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: %8d\n", res, name, value );
+}
+
+static void ReadBack_Log( const char* res, float2 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%g, %g)\n", res, name, value.x, value.y );
+}
+
+static void ReadBack_Log( const char* res, uint2 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4d, %4d)\n", res, name, value.x, value.y );
 }
 
 static void GPUBuffer_CreateIndirectArgs( ID3D11Device* device, GPUBuffer_s* buffer, core::u32 count, core::u32 flags, const char* name )
@@ -1123,7 +1154,7 @@ static void Texture2D_Create( ID3D11Device* device, GPUTexture2D_s* tex, core::u
 		V6_ASSERT( !mipmap || height == 1 );
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, data, &tex->tex ) );
 
-		GPUResource_LogMemory( "Texture2D", pixelCount * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), name );
+		GPUResource_LogMemory( "Texture2D", pixelCount * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, name );
 	}
 
 	{
@@ -1157,7 +1188,7 @@ static void Texture2D_CreateRW( ID3D11Device* device, GPUTexture2D_s* tex, core:
 		texDesc.MiscFlags = 0;
 		
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &tex->tex ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), name );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, name );
 	}
 
 	{
@@ -1311,7 +1342,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, 0, &context->uvBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "mainUVs" );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainUVs" );
 	}
 
 	V6_ASSERT_D3D11( device->CreateShaderResourceView( context->uvBuffer, 0, &context->uvSRV ) );	
@@ -1332,7 +1363,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, 0, &context->depthStencilBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "mainDepths" );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainDepths" );
 	}
 	
 	{
@@ -1455,7 +1486,6 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( v6::hlsl::CBBasic ), "basic" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
-	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_CUBE], sizeof( v6::hlsl::CBCube), "cube" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_SAMPLE], sizeof( v6::hlsl::CBSample ), "sample" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_OCTREE], sizeof( v6::hlsl::CBOctree ), "octree" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "block" );
@@ -1477,12 +1507,12 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
-	Shader_Create( device, &context->shaders[SHADER_CUBE_RENDER], "cube_render_vs.cso", "cube_render_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER4], "block_render_x4_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER8], "block_render_x8_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER16], "block_render_x16_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER32], "block_render_x32_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER64], "block_render_x64_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
+	Shader_Create( device, &context->shaders[SHADER_MSAA], "msaa_vs.cso", "msaa_ps.cso", 0, fileSystem, stack );
 }
 
 void GPUContext_Release( GPUContext_s* context )
@@ -1527,7 +1557,7 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.Width = size;
 		texDesc.Height = size;
 		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 6;
+		texDesc.ArraySize = 1;
 		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
@@ -1537,31 +1567,26 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.MiscFlags = 0;
 		
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->colorBuffer) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "cubeColors" );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeColor" );
 	}
 
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-		viewDesc.Texture2DArray.MipLevels = 1;
-		viewDesc.Texture2DArray.ArraySize = 6;
-		viewDesc.Texture2DArray.FirstArraySlice = 0;		
-		viewDesc.Texture2DArray.MostDetailedMip = 0;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		viewDesc.Texture2D.MostDetailedMip = 0;
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->colorBuffer, &viewDesc, &cube->colorSRV ) );
 	}
 
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
-		viewDesc.Texture2DArray.ArraySize = 1;
-		viewDesc.Texture2DArray.FirstArraySlice = faceID;
-		viewDesc.Texture2DArray.MipSlice = 0;
+		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipSlice = 0;
 
-		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->colorBuffer, &viewDesc, &cube->colorRTVs[faceID] ) );
+		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->colorBuffer, &viewDesc, &cube->colorRTV ) );
 	}
 	
 	{
@@ -1569,7 +1594,7 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.Width = size;
 		texDesc.Height = size;
 		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 6;
+		texDesc.ArraySize = 1;
 		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;		
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
@@ -1579,32 +1604,27 @@ static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->depthBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ), "cubeDepths" );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeDepth" );
 	}
 
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-		viewDesc.Texture2DArray.MipLevels = 1;
-		viewDesc.Texture2DArray.ArraySize = 6;
-		viewDesc.Texture2DArray.FirstArraySlice = 0;		
-		viewDesc.Texture2DArray.MostDetailedMip = 0;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		viewDesc.Texture2D.MostDetailedMip = 0;
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->depthBuffer, &viewDesc, &cube->depthSRV ) );
 	}
 
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		viewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+		viewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 		viewDesc.Flags = 0;
-		viewDesc.Texture2DArray.ArraySize = 1;
-		viewDesc.Texture2DArray.FirstArraySlice = faceID;
-		viewDesc.Texture2DArray.MipSlice = 0;
+		viewDesc.Texture2D.MipSlice = 0;
 
-		V6_ASSERT_D3D11( device->CreateDepthStencilView( cube->depthBuffer, &viewDesc, &cube->depthRTVs[faceID] ) );
+		V6_ASSERT_D3D11( device->CreateDepthStencilView( cube->depthBuffer, &viewDesc, &cube->depthRTV ) );
 	}
 	
 	cube->size = size;
@@ -1618,21 +1638,18 @@ static void Cube_Release( Cube_s* cube )
 	cube->colorSRV->Release();	
 	cube->depthSRV->Release();	
 
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-	{
-		cube->colorRTVs[faceID]->Release();
-		cube->depthRTVs[faceID]->Release();
-	}
+	cube->colorRTV->Release();
+	cube->depthRTV->Release();
 }
 
 static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 screenHeight, core::u32 cubeSize, core::u32 gridWidth )
 {
 	config->screenWidth = screenWidth;
 	config->screenHeight = screenHeight;
-	config->sampleCount = cubeSize * cubeSize * 6;
+	config->sampleCount = (core::u32)(cubeSize * cubeSize / AVERAGE_SAMPLE_PER_PIXEL);
 	config->leafCount = (core::u32)(gridWidth * gridWidth * 6 * AVERAGE_LAYER_COUNT);
-	config->nodeCount = config->leafCount * 2;
-	config->cellCount = config->leafCount * 5 / 4;
+	config->nodeCount = config->leafCount * 3;
+	config->cellCount = config->leafCount * 33 / 16;
 	config->cellItemCount = (screenWidth * screenHeight) * 4;
 }
 
@@ -1720,6 +1737,16 @@ static void Pixel_Release( ID3D11Device* device, Pixel_s* pixel )
 #if HLSL_DEBUG_PIXEL == 1
 	GPUBuffer_Release( device, &pixel->debugBuffer );
 #endif // #if HLSL_DEBUG_PIXEL == 1
+}
+
+static void Msaa_Create( ID3D11Device* device, Msaa_s* msaa )
+{
+	GPUBuffer_CreateTyped( device, &msaa->samplePositions, DXGI_FORMAT_R32_UINT, 1 + HLSL_PIXEL_MULTISAMPLE_WIDTH * HLSL_PIXEL_MULTISAMPLE_WIDTH, GPUBUFFER_CREATION_FLAG_READ_BACK, "msaaSamplePosition" );
+}
+
+static void Msaa_Release( ID3D11Device* device, Msaa_s* msaa )
+{
+	GPUBuffer_Release( device, &msaa->samplePositions );
 }
 
 static void Mesh_Create( ID3D11Device* device, GPUMesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -1849,9 +1876,24 @@ static void Mesh_CreateBox( ID3D11Device* device, GPUMesh_s* mesh, const core::C
 	}
 }
 
-static void Mesh_CreateVirtualTriangle( ID3D11Device* device, GPUMesh_s* mesh )
+static void Mesh_CreateQuad( ID3D11Device* device, GPUMesh_s* mesh, const core::Color_s color )
 {
-	Mesh_Create( device, mesh, nullptr, 3, 0, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );	
+	const BasicVertex_s vertices[8] = 
+	{
+		{ core::Vec3_Make( -1.0f, -1.0f, 0.0f ), color },
+		{ core::Vec3_Make(  1.0f, -1.0f, 0.0f ), color },
+		{ core::Vec3_Make( -1.0f,  1.0f, 0.0f ), color },
+		{ core::Vec3_Make(  1.0f,  1.0f, 0.0f ), color },
+	};
+
+	const core::u16 indices[4] = { 	0, 2, 1, 3 };
+
+	Mesh_Create( device, mesh, vertices, 4, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 4, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
+}
+
+static void Mesh_CreateVirtualQuad( ID3D11Device* device, GPUMesh_s* mesh )
+{
+	Mesh_Create( device, mesh, nullptr, 4, 0, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
 }
 
 static void Mesh_CreateVirtualBox( ID3D11Device* device, GPUMesh_s* mesh )
@@ -1873,44 +1915,6 @@ static void Mesh_CreateVirtualBox( ID3D11Device* device, GPUMesh_s* mesh )
 	Mesh_Create( device, mesh, nullptr, 0, 0, 0, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );	
 }
 
-static void Mesh_CreateCube( ID3D11Device* device, GPUMesh_s* mesh )
-{
-	CubeVertex_s vertices[24];
-	core::u16 indices[36];
-
-	core::u32 vertexID = 0;
-	core::u32 indexID = 0;
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-	{
-		core::Vec3 lookAt;
-		core::Vec3 up;
-		Cube_GetLookAt( lookAt, up, (CubeAxis_e)faceID );
-		const core::Vec3 right = core::Cross( lookAt, up );		
-
-		vertices[vertexID+0].pos = (lookAt - right + up) * ZFAR;
-		vertices[vertexID+0].uv = core::Vec2_Make( 0.0f, 0.0f );
-		vertices[vertexID+1].pos = (lookAt + right + up) * ZFAR;
-		vertices[vertexID+1].uv = core::Vec2_Make( 1.0f, 0.0f );
-		vertices[vertexID+2].pos = (lookAt - right - up) * ZFAR;
-		vertices[vertexID+2].uv = core::Vec2_Make( 0.0f, 1.0f );
-		vertices[vertexID+3].pos = (lookAt + right - up) * ZFAR;
-		vertices[vertexID+3].uv = core::Vec2_Make( 1.0f, 1.0f );
-		
-		indices[indexID+0] = vertexID+0;
-		indices[indexID+1] = vertexID+1;
-		indices[indexID+2] = vertexID+2;
-
-		indices[indexID+3] = vertexID+2;
-		indices[indexID+4] = vertexID+1;
-		indices[indexID+5] = vertexID+3;
-
-		vertexID += 4;
-		indexID += 6;
-	}
-
-	Mesh_Create( device, mesh, vertices, 24, sizeof( CubeVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
-}
-
 static void Mesh_CreateFakeCube( ID3D11Device* device, GPUMesh_s* mesh )
 {
 #if 0
@@ -1930,9 +1934,9 @@ static void Mesh_CreateFakeCube( ID3D11Device* device, GPUMesh_s* mesh )
 
 	Mesh_Create( device, mesh, nullptr, 0, 0, 0, indices, 36, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 #else
-	const core::u16 indices[4] = { 0, 2, 1, 3 };
+	const core::u16 indices[5] = { 0, 2, 3, 1, 0 };
 
-	Mesh_Create( device, mesh, nullptr, 0, 0, 0, indices, 4, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
+	Mesh_Create( device, mesh, nullptr, 0, 0, 0, indices, 5, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP );
 #endif
 }
 
@@ -2114,12 +2118,21 @@ static void Entity_Create( Entity_s* entity, core::u32 materialID, core::u32 mes
 	entity->meshID = meshID;
 	entity->pos = pos;
 	entity->scale = scale;
+	entity->visible = true;
 }
 
 static void Entity_Draw( Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view )
 {
+	if ( !entity->visible )
+		return;
+
 	Material_s* material = &scene->materials[entity->materialID];
 	material->drawFunction( material, entity, scene, ctx, view );
+}
+
+static void Entity_SetVisible( Entity_s* entity, bool visible )
+{
+	entity->visible = visible;
 }
 
 void Scene_Create( Scene_s* scene )
@@ -2287,6 +2300,23 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	core::Signal_Emit( &sceneContext->loadDone );
 }
 
+#if V6_SIMPLE_SCENE == 1
+
+void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
+{
+	Scene_Create( scene );
+
+	Mesh_CreateQuad( device, &scene->meshes[MESH_QUAD], core::Color_Make( 255, 255, 255, 255 ) );
+	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
+	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
+
+	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
+
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_QUAD, core::Vec3_Make( 0.0f, 0.0f, -100.0001f ), (2.0f / 3.0f) * 200.0f / HLSL_GRID_WIDTH );
+}
+
+#else
+
 void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 {
 	Scene_Create( scene );
@@ -2296,8 +2326,7 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_RED], core::Color_Make( 255, 0, 0, 255 ), false );
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
-	Mesh_CreateVirtualTriangle( device, &scene->meshes[MESH_VIRTUAL_TRIANGLE] );
-	Mesh_CreateCube( device, &scene->meshes[MESH_CUBE] );
+	Mesh_CreateVirtualQuad( device, &scene->meshes[MESH_VIRTUAL_QUAD] );
 	Mesh_CreateFakeCube( device, &scene->meshes[MESH_FAKE_CUBE] );
 	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
 	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
@@ -2318,16 +2347,84 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 		if ( fabsf( center.x ) + size > GRID_MAX_SCALE ) continue;
 		if ( fabsf( center.y ) + size > GRID_MAX_SCALE ) continue;
 		if ( fabsf( center.z ) + size > GRID_MAX_SCALE ) continue;
+
+		if ( randomCubeID == 0 )
+		{
+			core::u64 bits = 0;
+			const float quarterSize = size * (1.0f / s_quarterWidth);
+			const core::Vec3 org = (center - size) + quarterSize;
+			for ( int z = 0; z < s_quarterWidth; ++z )
+			{
+				for ( int y = 0; y < s_quarterWidth; ++y )
+				{
+					for ( int x = 0; x < s_quarterWidth; ++x )
+					{						
+						const core::Vec3 quarterCenter = core::Vec3_Make( org.x + x * quarterSize * 2.0f, org.y + y * quarterSize * 2.0f, org.z + z * quarterSize * 2.0f );
+						Entity_s* quarterEntity = &scene->entities[scene->entityCount++];
+						Entity_Create( quarterEntity, MATERIAL_DEFAULT_BASIC, MESH_BOX_RED + (randomCubeID % 3), quarterCenter, quarterSize );
+						Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, quarterCenter, quarterSize );
+						Entity_SetVisible( quarterEntity, (rand() & 3) == 0 );
+						s_quarterEntities[z * s_quarterWidth * s_quarterWidth + y * s_quarterWidth + x] = quarterEntity;
+					}
+				}
+			}
+			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, center, size );
+			s_cubeCenter = center;
+			s_cubeSize = size;
+		}
+		else
+		{
 		
 #if 0
-		Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED + (randomCubeID % 3), center, size );
+			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED + (randomCubeID % 3), center, size );
 #else
-		Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_FAKE_CUBE, MESH_FAKE_CUBE, center, size );
+			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_FAKE_CUBE, MESH_FAKE_CUBE, center, size );
 #endif
-		Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, center, size );
+			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, center, size );
+		}
 
 		++randomCubeID;
+	}	
+}
+
+#endif
+
+void QuarterSize_Regenerate()
+{
+	for ( core::u32 pass = 0 ; pass < 100000; ++pass )
+	{
+		const core::Vec3 n = core::RandSphere();
+		const float l = (core::RandFloat() * 2.0f - 1.0f) * s_cubeSize * 2.0f;
+
+		const float k = -Dot( n, s_cubeCenter ) + l;
+
+		core::u64 config = 0;
+		for ( int id = 0; id < s_quarterCount; ++id )
+		{
+			const bool visible = Dot( s_quarterEntities[id]->pos, n ) + k < 0.0f;
+			Entity_SetVisible( s_quarterEntities[id], visible );
+			s_quarterCounts[id] += visible ? 1 : 0;
+			config |= visible ? (1ll << id) : 0;
+		}
+
+		if ( config && s_quarterConfigCount < 0xFFFF )
+		{
+			core::u32 configID;
+			for ( configID = 0; configID < s_quarterConfigCount; ++configID )
+			{
+				if ( s_quarterConfigs[configID] == config )
+					break;
+			}
+			if ( configID == s_quarterConfigCount )
+			{
+				printf( "Config #%04d: 0x%016llX\n", configID, config );
+				s_quarterConfigs[configID] = config;
+				++s_quarterConfigCount;				
+			}
+		}
 	}
+
+	printf( "Config count: %d\n", s_quarterConfigCount );
 }
 
 class CRenderingDevice
@@ -2338,12 +2435,11 @@ public:
 
 public:
 	core::u32 BuildNode( bool clear );
-	void Capture( const core::Vec3* sampleOffset );
-	void Collect( const core::Vec3* sampleOffset );
+	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
+	void Collect( const core::Vec3* sampleOffset, core::u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
 	void Draw( float dt );
 	void DrawBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter, bool showMip, bool showOverdraw, bool showVoxel );
-	void DrawCube( const core::Mat4x4* viewMatrix );	
 	void DrawScene( Scene_s* scene, const RenderingView_s* view );
 	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void FillLeaf();
@@ -2351,6 +2447,7 @@ public:
 	void PixelFilter();
 	void PixelTrace();
 	void Present();
+	void ReadMSSASamplePositions();
 	void Release();
 	void TraceBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
 
@@ -2365,6 +2462,7 @@ public:
 	Octree_s			m_octree;
 	Block_s				m_block;
 	Pixel_s				m_pixel;
+	Msaa_s				m_msaa;
 
 	Scene_s				m_defaultScene;	
 
@@ -2396,7 +2494,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_width = nWidth;
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
-	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );	
+#if V6_SIMPLE_SCENE == 1
+	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), m_aspectRatio );
+#else
+	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );
+#endif
 	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
 
 	GPUContext_Create( &gpuContext, nWidth, nHeight, hWnd, fileSystem, heap, stack );
@@ -2410,6 +2512,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Octree_Create( gpuContext.device, &m_octree, &m_config, heap );
 	Block_Create( gpuContext.device, &m_block, &m_config, heap );
 	Pixel_Create( gpuContext.device, &m_pixel, &m_config, heap );
+	Msaa_Create( gpuContext.device, &m_msaa );
 	
 	g_sample = 0;
 	m_sampleOffsets[0] = core::Vec3_Make( 0.0f, 0.0f, 0.0f );
@@ -2476,8 +2579,6 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	RenderingView_s view;
 	view.viewMatrix = *viewMatrix;
 	view.projMatrix = m_projMatrix;	
-	view.frameWidth = m_width;
-	view.frameHeight = m_height;
 
 	DrawScene( s_activeScene, &view );
 
@@ -2485,7 +2586,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
-void CRenderingDevice::Capture( const core::Vec3* samplePos )
+void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 {
 	// Rasterization state
 	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
@@ -2507,37 +2608,28 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos )
 
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Capture");
 		
-	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-	{
-		gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Face");
+	// RT
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &m_cube.colorRTV, m_cube.depthRTV );
 
-		// RT
-		gpuContext.deviceContext->OMSetRenderTargets( 1, &m_cube.colorRTVs[faceID], m_cube.depthRTVs[faceID] );
+	// Clear
+	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	gpuContext.deviceContext->ClearRenderTargetView( m_cube.colorRTV, pRGBA );
+	gpuContext.deviceContext->ClearDepthStencilView( m_cube.depthRTV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );						
 
-		// Clear
-		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		gpuContext.deviceContext->ClearRenderTargetView( m_cube.colorRTVs[faceID], pRGBA );
-		gpuContext.deviceContext->ClearDepthStencilView( m_cube.depthRTVs[faceID], D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );						
-
-		// View
-		RenderingView_s view;
-		Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
-		view.projMatrix = m_cubeProjMatrix;
-		view.frameWidth = m_cube.size;	
-		view.frameHeight = m_cube.size;
+	// View
+	RenderingView_s view;
+	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
+	view.projMatrix = m_cubeProjMatrix;
 		
-		DrawScene( s_activeScene, &view );
+	DrawScene( s_activeScene, &view );
 
-		// un RT
-		gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+	// un RT
+	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 			
-		gpuContext.userDefinedAnnotation->EndEvent();
-	}
-
 	gpuContext.userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::DrawCube( const core::Mat4x4* viewMatrix )
+void CRenderingDevice::ReadMSSASamplePositions()
 {
 	// Rasterization state
 	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
@@ -2548,8 +2640,8 @@ void CRenderingDevice::DrawCube( const core::Mat4x4* viewMatrix )
 		D3D11_VIEWPORT viewport = {};
 		viewport.TopLeftX = 0;
 		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
+		viewport.Width = 1.0f;
+		viewport.Height = 1.0f;
 		viewport.MinDepth = 0.0f;
 		viewport.MaxDepth = 1.0f;
 
@@ -2557,44 +2649,37 @@ void CRenderingDevice::DrawCube( const core::Mat4x4* viewMatrix )
 		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
 	}
 
-	gpuContext.userDefinedAnnotation->BeginEvent( L"Render");
+	gpuContext.userDefinedAnnotation->BeginEvent( L"ReadMSSASamplePositions");
+
+	core::u32 values[4] = {};
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_msaa.samplePositions.uav, values );
 
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorView, gpuContext.depthStencilView );
+	gpuContext.deviceContext->OMSetRenderTargetsAndUnorderedAccessViews( 1, &m_cube.colorRTV, nullptr, HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_msaa.samplePositions.uav, nullptr );
+	
+	Mesh_Draw( &m_defaultScene.meshes[MESH_VIRTUAL_QUAD], HLSL_PIXEL_MULTISAMPLE_WIDTH * HLSL_PIXEL_MULTISAMPLE_WIDTH, &gpuContext.shaders[SHADER_MSAA], gpuContext.deviceContext, nullptr, 0 );
 
-	{
-		v6::hlsl::CBCube* cbCube = ConstantBuffer_MapWrite< v6::hlsl::CBCube >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CUBE] );
-
-		cbCube->c_cubeObjectToView = *viewMatrix;
-		cbCube->c_cubeViewToProj = m_projMatrix;
-		cbCube->c_cubeWidth = m_cube.size;	
-		cbCube->c_cubeHeight = m_cube.size;
-
-		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CUBE] );
-	}
-
-	// Render
-	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	gpuContext.deviceContext->ClearRenderTargetView( gpuContext.colorView, pRGBA );
-	gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
-		
-	gpuContext.deviceContext->VSSetConstantBuffers( v6::hlsl::CBCubeSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_CUBE].buf );
-	gpuContext.deviceContext->PSSetConstantBuffers( v6::hlsl::CBCubeSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_CUBE].buf );
-	gpuContext.deviceContext->PSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
-
-	Mesh_Draw( &m_defaultScene.meshes[MESH_CUBE], 1, &gpuContext.shaders[SHADER_CUBE_RENDER], gpuContext.deviceContext, nullptr, 0 );
-
-	// unset
-	static const void* nulls[8] = {};
-	gpuContext.deviceContext->PSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-		
 	// un RT
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+
+	// Read back
+	const core::u32* samplePositions = GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &m_msaa.samplePositions );
+		
+	V6_MSG( "\n" );
+	for ( core::u32 sampleID = 0; sampleID < samplePositions[0]; ++sampleID )
+	{
+		float2 bits;
+		bits.x = ((samplePositions[sampleID+1] & 0xFFFF) / float( HLSL_PIXEL_MULTISAMPLE_WIDTH ) * 2.0f - 1.0f) * 8.0f;
+		bits.y = (((samplePositions[sampleID+1] >> 16) & 0xFFFF) / float( HLSL_PIXEL_MULTISAMPLE_WIDTH ) * 2.0f - 1.0f) * 8.0f;
+		ReadBack_Log( "msaa", bits, "sample" );
+	}
+
+	GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_msaa.samplePositions );
 
 	gpuContext.userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
+void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID )
 {
 	static const void* nulls[8] = {};
 
@@ -2616,9 +2701,10 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 
 		cbSample->c_sampleDepthLinearScale = -1.0f / ZNEAR;
 		cbSample->c_sampleDepthLinearBias = 1.0f / ZNEAR;
-		cbSample->c_sampleInvCubeSize.x = 1.0f / CUBE_SIZE;
-		cbSample->c_sampleInvCubeSize.y = 1.0f / CUBE_SIZE;
+		cbSample->c_sampleInvCubeSize.x = 1.0f / (CUBE_SIZE / HLSL_PIXEL_SUPER_SAMPLING_WIDTH);
+		cbSample->c_sampleInvCubeSize.y = 1.0f / (CUBE_SIZE / HLSL_PIXEL_SUPER_SAMPLING_WIDTH);
 		cbSample->c_sampleOffset = *sampleOffset;
+		cbSample->c_sampleFaceID = faceID;
 		cbSample->c_sampleMipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
 		cbSample->c_sampleMipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
 		cbSample->c_sampleMipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
@@ -2639,8 +2725,8 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.uav, nullptr );
 	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_SAMPLECOLLECT].m_computeShader, nullptr, 0 );
 		
-	const core::u32 cubeGroupCount = m_cube.size >> 4;
-	gpuContext.deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, CUBE_AXIS_COUNT );
+	const core::u32 cubeGroupCount = (m_cube.size / HLSL_PIXEL_SUPER_SAMPLING_WIDTH) >> 3;
+	gpuContext.deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset		
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
@@ -2662,6 +2748,8 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset )
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_count_offset], "count" );		
 		V6_ASSERT( collectedIndirectArgs[sample_count_offset] <= m_config.sampleCount );
 #if HLSL_DEBUG_COLLECT == 1
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_pixelCount_offset], "pixelCount" );
+		ReadBack_Log( "sample", collectedIndirectArgs[sample_pixelSampleCount_offset], "pixelSampleCount" );
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_out_offset], "out" );
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_error_offset], "error" );
 		V6_ASSERT( collectedIndirectArgs[sample_error_offset] == 0 );
@@ -2858,6 +2946,7 @@ void CRenderingDevice::PackColor()
 			V6_MSG( "\n" );
 			ReadBack_Log( "packed_all", allRealCellCount, "realCellCount" );
 			ReadBack_Log( "packed_all", allMaxCellCount, "maxCellCount" );
+			V6_ASSERT( allMaxCellCount <= m_config.cellCount );
 		}
 
 		GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.indirectArgs );
@@ -2938,7 +3027,7 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix, const core::Ve
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Bucket");
 			
-		if ( showVoxel)
+		if ( showVoxel )
 			Mesh_Draw( &m_defaultScene.meshes[MESH_VIRTUAL_BOX], -1, &gpuContext.shaders[SHADER_BLOCK_RENDER4+bucket], gpuContext.deviceContext, m_block.indirectArgs.buf, block_indexCountPerInstance_offset( bucket ) * sizeof( core::u32 ) );
 		else
 			Mesh_Draw( &m_defaultScene.meshes[MESH_POINT], -1, &gpuContext.shaders[SHADER_BLOCK_RENDER4+bucket], gpuContext.deviceContext, m_block.indirectArgs.buf, block_vertexCountPerInstance_offset( bucket ) * sizeof( core::u32 ) );
@@ -3126,10 +3215,10 @@ void CRenderingDevice::PixelFilter()
 			for ( int i = -1; i <= 1; ++i )
 			{
 				const hlsl::PixelDebugLayer debugLayer = pixelDebugBuffer->points[j+1][i+1].layers[0];
-				V6_MSG( "Pixel %2d, %2d: color ( %g, %g, %g, %g ), depth %g, uv ( %g, %g )\n", i, j,
-					debugLayer.color.x, debugLayer.color.y, debugLayer.color.z, debugLayer.color.w,
+				V6_MSG( "Pixel %2d, %2d: color ( %g, %g, %g ), depth %g, uv ( %g, %g )\n", i, j,
+					debugLayer.colorAndDepth.x, debugLayer.colorAndDepth.y, debugLayer.colorAndDepth.z,
 					debugLayer.uv.x, debugLayer.uv.y,
-					debugLayer.depth );
+					debugLayer.colorAndDepth.w );
 			}
 		}
 
@@ -3179,10 +3268,19 @@ void CRenderingDevice::PixelTrace()
 		cbPixel->c_pixelFrameSize.x = m_config.screenWidth;
 		cbPixel->c_pixelFrameSize.y = m_config.screenHeight;
 
-		const float r = core::RandFloat();
-		cbPixel->c_pixelBackColor.x = 1.0f; 
-		cbPixel->c_pixelBackColor.y = r;
-		cbPixel->c_pixelBackColor.z = r;
+		if ( g_randomBackground )
+		{
+			const float r = core::RandFloat();
+			cbPixel->c_pixelBackColor.x = 1.0f; 
+			cbPixel->c_pixelBackColor.y = r;
+			cbPixel->c_pixelBackColor.z = r;
+		}
+		else
+		{
+			cbPixel->c_pixelBackColor.x = 0.0f; 
+			cbPixel->c_pixelBackColor.y = 0.0f; 
+			cbPixel->c_pixelBackColor.z = 0.0f; 
+		}
 
 #if HLSL_DEBUG_PIXEL == 1
 		cbPixel->c_pixelMode = g_pixelMode;
@@ -3231,11 +3329,13 @@ void CRenderingDevice::PixelTrace()
 				for ( uint layer = 0; layer < pixelDebugBuffer->points[j+1][i+1].layerCount; ++layer )
 				{
 					const hlsl::PixelDebugLayer debugLayer = pixelDebugBuffer->points[j+1][i+1].layers[layer];
-					V6_MSG( "Pixel %2d, %2d: #%d, color ( %.2f, %.2f, %.2f, %.2f ), depth %.1f, uv ( %.1f, %.1f ), wh ( %.1f, %.1f )\n", i, j, layer, 
-						debugLayer.color.x, debugLayer.color.y, debugLayer.color.z, debugLayer.color.w,
-						debugLayer.depth, 
+					V6_MSG( "Pixel %2d, %2d: #%d, c ( %.2f, %.2f, %.2f ), d %.1f, uv ( %.2f, %.2f ), wh ( %.2f, %.2f ), min ( %d, %d ), max ( %d, %d )\n", i, j, layer, 
+						debugLayer.colorAndDepth.x, debugLayer.colorAndDepth.y, debugLayer.colorAndDepth.z, 
+						debugLayer.colorAndDepth.w,
 						debugLayer.uv.x, debugLayer.uv.y,
-						debugLayer.wh.x, debugLayer.wh.y );
+						debugLayer.wh.x, debugLayer.wh.y,
+						debugLayer.uvMin.x, debugLayer.uvMin.y,
+						debugLayer.uvMax.x, debugLayer.uvMax.y );
 				}
 				if ( pixelDebugBuffer->points[j+1][i+1].layerCount == 0 )
 					V6_MSG( "Pixel %2d, %2d: NO LAYER\n", i, j );
@@ -3297,7 +3397,7 @@ void CRenderingDevice::Draw( float dt )
 	}
 		
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
-	const static float KEY_TRANSLATION_SPEED = 500.0f;
+	const static float KEY_TRANSLATION_SPEED = 100.0f;
 	
 	s_yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
 	s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
@@ -3327,39 +3427,53 @@ void CRenderingDevice::Draw( float dt )
 	core::Mat4x4_Mul( &viewMatrix, yawMatrix, pitchMatrix );
 	core::Mat4x4_SetTranslation( &viewMatrix, s_headOffset );
 	core::Mat4x4_AffineInverse( &viewMatrix );
+
+	if ( g_regenerateQuarterSize )
+	{
+		QuarterSize_Regenerate();
+		g_regenerateQuarterSize = false;
+	}
+
+	if ( g_readMSAASamplePositions )
+	{
+		ReadMSSASamplePositions();
+		g_readMSAASamplePositions = false;
+	}
 	
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
 		DrawWorld( &viewMatrix );
-	}
-	else if ( g_drawMode == DRAW_MODE_CUBE )
-	{
-		Capture( &s_headOffset );
-
-		DrawCube( &viewMatrix );
-	}
+	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
 	{		
 		if ( g_sample < SAMPLE_MAX_COUNT )
 		{
 			V6_MSG( "Capturing sample #%03d...", g_sample );
 
+			static core::u32 lastSumLeafCount = 0;
+
 			if ( g_sample == 0 )
+			{
 				s_sampleCenter = s_headOffset;
+				lastSumLeafCount = 0;
+			}
 
 			const core::Vec3 sampleOffset = m_sampleOffsets[g_sample];
 			const core::Vec3 samplePos = s_sampleCenter + sampleOffset;
 
-			Capture( &samplePos );
-		
-			Collect( &sampleOffset );
-			static core::u32 sumLeafCount = 0;
-			if ( g_sample == 0 )
-				sumLeafCount = 0;
-			const core::u32 newLeafCount = BuildNode( g_sample == 0 ) - sumLeafCount;
-			sumLeafCount += newLeafCount;
-			FillLeaf();			
+			core::u32 sumLeafCount = 0;
+
+			for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
+			{
+				Capture( &samplePos, faceID );		
+				Collect( &sampleOffset, faceID );					
+				sumLeafCount = BuildNode( g_sample == 0 );				
+				FillLeaf();
+			}
 			
+			const core::u32 newLeafCount = sumLeafCount - lastSumLeafCount;
+			lastSumLeafCount = sumLeafCount;
+
 			V6_MSG( "\r" );
 			V6_MSG( "Capturing sample #%03d: %13s cells added\n", g_sample, FormatInteger_Unsafe( newLeafCount ) );
 			
@@ -3405,6 +3519,7 @@ void CRenderingDevice::Release()
 	Octree_Release( gpuContext.device, &m_octree );
 	Block_Release( gpuContext.device, &m_block );
 	Pixel_Release( gpuContext.device, &m_pixel );
+	Msaa_Release( gpuContext.device, &m_msaa );
 
 	Scene_Release( &m_defaultScene );
 
@@ -3412,6 +3527,8 @@ void CRenderingDevice::Release()
 }
 
 END_V6_VIEWER_NAMESPACE
+
+#if 1
 
 int main()
 {
@@ -3511,3 +3628,188 @@ int main()
 		oRenderingDevice.Present();
 	}
 }
+
+#else
+
+using namespace v6;
+
+struct Box
+{
+	uint3 p0;
+	uint3 p1;
+};
+
+struct MergedBox
+{
+	Box main;
+	Box min;
+	uint mask0;
+	uint mask1;		
+};
+
+static uint Box_Volume( Box box )
+{
+	return (box.p1.x - box.p0.x + 1) * (box.p1.y - box.p0.y + 1) * (box.p1.z - box.p0.z + 1);
+};
+
+static Box Box_Merge( Box box0, Box box1 )
+{
+	Box box;
+	box.p0.x = core::Min( box0.p0.x, box1.p0.x );
+	box.p0.y = core::Min( box0.p0.y, box1.p0.y );
+	box.p0.z = core::Min( box0.p0.z, box1.p0.z );
+	box.p1.x = core::Max( box0.p1.x, box1.p1.x );
+	box.p1.y = core::Max( box0.p1.y, box1.p1.y );
+	box.p1.z = core::Max( box0.p1.z, box1.p1.z );
+	return box;
+};
+
+static MergedBox MergedBox_Merge( MergedBox box0, MergedBox box1 )
+{
+	MergedBox mergedBox;
+	mergedBox.main = Box_Merge( box0.main, box1.main );
+	mergedBox.min = Box_Volume( box0.min ) < Box_Volume( box1.min ) ? box0.min : box1.min;
+	mergedBox.mask0 = box0.mask0 | box1.mask0;
+	mergedBox.mask1 = box0.mask1 | box1.mask1;
+	return mergedBox;
+};
+
+static bool MergedBox_HasID( MergedBox box, uint id )
+{
+	if ( id < 32 )
+		return (box.mask0 & (1 << id)) != 0;
+	return (box.mask0 & (1 << (id-32))) != 0;
+};
+
+static const char* Box_ToString( Box box )
+{
+	static char str[4096];
+	static char* p = str;
+	if ( p + 64 > str + sizeof( str ) )
+		p = str;
+	char* r = p;
+	p += sprintf( p, "(%d %d %d)-(%d %d %d): %02d", box.p0.x, box.p0.y, box.p0.z, box.p1.x, box.p1.y, box.p1.z, Box_Volume( box ) ) + 1;
+	return r;
+}
+
+int main()
+{
+#if 0
+	core::u32 count = 0;
+	for ( core::u32 z0 = 0; z0 < 3; ++z0 )
+	{
+		for ( core::u32 y0 = 0; y0 < 3; ++y0 )
+		{
+			for ( core::u32 x0 = 0; x0 < 3; ++x0 )
+			{
+				for ( core::u32 z1 = z0; z1 < 3; ++z1 )
+				{
+					for ( core::u32 y1 = y0; y1 < 3; ++y1 )
+					{
+						for ( core::u32 x1 = x0; x1 < 3; ++x1 )
+						{
+							printf( "case %03d: (%d %d %d) (%d %d %d)\n", count, x0, y0, z0, x1, y1, z1 );
+							++count;
+						}
+					}
+				}
+			}
+		}
+	}
+#endif
+	
+
+	Box originalBoxes[16];
+	MergedBox mergedBoxes[16];
+
+	for ( uint boxID = 0; boxID < 16; ++boxID )
+	{
+		Box box;
+	
+		box.p0.x = rand() % 3;
+		box.p0.y = rand() % 3;
+		box.p0.z = rand() % 3;
+		box.p1.x = rand() % 3;
+		box.p1.y = rand() % 3;
+		box.p1.z = rand() % 3;
+			
+		if ( box.p0.x > box.p1.x )
+			core::Swap( box.p0.x, box.p1.x );
+		if ( box.p0.y > box.p1.y )
+			core::Swap( box.p0.y, box.p1.y );
+		if ( box.p0.z > box.p1.z )
+			core::Swap( box.p0.z, box.p1.z );
+
+		printf( "box (%d %d %d)-(%d %d %d) / %02d\n", box.p0.x, box.p0.y, box.p0.z, box.p1.x, box.p1.y, box.p1.z, Box_Volume( box ) );
+
+		originalBoxes[boxID] = box;
+		
+		mergedBoxes[boxID].main = box;
+		mergedBoxes[boxID].min = box;
+		if ( boxID < 32 )
+		{
+			mergedBoxes[boxID].mask0 = 1 << boxID;
+			mergedBoxes[boxID].mask1 = 0;
+		}
+		else
+		{
+			mergedBoxes[boxID].mask0 = 0;
+			mergedBoxes[boxID].mask1 = 1 << (boxID-32);
+		}
+	}	
+	
+	uint mergedCount = 16;
+	while ( mergedCount > 6 )
+	{
+		uint minKey = 0xFFFFFFFF;
+		for ( uint mergedBoxID0 = 0; mergedBoxID0 < mergedCount; ++mergedBoxID0 )
+		{
+			for ( uint mergedBoxID1 = mergedBoxID0+1; mergedBoxID1 < mergedCount; ++mergedBoxID1 )
+			{
+				const MergedBox mergedBox = MergedBox_Merge( mergedBoxes[mergedBoxID0], mergedBoxes[mergedBoxID1] );
+				const uint volumeMerged = Box_Volume( mergedBox.main );
+				const uint volumeBox0 = Box_Volume( mergedBoxes[mergedBoxID0].min );
+				const uint volumeBox1 = Box_Volume( mergedBoxes[mergedBoxID1].min );
+				uint key = 0;
+				key |= (volumeMerged - core::Min( volumeBox0, volumeBox1 )) << 22;
+				key |= (volumeMerged - core::Max( volumeBox0, volumeBox1 )) << 17;
+				key |= core::Max( volumeBox0, volumeBox1 ) << 12;
+				key |= mergedBoxID1 << 6;
+				key |= mergedBoxID0 << 0;
+				minKey = core::Min( minKey, key );
+			}
+		}
+
+		const uint boxID0 = (minKey >> 0) & 0x3F;
+		const uint boxID1 = (minKey >> 6) & 0x3F;
+		const MergedBox mergedBox = MergedBox_Merge( mergedBoxes[boxID0], mergedBoxes[boxID1] );
+
+		printf( "merge boxes %s and %s into %s\n", Box_ToString( mergedBoxes[boxID0].main ), Box_ToString( mergedBoxes[boxID1].main ), Box_ToString( mergedBox.main ) );
+
+		mergedBoxes[boxID0] = mergedBox;
+		--mergedCount;
+		core::Swap( mergedBoxes[boxID1], mergedBoxes[mergedCount] );		
+	}
+
+	uint mergeIDs[16];
+	for ( uint mergeID = 0; mergeID < mergedCount; ++mergeID )
+	{
+		const MergedBox mergedBox = mergedBoxes[mergeID];
+		printf( "merged %s\n", Box_ToString( mergedBox.main ) );
+		for ( uint boxID = 0; boxID < 16; ++boxID )
+		{
+			if ( MergedBox_HasID( mergedBox, boxID ) )
+				mergeIDs[boxID] = mergeID;
+		}
+	}
+
+	for ( uint boxID = 0; boxID < 16; ++boxID )
+	{
+		const Box originalBox = originalBoxes[boxID];
+		const uint mergeID = mergeIDs[boxID];
+		const MergedBox mergedBox = mergedBoxes[mergeID];
+		printf( "boxes %s => %s\n", Box_ToString( originalBox ), Box_ToString( mergedBox.main ) );
+	}
+}
+
+#endif

@@ -17,12 +17,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	if ( sampleID >= sample_count )
 		return;
 
-	const uint3 color = Sample_UnpackColor( samples[sampleID] );
+	uint3 color;
+	uint occupancy;
+	Sample_UnpackColorAndOccupancy( samples[sampleID], color, occupancy );
 
 	const uint nodeOffset = sampleNodeOffsets[sampleID];
 	const uint leafID = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
 	InterlockedAdd( octreeLeaves[leafID].x9_r23, color.r );
 	InterlockedAdd( octreeLeaves[leafID].y9_g23, color.g );
 	InterlockedAdd( octreeLeaves[leafID].z9_b23, color.b );
-	InterlockedAdd( octreeLeaves[leafID].x2y2z2_mip3_occupancy8_count15, 1 );
+	InterlockedAdd( octreeLeaves[leafID].x2y2z2_mip4_count15, 1 );
+	InterlockedOr( octreeLeaves[leafID].occupancy27, occupancy );
 }

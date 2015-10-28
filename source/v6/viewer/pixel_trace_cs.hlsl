@@ -60,8 +60,7 @@ float3 testA( uint2 screenPos, bool debug )
 				if ( debug && layer < 4 )
 				{				
 					PixelDebugLayer debugLayer;
-					debugLayer.color = float4( otherColor, 0.0f );
-					debugLayer.depth = blockCellItem.depth;
+					debugLayer.colorAndDepth = float4( otherColor, blockCellItem.depth );
 					debugLayer.uv = float2( uOffset, vOffset );
 
 					pixelDebugBuffer[0].points[j+1][i+1].layers[layer] = debugLayer;
@@ -221,26 +220,11 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 				const float b = ((blockCellItem.r8g8b8a8 >> 8) & 0xFF) * inv255;
 				const float3 otherColor = float3( r, g, b );
 				
-				const float norm = 1.0f / 255.0f;
+				const float norm = 0.95f / 255.0f;
 				const float uRelative = ((blockCellItem.u8v8w8h8 >> 24) & 0xFF) * norm;
 				const float vRelative = ((blockCellItem.u8v8w8h8 >> 16) & 0xFF) * norm;
 				const float wRelative = ((blockCellItem.u8v8w8h8 >>  8) & 0xFF) * norm;
 				const float hRelative = ((blockCellItem.u8v8w8h8 >>  0) & 0xFF) * norm;
-
-#if HLSL_DEBUG_PIXEL == 1
-				const uint layer = pixelDebugBuffer[0].points[j+1][i+1].layerCount;
-				if ( debug && layer < 4 )
-				{				
-					PixelDebugLayer debugLayer;
-					debugLayer.color = float4( otherColor, 0.0f );
-					debugLayer.depth = blockCellItem.depth;
-					debugLayer.uv = float2( uRelative, vRelative );
-					debugLayer.wh = float2( wRelative, hRelative );
-
-					pixelDebugBuffer[0].points[j+1][i+1].layers[layer] = debugLayer;
-					++pixelDebugBuffer[0].points[j+1][i+1].layerCount;
-				}
-#endif // #if HLSL_DEBUG_PIXEL == 1
 
 				const float2 posRelative = float2( i + uRelative, j + vRelative );
 				const int2 posMin = int2( floor( float2( (posRelative.x - wRelative) * BUFFER_WIDTH, (posRelative.y - hRelative) * BUFFER_WIDTH ) ) );
@@ -249,6 +233,22 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 				const int vMin = max( posMin.y, 0 );
 				const int uMax = min( posMax.x, BUFFER_WIDTH-1 );
 				const int vMax = min( posMax.y, BUFFER_WIDTH-1 );
+
+#if HLSL_DEBUG_PIXEL == 1
+				const uint layer = pixelDebugBuffer[0].points[j+1][i+1].layerCount;
+				if ( debug && layer < 4 )
+				{				
+					PixelDebugLayer debugLayer;
+					debugLayer.colorAndDepth = float4( otherColor, blockCellItem.depth );
+					debugLayer.uv = float2( uRelative, vRelative );
+					debugLayer.wh = float2( wRelative, hRelative );
+					debugLayer.uvMin = posMin;//int2( uMin, vMin );
+					debugLayer.uvMax = posMax;//int2( uMax, vMax );
+
+					pixelDebugBuffer[0].points[j+1][i+1].layers[layer] = debugLayer;
+					++pixelDebugBuffer[0].points[j+1][i+1].layerCount;
+				}
+#endif // #if HLSL_DEBUG_PIXEL == 1				
 
 				for ( int v = vMin; v <= vMax; ++v )
 				{

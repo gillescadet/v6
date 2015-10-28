@@ -27,26 +27,57 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const matrix mx = mul( c_blockViewToProj, c_blockObjectToView );
 
 #if HLSL_TRACE_USE_ALIGNED_QUAD == 1
+
+#if 1
+	uint occupancyBit = 0;
+	uint3 boxMin = uint3( 2, 2, 2 );
+	uint3 boxMax = uint3( 0, 0, 0 );
+	for ( uint z = 0; z < 3; ++z )
+	{
+		for ( uint y = 0; y < 3; ++y )
+		{
+			for ( uint x = 0; x < 3; ++x, ++occupancyBit )
+			{
+				if ( (blockCell.occupancy & (1 << occupancyBit)) != 0 )
+				{
+					const uint3 p = uint3( x, y, z );
+					boxMin = min( boxMin, p );
+					boxMax = max( boxMax, p );
+				}
+			}
+		}
+	}
+#else
+	uint3 boxMin = uint3( 0, 0, 0 );
+	uint3 boxMax = uint3( 2, 2, 2 );
+#endif
+
+	const float scale = 2.0f * blockCell.halfCellSize / 3.0f; 
+	float3 pointMin = boxMin * scale;
+	float3 pointMax = (boxMax + 1.0f) * scale;
+	float3 delta = pointMax - pointMin;
+	pointMin += blockCell.posOS - blockCell.halfCellSize;
+
 	const float3 vertices[8] =
 	{
-		float3( -1.0f, -1.0f, -1.0f ),
-		float3( -1.0f, -1.0f,  1.0f ),
-		float3( -1.0f,  1.0f, -1.0f ),
-		float3( -1.0f,  1.0f,  1.0f ),
-		float3(  1.0f, -1.0f, -1.0f ),
-		float3(  1.0f, -1.0f,  1.0f ),
-		float3(  1.0f,  1.0f, -1.0f ),
-		float3(  1.0f,  1.0f,  1.0f ),
+		float3( 0.0f, 0.0f, 0.0f ),
+		float3( 0.0f, 0.0f, 1.0f ),
+		float3( 0.0f, 1.0f, 0.0f ),
+		float3( 0.0f, 1.0f, 1.0f ),
+		float3( 1.0f, 0.0f, 0.0f ),
+		float3( 1.0f, 0.0f, 1.0f ),
+		float3( 1.0f, 1.0f, 0.0f ),
+		float3( 1.0f, 1.0f, 1.0f ),
 	};
 
 	float2 minScreenPos = float2(  1e32f,  1e32f );
 	float2 maxScreenPos = float2( -1e32f, -1e32f );
 	float pixelDepth = 1e32f;
-		
+	
 	uint clippedCount = 0;
 	for ( uint vertexID = 0; vertexID < 8; ++vertexID )
 	{
-		const float3 posOS = blockCell.posOS + vertices[vertexID] * blockCell.halfCellSize;
+		const float3 posOS = pointMin + delta * vertices[vertexID];
 		const float4 posCS = mul( mx, float4( posOS, 1.0f ) );
 		const float2 screenPos = posCS.xy * rcp( posCS.w );		
 		minScreenPos = min( minScreenPos, screenPos );

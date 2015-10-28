@@ -11,6 +11,7 @@ struct BlockCell
 	float	halfCellSize;
 	uint	color;
 	uint	mip;
+	uint	occupancy;
 };
 
 bool PackedColor_Unpack( uint packedID, out BlockCell o )
@@ -19,10 +20,10 @@ bool PackedColor_Unpack( uint packedID, out BlockCell o )
 
 	const uint blockID = packedID >> GRID_CELL_SHIFT;
 	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );	
-	const uint packedCount = 1 + GRID_CELL_COUNT;
+	const uint packedCount = 1 + GRID_CELL_COUNT * HLSL_COUNT;
 	const uint packedBaseID = packedOffset + blockID * packedCount;	
-	const uint packedRank = 1 + (packedID & GRID_CELL_MASK);
-	const uint packedColor = blockColors[packedBaseID + packedRank];
+	const uint packedRank = packedBaseID + 1 + (packedID & GRID_CELL_MASK) * HLSL_COUNT;
+	const uint packedColor = blockColors[packedRank + 0];
 
 	if ( packedColor == HLSL_GRID_BLOCK_CELL_EMPTY )
 	{
@@ -34,7 +35,8 @@ bool PackedColor_Unpack( uint packedID, out BlockCell o )
 
 		const uint packedPos = blockColors[packedBaseID];
 		o.mip = packedPos >> 28;
-		
+		o.occupancy = blockColors[packedRank + 1];
+
 		const uint blockPos = packedPos & 0x0FFFFFFF;
 		const uint cellPos = packedColor & 0x3F;
 		const uint x = (((blockPos >> 0						 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
