@@ -220,11 +220,11 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 				const float b = ((blockCellItem.r8g8b8a8 >> 8) & 0xFF) * inv255;
 				const float3 otherColor = float3( r, g, b );
 				
-				const float norm = 0.95f / 255.0f;
+				const float norm = 1.0f / 255.0f;
 				const float uRelative = ((blockCellItem.u8v8w8h8 >> 24) & 0xFF) * norm;
 				const float vRelative = ((blockCellItem.u8v8w8h8 >> 16) & 0xFF) * norm;
-				const float wRelative = ((blockCellItem.u8v8w8h8 >>  8) & 0xFF) * norm;
-				const float hRelative = ((blockCellItem.u8v8w8h8 >>  0) & 0xFF) * norm;
+				const float hRelative = ((blockCellItem.u8v8w8h8 >>  0) & 0xFF) * norm * 0.95f;
+				const float wRelative = ((blockCellItem.u8v8w8h8 >>  8) & 0xFF) * norm * 0.95f;
 
 				const float2 posRelative = float2( i + uRelative, j + vRelative );
 				const int2 posMin = int2( floor( float2( (posRelative.x - wRelative) * BUFFER_WIDTH, (posRelative.y - hRelative) * BUFFER_WIDTH ) ) );
@@ -291,6 +291,7 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 		return c_pixelBackColor;
 
 	return finalColor / rasterCount;
+	// return finalColor / 16.0f;
 }
 
 float3 testAlignedQuadB( uint2 screenPos )

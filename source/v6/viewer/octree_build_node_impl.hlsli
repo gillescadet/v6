@@ -19,7 +19,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #if BUILD_INNER == 0
 	if ( DTid.x == 0 )
 	{
-		InterlockedMax( octree_leafGroupCountX, 1 );
+		InterlockedMax( octree_leafGroupCountX, uint( 1 ) );
 		octree_leafGroupCountY = 1;
 		octree_leafGroupCountZ = 1;
 	}

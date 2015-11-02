@@ -19,6 +19,19 @@ static char* SkipSpace( char* token )
 	return token;
 }
 
+static core::u32 Count( const char* str, char token )
+{
+	core::u32 count = 0;
+	
+	while ( *str )
+	{
+		count += *str == token ? 1 : 0;
+		++str;
+	}
+
+	return count;
+}
+
 static char* NextToken( char* token )
 {
 	while ( *token && !IsSpaceCar( *token ) ) ++token;
@@ -30,6 +43,14 @@ static void TrimRight( char* token )
 {
 	while ( *token && !IsSpaceCar( *token ) ) ++token;
 	*token = 0;
+}
+
+static ObjMaterial_s* Obj_CreateDefaultMaterial( core::IAllocator* allocator )
+{
+	ObjMaterial_s* material = (ObjMaterial_s*)allocator->alloc( sizeof( ObjMaterial_s ) );
+	memset( material, 0, sizeof( ObjMaterial_s ) );	
+	material->kd = core::Vec3_Make( 1.0f, 1.0f, 1.0f );
+	return material;
 }
 
 core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameMTL, core::IAllocator* allocator )
@@ -78,6 +99,7 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 			TrimRight( name );
 			memset( curMaterial, 0, sizeof( *curMaterial ) );
 			strcpy_s( curMaterial->name, sizeof( curMaterial->name ), name );
+			curMaterial->kd = core::Vec3_Make( 1.0f, 1.0f, 1.0f );
 
 			++materialID;
 			continue;
@@ -238,28 +260,45 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		}		
 	}
 
-	if ( materialCount == 0 || positionCount == 0 || uvCount == 0 || meshCount == 0 || triangleCount == 0 )
+	if ( positionCount == 0 || triangleCount == 0 )
 	{
 		fclose( fileOBJ );
 		return false;
 	}
 
+	if ( materialCount == 0 )
+	{
+		materials = Obj_CreateDefaultMaterial( allocator );
+		materialCount = 1;
+	}
+
 	scene->materials = materials;
 	scene->positions = allocator->newArray< core::Vec3 >( positionCount );
 	scene->normals = normalCount > 0 ? allocator->newArray< core::Vec3 >( normalCount ) : nullptr;
-	scene->uvs = allocator->newArray< core::Vec2 >( uvCount );
+	scene->uvs = uvCount > 0 ? allocator->newArray< core::Vec2 >( uvCount ) : nullptr;
 	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount );
-	scene->meshes = allocator->newArray< ObjMesh_s >( meshCount );
+	scene->meshes = allocator->newArray< ObjMesh_s >( core::Max( 1u, meshCount ) );
 	scene->materialCount = materialCount;
-	scene->meshCount = meshCount;
+	scene->meshCount = core::Max( 1u, meshCount );
 
 	core::u32 positionID = 0;
 	core::u32 normalID = 0;
 	core::u32 uvID = 0;
 	core::u32 meshID = 0;
 	core::u32 triangleID = 0;
+	core::u32 lastDisplayTriangleID = 0;
 
 	ObjMesh_s* mesh = nullptr;
+
+	if ( meshCount == 0 )
+	{
+		mesh = &scene->meshes[meshID];
+		mesh->firstTriangleID = triangleID;
+		mesh->triangleCount = 0;
+		mesh->materialID = 0;
+		meshID = 1;
+		meshCount = 1;
+	}
 
 	V6_MSG( "Loading...\n" );
 	
@@ -322,6 +361,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 
 			printf( "\r" );
 			V6_MSG( "%d/%d loaded triangles", triangleID, triangleCount );
+			lastDisplayTriangleID = triangleID;
 		}
 		else if ( _strnicmp( token, "g ", 2 ) == 0 )
 			; //
@@ -331,94 +371,151 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( mesh );
 			char* f = NextToken( token );
-			if ( normalCount == 0 )
+			const core::u32 separatorCount = Count( f, '/' );
+
+			auto Triangle_InitVertices = [ positionID, uvID, normalID ]( ObjTriangle_s* triangle, const int* indices, const core::u32 indexRanks[9] )
 			{
-				core::u32 ids[8];
+				for ( core::u32 vertexID = 0; vertexID < 3; ++vertexID )
+				{				
+					if ( indexRanks[vertexID*3+0] == (core::u32)-1 )
+						triangle->vertices[vertexID].posID = (core::u32)-1;
+					else if ( indices[indexRanks[vertexID*3+0]] < 0 )
+						triangle->vertices[vertexID].posID = positionID + indices[indexRanks[vertexID*3+0]];
+					else
+						triangle->vertices[vertexID].posID = indices[indexRanks[vertexID*3+0]]-1;
+
+					if ( indexRanks[vertexID*3+1] == (core::u32)-1 )
+						triangle->vertices[vertexID].uvID = (core::u32)-1;
+					else if ( indices[indexRanks[vertexID*3+1]] < 0 )
+						triangle->vertices[vertexID].uvID = uvID + indices[indexRanks[vertexID*3+1]];
+					else
+						triangle->vertices[vertexID].uvID = indices[indexRanks[vertexID*3+1]]-1;
+
+					if ( indexRanks[vertexID*3+2] == (core::u32)-1 )
+						triangle->vertices[vertexID].normalID = (core::u32)-1;
+					else if ( indices[indexRanks[vertexID*3+2]] < 0 )
+						triangle->vertices[vertexID].normalID = normalID + indices[indexRanks[vertexID*3+2]];
+					else
+						triangle->vertices[vertexID].normalID = indices[indexRanks[vertexID*3+2]]-1;
+				}
+			};
+			
+			int ids[12];
+
+			if ( separatorCount == 0 )
+			{				
+				const core::u32 vertexCount = sscanf_s( f, "%d %d %d %d", ids+0, ids+1, ids+2, ids+3 );
+				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
+			
+				{
+					V6_ASSERT( triangleID < triangleCount );		
+					const core::u32 indexRanks[] = { 0, -1, -1,  1, -1, -1, 2, -1, -1 };
+					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+					++triangleID;
+					++mesh->triangleCount;
+				}
+						
+				if ( vertexCount == 4 )
+				{
+					V6_ASSERT( triangleID < triangleCount );			
+					const core::u32 indexRanks[] = { 0, -1, -1,  2, -1, -1, 3, -1, -1 };
+					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+					++triangleID;
+					++mesh->triangleCount;
+				}
+			}
+			else if ( separatorCount == 3 || separatorCount == 4 )
+			{
 				const core::u32 n = sscanf_s( f, "%d/%d %d/%d %d/%d %d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
 				V6_ASSERT( n % 2 == 0 );
 				const core::u32 vertexCount = n / 2;
 				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
 			
-				V6_ASSERT( triangleID < triangleCount );			
-				ObjTriangle_s* triangle = &scene->triangles[triangleID];
-			
-				triangle->vertices[0].posID = ids[0]-1;
-				triangle->vertices[0].uvID = ids[1]-1;
-
-				triangle->vertices[1].posID = ids[2]-1;
-				triangle->vertices[1].uvID = ids[3]-1;
-
-				triangle->vertices[2].posID = ids[4]-1;
-				triangle->vertices[2].uvID = ids[5]-1;
-
-				++triangleID;
-				++mesh->triangleCount;
+				{
+					V6_ASSERT( triangleID < triangleCount );			
+					ObjTriangle_s* triangle = &scene->triangles[triangleID];
+					const core::u32 indexRanks[] = { 0, 1, -1,  2, 3, -1, 4, 5, -1 };
+					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+					++triangleID;
+					++mesh->triangleCount;
+				}
 						
 				if ( vertexCount == 4 )
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-				
-					triangle->vertices[0].posID = ids[0]-1;
-					triangle->vertices[0].uvID = ids[1]-1;
-
-					triangle->vertices[1].posID = ids[4]-1;
-					triangle->vertices[1].uvID = ids[5]-1;
-
-					triangle->vertices[2].posID = ids[6]-1;
-					triangle->vertices[2].uvID = ids[7]-1;
-
+					const core::u32 indexRanks[] = { 0, 1, -1,  4, 5, -1, 6, 7, -1 };
+					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
 				}
 			}
+			else if ( separatorCount == 6 || separatorCount == 8 )
+			{
+				const core::u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
+				if ( n == 1 )
+				{
+					const core::u32 n = sscanf_s( f, "%d//%d %d//%d %d//%d %d//%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
+					V6_ASSERT( n % 2 == 0 );
+					const core::u32 vertexCount = n / 2;
+					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
+			
+					{
+						V6_ASSERT( triangleID < triangleCount );			
+						ObjTriangle_s* triangle = &scene->triangles[triangleID];
+						const core::u32 indexRanks[] = { 0, -1, 1, 2, -1, 3, 4, -1, 5 };
+						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+						++triangleID;
+						++mesh->triangleCount;
+					}
+						
+					if ( vertexCount == 4 )
+					{
+						V6_ASSERT( triangleID < triangleCount );			
+						ObjTriangle_s* triangle = &scene->triangles[triangleID];
+						const core::u32 indexRanks[] = { 0, -1, 1, 4, -1, 5, 6, -1, 7 };
+						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+						++triangleID;
+						++mesh->triangleCount;
+					}
+				}
+				else
+				{
+					V6_ASSERT( n % 3 == 0 );
+					const core::u32 vertexCount = n / 3;
+					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
+			
+					{
+						V6_ASSERT( triangleID < triangleCount );			
+						ObjTriangle_s* triangle = &scene->triangles[triangleID];
+						const core::u32 indexRanks[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+						++triangleID;
+						++mesh->triangleCount;
+					}
+						
+					if ( vertexCount == 4 )
+					{
+						V6_ASSERT( triangleID < triangleCount );			
+						ObjTriangle_s* triangle = &scene->triangles[triangleID];
+						const core::u32 indexRanks[] = { 0, 1, 2, 6, 7, 8, 9, 10, 11 };
+						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
+						++triangleID;
+						++mesh->triangleCount;
+					}
+				}				
+			}
 			else
 			{
-				core::u32 ids[12];
-				const core::u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
-				V6_ASSERT( n % 3 == 0 );
-				const core::u32 vertexCount = n / 3;
-				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
-				V6_ASSERT( triangleID < triangleCount );			
-				ObjTriangle_s* triangle = &scene->triangles[triangleID];
-			
-				triangle->vertices[0].posID = ids[0]-1;
-				triangle->vertices[0].uvID = ids[1]-1;
-				triangle->vertices[0].normalID = ids[2]-1;
+				V6_ASSERT_ALWAYS( "Unsupported number of separators\n" );
+			}
 
-				triangle->vertices[1].posID = ids[3]-1;
-				triangle->vertices[1].uvID = ids[4]-1;
-				triangle->vertices[1].normalID = ids[5]-1;
-
-				triangle->vertices[2].posID = ids[6]-1;
-				triangle->vertices[2].uvID = ids[7]-1;
-				triangle->vertices[2].normalID = ids[8]-1;
-
-				++triangleID;
-				++mesh->triangleCount;
-						
-				if ( vertexCount == 4 )
-				{
-					V6_ASSERT( triangleID < triangleCount );			
-					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-				
-					triangle->vertices[0].posID = ids[0]-1;
-					triangle->vertices[0].uvID = ids[1]-1;
-					triangle->vertices[0].normalID = ids[2]-1;				
-
-					triangle->vertices[1].posID = ids[6]-1;
-					triangle->vertices[1].uvID = ids[7]-1;
-					triangle->vertices[1].normalID = ids[8]-1;
-
-					triangle->vertices[2].posID = ids[9]-1;
-					triangle->vertices[2].uvID = ids[10]-1;
-					triangle->vertices[2].normalID = ids[11]-1;
-
-					++triangleID;
-					++mesh->triangleCount;
-				}
-			}			
+			if ( triangleID - lastDisplayTriangleID >= 100000 )
+			{
+				printf( "\r" );
+				V6_MSG( "%d/%d loaded triangles", triangleID, triangleCount );
+				lastDisplayTriangleID = triangleID;
+			}
 		}
 		else if ( _strnicmp( token, "mtllib", 6 ) == 0 )
 		{

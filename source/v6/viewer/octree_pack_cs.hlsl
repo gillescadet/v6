@@ -25,6 +25,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		block_packedOffset( c_octreeCurrentBucket ) = packedOffset;
 		block_vertexCountPerInstance( c_octreeCurrentBucket ) = 1;
 		block_indexCountPerInstance( c_octreeCurrentBucket ) = 36;
+		block_indexCountPerInstance2( c_octreeCurrentBucket ) = 36;
 		block_cellGroupCountY( c_octreeCurrentBucket ) = 1;
 		block_cellGroupCountZ( c_octreeCurrentBucket ) = 1;
 	}
@@ -133,6 +134,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint instanceCount = blockCount * cellMaxCount;
 	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), instanceCount );
 	InterlockedMax( block_instanceCount( c_octreeCurrentBucket ), instanceCount );
+	InterlockedMax( block_instanceCount2( c_octreeCurrentBucket ), instanceCount * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE );
 
 	const uint groupCount = GROUP_COUNT( instanceCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 	InterlockedMax( block_cellGroupCountX( c_octreeCurrentBucket ), groupCount );
