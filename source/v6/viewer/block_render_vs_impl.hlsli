@@ -89,13 +89,13 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 			const float3 pointMax = (boxMax + 1.0f) * scale;
 			const float3 delta = pointMax - pointMin;
 
-			blockCell.posOS -= blockCell.halfCellSize;
-			blockCell.posOS.x += pointMin.x + (((vertexID & 1) != 0) ? delta.x : 0.0f);
-			blockCell.posOS.y += pointMin.y + (((vertexID & 2) != 0) ? delta.y : 0.0f);
-			blockCell.posOS.z += pointMin.z + (((vertexID & 4) != 0) ? delta.z : 0.0f);
+			blockCell.posWS -= blockCell.halfCellSize;
+			blockCell.posWS.x += pointMin.x + (((vertexID & 1) != 0) ? delta.x : 0.0f);
+			blockCell.posWS.y += pointMin.y + (((vertexID & 2) != 0) ? delta.y : 0.0f);
+			blockCell.posWS.z += pointMin.z + (((vertexID & 4) != 0) ? delta.z : 0.0f);
 		}
 
-		const float4 posVS = mul( c_blockObjectToView, float4( blockCell.posOS, 1.0 ) );
+		const float4 posVS = mul( c_blockObjectToView, float4( blockCell.posWS, 1.0 ) );
 		const float4 posCS = mul( c_blockViewToProj, posVS );
 
 		const float normalizationRatio = 1.0 / 255.0;

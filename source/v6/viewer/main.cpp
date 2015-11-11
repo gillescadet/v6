@@ -21,6 +21,7 @@
 #include <v6/core/thread.h>
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
+#include <v6/core/vec3i.h>
 
 #include <v6/viewer/obj_reader.h>
 #include <v6/viewer/tga_reader.h>
@@ -135,9 +136,14 @@ enum
 	COMPUTE_BLOCK_RENDER16,
 	COMPUTE_BLOCK_RENDER32,
 	COMPUTE_BLOCK_RENDER64,
+	COMPUTE_BLOCK_TRACE4,
+	COMPUTE_BLOCK_TRACE8,
+	COMPUTE_BLOCK_TRACE16,
+	COMPUTE_BLOCK_TRACE32,
+	COMPUTE_BLOCK_TRACE64,
 	COMPUTE_FILTERPIXEL,
 	COMPUTE_TRACEPIXEL,
-
+	COMPUTE_BLENDPIXEL,
 	COMPUTE_COUNT
 };
 
@@ -170,6 +176,7 @@ enum
 	MESH_VIRTUAL_QUAD,
 	MESH_FAKE_CUBE,
 	MESH_POINT,
+	MESH_LINE,
 	MESH_VIRTUAL_BOX,
 
 	MESH_COUNT
@@ -417,6 +424,7 @@ struct Pixel_s
 	GPUTexture2D_s				colors;
 #if HLSL_DEBUG_PIXEL == 1
 	GPUBuffer_s					debugBuffer;
+	GPUBuffer_s					debugBlendBuffer;
 #endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
@@ -447,11 +455,11 @@ static int g_limit							= false;
 static bool g_showMip						= false;
 static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
-static bool g_traceMode						= false; 
+static int g_traceMode						= 0; 
 static bool g_showVoxel						= false;
 static int g_useOccupancy					= 1;
 static bool g_randomBackground				= false;
-static bool g_regenerateQuarterSize			= false;
+static bool g_traceGrid						= false;
 static bool g_readMSAASamplePositions		= false;
 static bool g_useMSAA						= true;
 
@@ -466,14 +474,11 @@ static bool s_logReadBack					= false;
 
 static Scene_s* s_activeScene				= nullptr;
 
-static core::Vec3 s_cubeCenter						= {};
-static float s_cubeSize								= {};
-static const core::u32 s_quarterWidth				= 3;
-static const core::u32 s_quarterCount				= s_quarterWidth * s_quarterWidth * s_quarterWidth;
-static Entity_s* s_quarterEntities[s_quarterCount]	= {};
-static core::u32 s_quarterCounts[s_quarterCount]	= {};
-static core::u64 s_quarterConfigs[0xFFFF]			= {};
-static core::u32 s_quarterConfigCount				= 0;
+static core::Vec3 s_gridCenter					= {};
+static float s_gridSize							= {};
+static const core::u32 s_gridCount				= HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE;
+static Entity_s* s_gridEntities[s_gridCount]	= {};
+static Entity_s* s_gridLine						= {};
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -507,10 +512,10 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
 			case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
 			case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
-			case 'Q': if ( pressed ) { g_regenerateQuarterSize = true; } break;
+			case 'Q': if ( pressed ) { g_traceGrid = true; } break;
 			case 'R': if ( pressed ) { g_sample = 0; } break;
 			case 'S': g_keyDownPressed = pressed; break;
-			case 'T': g_traceMode = pressed ? !g_traceMode : g_traceMode; break;
+			case 'T': g_traceMode = pressed ? ((g_traceMode+1)%3) : g_traceMode; break;
 			case 'V': g_showVoxel = pressed ? !g_showVoxel : g_showVoxel; break;			
 			case 'W': g_keyUpPressed = pressed; break;			
 			case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
@@ -636,8 +641,10 @@ static const char* ModeToString( DrawMode_e drawMode )
 		{
 			if ( g_showVoxel )
 				return "voxel block";
-			if ( g_traceMode )
-				return "trace block";
+			if ( g_traceMode == 1)
+				return "trace block V1";
+			if ( g_traceMode == 2)
+				return "trace block V2";
 			return "draw block";
 		}
 	}
@@ -1610,8 +1617,14 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_RENDER16], "block_render_x16_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_RENDER32], "block_render_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_RENDER64], "block_render_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_FILTERPIXEL], "pixel_filter_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_TRACEPIXEL], "pixel_trace_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
 		
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
@@ -1847,6 +1860,7 @@ static void Pixel_Create( ID3D11Device* device, Pixel_s* pixel, const Config_s* 
 	Texture2D_CreateRW( device, &pixel->colors, config->screenWidth, config->screenHeight, "pixelColors" );
 #if HLSL_DEBUG_PIXEL == 1
 	GPUBuffer_CreateStructured( device, &pixel->debugBuffer, sizeof( hlsl::PixelDebugBuffer), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "pixelDebugBuffer" );
+	GPUBuffer_CreateStructured( device, &pixel->debugBlendBuffer, sizeof( hlsl::PixelBlendDebugBuffer), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "pixelBlendDebugBuffer" );
 #endif // #if HLSL_DEBUG_PIXEL == 1
 }
 
@@ -1855,6 +1869,7 @@ static void Pixel_Release( ID3D11Device* device, Pixel_s* pixel )
 	GPUTexture_Release( &pixel->colors );
 #if HLSL_DEBUG_PIXEL == 1
 	GPUBuffer_Release( device, &pixel->debugBuffer );
+	GPUBuffer_Release( device, &pixel->debugBlendBuffer );
 #endif // #if HLSL_DEBUG_PIXEL == 1
 }
 
@@ -1866,6 +1881,21 @@ static void Msaa_Create( ID3D11Device* device, Msaa_s* msaa )
 static void Msaa_Release( ID3D11Device* device, Msaa_s* msaa )
 {
 	GPUBuffer_Release( device, &msaa->samplePositions );
+}
+
+static void Mesh_UpdateVertices( ID3D11DeviceContext* context, GPUMesh_s* mesh, const void* vertices )
+{
+	V6_ASSERT( mesh->m_vertexBuffer );
+
+	D3D11_BOX box;
+	box.left = 0;
+	box.right = mesh->m_vertexCount * mesh->m_vertexSize;
+	box.front = 0;
+	box.back = 1;
+	box.top = 0;
+	box.bottom = 1;		
+		
+	context->UpdateSubresource( mesh->m_vertexBuffer, 0, &box, vertices, box.right, box.right );
 }
 
 static void Mesh_Create( ID3D11Device* device, GPUMesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
@@ -2062,6 +2092,17 @@ static void Mesh_CreateFakeCube( ID3D11Device* device, GPUMesh_s* mesh )
 static void Mesh_CreatePoint( ID3D11Device* device, GPUMesh_s* mesh )
 {
 	Mesh_Create( device, mesh, nullptr, 0, 0, 0, nullptr, 0, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_POINTLIST );
+}
+
+static void Mesh_CreateLine( ID3D11Device* device, GPUMesh_s* mesh, const core::Color_s color )
+{
+	const BasicVertex_s vertices[2] = 
+	{
+		{ core::Vec3_Make( -1.0f, -1.0f, -1.0f ), color },
+		{ core::Vec3_Make(  1.0f,  1.0f,  1.0f ), color },
+	};
+
+	Mesh_Create( device, mesh, vertices, 2, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, nullptr, 0, sizeof( core::u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINELIST );
 }
 
 static void Mesh_Draw( GPUMesh_s* mesh, core::u32 instanceCount, GPUShader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, core::u32 offsetArgs )
@@ -2527,6 +2568,7 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
 	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
+	Mesh_CreateLine( device, &scene->meshes[MESH_LINE] );
 	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
@@ -2552,6 +2594,7 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 	Mesh_CreateVirtualQuad( device, &scene->meshes[MESH_VIRTUAL_QUAD] );
 	Mesh_CreateFakeCube( device, &scene->meshes[MESH_FAKE_CUBE] );
 	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
+	Mesh_CreateLine( device, &scene->meshes[MESH_LINE],  core::Color_Make( 255, 255, 255, 255 ) );
 	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
@@ -2574,26 +2617,29 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 		if ( randomCubeID == 0 )
 		{
 			core::u64 bits = 0;
-			const float quarterSize = size * (1.0f / s_quarterWidth);
-			const core::Vec3 org = (center - size) + quarterSize;
-			for ( int z = 0; z < s_quarterWidth; ++z )
+			const float cellSize = size * (1.0f / HLSL_PIXEL_SUPER_SAMPLING_WIDTH);
+			const core::Vec3 org = (center - size) + cellSize;
+			for ( int z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
 			{
-				for ( int y = 0; y < s_quarterWidth; ++y )
+				for ( int y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
 				{
-					for ( int x = 0; x < s_quarterWidth; ++x )
+					for ( int x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
 					{						
-						const core::Vec3 quarterCenter = core::Vec3_Make( org.x + x * quarterSize * 2.0f, org.y + y * quarterSize * 2.0f, org.z + z * quarterSize * 2.0f );
-						Entity_s* quarterEntity = &scene->entities[scene->entityCount++];
-						Entity_Create( quarterEntity, MATERIAL_DEFAULT_BASIC, MESH_BOX_RED + (randomCubeID % 3), quarterCenter, quarterSize );
-						Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, quarterCenter, quarterSize );
-						Entity_SetVisible( quarterEntity, (rand() & 3) == 0 );
-						s_quarterEntities[z * s_quarterWidth * s_quarterWidth + y * s_quarterWidth + x] = quarterEntity;
+						const core::Vec3 cellCenter = core::Vec3_Make( org.x + x * cellSize * 2.0f, org.y + y * cellSize * 2.0f, org.z + z * cellSize * 2.0f );
+						Entity_s* cellEntity = &scene->entities[scene->entityCount++];
+						Entity_Create( cellEntity, MATERIAL_DEFAULT_BASIC, MESH_BOX_RED + (randomCubeID % 3), cellCenter, cellSize );
+						Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, cellCenter, cellSize );
+						Entity_SetVisible( cellEntity, (rand() & 3) == 0 );
+						s_gridEntities[z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + x] = cellEntity;
 					}
 				}
 			}
 			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_WIREFRAME, center, size );
-			s_cubeCenter = center;
-			s_cubeSize = size;
+			s_gridCenter = center;
+			s_gridSize = size;
+			
+			s_gridLine = &scene->entities[scene->entityCount++];
+			Entity_Create( s_gridLine, MATERIAL_DEFAULT_BASIC, MESH_LINE, core::Vec3_Zero(), 1.0f );
 		}
 		else
 		{
@@ -2612,42 +2658,84 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 
 #endif
 
-void QuarterSize_Regenerate()
+void Grid_Trace( GPUContext_s* gpuContext, Scene_s* scene )
 {
-	for ( core::u32 pass = 0 ; pass < 100000; ++pass )
+	const core::Vec3 p = s_gridCenter + core::Vec3_Rand().Normalized() * s_gridSize * 1.5f;
+	const core::Vec3 dir = core::Vec3_Rand().Normalized();
+
+	const core::Vec3 org = p - dir * s_gridSize * 5.0f;
+	const core::Vec3 end = p + dir * s_gridSize * 5.0f;
+
+	BasicVertex_s vertices[2];
+	vertices[0].position = org;
+	vertices[0].color = core::Color_Make( 255, 0, 0, 255 );	
+	vertices[1].position = end;
+	vertices[1].color = core::Color_Make( 0, 255, 0, 255 );
+	Mesh_UpdateVertices( gpuContext->deviceContext, &scene->meshes[s_gridLine->meshID], vertices );
+	
+	const core::Vec3 invDir = dir.Rcp();
+	const core::Vec3 alpha = (s_gridCenter - org) * invDir;
+	const core::Vec3 beta = s_gridSize * invDir;	
+	const core::Vec3 t0 = alpha + beta;
+	const core::Vec3 t1 = alpha - beta;
+	const core::Vec3 tMin = core::Min( t0, t1 );
+	const core::Vec3 tMax = core::Max( t0, t1 );
+	const float tIn = core::Max( core::Max( tMin.x, tMin.y ), tMin.z );
+	const float tOut = core::Min( core::Min( tMax.x, tMax.y ), tMax.z );
+
+	Entity_s** cellEntity = s_gridEntities;
+	for ( int z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
 	{
-		const core::Vec3 n = core::RandSphere();
-		const float l = (core::RandFloat() * 2.0f - 1.0f) * s_cubeSize * 2.0f;
-
-		const float k = -Dot( n, s_cubeCenter ) + l;
-
-		core::u64 config = 0;
-		for ( int id = 0; id < s_quarterCount; ++id )
+		for ( int y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
 		{
-			const bool visible = Dot( s_quarterEntities[id]->pos, n ) + k < 0.0f;
-			Entity_SetVisible( s_quarterEntities[id], visible );
-			s_quarterCounts[id] += visible ? 1 : 0;
-			config |= visible ? (1ll << id) : 0;
-		}
-
-		if ( config && s_quarterConfigCount < 0xFFFF )
-		{
-			core::u32 configID;
-			for ( configID = 0; configID < s_quarterConfigCount; ++configID )
-			{
-				if ( s_quarterConfigs[configID] == config )
-					break;
-			}
-			if ( configID == s_quarterConfigCount )
-			{
-				printf( "Config #%04d: 0x%016llX\n", configID, config );
-				s_quarterConfigs[configID] = config;
-				++s_quarterConfigCount;				
-			}
+			for ( int x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x, ++cellEntity )		
+				Entity_SetVisible( *cellEntity, false );
 		}
 	}
 
-	printf( "Config count: %d\n", s_quarterConfigCount );
+	if ( tIn > tOut )
+		return;
+
+	const float cellSize = (s_gridSize * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+	const float scale = 1.0f / cellSize;
+	const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;
+	
+	const core::Vec3 tDelta = cellSize * invDir.Abs();	
+
+	const core::Vec3 pIn = org + tIn * dir;
+	const core::Vec3 coordIn = (pIn - s_gridCenter) * scale + offset;
+		
+	const int x = min( (int)coordIn.x, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	const int y = min( (int)coordIn.y, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	const int z = min( (int)coordIn.z, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	core::Vec3i coords = core::Vec3i_Make( x, y, z );
+	const core::Vec3i step = core::Vec3i_Make( dir.x < 0.0f ? -1 : 1, dir.y < 0.0f ? -1 : 1, dir.z < 0.0f ? -1 : 1 );
+	core::Vec3 tCur = tMin;
+	for ( core::u32 pass = 0; pass < 2; ++pass )
+	{
+		const core::Vec3 tNext = tCur + tDelta;
+		tCur.x = tNext.x < tIn ? tNext.x : tCur.x;
+		tCur.y = tNext.y < tIn ? tNext.y : tCur.y;
+		tCur.z = tNext.z < tIn ? tNext.z : tCur.z;
+	}
+
+	for ( ;; )
+	{
+		Entity_SetVisible( s_gridEntities[coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x], true );
+
+		const core::Vec3 tNext = tCur + tDelta;
+		core::u32 nextAxis;
+		if ( tNext.x < tNext.y )
+			nextAxis = tNext.x < tNext.z ? 0 : 2;
+		else
+			nextAxis = tNext.y < tNext.z ? 1 : 2;
+		
+		tCur[nextAxis] = tNext[nextAxis];
+		coords[nextAxis] += step[nextAxis];
+		
+		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
+			break;
+	}
 }
 
 class CRenderingDevice
@@ -2668,12 +2756,14 @@ public:
 	void DrawWorld( const core::Mat4x4* viewMatrix );
 	void FillLeaf();
 	void PackColor();	
+	void PixelBlend();
 	void PixelFilter();
 	void PixelTrace();
 	void Present();
 	void ReadMSSASamplePositions();
 	void Release();
-	void TraceBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
+	void TraceBlockV1( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
+	void TraceBlockV2( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
 
 	GPUContext_s		gpuContext;
 		
@@ -3317,11 +3407,11 @@ void CRenderingDevice::DrawBlock( const core::Mat4x4* viewMatrix, const core::Ve
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
-void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter )
+void CRenderingDevice::TraceBlockV1( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter )
 {	
 	static const void* nulls[8] = {};
 	
-	gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Blocks");
+	gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Blocks V1");
 
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
@@ -3365,6 +3455,93 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Bucket");
 			
 		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_RENDER4+bucket].m_computeShader, nullptr, 0 );
+		
+		gpuContext.deviceContext->DispatchIndirect( m_block.indirectArgs.buf, block_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
+
+		gpuContext.userDefinedAnnotation->EndEvent();
+	}
+
+	// Unset
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+				
+	gpuContext.userDefinedAnnotation->EndEvent();
+
+	if ( s_logReadBack )
+	{
+		const hlsl::BlockContext* blockContext = GPUBUffer_MapReadBack< hlsl::BlockContext >( gpuContext.deviceContext, &m_block.context );
+
+		V6_MSG( "\n" );
+		ReadBack_Log( "block", blockContext->cellItemCount, "cellItemCount" );
+		V6_ASSERT( blockContext->cellItemCount < m_config.cellItemCount );
+
+		GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.context );
+	}
+}
+
+void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter )
+{	
+	static const void* nulls[8] = {};
+	
+	gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Blocks V2");
+
+	core::u32 values[4] = {};
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.context.uav, values );
+
+	float gridScale = GRID_MIN_SCALE;
+
+	{
+		v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
+
+		core::Mat4x4 viewToObject = *viewMatrix;
+		core::Mat4x4_AffineInverse( &viewToObject );
+
+		cbBlock->c_blockObjectToView = *viewMatrix;
+		cbBlock->c_blockViewToObject = viewToObject;
+		cbBlock->c_blockViewToProj = m_projMatrix;
+
+		float gridScale = GRID_MIN_SCALE;
+		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( gridScale, HLSL_PIXEL_SUPER_SAMPLING_WIDTH / (gridScale * 2.0f), (gridScale * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH, 0.0f );
+		for ( core::u32 gridID = GRID_COUNT; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( 0.0f, 0.0f, 0.0f, 0.0f );
+		
+		cbBlock->c_blockCenter = *sampleCenter;
+		cbBlock->c_blockShowMip = false;
+		cbBlock->c_blockShowOverdraw = false;
+
+		cbBlock->c_blockFrameSize.x = (float)m_width;
+		cbBlock->c_blockFrameSize.y = (float)m_height;
+
+		const core::Vec2 multiSampledFrameSize = core::Vec2_Make( (float)(m_width * HLSL_PIXEL_SUPER_SAMPLING_WIDTH), (float)(m_height * HLSL_PIXEL_SUPER_SAMPLING_WIDTH) );
+		cbBlock->c_blockMultiSampledFrameSize = multiSampledFrameSize;
+
+		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / multiSampledFrameSize.x, ZNEAR / multiSampledFrameSize.y );
+		cbBlock->c_blockScreenToClipScale = (screenToClipOffset * 2.0f) / multiSampledFrameSize;
+		cbBlock->c_blockScreenToClipOffset = screenToClipOffset;
+		cbBlock->c_blockZNear = ZNEAR;
+
+		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
+	}
+
+	// set
+
+	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_COLOR_SLOT, 1, &m_block.colors.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_block.indirectArgs.srv );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, &m_block.context.uav, nullptr );
+	
+	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+	{
+		gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Bucket");
+			
+		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
 		
 		gpuContext.deviceContext->DispatchIndirect( m_block.indirectArgs.buf, block_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
 
@@ -3630,6 +3807,117 @@ void CRenderingDevice::PixelTrace()
 	gpuContext.userDefinedAnnotation->EndEvent();	
 }
 
+void CRenderingDevice::PixelBlend()
+{
+	// Render
+
+	gpuContext.userDefinedAnnotation->BeginEvent( L"Blend Pixels");
+	
+#if HLSL_DEBUG_PIXEL == 1
+	core::u32 values[4] = {};
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_pixel.debugBlendBuffer.uav, values );
+#endif // #if HLSL_DEBUG_PIXEL == 1
+
+	// set
+
+	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
+
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.srv );	
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &gpuContext.colorUAV, nullptr );
+#if HLSL_DEBUG_PIXEL == 1
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, &m_pixel.debugBlendBuffer.uav, nullptr );
+#endif // #if HLSL_DEBUG_PIXEL == 1
+	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
+
+	{
+		v6::hlsl::CBPixel* cbPixel = ConstantBuffer_MapWrite< v6::hlsl::CBPixel >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL] );
+
+		cbPixel->c_pixelFrameSize.x = m_config.screenWidth;
+		cbPixel->c_pixelFrameSize.y = m_config.screenHeight;
+
+		if ( g_randomBackground )
+		{
+			const float r = core::RandFloat();
+			cbPixel->c_pixelBackColor.x = 1.0f; 
+			cbPixel->c_pixelBackColor.y = r;
+			cbPixel->c_pixelBackColor.z = r;
+		}
+		else
+		{
+			cbPixel->c_pixelBackColor.x = 0.0f; 
+			cbPixel->c_pixelBackColor.y = 0.0f; 
+			cbPixel->c_pixelBackColor.z = 0.0f; 
+		}
+
+#if HLSL_DEBUG_PIXEL == 1
+		cbPixel->c_pixelMode = g_pixelMode;
+		if ( g_mousePicked )
+		{
+			cbPixel->c_pixelDebugCoords.x = g_mousePickPosX;
+			cbPixel->c_pixelDebugCoords.y = g_mousePickPosY;
+			cbPixel->c_pixelDebug = 1;
+		}
+		else
+		{
+			cbPixel->c_pixelDebugCoords.x = (core::u32)-1;
+			cbPixel->c_pixelDebugCoords.y = (core::u32)-1;
+			cbPixel->c_pixelDebug = 0;
+		}
+#endif // #if HLSL_DEBUG_PIXEL == 1
+
+		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL]  );
+	}		
+
+	V6_ASSERT( (m_width & 0xF) == 0 );
+	V6_ASSERT( (m_height & 0xF) == 0 );
+	const core::u32 pixelGroupWidth = m_width >> 4;
+	const core::u32 pixelGroupHeight = m_height >> 4;
+	gpuContext.deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+	// unset
+	static const void* nulls[8] = {};
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+#if HLSL_DEBUG_PIXEL == 1
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+#endif // #if HLSL_DEBUG_PIXEL == 1
+
+#if HLSL_DEBUG_PIXEL == 1
+	if ( g_mousePicked )
+	{
+		// Read back
+		const hlsl::PixelBlendDebugBuffer* pixelDebugBuffer = GPUBUffer_MapReadBack< hlsl::PixelBlendDebugBuffer >( gpuContext.deviceContext, &m_pixel.debugBlendBuffer );
+		
+		for ( uint layer = 0; layer < pixelDebugBuffer->layerCount; ++layer )
+		{
+			const hlsl::PixelBlendDebugLayer debugLayer = pixelDebugBuffer->layers[layer];
+			V6_MSG( "Pixel: #%d, c ( %.2f, %.2f, %.2f ), d %.1f, o %08X\n", layer, 
+				debugLayer.colorAndDepth.x, debugLayer.colorAndDepth.y, debugLayer.colorAndDepth.z, 
+				debugLayer.colorAndDepth.w,
+				debugLayer.occupancy );
+		}
+		if ( pixelDebugBuffer->layerCount == 0 )
+			V6_MSG( "Pixel: NO LAYER\n" );
+
+		for ( uint v = 0; v < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++v )
+		{
+			for ( uint u = 0; u < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++u )
+			{
+				V6_MSG( "Raster %2d, %2d: color ( %.2f, %.2f, %.2f ), depth %.1f\n", u, v,
+					pixelDebugBuffer->colorBuffer[v][u].x, pixelDebugBuffer->colorBuffer[v][u].y, pixelDebugBuffer->colorBuffer[v][u].z,
+					pixelDebugBuffer->depthBuffer[v][u]);
+			}
+		}
+
+		GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_pixel.debugBlendBuffer );		
+	}
+#endif // #if HLSL_DEBUG_PIXEL == 1
+		
+	gpuContext.userDefinedAnnotation->EndEvent();	
+}
+
 void CRenderingDevice::Draw( float dt )
 {
 	static int lastMousePosX = -1;
@@ -3698,10 +3986,10 @@ void CRenderingDevice::Draw( float dt )
 	core::Mat4x4_SetTranslation( &viewMatrix, s_headOffset );
 	core::Mat4x4_AffineInverse( &viewMatrix );
 
-	if ( g_regenerateQuarterSize )
+	if ( g_traceGrid )
 	{
-		QuarterSize_Regenerate();
-		g_regenerateQuarterSize = false;
+		Grid_Trace( &gpuContext, m_defaultScene );
+		g_traceGrid = false;
 	}
 
 	if ( g_readMSAASamplePositions )
@@ -3772,11 +4060,17 @@ void CRenderingDevice::Draw( float dt )
 				if ( g_filterPixel && !g_showMip && !g_showOverdraw && !g_showVoxel )
 					PixelFilter();
 			}
-			else
+			else if ( g_traceMode == 1 )
 			{
-				TraceBlock( &viewMatrix, &s_sampleCenter );
+				TraceBlockV1( &viewMatrix, &s_sampleCenter );
 				if ( g_filterPixel )
 					PixelTrace();
+			}
+			else if ( g_traceMode == 2 )
+			{
+				TraceBlockV2( &viewMatrix, &s_sampleCenter );
+				if ( g_filterPixel )
+					PixelBlend();
 			}
 
 			s_logReadBack = false;

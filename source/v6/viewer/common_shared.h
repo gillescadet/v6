@@ -115,6 +115,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				64
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				128
+#define HLSL_TRACE_THREAD_GROUP_SIZE				64
 #define	HLSL_MIP_MAX_COUNT							8
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
@@ -173,17 +174,24 @@ CBUFFER( CBOctree, 3 )
 CBUFFER( CBBlock, 4 )
 {
 	row_major	matrix	c_blockObjectToView;
+	row_major	matrix	c_blockViewToObject;
 	row_major	matrix	c_blockViewToProj;
+	
 	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
+	
 	float3				c_blockCenter;
 	uint				c_blockShowVoxel;
+	
 	float2				c_blockFrameSize;
+	float2				c_blockMultiSampledFrameSize;
+	
+	float2				c_blockScreenToClipScale;
+	float2				c_blockScreenToClipOffset;
+	
+	float				c_blockZNear;
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
 	uint				c_blockUseOccupancy;
-	uint				c_blockUnused1;
-	uint				c_blockUnused2;
-	uint				c_blockUnused3;
 };
 
 CBUFFER( CBPixel, 5 )
@@ -250,6 +258,20 @@ struct PixelDebugPoint
 struct PixelDebugBuffer
 {
 	PixelDebugPoint points[3][3];
+	float3 colorBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	float depthBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+};
+
+struct PixelBlendDebugLayer
+{
+	float4 colorAndDepth;
+	uint occupancy;
+};
+
+struct PixelBlendDebugBuffer
+{
+	PixelBlendDebugLayer layers[4];
+	uint layerCount;
 	float3 colorBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
 	float depthBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
 };

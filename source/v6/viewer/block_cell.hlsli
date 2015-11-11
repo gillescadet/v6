@@ -7,7 +7,7 @@ Buffer< uint > blockIndirectArgs 	: register( HLSL_BLOCK_INDIRECT_ARGS_SRV );
 
 struct BlockCell
 {	
-	float3	posOS;
+	float3	posWS;
 	float	halfCellSize;
 	uint	color;
 	uint	mip;
@@ -45,7 +45,7 @@ bool PackedColor_Unpack( uint packedID, out BlockCell o )
 		const int4 cellCoords = int4( x, y, z, 0 );	
 		const float gridScale = c_blockGridScales[o.mip].x;
 		o.halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
-		o.posOS = mad( cellCoords.xyz, o.halfCellSize * 2.0, -gridScale + o.halfCellSize ) + c_blockCenter;
+		o.posWS = mad( cellCoords.xyz, o.halfCellSize * 2.0, -gridScale + o.halfCellSize ) + c_blockCenter;
 
 		return true;
 	}	

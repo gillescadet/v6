@@ -56,7 +56,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	float3 pointMin = boxMin * scale;
 	float3 pointMax = (boxMax + 1.0f) * scale;
 	float3 delta = pointMax - pointMin;
-	pointMin += blockCell.posOS - blockCell.halfCellSize;
+	pointMin += blockCell.posWS - blockCell.halfCellSize;
 
 	const float3 vertices[8] =
 	{

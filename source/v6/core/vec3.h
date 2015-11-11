@@ -17,6 +17,15 @@ public:
 	float z;
 
 public:
+	Vec3 Abs() const
+	{
+		Vec3 v;
+		v.x = fabsf( x );
+		v.y = fabsf( y );
+		v.z = fabsf( z );
+		return v;
+	}
+
 	float Length() const
 	{
 		return Sqrt(LengthSq());
@@ -52,6 +61,16 @@ public:
 			y *= fInvL;
 			z *= fInvL;
 		}
+	}
+
+	Vec3 Rcp() const
+	{
+		Vec3 v;
+		v.x = 1.0f / (fabs( x ) > FLT_EPSILON ? x : FLT_EPSILON);
+		v.y = 1.0f / (fabs( y ) > FLT_EPSILON ? y : FLT_EPSILON);
+		v.z = 1.0f / (fabs( z ) > FLT_EPSILON ? z : FLT_EPSILON);
+
+		return v;
 	}
 
 	float operator[](int nIndex) const { return ((float*)&x)[nIndex]; }
@@ -164,7 +183,25 @@ V6_INLINE Vec3 operator*(Vec3 const & v1, float f)
 	return v;
 }
 
+V6_INLINE Vec3 operator*( float f, Vec3 const & v1 )
+{
+	Vec3 v;
+	v.x = v1.x * f;
+	v.y = v1.y * f;
+	v.z = v1.z * f;
+	return v;
+}
+
 V6_INLINE Vec3 operator+(Vec3 const & v1, float f)
+{
+	Vec3 v;
+	v.x = v1.x + f;
+	v.y = v1.y + f;
+	v.z = v1.z + f;
+	return v;
+}
+
+V6_INLINE Vec3 operator+(float f, Vec3 const & v1)
 {
 	Vec3 v;
 	v.x = v1.x + f;
