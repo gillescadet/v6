@@ -11,7 +11,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
 #define HLSL_DEBUG_COLLECT							1
-#define HLSL_DEBUG_BLOCK							0
+#define HLSL_DEBUG_BLOCK							1
 #define HLSL_DEBUG_PIXEL							1
 #define HLSL_TRACE_USE_ALIGNED_QUAD					1
 
@@ -108,7 +108,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRID_SHIFT								(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_BLOCK_SHIFT)
 #define HLSL_GRID_WIDTH								(1 << HLSL_GRID_SHIFT)
 #define HLSL_GRID_MASK								(HLSL_GRID_WIDTH-1)
-#define HLSL_GRID_INV_WIDTH							(1.0 / HLSL_GRID_WIDTH)
+#define HLSL_GRID_INV_WIDTH							(1.0f / HLSL_GRID_WIDTH)
 #define HLSL_GRID_HALF_WIDTH						(HLSL_GRID_WIDTH >> 1)
 #define HLSL_GRID_QUARTER_WIDTH						(HLSL_GRID_WIDTH >> 2)
 
@@ -236,6 +236,67 @@ struct BlockCellItem
 struct BlockContext
 {
 	uint cellItemCount;
+#if HLSL_DEBUG_BLOCK == 1
+	
+	float2 screenPos;
+	float2 screenRadius;
+	float2 multiSampledPixelPos;
+	float2 multiSampledPixelRadius;
+	uint2 multiSampledMinPixelCoords;
+	uint2 multiSampledMaxPixelCoords;
+	
+	bool cull;
+	
+	uint2 minPixelCoords;
+	uint2 multiSampledMinPixelBase;	
+	uint2 multiSampledMinPixelOffset;
+	uint2 multiSampledSize;
+	uint multiSampledPixelCount;	
+	uint jobCount;
+
+	uint jobBlockID;
+	uint jobWidth;
+	uint jobOffset;
+	uint jobMip;
+	uint jobPixelID;
+	uint jobPixelBaseX;
+	uint jobPixelBaseY;
+	uint jobPixelOffsetX;
+	uint jobPixelOffsetY;
+	float lineCount;
+	float jobPixelX;
+	float jobPixelY;		
+		
+	float3 gridCenter;
+	float gridScale;
+	uint gridOccupancy;
+
+	float2 jobMultiSampledScreenPos;
+	float3 rayEndVS;
+	float3 rayOrgWS;	
+	float3 rayEndWS;
+	float3 rayDir;
+	float3 rayInvDir;
+	float3 alpha;
+	float3 beta;	
+	float3 t0;
+	float3 t1;
+	float3 tMin;
+	float3 tMax;
+	float tIn;
+	float tOut;
+
+	float scale;
+	float offset;	
+	float3 pIn;
+	float3 coordIn;			
+	int3 coords;
+	float3 tCur;
+	float3 tDelta;		
+	int3 step;
+	uint2 jobPixelCoord;
+
+#endif // HLSL_DEBUG_BLOCK == 1
 };
 
 #if HLSL_DEBUG_PIXEL == 1
