@@ -76,6 +76,11 @@ public:
 	float operator[](int nIndex) const { return ((float*)&x)[nIndex]; }
 	float & operator[](int nIndex) { return ((float*)&x)[nIndex]; }
 
+	bool operator==( const Vec3& o ) const
+	{
+		return x == o.x && y == o.y && z == o.z;
+	}
+
 	Vec3 operator-() const
 	{
 		Vec3 v;

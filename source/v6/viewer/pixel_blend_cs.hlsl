@@ -103,7 +103,7 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 		return c_pixelBackColor;
 	else
 		return finalColor / rasterCount;
-	// return finalColor / 16.0f;
+		//return finalColor / 16.0f;
 }
 
 [ numthreads( 16, 16, 1 ) ]
@@ -117,6 +117,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	
 	const uint2 screenPos = uint2( DTid.x, c_pixelFrameSize.y - DTid.y - 1 );
 
-	if ( s_pixelMode == 0)
+	if ( s_pixelMode == 0 )
 		outputColors[DTid.xy] = float4( testAlignedQuadA( screenPos, debug ), 1.0f );
 }

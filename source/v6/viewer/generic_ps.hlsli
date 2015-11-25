@@ -14,7 +14,7 @@ float4 main( PixelInput i ) : SV_TARGET
 	const float alpha = c_genericUseAlpha ? texAlpha.Sample( trilinearSampler, i.uv ).r : 1.0f;
 	
 #if USE_ALPHA_TEST == 1
-	if ( alpha < 0.5f )
+	if ( alpha < 0.8f )
 		discard;
 #endif
 

@@ -2,8 +2,8 @@
 #define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
 #define GRID_CELL_MASK		(GRID_CELL_COUNT-1)
 
-Buffer< uint > blockColors			: register( HLSL_BLOCK_COLOR_SRV );
-Buffer< uint > blockIndirectArgs 	: register( HLSL_BLOCK_INDIRECT_ARGS_SRV );
+TYPEDBUFFER( blockColors, uint, HLSL_BLOCK_COLOR_SLOT );
+TYPEDBUFFER( blockIndirectArgs, uint, HLSL_BLOCK_INDIRECT_ARGS_SLOT );
 
 struct BlockCell
 {	
@@ -14,9 +14,13 @@ struct BlockCell
 	uint	occupancy;
 };
 
-bool PackedColor_Unpack( uint packedID, out BlockCell o )
+bool PackedColor_Unpack( uint packedID, OUTPUT( BlockCell ) o )
 {
-	o = (BlockCell)0;
+	o.posWS = float3( 0.0f, 0.0f, 0.0f );
+	o.halfCellSize = 0.0f;
+	o.color = 0;
+	o.mip = 0;
+	o.occupancy = 0;
 
 	const uint blockID = packedID >> GRID_CELL_SHIFT;
 	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );	

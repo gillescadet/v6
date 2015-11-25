@@ -8,13 +8,15 @@
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
 RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
+RWStructuredBuffer< DebugBlock > debugBlocks				: register( HLSL_BLOCK_DEBUG_UAV );
+RWStructuredBuffer< DebugTrace > debugTraces				: register( HLSL_TRACE_DEBUG_UAV );
 
 struct TraceBlock_s
 {
 	float3	center;
 	uint	occupancy;
 	uint	multiSampledMinPixel_basex14y14_offsetx2y2;
-	uint	jobWidth16_jobOffset12_mip4;
+	uint	debug4_jobWidth12_jobOffset12_mip4;
 };
 
 #if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 3
@@ -23,10 +25,13 @@ static const uint			traceCellWidthPerBlock = 3;
 static const uint			traceJobPerInt = 4;
 #endif
 
-groupshared TraceBlock_s	g_blocks[HLSL_TRACE_THREAD_GROUP_SIZE];
-groupshared uint			g_traceCellBits[HLSL_TRACE_THREAD_GROUP_SIZE * traceCellWidthPerBlock];
-groupshared uint			g_jobs[(HLSL_TRACE_THREAD_GROUP_SIZE * pixelCountMax + traceJobPerInt - 1) / traceJobPerInt];
+groupshared TraceBlock_s	g_blocks[HLSL_BLOCK_THREAD_GROUP_SIZE];
+groupshared uint			g_traceCellBits[HLSL_BLOCK_THREAD_GROUP_SIZE * traceCellWidthPerBlock];
+groupshared uint			g_jobs[(HLSL_BLOCK_THREAD_GROUP_SIZE * pixelCountMax + traceJobPerInt - 1) / traceJobPerInt];
 groupshared uint			g_jobCount = 0;
+#if HLSL_DEBUG_BLOCK == 1
+groupshared int				g_debugBlockID = -1;
+#endif // #if HLSL_DEBUG_BLOCK == 1
 
 void ParallelInit( uint blockID )
 {
@@ -37,10 +42,10 @@ void ParallelInit( uint blockID )
 		g_traceCellBits[bucketBase + bucketOffset] = 0;	
 }
 
-bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 multiSampledMaxPixelCoords, out float pixelDepth, bool debug )
+bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 multiSampledMaxPixelCoords, out float pixelDepth, uint packedID, bool debug, out bool debugBlock )
 {
 	const matrix worldToProjMatrix = mul( c_blockViewToProj, c_blockObjectToView );
-		
+	
 	uint3 boxMin = uint3( 2, 2, 2 );
 	uint3 boxMax = uint3( 0, 0, 0 );
 	
@@ -85,6 +90,7 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 	float2 maxScreenPos = float2( -1e32f, -1e32f );
 	
 	uint clippedCount = 0;
+	pixelDepth = 1e32f;
 	for ( uint vertexID = 0; vertexID < 8; ++vertexID )
 	{
 		const float3 posWS = pointMin + delta * vertices[vertexID];
@@ -113,12 +119,21 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 		blockContext[0].multiSampledMinPixelCoords	= multiSampledMinPixelCoords;
 		blockContext[0].multiSampledMaxPixelCoords	= multiSampledMaxPixelCoords;		
 	}
+
+#if HLSL_DEBUG_PIXEL == 1
+	const uint2 pixelPos = mad( screenPos, 0.5f, 0.5f ) * c_blockFrameSize;
+	debugBlock = c_blockDebug != 0 && (c_blockDebugCoords.x >> 3) == (pixelPos.x >> 3) && (c_blockDebugCoords.y >> 3) == ((((uint)c_blockFrameSize.y - pixelPos.y - 1) ) >> 3);
+	//debugBlock = c_blockDebug != 0 && c_blockDebugCoords.x == pixelPos.x && c_blockDebugCoords.y == ((uint)c_blockFrameSize.y - pixelPos.y - 1);
+#else
+	debugBlock = false;
+#endif // #if HLSL_DEBUG_PIXEL == 1
+
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
 	return clippedCount == 8;
 }
 
-void Assign( BlockCell blockCell, uint blockID, uint2 multiSampledMinPixelCoords, uint2 multiSampledMaxPixelCoords, out uint2 minPixelCoords, bool debug )
+void Assign( BlockCell blockCell, uint blockID, uint2 multiSampledMinPixelCoords, uint2 multiSampledMaxPixelCoords, out uint2 minPixelCoords, bool debug, bool debugBlock )
 {
 	minPixelCoords = uint2( (multiSampledMinPixelCoords + 0.5f) / float( HLSL_PIXEL_SUPER_SAMPLING_WIDTH ) );
 	const uint2 multiSampledMinPixelBase = minPixelCoords * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
@@ -139,19 +154,23 @@ void Assign( BlockCell blockCell, uint blockID, uint2 multiSampledMinPixelCoords
 		blockContext[0].multiSampledPixelCount		= multiSampledPixelCount;
 		blockContext[0].jobCount					= jobOffset + multiSampledPixelCount;
 	}
+
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
 	TraceBlock_s block;
 	block.center = blockCell.posWS;
 	block.occupancy = blockCell.occupancy;
-	block.multiSampledMinPixel_basex14y14_offsetx2y2 = (multiSampledMinPixelBase.x << 18) | (multiSampledMinPixelBase.y << 4) | (multiSampledMinPixelOffset.y << 2) | multiSampledMinPixelOffset.x;
-	block.jobWidth16_jobOffset12_mip4 = (multiSampledSize.x << 16) | (jobOffset << 4) | blockCell.mip;
+	block.multiSampledMinPixel_basex14y14_offsetx2y2 = (multiSampledMinPixelBase.x << 18) | (multiSampledMinPixelBase.y << 4) | (multiSampledMinPixelOffset.x << 2) | multiSampledMinPixelOffset.y;
+	block.debug4_jobWidth12_jobOffset12_mip4 = (debugBlock ? 0x80000000 : 0) | (multiSampledSize.x << 16) | (jobOffset << 4) | blockCell.mip;
 	g_blocks[blockID] = block;
 	
 	for ( uint jobRank = 0; jobRank < multiSampledPixelCount; ++jobRank )
 	{
 		const uint jobID = jobOffset + jobRank;
-		g_jobs[jobID >> 2] = blockID << ((jobID&3) * 8);
+		const uint jobBucket = jobID >> 2;
+		const uint jobShift = (jobID&3) * 8;
+		InterlockedAnd( g_jobs[jobBucket], ~(0xFF << jobShift) );
+		InterlockedOr( g_jobs[jobBucket], blockID << jobShift );
 	}
 }
 
@@ -167,24 +186,29 @@ uint Div3( uint n )
 	return (bits >> (n * 2)) & 3;
 }
 
-void ParallelTrace( uint blockID, bool debug  )
+void ParallelTrace( uint blockID )
 {
 	const float3 rayOrgWS = float3( c_blockViewToObject[0].w, c_blockViewToObject[1].w, c_blockViewToObject[2].w );
 
-	for ( uint jobID = blockID; jobID < g_jobCount; jobID += HLSL_TRACE_THREAD_GROUP_SIZE )
+	for ( uint jobID = blockID; jobID < g_jobCount; jobID += HLSL_BLOCK_THREAD_GROUP_SIZE )
 	{
-		const uint jobBlockID = (g_jobs[jobID >> 2] >> ((jobID&3) * 8)) & 0xFF;
+		const uint jobBucket = jobID >> 2;
+		const uint jobShift = (jobID&3) * 8;
+		const uint jobBlockID = (g_jobs[jobBucket] >> jobShift) & 0xFF;
 		const TraceBlock_s block = g_blocks[jobBlockID];
-		const uint jobWidth = block.jobWidth16_jobOffset12_mip4 >> 16;
-		const uint jobOffset = (block.jobWidth16_jobOffset12_mip4 >> 4) & 0xFFF;
-		const uint jobMip = block.jobWidth16_jobOffset12_mip4 & 0xF;
+#if HLSL_DEBUG_PIXEL == 1
+		const bool jobDebugBlock = (block.debug4_jobWidth12_jobOffset12_mip4 & 0x80000000) != 0;
+#endif
+		const uint jobWidth = (block.debug4_jobWidth12_jobOffset12_mip4 >> 16) & 0xFFF;
+		const uint jobOffset = (block.debug4_jobWidth12_jobOffset12_mip4 >> 4) & 0xFFF;
+		const uint jobMip = block.debug4_jobWidth12_jobOffset12_mip4 & 0xF;
 		const uint jobPixelID = jobID - jobOffset;
 		const uint jobPixelBaseX = block.multiSampledMinPixel_basex14y14_offsetx2y2 >> 18;
 		const uint jobPixelBaseY = (block.multiSampledMinPixel_basex14y14_offsetx2y2 >> 4) & 0x3FFF;
 		const uint jobPixelOffsetX = (block.multiSampledMinPixel_basex14y14_offsetx2y2 >> 2) & 3;
 		const uint jobPixelOffsetY = block.multiSampledMinPixel_basex14y14_offsetx2y2 & 3;
 		const float lineCount = trunc( (jobPixelID + 0.5f) * rcp( jobWidth ) );
-		const float jobPixelX = jobPixelID - mad( lineCount,  jobWidth, -0.5f );
+		const float jobPixelX = jobPixelID - mad( lineCount, jobWidth, -0.5f );
 		const float jobPixelY = lineCount + 0.5f;		
 		
 		const float2 jobMultiSampledScreenPos = float2( jobPixelBaseX + jobPixelOffsetX + jobPixelX, jobPixelBaseY + jobPixelOffsetY + jobPixelY );
@@ -202,7 +226,8 @@ void ParallelTrace( uint blockID, bool debug  )
 		const float tOut = min( min( tMax.x, tMax.y ), tMax.z );
 
 #if HLSL_DEBUG_BLOCK == 1
-		if ( debug && jobID == blockID )
+		const bool debug = uint( g_debugBlockID ) == jobBlockID && jobPixelID == 1;
+		if ( debug )
 		{
 			blockContext[0].jobBlockID					= jobBlockID;
 			blockContext[0].jobWidth					= jobWidth;
@@ -236,6 +261,23 @@ void ParallelTrace( uint blockID, bool debug  )
 			blockContext[0].tIn							= tIn;
 			blockContext[0].tOut						= tOut;
 		}
+
+#if HLSL_DEBUG_PIXEL == 1
+		uint debugTraceID;
+		if ( jobDebugBlock )
+		{			
+			InterlockedAdd( blockContext[0].debugTraceCount, 1, debugTraceID );
+			debugTraces[debugTraceID].blockCenter = block.center;
+			debugTraces[debugTraceID].blockOccupancy = block.occupancy;
+			debugTraces[debugTraceID].org = rayOrgWS;
+			debugTraces[debugTraceID].dir = rayDir;			
+			debugTraces[debugTraceID].tIn = tIn;
+			debugTraces[debugTraceID].tOut = tOut;
+			debugTraces[debugTraceID].hitFoundCoords = (int4)0;
+			debugTraces[debugTraceID].hitFailBits = 0;
+		}
+#endif //#if HLSL_DEBUG_PIXEL == 1
+
 #endif // #if HLSL_DEBUG_BLOCK == 1
 		
 		if ( tIn > tOut )
@@ -260,7 +302,7 @@ void ParallelTrace( uint blockID, bool debug  )
 		const uint2 jobPixelCoord = uint2( jobPixelOffsetX + jobPixelX, jobPixelOffsetY + jobPixelY );
 
 #if HLSL_DEBUG_BLOCK == 1
-		if ( debug && jobID == blockID )
+		if ( debug )
 		{
 			blockContext[0].scale						= scale;
 			blockContext[0].offset						= offset;	
@@ -272,41 +314,100 @@ void ParallelTrace( uint blockID, bool debug  )
 			blockContext[0].step						= step;
 			blockContext[0].jobPixelCoord				= jobPixelCoord;
 		}
+
+#if HLSL_DEBUG_PIXEL == 1
+		if ( jobDebugBlock )
+		{
+			debugTraces[debugTraceID].scale			= scale;
+			debugTraces[debugTraceID].offset		= offset;	
+			debugTraces[debugTraceID].pIn			= pIn;
+			debugTraces[debugTraceID].coordIn		= coordIn;			
+			debugTraces[debugTraceID].coords		= coords;
+			debugTraces[debugTraceID].tCur			= tCur;
+			debugTraces[debugTraceID].tDelta		= tDelta;		
+			debugTraces[debugTraceID].step			= step;
+			debugTraces[debugTraceID].jobPixelCoord	= jobPixelCoord;
+		}
+#endif //#if HLSL_DEBUG_PIXEL == 1
+		
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
 #if 1
-		for ( ;; )
+		bool hitFound = false;
+		while ( !hitFound )
 		{
 			const uint occupancyBit = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
 			if ( (block.occupancy & (1 << occupancyBit)) != 0 )
 			{				
-				const uint pixelBucket = jobBlockID * traceCellWidthPerBlock + Div3( jobPixelCoord.y );
-				g_traceCellBits[pixelBucket] |= 1 << (Div3( jobPixelCoord.x ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + Mod3( jobPixelCoord.y ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + Mod3( jobPixelCoord.x  ));
-				
-				break;
+#if 1
+				const uint pixelTraceBucket = jobBlockID * traceCellWidthPerBlock + Div3( jobPixelCoord.y );
+				const uint pixelTraceCellBit = Div3( jobPixelCoord.x ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + Mod3( jobPixelCoord.y ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + Mod3( jobPixelCoord.x );
+				InterlockedOr( g_traceCellBits[pixelTraceBucket], 1 << pixelTraceCellBit );
+#endif
+#if HLSL_DEBUG_BLOCK == 1
+				if ( debug )
+					blockContext[0].hitFoundCoords = int4( coords, 1 );
+
+#if HLSL_DEBUG_PIXEL == 1
+				if ( jobDebugBlock )
+					debugTraces[debugTraceID].hitFoundCoords = int4( coords, 1 );
+#endif //#if HLSL_DEBUG_PIXEL == 1
+
+#endif // #if HLSL_DEBUG_BLOCK == 1
+
+				hitFound = true;
+			}
+			else
+			{
+#if 1
+
+#if HLSL_DEBUG_BLOCK == 1
+				if ( debug )
+					blockContext[0].hitFailBits |= 1 << occupancyBit;
+
+#if HLSL_DEBUG_PIXEL == 1
+				if ( jobDebugBlock )
+					debugTraces[debugTraceID].hitFailBits |= 1 << occupancyBit;
+#endif //#if HLSL_DEBUG_PIXEL == 1
+
+#endif // #if HLSL_DEBUG_BLOCK == 1
+
+				const float3 tNext = tCur + tDelta;
+				uint nextAxis;
+				if ( tNext.x < tNext.y && tNext.x < tNext.z )
+				{
+					nextAxis = 0;
+					tCur.x = tNext.x;
+					coords.x += step.x;
+				}
+				else if ( tNext.y < tNext.z )
+				{
+					nextAxis = 1;
+					tCur.y = tNext.y;
+					coords.y += step.y;
+				}
+				else
+				{
+					nextAxis = 2;
+					tCur.z = tNext.z;
+					coords.z += step.z;
+				}
+		
+				if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
+				{
+					if ( debug )
+						blockContext[0].hitFoundCoords = int4( coords, -1 );
+					hitFound = true;
+				}			
+#endif
 			}
 
-			const float3 tNext = tCur + tDelta;
-			uint nextAxis;
-			if ( tNext.x < tNext.y && tNext.x < tNext.z )
-				nextAxis = 0;
-			else if ( tNext.y < tNext.z )
-				nextAxis = 1;
-			else
-				nextAxis = 2;
-			const int3 axes[] = { uint3( 1, 0, 0 ), uint3( 0, 1, 0 ), uint3( 0, 0, 1 ) };
-
-			tCur = lerp( tCur, tNext, axes[nextAxis] );
-			coords += step * axes[nextAxis];
-		
-			if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
-				break;
 		}
 #endif
 	}
 }
 
-void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixelCoords )
+void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixelCoords, bool debug )
 {
 	const uint bucketBase = blockID * traceCellWidthPerBlock;
 
@@ -334,25 +435,47 @@ void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixel
 			
 			BlockCellItem blockCellItem;
 			blockCellItem.r8g8b8a8 = (blockCell.color & ~0xFF) | 0xFF;
+#if 0
+			blockCellItem.r8g8b8a8 = 0xFF;
+			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 1 ? 0xFF000000 : 0;
+			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 2 ? 0x00FF0000 : 0;
+			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 4 ? 0x0000FF00 : 0;
+#endif
 			blockCellItem.u8v8w8h8 = pixelOccupancy;
 			blockCellItem.depth = pixelDepth;
+#if HLSL_DEBUG_BLOCK == 1
+			blockCellItem.packedID = blockID;
+#endif // #if HLSL_DEBUG_BLOCK == 1
 			blockCellItem.nextID = nextBlockCellItemID;
 
-			blockCellItems[blockCellItemID] = blockCellItem;						
+			blockCellItems[blockCellItemID] = blockCellItem;
+
+#if HLSL_DEBUG_BLOCK == 1
+			if ( debug )
+			{
+				blockContext[0].pixelColors[y][x] = blockCellItem.r8g8b8a8;
+				blockContext[0].pixelOccupancies[y][x] = blockCellItem.u8v8w8h8;
+				blockContext[0].pixelDepths[y][x] = blockCellItem.depth;
+			}
+#endif // #if HLSL_DEBUG_BLOCK == 1
 		}
 	}
 }
 
-[ numthreads( HLSL_TRACE_THREAD_GROUP_SIZE, 1, 1 ) ]
+[ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 {
+	const uint packedID = DTid.x;
+	const uint blockID = GTid.x;	
+
 #if HLSL_DEBUG_BLOCK == 1
-	const bool debug = GRID_CELL_BUCKET == 2 && DTid.x == 1;
+	if ( GRID_CELL_BUCKET == 3 && packedID == c_blockDebugPackedID )
+		InterlockedMax( g_debugBlockID, (int)blockID );
+	else
+		InterlockedMin( g_debugBlockID, -1 );
+	const bool debug = GRID_CELL_BUCKET == 3 && packedID == c_blockDebugPackedID;
 #endif	
 	
-	const uint packedID = DTid.x;
-	const uint blockID = GTid.x;
-
 	// Decode
 
 	const uint maxCellCount = blockIndirectArgs[block_count_offset( GRID_CELL_BUCKET )] * GRID_CELL_COUNT;
@@ -371,28 +494,50 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 	uint2 multiSampledMinPixelCoords = (uint2)0;
 	uint2 multiSampledMaxPixelCoords = (uint2)0;
 	float pixelDepth = 1e32f;
-	cull = cull || Clip( blockCell, multiSampledMinPixelCoords, multiSampledMaxPixelCoords, pixelDepth, debug );
+
+	bool debugBlock = false;
+	cull = cull || Clip( blockCell, multiSampledMinPixelCoords, multiSampledMaxPixelCoords, pixelDepth, packedID, debug, debugBlock );
 
 #if HLSL_DEBUG_BLOCK == 1
 	if ( debug )
+	{
+		blockContext[0].packedID = packedID;
+		blockContext[0].blockID = blockID;
 		blockContext[0].cull = cull;
+	}
+
+#if HLSL_DEBUG_PIXEL == 1
+	if ( !cull && debugBlock )
+	{
+		uint debugBlockID;
+		InterlockedAdd( blockContext[0].debugBlockCount, 1, debugBlockID );
+		debugBlocks[debugBlockID].posWS = blockCell.posWS;
+		debugBlocks[debugBlockID].color = blockCell.color;
+		debugBlocks[debugBlockID].mip = blockCell.mip;
+		debugBlocks[debugBlockID].occupancy = blockCell.occupancy;
+		const uint2 multiSampledSize = 1 + multiSampledMaxPixelCoords - multiSampledMinPixelCoords;
+		const uint multiSampledPixelCount = multiSampledSize.x * multiSampledSize.y;
+		debugBlocks[debugBlockID].jobCount = multiSampledPixelCount;
+	}
+#endif // #if HLSL_DEBUG_PIXEL == 1
+
 #endif // #if HLSL_DEBUG_BLOCK == 1
 	
 	// Assignment
 
 	uint2 minPixelCoords = (uint2)0;
 	if ( !cull )
-		Assign( blockCell, blockID, multiSampledMinPixelCoords, multiSampledMaxPixelCoords, minPixelCoords, debug );		
+		Assign( blockCell, blockID, multiSampledMinPixelCoords, multiSampledMaxPixelCoords, minPixelCoords, debug, debugBlock );
 
 	// Parallel Trace
 
 	AllMemoryBarrierWithGroupSync();
 
-	ParallelTrace( blockID, debug );
+	ParallelTrace( blockID );
 
 	AllMemoryBarrierWithGroupSync();
 
 	// Output
 
-	Output( blockCell, pixelDepth, blockID, minPixelCoords );	
+	Output( blockCell, pixelDepth, blockID, minPixelCoords, debug );	
 }

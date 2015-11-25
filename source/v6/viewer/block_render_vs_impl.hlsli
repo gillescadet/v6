@@ -152,6 +152,14 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 		}
 #endif
 
+#if 0
+		{
+			o.color.r = (GRID_CELL_BUCKET+1) & 1 ? 1.0f : 0.0f;
+			o.color.g = (GRID_CELL_BUCKET+1) & 2 ? 1.0f : 0.0f;
+			o.color.b = (GRID_CELL_BUCKET+1) & 4 ? 1.0f : 0.0f;
+		}
+#endif
+
 		if ( c_blockShowMip )
 		{
 			o.color.r = (blockCell.mip+1) & 1 ? 1.0f : 0.0f;

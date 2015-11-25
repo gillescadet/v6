@@ -10,6 +10,9 @@ BEGIN_V6_CORE_NAMESPACE
 static const float PI = 3.1415926f;
 
 template<typename T>
+V6_INLINE T Abs( T x ) { return fabs( x ); }
+
+template<typename T>
 V6_INLINE bool IsPowOfTwo( T x ) { return (x & (x-1)) == 0; }
 
 template<typename T>

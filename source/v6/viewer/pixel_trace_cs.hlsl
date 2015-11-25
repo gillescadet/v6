@@ -62,6 +62,7 @@ float3 testA( uint2 screenPos, bool debug )
 					PixelDebugLayer debugLayer;
 					debugLayer.colorAndDepth = float4( otherColor, blockCellItem.depth );
 					debugLayer.uv = float2( uOffset, vOffset );
+					debugLayer.packedID = blockCellItem.packedID;
 
 					pixelDebugBuffer[0].points[j+1][i+1].layers[layer] = debugLayer;
 					++pixelDebugBuffer[0].points[j+1][i+1].layerCount;
@@ -242,8 +243,11 @@ float3 testAlignedQuadA( uint2 screenPos, bool debug )
 					debugLayer.colorAndDepth = float4( otherColor, blockCellItem.depth );
 					debugLayer.uv = float2( uRelative, vRelative );
 					debugLayer.wh = float2( wRelative, hRelative );
+#if 0
 					debugLayer.uvMin = posMin;//int2( uMin, vMin );
 					debugLayer.uvMax = posMax;//int2( uMax, vMax );
+#endif
+					debugLayer.packedID = blockCellItem.packedID;
 
 					pixelDebugBuffer[0].points[j+1][i+1].layers[layer] = debugLayer;
 					++pixelDebugBuffer[0].points[j+1][i+1].layerCount;

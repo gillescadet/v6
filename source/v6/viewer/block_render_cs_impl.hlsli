@@ -121,6 +121,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	blockCellItem.r8g8b8a8 = (blockCell.color & ~0xFF) | 0xFF;
 	blockCellItem.u8v8w8h8 = (pixelUV.x << 24) | (pixelUV.y << 16) | (pixelSize.x << 8) | (pixelSize.y << 0);
 	blockCellItem.depth = pixelDepth;
+#if HLSL_DEBUG_BLOCK == 1
+	blockCellItem.packedID = GRID_CELL_BUCKET == 3 ? packedID : (uint)-1;
+#endif // #if HLSL_DEBUG_BLOCK == 1
 	blockCellItem.nextID = nextBlockCellItemID;
 
 	blockCellItems[blockCellItemID] = blockCellItem;	

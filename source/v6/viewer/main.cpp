@@ -51,7 +51,7 @@ static const core::u32 ZOOM					= 2;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
-static const float ZNEAR					= GRID_MIN_SCALE * 0.5f; //0.02f;
+static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
 static const float ZFAR						= 10000.0f;
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
 static const int SAMPLE_MAX_COUNT			= 16;
@@ -67,6 +67,8 @@ static const uint ENTITY_MAX_COUNT			= 16384;
 
 static const uint ENTITY_TEXTURE_MAX_COUNT	= 4;
 static const uint ENTITY_TEXTURE_INVALID	= (core::u32)-1;
+
+static const uint DEBUG_BLOCK_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
 
 enum DrawMode_e
 {
@@ -376,9 +378,12 @@ struct SceneDebug_s : Scene_s
 	core::u32 meshLineID;
 	core::u32 meshGridID;
 	core::u32 meshCellIDs[HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE][2];
+	core::u32 meshBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
 	core::u32 entityLineID;
 	core::u32 entityGridID;
 	core::u32 entityCellIDs[HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE][2];	
+	core::u32 entityBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
+	core::u32 entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
 };
 
 struct Cube_s
@@ -427,6 +432,12 @@ struct Block_s
 	GPUBuffer_s					cellItems;
 	GPUBuffer_s					firstCellItemIDs;
 	GPUBuffer_s					context;
+	GPUBuffer_s					debugBlock;
+	GPUBuffer_s					debugTrace;
+	hlsl::DebugBlock*			debugBlocks;
+	core::u32					debugBlockCount;
+	hlsl::DebugTrace*			debugTraces;
+	core::u32					debugTraceCount;
 };
 
 struct Pixel_s
@@ -443,6 +454,14 @@ struct Msaa_s
 	GPUBuffer_s					samplePositions;
 };
 
+struct TraceData_s
+{
+	float		tIn;
+	float		tOut;
+	core::Vec3i	hitFoundCoords;
+	core::u32	hitFailBits;
+};
+
 static float g_translation_speed			= 200.0f;
 static bool g_mousePressed					= false;
 static int g_mousePosX						= 0;
@@ -450,6 +469,7 @@ static int g_mousePosY						= 0;
 static int g_mousePickPosX					= 0;
 static int g_mousePickPosY					= 0;
 static bool g_mousePicked					= false;
+static core::u32 g_pickedPackedID			= (core::u32)-1;
 static int g_keyLeftPressed					= false;	
 static int g_keyRightPressed				= false;
 static int g_keyUpPressed					= false;
@@ -467,11 +487,13 @@ static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
 static int g_traceMode						= 0; 
 static bool g_showVoxel						= false;
-static int g_useOccupancy					= 1;
+static int g_useOccupancy					= 2;
 static bool g_randomBackground				= false;
 static bool g_traceGrid						= false;
 static bool g_readMSAASamplePositions		= false;
 static bool g_useMSAA						= true;
+static bool g_debugBlocks					= false;
+static bool g_transparentDebug				= false;
 
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
@@ -486,7 +508,7 @@ static Scene_s* s_activeScene				= nullptr;
 
 static core::Vec3 s_gridCenter = {};
 static float s_gridScale = 0;
-static core::u32 s_gridOpacity = 0;
+static core::u32 s_gridOccupancy = 0;
 static core::Vec3 s_rayOrg = {};
 static core::Vec3 s_rayEnd = {};
 
@@ -517,6 +539,8 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'D': g_keyRightPressed = pressed; break;
 			case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
 			case 'F': g_filterPixel = !pressed; break;
+			case 'G': if ( pressed ) { g_debugBlocks = true; } break;
+			case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
 			case 'I': if ( pressed ) { s_logReadBack = true; } break;
 			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
 			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
@@ -1854,15 +1878,25 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
 	GPUBuffer_CreateTyped( device, &block->firstCellItemIDs, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );
 	GPUBuffer_CreateStructured( device, &block->context, sizeof( hlsl::BlockContext ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockContext" );
+	GPUBuffer_CreateStructured( device, &block->debugBlock, sizeof( hlsl::DebugBlock ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockDebugPixel" );
+	GPUBuffer_CreateStructured( device, &block->debugTrace, sizeof( hlsl::DebugTrace ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTracePixel" );
+	block->debugBlocks = heap->newArray< hlsl::DebugBlock >( DEBUG_BLOCK_MAX_COUNT );
+	block->debugBlockCount = 0;
+	block->debugTraces = heap->newArray< hlsl::DebugTrace >( DEBUG_BLOCK_MAX_COUNT );
+	block->debugTraceCount = 0;
 }
 
-static void Block_Release( ID3D11Device* device, Block_s* block )
+static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocator* heap )
 {
 	GPUBuffer_Release( device, &block->colors );
 	GPUBuffer_Release( device, &block->indirectArgs );
 	GPUBuffer_Release( device, &block->cellItems );
 	GPUBuffer_Release( device, &block->firstCellItemIDs );
 	GPUBuffer_Release( device, &block->context );
+	GPUBuffer_Release( device, &block->debugBlock );
+	GPUBuffer_Release( device, &block->debugTrace );
+	heap->deleteArray( block->debugBlocks );
+	heap->deleteArray( block->debugTraces );
 }
 
 static void Pixel_Create( ID3D11Device* device, Pixel_s* pixel, const Config_s* config, core::IAllocator* heap )
@@ -2171,8 +2205,10 @@ static void Mesh_Draw( GPUMesh_s* mesh, core::u32 instanceCount, GPUShader_s* sh
 
 static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings )
 {
+#if V6_SIMPLE_SCENE == 0
 	if ( settings->isCapturing )
 		return;
+#endif // #if V6_SIMPLE_SCENE == 0
 
 	v6::hlsl::CBBasic* cbBasic = ConstantBuffer_MapWrite< v6::hlsl::CBBasic >( ctx->deviceContext, &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
@@ -2383,18 +2419,22 @@ static void SceneContext_SetDevice( SceneContext_s* sceneContext, ID3D11Device* 
 static void SceneContext_Load( SceneContext_s* sceneContext )
 {
 	V6_MSG( "Load scene\n" );
-		
-	const float scale = 100.0f;
 
 	//const char* filenameOBJ = "D:/media/obj/dragon/dragon.obj";
 	//const char* filenameOBJ = "D:/media/obj/buddha/buddha.obj";
 	//const char* filenameOBJ = "D:/media/obj/head/head.obj";
-	//const char* filenameOBJ = "D:/media/obj/hairball/hairball.obj";
+	
+	//const float scale = 100.0f;
+	//const char* filenameOBJ = "D:/media/obj/hairball/hairball.obj";	
 	//const char* filenameOBJ = "D:/media/obj/hairball/hairball_simple.obj";
-	const char* filenameOBJ = "D:/media/obj/hairball/hairball_simple2.obj";
+	//const char* filenameOBJ = "D:/media/obj/hairball/hairball_simple2.obj";
+
 	//const char* filenameOBJ = "D:/media/obj/sibenik/sibenik.obj";
 	//const char* filenameOBJ = "D:/media/obj/conference/conference.obj";
-	//const char* filenameOBJ = "D:/media/obj/crytek-sponza/sponza.obj";
+	
+	const float scale = 1.0f;
+	const char* filenameOBJ = "D:/media/obj/crytek-sponza/sponza.obj";
+	
 	//const char* filenameOBJ = "D:/media/obj/san-miguel/san-miguel.obj";
 
 	if ( !Obj_ReadObjectFile( &sceneContext->objScene, filenameOBJ, sceneContext->allocator ) )
@@ -2602,7 +2642,7 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 					scene->entityCellIDs[cellID][cellType] = scene->entityCount;
 					Entity_s* cellEntity = &scene->entities[scene->entityCount++];
 					Entity_Create( cellEntity, 0, scene->meshCellIDs[cellID][cellType], core::Vec3_Zero(), 1.0f );
-					Entity_SetVisible( cellEntity, 0 );
+					Entity_SetVisible( cellEntity, false );
 				}
 			}
 		}
@@ -2617,6 +2657,29 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 	Entity_Create( &scene->entities[scene->entityLineID], 0, scene->meshLineID, core::Vec3_Zero(), 1.0f );
 	Entity_SetVisible( &scene->entities[scene->entityLineID], false );
 	++scene->entityCount;
+
+	for ( int debugBlockID = 0; debugBlockID < DEBUG_BLOCK_MAX_COUNT; ++debugBlockID )
+	{
+		for ( core::u32 cellType = 0; cellType < 2; ++cellType )
+		{
+			core::u32 hashColor = 1 + (debugBlockID%7);
+			scene->meshBlockIDs[debugBlockID][cellType] = scene->meshCount;
+			Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], core::Color_Make( (hashColor & 1) ? 255 : 0, (hashColor & 2) ? 255 : 0, (hashColor & 4) ? 255 : 0, 255 ), cellType == 0 );
+
+			scene->entityBlockIDs[debugBlockID][cellType] = scene->entityCount;
+			Entity_s* blockEntity = &scene->entities[scene->entityCount++];
+			Entity_Create( blockEntity, 0, scene->meshBlockIDs[debugBlockID][cellType], core::Vec3_Zero(), 1.0f );
+			Entity_SetVisible( blockEntity, false );
+		}
+
+		const core::u32 meshTraceID = scene->meshCount;
+		Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], core::Color_Make( 255, 255, 255, 255 ) );
+
+		scene->entityTraceIDs[debugBlockID] = scene->entityCount;
+		Entity_s* traceEntity = &scene->entities[scene->entityCount++];
+		Entity_Create( traceEntity, 0, meshTraceID, core::Vec3_Zero(), 1.0f );
+		Entity_SetVisible( traceEntity, false );
+	}
 }
 
 #if V6_SIMPLE_SCENE == 1
@@ -2632,7 +2695,7 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
 	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
-	Mesh_CreateLine( device, &scene->meshes[MESH_LINE] );
+	Mesh_CreateLine( device, &scene->meshes[MESH_LINE], core::Color_Make( 255, 255, 255, 255 ) );
 	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
@@ -2691,11 +2754,91 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 
 #endif
 
-void Grid_Trace( GPUContext_s* gpuContext, SceneDebug_s* scene, const core::Vec3* gridCenter, float gridScale, core::u32 gridOpacity, const core::Vec3* rayOrg, const core::Vec3* rayEnd )
+core::u32 Grid_Trace( const core::Vec3* gridCenter, float gridScale, core::u32 gridOccupancy, const core::Vec3* rayOrg, const core::Vec3* rayDir, TraceData_s* traceData )
+{
+	const core::Vec3 invDir = rayDir->Rcp();
+	const core::Vec3 alpha = (*gridCenter - *rayOrg) * invDir;
+	const core::Vec3 beta = gridScale * invDir;	
+	const core::Vec3 t0 = alpha + beta;
+	const core::Vec3 t1 = alpha - beta;
+	const core::Vec3 tMin = core::Min( t0, t1 );
+	const core::Vec3 tMax = core::Max( t0, t1 );
+	const float tIn = core::Max( core::Max( tMin.x, tMin.y ), tMin.z );
+	const float tOut = core::Min( core::Min( tMax.x, tMax.y ), tMax.z );
+
+	if ( traceData )
+	{
+		traceData->tIn = tIn;
+		traceData->tOut = tOut;
+		traceData->hitFoundCoords = core::Vec3i_Zero();
+		traceData->hitFailBits = 0;
+	}
+		
+	if ( tIn > tOut )
+		return 0;
+
+	const float cellSize = (gridScale * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+	const float scale = 1.0f / cellSize;
+	const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;
+	
+	const core::Vec3 tDelta = cellSize * invDir.Abs();	
+
+	const core::Vec3 pIn = *rayOrg + tIn * *rayDir;
+	const core::Vec3 coordIn = (pIn - *gridCenter) * scale + offset;
+		
+	const int x = min( (int)coordIn.x, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	const int y = min( (int)coordIn.y, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	const int z = min( (int)coordIn.z, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	core::Vec3i coords = core::Vec3i_Make( x, y, z );
+	const core::Vec3i step = core::Vec3i_Make( rayDir->x < 0.0f ? -1 : 1, rayDir->y < 0.0f ? -1 : 1, rayDir->z < 0.0f ? -1 : 1 );
+	core::Vec3 tCur = tMin;
+	for ( core::u32 pass = 0; pass < 2; ++pass )
+	{
+		const core::Vec3 tNext = tCur + tDelta;
+		tCur.x = tNext.x < tIn ? tNext.x : tCur.x;
+		tCur.y = tNext.y < tIn ? tNext.y : tCur.y;
+		tCur.z = tNext.z < tIn ? tNext.z : tCur.z;
+	}
+	
+	core::u32 hitFound = 0;
+
+	for ( ;; )
+	{
+		const core::u32 cellID = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
+		const core::u32 occupancyBit = 1 << cellID;
+		hitFound |= (gridOccupancy & occupancyBit);
+		if ( hitFound )
+		{
+			if ( traceData)
+				traceData->hitFoundCoords = coords;
+			break;
+		}
+
+		if ( traceData)
+			traceData->hitFailBits |= occupancyBit;
+
+		const core::Vec3 tNext = tCur + tDelta;
+		core::u32 nextAxis;
+		if ( tNext.x < tNext.y )
+			nextAxis = tNext.x < tNext.z ? 0 : 2;
+		else
+			nextAxis = tNext.y < tNext.z ? 1 : 2;
+		
+		tCur[nextAxis] = tNext[nextAxis];
+		coords[nextAxis] += step[nextAxis];
+		
+		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
+			break;
+	}
+
+	return hitFound;
+}
+
+void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const core::Vec3* gridCenter, float gridScale, core::u32 gridOccupancy, const core::Vec3* rayOrg, const core::Vec3* rayEnd )
 {
 	s_gridCenter = *gridCenter;
 	s_gridScale = gridScale;
-	s_gridOpacity = gridOpacity;
+	s_gridOccupancy = gridOccupancy;
 	s_rayOrg = *rayOrg;
 	s_rayEnd = *rayEnd;
 
@@ -2713,16 +2856,6 @@ void Grid_Trace( GPUContext_s* gpuContext, SceneDebug_s* scene, const core::Vec3
 	Mesh_UpdateVertices( gpuContext->deviceContext, &scene->meshes[scene->meshLineID], vertices );
 	Entity_SetVisible( &scene->entities[scene->entityLineID], true );
 	
-	const core::Vec3 invDir = rayDir.Rcp();
-	const core::Vec3 alpha = (*gridCenter - *rayOrg) * invDir;
-	const core::Vec3 beta = gridScale * invDir;	
-	const core::Vec3 t0 = alpha + beta;
-	const core::Vec3 t1 = alpha - beta;
-	const core::Vec3 tMin = core::Min( t0, t1 );
-	const core::Vec3 tMax = core::Max( t0, t1 );
-	const float tIn = core::Max( core::Max( tMin.x, tMin.y ), tMin.z );
-	const float tOut = core::Min( core::Min( tMax.x, tMax.y ), tMax.z );
-	
 	const float cellSize = (gridScale * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
 	const core::Vec3 cellOrg = *gridCenter - gridScale + cellSize * 0.5f;
 	
@@ -2736,7 +2869,7 @@ void Grid_Trace( GPUContext_s* gpuContext, SceneDebug_s* scene, const core::Vec3
 				const core::Vec3 cellCenter = cellOrg + core::Vec3_Make( (float)x, (float)y, (float)z ) * cellSize;
 				
 				Entity_s* cellEntity = &scene->entities[scene->entityCellIDs[cellID][0]];
-				Entity_SetVisible( cellEntity, (gridOpacity & (1 << cellID)) != 0 );
+				Entity_SetVisible( cellEntity, (gridOccupancy & (1 << cellID)) != 0 );
 				Entity_SetPos( cellEntity, &cellCenter );
 				Entity_SetScale( cellEntity, cellSize * 0.5f );
 				
@@ -2748,51 +2881,157 @@ void Grid_Trace( GPUContext_s* gpuContext, SceneDebug_s* scene, const core::Vec3
 		}
 	}
 	
-	if ( tIn > tOut )
-		return;
+	const core::u32 hitFound = Grid_Trace( gridCenter, gridScale, gridOccupancy, rayOrg, &rayDir, nullptr );
 
-	const float scale = 1.0f / cellSize;
-	const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;
-	
-	const core::Vec3 tDelta = cellSize * invDir.Abs();	
+	for ( core::u32 cellID = 0; cellID < HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE; ++cellID )
+		Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], (hitFound & (1 << cellID)) != 0 );
+}
 
-	const core::Vec3 pIn = *rayOrg + tIn * rayDir;
-	const core::Vec3 coordIn = (pIn - *gridCenter) * scale + offset;
+void Block_DebugDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const hlsl::DebugBlock* debugBlocks, core::u32 debugBlockCount, const hlsl::DebugTrace* debugTraces, core::u32 debugTraceCount, bool showOccupancy )
+{
+	float cellScales[16];
+	float gridScale = GRID_MIN_SCALE;
+	for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+		cellScales[gridID] = gridScale / HLSL_GRID_WIDTH;
+
+	bool hitTraces[DEBUG_BLOCK_MAX_COUNT] = {};
+	bool traceDones[DEBUG_BLOCK_MAX_COUNT] = {};
+
+	core::u32 entityBlockID = 0;
+	// for ( core::u32 debugBlockID = 0; debugBlockID < debugBlockCount; ++debugBlockID )
+	for ( core::u32 debugBlockID = 0; debugBlockID < 1; ++debugBlockID )
+	{
+		const hlsl::DebugBlock* debugBlock = &debugBlocks[debugBlockID];
+
+		core::u32 hitFound = 0;
+		bool noBox = true;
+		float bestDistance = FLT_MAX;
+		for ( core::u32 entityTraceID = 0; entityTraceID < debugTraceCount; ++entityTraceID )
+		{
+			const hlsl::DebugTrace* debugTrace = &debugTraces[entityTraceID];
+			const float distance = (debugTrace->blockCenter - debugBlock->posWS).Length();
+			if ( distance < bestDistance )
+				bestDistance = distance;
+			if ( distance < 0.001f )
+			{
+				TraceData_s traceData;
+				hitFound |= Grid_Trace( &debugBlock->posWS, cellScales[debugBlock->mip], debugBlock->occupancy, &debugTrace->org, &debugTrace->dir, &traceData );				
+				traceDones[entityTraceID] = true;
+				hitTraces[entityTraceID] |= hitFound != 0;
+				noBox = false;
+
+				if ( core::Abs( traceData.tIn - debugTrace->tIn ) > 0.001f || core::Abs( traceData.tOut - debugTrace->tOut ) > 0.001f )
+					V6_WARNING( "Different tIn/tOut!" );
+
+				if ( traceData.hitFoundCoords.x != debugTrace->hitFoundCoords.x || traceData.hitFoundCoords.y != debugTrace->hitFoundCoords.y || traceData.hitFoundCoords.z != debugTrace->hitFoundCoords.z )
+					V6_WARNING( "Different hitFoundCoords!" );
+
+				if ( traceData.hitFailBits != debugTrace->hitFailBits )
+					V6_WARNING( "Different hitFailBits!" );
+			}
+		}
 		
-	const int x = min( (int)coordIn.x, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
-	const int y = min( (int)coordIn.y, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
-	const int z = min( (int)coordIn.z, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
-	core::Vec3i coords = core::Vec3i_Make( x, y, z );
-	const core::Vec3i step = core::Vec3i_Make( rayDir.x < 0.0f ? -1 : 1, rayDir.y < 0.0f ? -1 : 1, rayDir.z < 0.0f ? -1 : 1 );
-	core::Vec3 tCur = tMin;
-	for ( core::u32 pass = 0; pass < 2; ++pass )
-	{
-		const core::Vec3 tNext = tCur + tDelta;
-		tCur.x = tNext.x < tIn ? tNext.x : tCur.x;
-		tCur.y = tNext.y < tIn ? tNext.y : tCur.y;
-		tCur.z = tNext.z < tIn ? tNext.z : tCur.z;
-	}
-	
-	for ( ;; )
-	{
-		const core::u32 cellID = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
+		if ( noBox )
+			V6_WARNING( "No box!" );
 
-		if ( (gridOpacity & (1 << cellID)) != 0 )
-			Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], true );
+		if ( showOccupancy )
+		{
+			uint occupancyBit = 0;
+			for ( uint z = 0; z < 3; ++z )
+			{
+				for ( uint y = 0; y < 3; ++y )
+				{
+					for ( uint x = 0; x < 3; ++x, ++occupancyBit )
+					{
+						if ( (debugBlock->occupancy & (1 << occupancyBit)) != 0 )
+						{
+							V6_ASSERT( entityBlockID < DEBUG_BLOCK_MAX_COUNT );
 
-		const core::Vec3 tNext = tCur + tDelta;
-		core::u32 nextAxis;
-		if ( tNext.x < tNext.y )
-			nextAxis = tNext.x < tNext.z ? 0 : 2;
+							const float scale = cellScales[debugBlock->mip] / HLSL_PIXEL_SUPER_SAMPLING_WIDTH; 
+							const float3 center = debugBlock->posWS - cellScales[debugBlock->mip] + core::Vec3_Make( (float)x, (float)y, (float)z ) * scale * 2.0f + scale;
+														
+							const core::u32 entityID = scene->entityBlockIDs[entityBlockID][(hitFound & occupancyBit) != 0 ? 1 : 0];
+							Entity_s* entity = &scene->entities[entityID];
+
+							Entity_SetPos( entity, &center );
+							Entity_SetScale( entity, scale );
+							Entity_SetVisible( entity, true );
+														
+							++entityBlockID;
+						}
+					}
+				}
+			}
+		}
 		else
-			nextAxis = tNext.y < tNext.z ? 1 : 2;
-		
-		tCur[nextAxis] = tNext[nextAxis];
-		coords[nextAxis] += step[nextAxis];
-		
-		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
-			break;
+		{
+			const core::u32 entityID = scene->entityBlockIDs[entityBlockID][hitFound != 0 ? 1 : 0];
+			Entity_s* entity = &scene->entities[entityID];
+
+			Entity_SetPos( entity, &debugBlock->posWS );
+			Entity_SetScale( entity, cellScales[debugBlock->mip] );
+			Entity_SetVisible( entity, true );			
+
+			++entityBlockID;
+		}
 	}
+
+	for ( ; entityBlockID < DEBUG_BLOCK_MAX_COUNT; ++entityBlockID )
+	{
+		for ( core::u32 cellType = 0; cellType < 2; ++cellType )
+		{
+			core::u32 entityID = scene->entityBlockIDs[entityBlockID][cellType];
+			Entity_s* entity = &scene->entities[entityID];
+			Entity_SetVisible( entity, false );
+		}
+	}
+
+#if 1
+	core::u32 entityTraceID = 0;
+	for ( core::u32 entityTraceID = 0; entityTraceID < debugTraceCount; ++entityTraceID )
+	{
+		const hlsl::DebugTrace* debugTrace = &debugTraces[entityTraceID];		
+
+		const core::u32 entityID = scene->entityTraceIDs[entityTraceID];
+		Entity_s* entity = &scene->entities[entityID];
+
+		if ( !traceDones[entityTraceID] )
+		{
+			Entity_SetVisible( entity, false );
+			continue;
+		}
+
+		core::Color_s color;
+		if ( (debugTrace->tIn > debugTrace->tOut) != !hitTraces[entityTraceID] )
+			color = !hitTraces[entityTraceID] ? core::Color_Make( 255, 0, 0, 255 ) : core::Color_Make( 255, 0, 255, 255 );
+		else if ( !hitTraces[entityTraceID] )
+			core::Color_Make( 0, 0, 255, 255 );
+		else
+			core::Color_Make( 0, 255, 0, 255 );
+
+		BasicVertex_s vertices[2];
+		vertices[0].position = debugTrace->org;
+		vertices[0].color = color;	
+		vertices[1].position = debugTrace->org + 1000000.0f * debugTrace->dir;
+		vertices[1].color = color;
+		Mesh_UpdateVertices( gpuContext->deviceContext, &scene->meshes[entity->meshID], vertices );
+
+		Entity_SetVisible( entity, true );
+#if 0
+		Mesh_UpdateVertices( gpuContext->deviceContext, &scene->meshes[scene->meshLineID], vertices );
+		Entity_SetVisible( &scene->entities[scene->entityLineID], true );
+#endif
+	}
+#endif
+
+#if 0
+	for ( ; entityTraceID < DEBUG_BLOCK_MAX_COUNT; ++entityTraceID )
+	{
+		const core::u32 entityID = scene->entityTraceIDs[entityTraceID];
+		Entity_s* entity = &scene->entities[entityID];
+		Entity_SetVisible( entity, false );
+	}
+#endif
 }
 
 class CRenderingDevice
@@ -2845,6 +3084,7 @@ public:
 	uint				m_width;
 	uint				m_height;
 	float				m_aspectRatio;
+	core::Mat4x4		m_defaultProjMatrix;
 	core::Mat4x4		m_projMatrix;
 	core::Mat4x4		m_cubeProjMatrix;
 };
@@ -2868,8 +3108,10 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
 #if V6_SIMPLE_SCENE == 1
+	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, core::DegToRad( 90.0f ), m_aspectRatio );
 	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), m_aspectRatio );
 #else
+	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );
 	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );
 #endif
 	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
@@ -2970,7 +3212,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	// View
 	RenderingView_s view;
 	view.viewMatrix = *viewMatrix;
-	view.projMatrix = m_projMatrix;	
+	view.projMatrix = m_defaultProjMatrix;	
 
 	// Settings
 	RenderingSettings_s settings;
@@ -2994,14 +3236,21 @@ void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
 {	
 	if ( g_traceGrid )
 	{		
-		Grid_Trace( &gpuContext, m_debugScene, &s_gridCenter, s_gridScale, s_gridOpacity, &s_rayOrg, &s_rayEnd );
+		Block_TraceDisplay( &gpuContext, m_debugScene, &s_gridCenter, s_gridScale, s_gridOccupancy, &s_rayOrg, &s_rayEnd );
 		
 		g_traceGrid = false;
 	}
 
+	if ( g_debugBlocks )
+	{
+		Block_DebugDisplay( &gpuContext, m_debugScene, m_block.debugBlocks, m_block.debugBlockCount, m_block.debugTraces, m_block.debugTraceCount, g_useOccupancy == 2 );
+
+		g_debugBlocks = false;
+	}
+
 	// Rasterization state
-	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateNoZ, 0 );
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );	
+	gpuContext.deviceContext->OMSetDepthStencilState( g_transparentDebug ? gpuContext.depthStencilStateNoZ : gpuContext.depthStencilStateZRW, 0 );
+	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
 		
 	// Viewport
 	{
@@ -3018,12 +3267,16 @@ void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
 	}
 	
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorView, nullptr );
-			
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorView, g_transparentDebug ? nullptr : gpuContext.depthStencilView );
+
+	// Clear
+	if ( !g_transparentDebug )
+		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+				
 	// View
 	RenderingView_s view;
 	view.viewMatrix = *viewMatrix;
-	view.projMatrix = m_projMatrix;	
+	view.projMatrix = m_defaultProjMatrix;	
 
 	// Settings
 	RenderingSettings_s settings;
@@ -3524,7 +3777,7 @@ void CRenderingDevice::TraceBlockV1( const core::Mat4x4* viewMatrix, const core:
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.context.uav, values );
-
+	
 	float gridScale = GRID_MIN_SCALE;
 
 	{
@@ -3574,7 +3827,7 @@ void CRenderingDevice::TraceBlockV1( const core::Mat4x4* viewMatrix, const core:
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );	
 				
 	gpuContext.userDefinedAnnotation->EndEvent();
 
@@ -3599,6 +3852,7 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.context.uav, values );
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.debugBlock.uav, values );
 
 	float gridScale = GRID_MIN_SCALE;
 
@@ -3631,10 +3885,27 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 		const core::Vec2 multiSampledFrameSize = core::Vec2_Make( (float)(m_width * HLSL_PIXEL_SUPER_SAMPLING_WIDTH), (float)(m_height * HLSL_PIXEL_SUPER_SAMPLING_WIDTH) );
 		cbBlock->c_blockMultiSampledFrameSize = multiSampledFrameSize;
 
-		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / multiSampledFrameSize.x, ZNEAR / multiSampledFrameSize.y );
-		cbBlock->c_blockScreenToClipScale = (screenToClipOffset * 2.0f) / multiSampledFrameSize;
-		cbBlock->c_blockScreenToClipOffset = screenToClipOffset;
+		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / m_projMatrix.m_row0.x, ZNEAR / m_projMatrix.m_row1.y );
+		cbBlock->c_blockScreenToClipScale = screenToClipOffset / (multiSampledFrameSize * 0.5f);
+		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
 		cbBlock->c_blockZNear = ZNEAR;
+
+		cbBlock->c_blockDebugPackedID = g_pickedPackedID;
+
+#if HLSL_DEBUG_PIXEL == 1
+		if ( g_mousePicked )
+		{
+			cbBlock->c_blockDebugCoords.x = g_mousePickPosX;
+			cbBlock->c_blockDebugCoords.y = g_mousePickPosY;
+			cbBlock->c_blockDebug = 1;
+		}
+		else
+		{
+			cbBlock->c_blockDebugCoords.x = (core::u32)-1;
+			cbBlock->c_blockDebugCoords.y = (core::u32)-1;
+			cbBlock->c_blockDebug = 0;
+		}
+#endif // #if HLSL_DEBUG_PIXEL == 1
 
 		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
 	}
@@ -3647,6 +3918,8 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, &m_block.context.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_DEBUG_SLOT, 1, &m_block.debugBlock.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_DEBUG_SLOT, 1, &m_block.debugTrace.uav, nullptr );
 	
 	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
@@ -3665,6 +3938,8 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
 	gpuContext.userDefinedAnnotation->EndEvent();
 
@@ -3681,13 +3956,17 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 #if HLSL_DEBUG_PIXEL == 1
 		else
 		{
-#define __MSG_B1( VAR ) V6_MSG( "%30s: %s\n", #VAR, blockContext->VAR ? "true" : "false" );
-#define __MSG_F1( VAR ) V6_MSG( "%30s: %f\n", #VAR, blockContext->VAR );
-#define __MSG_F2( VAR ) V6_MSG( "%30s: %f %f\n", #VAR, blockContext->VAR.x, blockContext->VAR.y );
-#define __MSG_F3( VAR ) V6_MSG( "%30s: %f %f %f\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z );
-#define __MSG_U1( VAR ) V6_MSG( "%30s: %d\n", #VAR, blockContext->VAR );
-#define __MSG_U2( VAR ) V6_MSG( "%30s: %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y );
-#define __MSG_I3( VAR ) V6_MSG( "%30s: %d %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z );
+#define __MSG_B1( VAR )				V6_MSG( "%30s: %s\n", #VAR, blockContext->VAR ? "true" : "false" );
+#define __MSG_F1( VAR )				V6_MSG( "%30s: %f\n", #VAR, blockContext->VAR );
+#define __MSG_F2( VAR )				V6_MSG( "%30s: %f %f\n", #VAR, blockContext->VAR.x, blockContext->VAR.y );
+#define __MSG_F3( VAR )				V6_MSG( "%30s: %f %f %f\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z );
+#define __MSG_U1( VAR )				V6_MSG( "%30s: %d\n", #VAR, blockContext->VAR );
+#define __MSG_U2( VAR )				V6_MSG( "%30s: %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y );
+#define __MSG_I3( VAR )				V6_MSG( "%30s: %d %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z );
+#define __MSG_I4( VAR )				V6_MSG( "%30s: %d %d %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z, blockContext->VAR.w );
+#define __MSG_X1( VAR )				V6_MSG( "%30s: %08X\n", #VAR, blockContext->VAR );			
+#define __MSG_U1_USER( VAR, X )		V6_MSG( "%30s: %d\n", #VAR, X );
+#define __MSG_U2_USER( VAR, X, Y )	V6_MSG( "%30s: %d %d\n", #VAR, X, Y );
 			
 			__MSG_F2( screenPos );
 			__MSG_F2( screenRadius );
@@ -3695,7 +3974,9 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 			__MSG_F2( multiSampledPixelRadius );
 			__MSG_U2( multiSampledMinPixelCoords );
 			__MSG_U2( multiSampledMaxPixelCoords );
-
+			
+			__MSG_U1( packedID );
+			__MSG_U1( blockID );
 			__MSG_B1( cull );
 
 			__MSG_U2( minPixelCoords );
@@ -3747,9 +4028,49 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 			__MSG_I3( step );
 			__MSG_U2( jobPixelCoord );
 
-			Grid_Trace( &gpuContext, m_debugScene, &blockContext->gridCenter, blockContext->gridScale, blockContext->gridOccupancy, &blockContext->rayOrgWS, &blockContext->rayEndWS );
+			__MSG_I4( hitFoundCoords );
+			__MSG_U1( hitFailBits );
+
+			for ( core::u32 y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+			{
+				for ( core::u32 x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+				{
+					if ( blockContext->pixelOccupancies[y][x] == 0 )
+						continue;
+					__MSG_U2_USER( coords, x, y );
+					__MSG_U1( pixelColors[y][x] );
+					__MSG_X1( pixelOccupancies[y][x] );
+					__MSG_F1( pixelDepths[y][x] );
+				}
+			}
+
+			Block_TraceDisplay( &gpuContext, m_debugScene, &blockContext->gridCenter, blockContext->gridScale, blockContext->gridOccupancy, &blockContext->rayOrgWS, &blockContext->rayEndWS );
+
+			{
+				const hlsl::DebugBlock* debugBlocks = GPUBUffer_MapReadBack< hlsl::DebugBlock >( gpuContext.deviceContext, &m_block.debugBlock );
+
+				V6_ASSERT( blockContext->debugBlockCount < DEBUG_BLOCK_MAX_COUNT );
+				memcpy( m_block.debugBlocks, debugBlocks, sizeof( hlsl::DebugBlock ) * blockContext->debugBlockCount );
+				m_block.debugBlockCount = blockContext->debugBlockCount;
+
+				GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.debugBlock );
+
+				V6_MSG( "Saved %d debug blocks\n", m_block.debugBlockCount );
+			}
+
+			{
+				const hlsl::DebugTrace* debugTraces = GPUBUffer_MapReadBack< hlsl::DebugTrace >( gpuContext.deviceContext, &m_block.debugTrace );
+
+				V6_ASSERT( blockContext->debugTraceCount < DEBUG_BLOCK_MAX_COUNT );
+				memcpy( m_block.debugTraces, debugTraces, sizeof( hlsl::DebugTrace ) * blockContext->debugTraceCount );
+				m_block.debugTraceCount = blockContext->debugTraceCount;
+
+				GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.debugTrace );
+
+				V6_MSG( "Saved %d debug traces\n", m_block.debugTraceCount );
+			}
 		}
-#endif // #if HLSL_DEBUG_PIXEL == 1
+#endif // #if HLSL_DEBUG_PIXEL == 1		
 
 		GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.context );
 	}
@@ -3956,6 +4277,8 @@ void CRenderingDevice::PixelTrace()
 		// Read back
 		const hlsl::PixelDebugBuffer* pixelDebugBuffer = GPUBUffer_MapReadBack< hlsl::PixelDebugBuffer >( gpuContext.deviceContext, &m_pixel.debugBuffer );
 		
+		g_pickedPackedID = (core::u32)-1;
+
 		for ( int j = -1; j <= 1; ++j )
 		{
 			for ( int i = -1; i <= 1; ++i )
@@ -3963,6 +4286,7 @@ void CRenderingDevice::PixelTrace()
 				for ( uint layer = 0; layer < pixelDebugBuffer->points[j+1][i+1].layerCount; ++layer )
 				{
 					const hlsl::PixelDebugLayer debugLayer = pixelDebugBuffer->points[j+1][i+1].layers[layer];
+#if 0
 					V6_MSG( "Pixel %2d, %2d: #%d, c ( %.2f, %.2f, %.2f ), d %.1f, uv ( %.2f, %.2f ), wh ( %.2f, %.2f ), min ( %d, %d ), max ( %d, %d )\n", i, j, layer, 
 						debugLayer.colorAndDepth.x, debugLayer.colorAndDepth.y, debugLayer.colorAndDepth.z, 
 						debugLayer.colorAndDepth.w,
@@ -3970,6 +4294,17 @@ void CRenderingDevice::PixelTrace()
 						debugLayer.wh.x, debugLayer.wh.y,
 						debugLayer.uvMin.x, debugLayer.uvMin.y,
 						debugLayer.uvMax.x, debugLayer.uvMax.y );
+#else
+					V6_MSG( "Pixel %2d, %2d: #%d, c ( %.2f, %.2f, %.2f ), d %.1f, uv ( %.2f, %.2f ), wh ( %.2f, %.2f ), packedID %d\n", i, j, layer, 
+						debugLayer.colorAndDepth.x, debugLayer.colorAndDepth.y, debugLayer.colorAndDepth.z, 
+						debugLayer.colorAndDepth.w,
+						debugLayer.uv.x, debugLayer.uv.y,
+						debugLayer.wh.x, debugLayer.wh.y,
+						debugLayer.packedID );
+
+					if ( g_pickedPackedID == (core::u32)-1 )
+						g_pickedPackedID = debugLayer.packedID;
+#endif
 				}
 				if ( pixelDebugBuffer->points[j+1][i+1].layerCount == 0 )
 					V6_MSG( "Pixel %2d, %2d: NO LAYER\n", i, j );
@@ -4273,7 +4608,7 @@ void CRenderingDevice::Release()
 	Cube_Release( &m_cube );
 	Sample_Release( gpuContext.device, &m_sample );
 	Octree_Release( gpuContext.device, &m_octree );
-	Block_Release( gpuContext.device, &m_block );
+	Block_Release( gpuContext.device, &m_block, m_heap );
 	Pixel_Release( gpuContext.device, &m_pixel );
 	Msaa_Release( gpuContext.device, &m_msaa );
 

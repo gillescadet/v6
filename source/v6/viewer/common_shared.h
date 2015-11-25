@@ -33,8 +33,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SLOT					12
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			13
 #define HLSL_BLOCK_CONTEXT_SLOT						14
-#define HLSL_PIXEL_COLOR_SLOT						15
-#define HLSL_PIXEL_DEBUG_SLOT						16
+#define HLSL_BLOCK_DEBUG_SLOT						15
+#define HLSL_TRACE_DEBUG_SLOT						16
+#define HLSL_PIXEL_COLOR_SLOT						17
+#define HLSL_PIXEL_DEBUG_SLOT						18
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 #define HLSL_GENERIC_ALPHA_SLOT						3
@@ -59,6 +61,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SRV					CONCAT( t, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SRV			CONCAT( t, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_SRV						CONCAT( t, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_DEBUG_SRV						CONCAT( t, HLSL_BLOCK_DEBUG_SLOT )
+#define HLSL_TRACE_DEBUG_SRV						CONCAT( t, HLSL_TRACE_DEBUG_SLOT )
 
 #define HLSL_PIXEL_COLOR_SRV						CONCAT( t, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_SRV						CONCAT( t, HLSL_PIXEL_DEBUG_SLOT )
@@ -82,6 +86,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_UAV					CONCAT( u, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV			CONCAT( u, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_UAV						CONCAT( u, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_DEBUG_UAV						CONCAT( u, HLSL_BLOCK_DEBUG_SLOT )
+#define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
 
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
@@ -114,8 +120,7 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				64
-#define HLSL_BLOCK_THREAD_GROUP_SIZE				128
-#define HLSL_TRACE_THREAD_GROUP_SIZE				64
+#define HLSL_BLOCK_THREAD_GROUP_SIZE				64
 #define	HLSL_MIP_MAX_COUNT							8
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
@@ -192,6 +197,12 @@ CBUFFER( CBBlock, 4 )
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
 	uint				c_blockUseOccupancy;
+
+#if HLSL_DEBUG_BLOCK == 1
+	uint				c_blockDebugPackedID;
+	uint				c_blockDebug;
+	uint2				c_blockDebugCoords;
+#endif // #if HLSL_DEBUG_BLOCK == 1
 };
 
 CBUFFER( CBPixel, 5 )
@@ -230,6 +241,9 @@ struct BlockCellItem
 	uint	r8g8b8a8;
 	uint	u8v8w8h8;
 	float	depth;
+#if HLSL_DEBUG_BLOCK == 1
+	uint	packedID;
+#endif // HLSL_DEBUG_BLOCK == 1
 	uint	nextID;
 };
 
@@ -245,6 +259,8 @@ struct BlockContext
 	uint2 multiSampledMinPixelCoords;
 	uint2 multiSampledMaxPixelCoords;
 	
+	uint packedID;
+	uint blockID;
 	bool cull;
 	
 	uint2 minPixelCoords;
@@ -296,7 +312,51 @@ struct BlockContext
 	int3 step;
 	uint2 jobPixelCoord;
 
+	int4 hitFoundCoords;
+	uint hitFailBits;
+
+	uint	pixelColors[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	uint	pixelOccupancies[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	float	pixelDepths[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
 #endif // HLSL_DEBUG_BLOCK == 1
+
+#if HLSL_DEBUG_PIXEL == 1
+	uint debugBlockCount;
+	uint debugTraceCount;
+#endif // #if HLSL_DEBUG_PIXEL == 1
+};
+
+struct DebugBlock
+{
+	float3	posWS;
+	uint	color;
+	uint	mip;
+	uint	occupancy;	
+	uint	jobCount;
+};
+
+struct DebugTrace
+{
+	float3	blockCenter;
+	uint	blockOccupancy;
+
+	float3	org;
+	float3	dir;	
+	float	tIn;
+	float	tOut;
+	
+	float	scale;
+	float	offset;	
+	float3	pIn;
+	float3	coordIn;			
+	int3	coords;
+	float3	tCur;
+	float3	tDelta;		
+	int3	step;
+	uint2	jobPixelCoord;
+
+	int4	hitFoundCoords;
+	uint	hitFailBits;
 };
 
 #if HLSL_DEBUG_PIXEL == 1
@@ -306,8 +366,9 @@ struct PixelDebugLayer
 	float4 colorAndDepth;
 	float2 uv;	
 	float2 wh;
-	int2 uvMin;
-	int2 uvMax;
+	//int2 uvMin;
+	//int2 uvMax;
+	uint packedID;
 };
 
 struct PixelDebugPoint
@@ -326,7 +387,7 @@ struct PixelDebugBuffer
 struct PixelBlendDebugLayer
 {
 	float4 colorAndDepth;
-	uint occupancy;
+	uint occupancy;	
 };
 
 struct PixelBlendDebugBuffer
