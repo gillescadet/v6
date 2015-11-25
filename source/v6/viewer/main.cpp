@@ -434,10 +434,14 @@ struct Block_s
 	GPUBuffer_s					context;
 	GPUBuffer_s					debugBlock;
 	GPUBuffer_s					debugTrace;
+#if HLSL_DEBUG_BLOCK == 1
 	hlsl::DebugBlock*			debugBlocks;
 	core::u32					debugBlockCount;
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
 	hlsl::DebugTrace*			debugTraces;
 	core::u32					debugTraceCount;
+#endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
 struct Pixel_s
@@ -1878,12 +1882,16 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
 	GPUBuffer_CreateTyped( device, &block->firstCellItemIDs, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );
 	GPUBuffer_CreateStructured( device, &block->context, sizeof( hlsl::BlockContext ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockContext" );
-	GPUBuffer_CreateStructured( device, &block->debugBlock, sizeof( hlsl::DebugBlock ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockDebugPixel" );
-	GPUBuffer_CreateStructured( device, &block->debugTrace, sizeof( hlsl::DebugTrace ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTracePixel" );
+#if HLSL_DEBUG_BLOCK == 1
+	GPUBuffer_CreateStructured( device, &block->debugBlock, sizeof( hlsl::DebugBlock ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockDebugPixel" );	
 	block->debugBlocks = heap->newArray< hlsl::DebugBlock >( DEBUG_BLOCK_MAX_COUNT );
 	block->debugBlockCount = 0;
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
+	GPUBuffer_CreateStructured( device, &block->debugTrace, sizeof( hlsl::DebugTrace ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTracePixel" );
 	block->debugTraces = heap->newArray< hlsl::DebugTrace >( DEBUG_BLOCK_MAX_COUNT );
 	block->debugTraceCount = 0;
+#endif // #if HLSL_DEBUG_PIXEL == 1
 }
 
 static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocator* heap )
@@ -1893,10 +1901,14 @@ static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocato
 	GPUBuffer_Release( device, &block->cellItems );
 	GPUBuffer_Release( device, &block->firstCellItemIDs );
 	GPUBuffer_Release( device, &block->context );
+#if HLSL_DEBUG_BLOCK == 1
 	GPUBuffer_Release( device, &block->debugBlock );
-	GPUBuffer_Release( device, &block->debugTrace );
 	heap->deleteArray( block->debugBlocks );
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
+	GPUBuffer_Release( device, &block->debugTrace );
 	heap->deleteArray( block->debugTraces );
+#endif // #if HLSL_DEBUG_PIXEL == 1	
 }
 
 static void Pixel_Create( ID3D11Device* device, Pixel_s* pixel, const Config_s* config, core::IAllocator* heap )
@@ -2428,8 +2440,10 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	//const char* filenameOBJ = "D:/media/obj/hairball/hairball.obj";	
 	//const char* filenameOBJ = "D:/media/obj/hairball/hairball_simple.obj";
 	//const char* filenameOBJ = "D:/media/obj/hairball/hairball_simple2.obj";
-
+		
 	//const char* filenameOBJ = "D:/media/obj/sibenik/sibenik.obj";
+
+	//const float scale = 1.0f;
 	//const char* filenameOBJ = "D:/media/obj/conference/conference.obj";
 	
 	const float scale = 1.0f;
@@ -2887,6 +2901,8 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 		Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], (hitFound & (1 << cellID)) != 0 );
 }
 
+#if HLSL_DEBUG_BLOCK == 1 && HLSL_DEBUG_PIXEL == 1
+
 void Block_DebugDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const hlsl::DebugBlock* debugBlocks, core::u32 debugBlockCount, const hlsl::DebugTrace* debugTraces, core::u32 debugTraceCount, bool showOccupancy )
 {
 	float cellScales[16];
@@ -3033,6 +3049,8 @@ void Block_DebugDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const hl
 	}
 #endif
 }
+
+#endif // #if HLSL_DEBUG_BLOCK == 1 && HLSL_DEBUG_PIXEL == 1
 
 class CRenderingDevice
 {
@@ -3241,12 +3259,14 @@ void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
 		g_traceGrid = false;
 	}
 
+#if HLSL_DEBUG_BLOCK == 1 && HLSL_DEBUG_PIXEL == 1
 	if ( g_debugBlocks )
 	{
 		Block_DebugDisplay( &gpuContext, m_debugScene, m_block.debugBlocks, m_block.debugBlockCount, m_block.debugTraces, m_block.debugTraceCount, g_useOccupancy == 2 );
 
 		g_debugBlocks = false;
 	}
+#endif // #if HLSL_DEBUG_BLOCK == 1 && HLSL_DEBUG_PIXEL == 1
 
 	// Rasterization state
 	gpuContext.deviceContext->OMSetDepthStencilState( g_transparentDebug ? gpuContext.depthStencilStateNoZ : gpuContext.depthStencilStateZRW, 0 );
@@ -3890,7 +3910,9 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
 		cbBlock->c_blockZNear = ZNEAR;
 
+#if HLSL_DEBUG_BLOCK == 1
 		cbBlock->c_blockDebugPackedID = g_pickedPackedID;
+#endif // #if HLSL_DEBUG_BLOCK == 1
 
 #if HLSL_DEBUG_PIXEL == 1
 		if ( g_mousePicked )

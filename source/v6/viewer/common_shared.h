@@ -11,8 +11,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
 #define HLSL_DEBUG_COLLECT							1
-#define HLSL_DEBUG_BLOCK							1
-#define HLSL_DEBUG_PIXEL							1
+#define HLSL_DEBUG_BLOCK							0
+#define HLSL_DEBUG_PIXEL							0
 #define HLSL_TRACE_USE_ALIGNED_QUAD					1
 
 #define HLSL_TRILINEAR_SLOT							0
@@ -326,6 +326,8 @@ struct BlockContext
 #endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
+#if HLSL_DEBUG_BLOCK == 1
+
 struct DebugBlock
 {
 	float3	posWS;
@@ -334,6 +336,10 @@ struct DebugBlock
 	uint	occupancy;	
 	uint	jobCount;
 };
+
+#endif // #if HLSL_DEBUG_BLOCK == 1
+
+#if HLSL_DEBUG_PIXEL == 1
 
 struct DebugTrace
 {
@@ -358,8 +364,6 @@ struct DebugTrace
 	int4	hitFoundCoords;
 	uint	hitFailBits;
 };
-
-#if HLSL_DEBUG_PIXEL == 1
 
 struct PixelDebugLayer
 {

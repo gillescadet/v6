@@ -8,8 +8,12 @@
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
 RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
+#if HLSL_DEBUG_BLOCK == 1
 RWStructuredBuffer< DebugBlock > debugBlocks				: register( HLSL_BLOCK_DEBUG_UAV );
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
 RWStructuredBuffer< DebugTrace > debugTraces				: register( HLSL_TRACE_DEBUG_UAV );
+#endif // #if HLSL_DEBUG_PIXEL == 1
 
 struct TraceBlock_s
 {
@@ -48,7 +52,7 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 	
 	uint3 boxMin = uint3( 2, 2, 2 );
 	uint3 boxMax = uint3( 0, 0, 0 );
-	
+		
 	{
 		uint occupancyBit = 0;
 		for ( uint z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
@@ -109,6 +113,7 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 	multiSampledMinPixelCoords = clamp( int2( multiSampledPixelPos - multiSampledPixelRadius ), 0, c_blockMultiSampledFrameSize-1 );
 	multiSampledMaxPixelCoords = clamp( int2( multiSampledPixelPos + multiSampledPixelRadius ), 0, c_blockMultiSampledFrameSize-1 );	
 
+	debugBlock = false;
 #if HLSL_DEBUG_BLOCK == 1
 	if ( debug )
 	{
@@ -123,9 +128,6 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 #if HLSL_DEBUG_PIXEL == 1
 	const uint2 pixelPos = mad( screenPos, 0.5f, 0.5f ) * c_blockFrameSize;
 	debugBlock = c_blockDebug != 0 && (c_blockDebugCoords.x >> 3) == (pixelPos.x >> 3) && (c_blockDebugCoords.y >> 3) == ((((uint)c_blockFrameSize.y - pixelPos.y - 1) ) >> 3);
-	//debugBlock = c_blockDebug != 0 && c_blockDebugCoords.x == pixelPos.x && c_blockDebugCoords.y == ((uint)c_blockFrameSize.y - pixelPos.y - 1);
-#else
-	debugBlock = false;
 #endif // #if HLSL_DEBUG_PIXEL == 1
 
 #endif // #if HLSL_DEBUG_BLOCK == 1
@@ -395,8 +397,13 @@ void ParallelTrace( uint blockID )
 		
 				if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
 				{
+#if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
 					if ( debug )
 						blockContext[0].hitFoundCoords = int4( coords, -1 );
+#endif //#if HLSL_DEBUG_PIXEL == 1
+#endif // #if HLSL_DEBUG_BLOCK == 1
+
 					hitFound = true;
 				}			
 #endif
@@ -468,12 +475,13 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 	const uint packedID = DTid.x;
 	const uint blockID = GTid.x;	
 
+	bool debug = false;
 #if HLSL_DEBUG_BLOCK == 1
 	if ( GRID_CELL_BUCKET == 3 && packedID == c_blockDebugPackedID )
 		InterlockedMax( g_debugBlockID, (int)blockID );
 	else
 		InterlockedMin( g_debugBlockID, -1 );
-	const bool debug = GRID_CELL_BUCKET == 3 && packedID == c_blockDebugPackedID;
+	debug = GRID_CELL_BUCKET == 3 && packedID == c_blockDebugPackedID;
 #endif	
 	
 	// Decode
@@ -485,7 +493,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 
 	// Parallel Init
 
-	ParallelInit( blockID );
+	if ( !cull )
+		ParallelInit( blockID );
 
 	AllMemoryBarrierWithGroupSync();
 
@@ -539,5 +548,6 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 
 	// Output
 
-	Output( blockCell, pixelDepth, blockID, minPixelCoords, debug );	
+	if ( !cull )
+		Output( blockCell, pixelDepth, blockID, minPixelCoords, debug );	
 }
