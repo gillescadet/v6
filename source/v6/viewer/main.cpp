@@ -143,6 +143,11 @@ enum
 	COMPUTE_BLOCK_TRACE16,
 	COMPUTE_BLOCK_TRACE32,
 	COMPUTE_BLOCK_TRACE64,
+	COMPUTE_BLOCK_TRACE_STATS4,
+	COMPUTE_BLOCK_TRACE_STATS8,
+	COMPUTE_BLOCK_TRACE_STATS16,
+	COMPUTE_BLOCK_TRACE_STATS32,
+	COMPUTE_BLOCK_TRACE_STATS64,
 	COMPUTE_FILTERPIXEL,
 	COMPUTE_TRACEPIXEL,
 	COMPUTE_BLENDPIXEL,
@@ -432,13 +437,14 @@ struct Block_s
 	GPUBuffer_s					cellItems;
 	GPUBuffer_s					firstCellItemIDs;
 	GPUBuffer_s					context;
-	GPUBuffer_s					debugBlock;
-	GPUBuffer_s					debugTrace;
+	GPUBuffer_s					stats;
 #if HLSL_DEBUG_BLOCK == 1
+	GPUBuffer_s					debugBlock;	
 	hlsl::DebugBlock*			debugBlocks;
 	core::u32					debugBlockCount;
 #endif // #if HLSL_DEBUG_BLOCK == 1
 #if HLSL_DEBUG_PIXEL == 1
+	GPUBuffer_s					debugTrace;
 	hlsl::DebugTrace*			debugTraces;
 	core::u32					debugTraceCount;
 #endif // #if HLSL_DEBUG_PIXEL == 1
@@ -491,7 +497,7 @@ static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
 static int g_traceMode						= 0; 
 static bool g_showVoxel						= false;
-static int g_useOccupancy					= 2;
+static int g_useOccupancy					= 1;
 static bool g_randomBackground				= false;
 static bool g_traceGrid						= false;
 static bool g_readMSAASamplePositions		= false;
@@ -996,7 +1002,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 
 static void ReadBack_Log( const char* res, core::u32 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: %8d\n", res, name, value );
+	V6_MSG( "%-16s %-30s: %10d\n", res, name, value );
 }
 
 static void ReadBack_Log( const char* res, float value, const char* name )
@@ -1660,6 +1666,11 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS4], "block_trace_stats_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS8], "block_trace_stats_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS16], "block_trace_stats_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS32], "block_trace_stats_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_FILTERPIXEL], "pixel_filter_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_TRACEPIXEL], "pixel_trace_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
@@ -1882,6 +1893,7 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
 	GPUBuffer_CreateTyped( device, &block->firstCellItemIDs, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );
 	GPUBuffer_CreateStructured( device, &block->context, sizeof( hlsl::BlockContext ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockContext" );
+	GPUBuffer_CreateStructured( device, &block->stats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
 #if HLSL_DEBUG_BLOCK == 1
 	GPUBuffer_CreateStructured( device, &block->debugBlock, sizeof( hlsl::DebugBlock ), DEBUG_BLOCK_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockDebugPixel" );	
 	block->debugBlocks = heap->newArray< hlsl::DebugBlock >( DEBUG_BLOCK_MAX_COUNT );
@@ -1901,6 +1913,7 @@ static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocato
 	GPUBuffer_Release( device, &block->cellItems );
 	GPUBuffer_Release( device, &block->firstCellItemIDs );
 	GPUBuffer_Release( device, &block->context );
+	GPUBuffer_Release( device, &block->stats );
 #if HLSL_DEBUG_BLOCK == 1
 	GPUBuffer_Release( device, &block->debugBlock );
 	heap->deleteArray( block->debugBlocks );
@@ -3872,7 +3885,11 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.context.uav, values );
+	if ( s_logReadBack )
+		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.stats.uav, values );
+#if HLSL_DEBUG_BLOCK == 1
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.debugBlock.uav, values );
+#endif // #if HLSL_DEBUG_BLOCK == 1
 
 	float gridScale = GRID_MIN_SCALE;
 
@@ -3940,14 +3957,23 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, &m_block.context.uav, nullptr );
+	if ( s_logReadBack )
+		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_TRACE_STATS_SLOT, 1, &m_block.stats.uav, nullptr );
+#if HLSL_DEBUG_BLOCK == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_DEBUG_SLOT, 1, &m_block.debugBlock.uav, nullptr );
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_DEBUG_SLOT, 1, &m_block.debugTrace.uav, nullptr );
+#endif // #if HLSL_DEBUG_PIXEL == 1
 	
 	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Bucket");
-			
-		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
+		
+		if ( s_logReadBack )
+			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_STATS4+bucket].m_computeShader, nullptr, 0 );
+		else
+			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
 		
 		gpuContext.deviceContext->DispatchIndirect( m_block.indirectArgs.buf, block_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
 
@@ -3960,24 +3986,18 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CONTEXT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	if ( s_logReadBack )
+		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+#if HLSL_DEBUG_BLOCK == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+#endif // #if HLSL_DEBUG_BLOCK == 1
+#if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-				
+#endif // #if HLSL_DEBUG_PIXEL == 1				
 	gpuContext.userDefinedAnnotation->EndEvent();
 
 	if ( s_logReadBack || g_mousePicked )
 	{
-		const hlsl::BlockContext* blockContext = GPUBUffer_MapReadBack< hlsl::BlockContext >( gpuContext.deviceContext, &m_block.context );
-
-		if ( s_logReadBack )
-		{
-			V6_MSG( "\n" );
-			ReadBack_Log( "block", blockContext->cellItemCount, "cellItemCount" );
-			V6_ASSERT( blockContext->cellItemCount < m_config.cellItemCount );
-		}
-#if HLSL_DEBUG_PIXEL == 1
-		else
-		{
 #define __MSG_B1( VAR )				V6_MSG( "%30s: %s\n", #VAR, blockContext->VAR ? "true" : "false" );
 #define __MSG_F1( VAR )				V6_MSG( "%30s: %f\n", #VAR, blockContext->VAR );
 #define __MSG_F2( VAR )				V6_MSG( "%30s: %f %f\n", #VAR, blockContext->VAR.x, blockContext->VAR.y );
@@ -3987,9 +4007,36 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 #define __MSG_I3( VAR )				V6_MSG( "%30s: %d %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z );
 #define __MSG_I4( VAR )				V6_MSG( "%30s: %d %d %d %d\n", #VAR, blockContext->VAR.x, blockContext->VAR.y, blockContext->VAR.z, blockContext->VAR.w );
 #define __MSG_X1( VAR )				V6_MSG( "%30s: %08X\n", #VAR, blockContext->VAR );			
+#define __MSG_FORMAT_INTEGER( VAR )	V6_MSG( "%30s: %10s\n", #VAR, FormatInteger_Unsafe( blockContext->VAR ) );
 #define __MSG_U1_USER( VAR, X )		V6_MSG( "%30s: %d\n", #VAR, X );
 #define __MSG_U2_USER( VAR, X, Y )	V6_MSG( "%30s: %d %d\n", #VAR, X, Y );
-			
+
+		const hlsl::BlockContext* blockContext = GPUBUffer_MapReadBack< hlsl::BlockContext >( gpuContext.deviceContext, &m_block.context );
+		
+		if ( s_logReadBack )
+		{
+			V6_MSG( "\n" );
+			ReadBack_Log( "block", blockContext->cellItemCount, "cellItemCount" );
+			V6_ASSERT( blockContext->cellItemCount < m_config.cellItemCount );
+
+			{
+				const hlsl::BlockTraceStats* blockStats = GPUBUffer_MapReadBack< hlsl::BlockTraceStats >( gpuContext.deviceContext, &m_block.stats );
+
+				ReadBack_Log( "block", blockStats->blockInputCount, "blockInputCount" );
+				ReadBack_Log( "block", blockStats->blockProcessedCount, "blockProcessedCount" );
+				ReadBack_Log( "block", blockStats->traceInputCount, "traceInputCount" );
+				ReadBack_Log( "block", blockStats->traceProcessedCount, "traceProcessedCount" );
+				ReadBack_Log( "block", blockStats->traceStepCount, "traceStepCount" );
+				ReadBack_Log( "block", blockStats->traceHitCount, "traceHitCount" );
+				ReadBack_Log( "block", blockStats->pixelGridCount, "pixelGridCount" );
+				ReadBack_Log( "block", blockStats->pixelCellCount, "pixelCellCount" );
+
+				GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.stats );
+			}	
+		}
+#if HLSL_DEBUG_PIXEL == 1
+		else
+		{
 			__MSG_F2( screenPos );
 			__MSG_F2( screenRadius );
 			__MSG_F2( multiSampledPixelPos );
@@ -4642,8 +4689,6 @@ void CRenderingDevice::Release()
 
 END_V6_VIEWER_NAMESPACE
 
-#if 1
-
 int main()
 {
 	V6_MSG( "Viewer 0.1\n" );
@@ -4727,7 +4772,7 @@ int main()
 			TranslateMessage(&msg);
 			DispatchMessageA(&msg);
 
-			if (msg.message == WM_QUIT)
+			if ( msg.message == WM_QUIT )
 			{
 				oRenderingDevice.Release();
 #if V6_LOAD_EXTERNAL == 1
@@ -4742,188 +4787,3 @@ int main()
 		oRenderingDevice.Present();
 	}
 }
-
-#else
-
-using namespace v6;
-
-struct Box
-{
-	uint3 p0;
-	uint3 p1;
-};
-
-struct MergedBox
-{
-	Box main;
-	Box min;
-	uint mask0;
-	uint mask1;		
-};
-
-static uint Box_Volume( Box box )
-{
-	return (box.p1.x - box.p0.x + 1) * (box.p1.y - box.p0.y + 1) * (box.p1.z - box.p0.z + 1);
-};
-
-static Box Box_Merge( Box box0, Box box1 )
-{
-	Box box;
-	box.p0.x = core::Min( box0.p0.x, box1.p0.x );
-	box.p0.y = core::Min( box0.p0.y, box1.p0.y );
-	box.p0.z = core::Min( box0.p0.z, box1.p0.z );
-	box.p1.x = core::Max( box0.p1.x, box1.p1.x );
-	box.p1.y = core::Max( box0.p1.y, box1.p1.y );
-	box.p1.z = core::Max( box0.p1.z, box1.p1.z );
-	return box;
-};
-
-static MergedBox MergedBox_Merge( MergedBox box0, MergedBox box1 )
-{
-	MergedBox mergedBox;
-	mergedBox.main = Box_Merge( box0.main, box1.main );
-	mergedBox.min = Box_Volume( box0.min ) < Box_Volume( box1.min ) ? box0.min : box1.min;
-	mergedBox.mask0 = box0.mask0 | box1.mask0;
-	mergedBox.mask1 = box0.mask1 | box1.mask1;
-	return mergedBox;
-};
-
-static bool MergedBox_HasID( MergedBox box, uint id )
-{
-	if ( id < 32 )
-		return (box.mask0 & (1 << id)) != 0;
-	return (box.mask0 & (1 << (id-32))) != 0;
-};
-
-static const char* Box_ToString( Box box )
-{
-	static char str[4096];
-	static char* p = str;
-	if ( p + 64 > str + sizeof( str ) )
-		p = str;
-	char* r = p;
-	p += sprintf( p, "(%d %d %d)-(%d %d %d): %02d", box.p0.x, box.p0.y, box.p0.z, box.p1.x, box.p1.y, box.p1.z, Box_Volume( box ) ) + 1;
-	return r;
-}
-
-int main()
-{
-#if 0
-	core::u32 count = 0;
-	for ( core::u32 z0 = 0; z0 < 3; ++z0 )
-	{
-		for ( core::u32 y0 = 0; y0 < 3; ++y0 )
-		{
-			for ( core::u32 x0 = 0; x0 < 3; ++x0 )
-			{
-				for ( core::u32 z1 = z0; z1 < 3; ++z1 )
-				{
-					for ( core::u32 y1 = y0; y1 < 3; ++y1 )
-					{
-						for ( core::u32 x1 = x0; x1 < 3; ++x1 )
-						{
-							printf( "case %03d: (%d %d %d) (%d %d %d)\n", count, x0, y0, z0, x1, y1, z1 );
-							++count;
-						}
-					}
-				}
-			}
-		}
-	}
-#endif
-	
-
-	Box originalBoxes[16];
-	MergedBox mergedBoxes[16];
-
-	for ( uint boxID = 0; boxID < 16; ++boxID )
-	{
-		Box box;
-	
-		box.p0.x = rand() % 3;
-		box.p0.y = rand() % 3;
-		box.p0.z = rand() % 3;
-		box.p1.x = rand() % 3;
-		box.p1.y = rand() % 3;
-		box.p1.z = rand() % 3;
-			
-		if ( box.p0.x > box.p1.x )
-			core::Swap( box.p0.x, box.p1.x );
-		if ( box.p0.y > box.p1.y )
-			core::Swap( box.p0.y, box.p1.y );
-		if ( box.p0.z > box.p1.z )
-			core::Swap( box.p0.z, box.p1.z );
-
-		printf( "box (%d %d %d)-(%d %d %d) / %02d\n", box.p0.x, box.p0.y, box.p0.z, box.p1.x, box.p1.y, box.p1.z, Box_Volume( box ) );
-
-		originalBoxes[boxID] = box;
-		
-		mergedBoxes[boxID].main = box;
-		mergedBoxes[boxID].min = box;
-		if ( boxID < 32 )
-		{
-			mergedBoxes[boxID].mask0 = 1 << boxID;
-			mergedBoxes[boxID].mask1 = 0;
-		}
-		else
-		{
-			mergedBoxes[boxID].mask0 = 0;
-			mergedBoxes[boxID].mask1 = 1 << (boxID-32);
-		}
-	}	
-	
-	uint mergedCount = 16;
-	while ( mergedCount > 6 )
-	{
-		uint minKey = 0xFFFFFFFF;
-		for ( uint mergedBoxID0 = 0; mergedBoxID0 < mergedCount; ++mergedBoxID0 )
-		{
-			for ( uint mergedBoxID1 = mergedBoxID0+1; mergedBoxID1 < mergedCount; ++mergedBoxID1 )
-			{
-				const MergedBox mergedBox = MergedBox_Merge( mergedBoxes[mergedBoxID0], mergedBoxes[mergedBoxID1] );
-				const uint volumeMerged = Box_Volume( mergedBox.main );
-				const uint volumeBox0 = Box_Volume( mergedBoxes[mergedBoxID0].min );
-				const uint volumeBox1 = Box_Volume( mergedBoxes[mergedBoxID1].min );
-				uint key = 0;
-				key |= (volumeMerged - core::Min( volumeBox0, volumeBox1 )) << 22;
-				key |= (volumeMerged - core::Max( volumeBox0, volumeBox1 )) << 17;
-				key |= core::Max( volumeBox0, volumeBox1 ) << 12;
-				key |= mergedBoxID1 << 6;
-				key |= mergedBoxID0 << 0;
-				minKey = core::Min( minKey, key );
-			}
-		}
-
-		const uint boxID0 = (minKey >> 0) & 0x3F;
-		const uint boxID1 = (minKey >> 6) & 0x3F;
-		const MergedBox mergedBox = MergedBox_Merge( mergedBoxes[boxID0], mergedBoxes[boxID1] );
-
-		printf( "merge boxes %s and %s into %s\n", Box_ToString( mergedBoxes[boxID0].main ), Box_ToString( mergedBoxes[boxID1].main ), Box_ToString( mergedBox.main ) );
-
-		mergedBoxes[boxID0] = mergedBox;
-		--mergedCount;
-		core::Swap( mergedBoxes[boxID1], mergedBoxes[mergedCount] );		
-	}
-
-	uint mergeIDs[16];
-	for ( uint mergeID = 0; mergeID < mergedCount; ++mergeID )
-	{
-		const MergedBox mergedBox = mergedBoxes[mergeID];
-		printf( "merged %s\n", Box_ToString( mergedBox.main ) );
-		for ( uint boxID = 0; boxID < 16; ++boxID )
-		{
-			if ( MergedBox_HasID( mergedBox, boxID ) )
-				mergeIDs[boxID] = mergeID;
-		}
-	}
-
-	for ( uint boxID = 0; boxID < 16; ++boxID )
-	{
-		const Box originalBox = originalBoxes[boxID];
-		const uint mergeID = mergeIDs[boxID];
-		const MergedBox mergedBox = mergedBoxes[mergeID];
-		printf( "boxes %s => %s\n", Box_ToString( originalBox ), Box_ToString( mergedBox.main ) );
-	}
-}
-
-#endif

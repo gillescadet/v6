@@ -33,10 +33,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SLOT					12
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			13
 #define HLSL_BLOCK_CONTEXT_SLOT						14
-#define HLSL_BLOCK_DEBUG_SLOT						15
-#define HLSL_TRACE_DEBUG_SLOT						16
-#define HLSL_PIXEL_COLOR_SLOT						17
-#define HLSL_PIXEL_DEBUG_SLOT						18
+#define HLSL_BLOCK_TRACE_STATS_SLOT					15
+#define HLSL_BLOCK_DEBUG_SLOT						16
+#define HLSL_TRACE_DEBUG_SLOT						17
+#define HLSL_PIXEL_COLOR_SLOT						18
+#define HLSL_PIXEL_DEBUG_SLOT						19
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 #define HLSL_GENERIC_ALPHA_SLOT						3
@@ -61,6 +62,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SRV					CONCAT( t, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SRV			CONCAT( t, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_SRV						CONCAT( t, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_TRACE_STATS_SRV					CONCAT( t, HLSL_BLOCK_TRACE_STATS_SLOT )
 #define HLSL_BLOCK_DEBUG_SRV						CONCAT( t, HLSL_BLOCK_DEBUG_SLOT )
 #define HLSL_TRACE_DEBUG_SRV						CONCAT( t, HLSL_TRACE_DEBUG_SLOT )
 
@@ -86,6 +88,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_UAV					CONCAT( u, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV			CONCAT( u, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_UAV						CONCAT( u, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_TRACE_STATS_UAV					CONCAT( u, HLSL_BLOCK_TRACE_STATS_SLOT )
 #define HLSL_BLOCK_DEBUG_UAV						CONCAT( u, HLSL_BLOCK_DEBUG_SLOT )
 #define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
 
@@ -248,72 +251,72 @@ struct BlockCellItem
 };
 
 struct BlockContext
-{
-	uint cellItemCount;
-#if HLSL_DEBUG_BLOCK == 1
-	
-	float2 screenPos;
-	float2 screenRadius;
-	float2 multiSampledPixelPos;
-	float2 multiSampledPixelRadius;
-	uint2 multiSampledMinPixelCoords;
-	uint2 multiSampledMaxPixelCoords;
-	
-	uint packedID;
-	uint blockID;
-	bool cull;
-	
-	uint2 minPixelCoords;
-	uint2 multiSampledMinPixelBase;	
-	uint2 multiSampledMinPixelOffset;
-	uint2 multiSampledSize;
-	uint multiSampledPixelCount;	
-	uint jobCount;
+{	
+	uint	cellItemCount;
 
-	uint jobBlockID;
-	uint jobWidth;
-	uint jobOffset;
-	uint jobMip;
-	uint jobPixelID;
-	uint jobPixelBaseX;
-	uint jobPixelBaseY;
-	uint jobPixelOffsetX;
-	uint jobPixelOffsetY;
-	float lineCount;
-	float jobPixelX;
-	float jobPixelY;		
+#if HLSL_DEBUG_BLOCK == 1	
+	float2	screenPos;
+	float2	screenRadius;
+	float2	multiSampledPixelPos;
+	float2	multiSampledPixelRadius;
+	uint2	multiSampledMinPixelCoords;
+	uint2	multiSampledMaxPixelCoords;
+	
+	uint	packedID;
+	uint	blockID;
+	bool	cull;
+	
+	uint2	minPixelCoords;
+	uint2	multiSampledMinPixelBase;	
+	uint2	multiSampledMinPixelOffset;
+	uint2	multiSampledSize;
+	uint	multiSampledPixelCount;	
+	uint	jobCount;
+
+	uint	jobBlockID;
+	uint	jobWidth;
+	uint	jobOffset;
+	uint	jobMip;
+	uint	jobPixelID;
+	uint	jobPixelBaseX;
+	uint	jobPixelBaseY;
+	uint	jobPixelOffsetX;
+	uint	jobPixelOffsetY;
+	float	lineCount;
+	float	jobPixelX;
+	float	jobPixelY;		
 		
-	float3 gridCenter;
-	float gridScale;
-	uint gridOccupancy;
+	float3	gridCenter;
+	float	gridScale;
+	uint	gridOccupancy;
 
-	float2 jobMultiSampledScreenPos;
-	float3 rayEndVS;
-	float3 rayOrgWS;	
-	float3 rayEndWS;
-	float3 rayDir;
-	float3 rayInvDir;
-	float3 alpha;
-	float3 beta;	
-	float3 t0;
-	float3 t1;
-	float3 tMin;
-	float3 tMax;
-	float tIn;
-	float tOut;
+	float2	jobMultiSampledScreenPos;
+	float3	rayEndVS;
+	float3	rayOrgWS;	
+	float3	rayEndWS;
+	float3	rayDir;
+	float3	rayInvDir;
+	float3	alpha;
+	float3	beta;	
+	float3	t0;
+	float3	t1;
+	float3	tMin;
+	float3	tMax;
+	float	tIn;
+	float	tOut;
 
-	float scale;
-	float offset;	
-	float3 pIn;
-	float3 coordIn;			
-	int3 coords;
-	float3 tCur;
-	float3 tDelta;		
-	int3 step;
-	uint2 jobPixelCoord;
+	float	scale;
+	float	offset;	
+	float3	pIn;
+	float3	coordIn;			
+	int3	coords;
+	float3	tCur;
+	float3	tDelta;		
+	int3	step;
+	uint2	jobPixelCoord;
 
-	int4 hitFoundCoords;
-	uint hitFailBits;
+	int4	hitFoundCoords;
+	uint	hitFailBits;
 
 	uint	pixelColors[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
 	uint	pixelOccupancies[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
@@ -321,9 +324,21 @@ struct BlockContext
 #endif // HLSL_DEBUG_BLOCK == 1
 
 #if HLSL_DEBUG_PIXEL == 1
-	uint debugBlockCount;
-	uint debugTraceCount;
+	uint	debugBlockCount;
+	uint	debugTraceCount;
 #endif // #if HLSL_DEBUG_PIXEL == 1
+};
+
+struct BlockTraceStats 
+{
+	uint	blockInputCount;
+	uint	blockProcessedCount;
+	uint	traceInputCount;
+	uint	traceProcessedCount;
+	uint	traceStepCount;
+	uint	traceHitCount;
+	uint	pixelGridCount;
+	uint	pixelCellCount;
 };
 
 #if HLSL_DEBUG_BLOCK == 1

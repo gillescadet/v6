@@ -8,6 +8,9 @@
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
 RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
+#if BLOCK_GET_STATS == 1
+RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_BLOCK_TRACE_STATS_UAV );
+#endif // #if BLOCK_GET_STATS == 1
 #if HLSL_DEBUG_BLOCK == 1
 RWStructuredBuffer< DebugBlock > debugBlocks				: register( HLSL_BLOCK_DEBUG_UAV );
 #endif // #if HLSL_DEBUG_BLOCK == 1
@@ -174,6 +177,11 @@ void Assign( BlockCell blockCell, uint blockID, uint2 multiSampledMinPixelCoords
 		InterlockedAnd( g_jobs[jobBucket], ~(0xFF << jobShift) );
 		InterlockedOr( g_jobs[jobBucket], blockID << jobShift );
 	}
+
+#if BLOCK_GET_STATS == 1
+	InterlockedAdd( blockTraceStats[0].blockProcessedCount, 1 );
+	InterlockedAdd( blockTraceStats[0].traceInputCount, multiSampledPixelCount );
+#endif // #if BLOCK_GET_STATS == 1
 }
 
 uint Mod3( uint n )
@@ -285,6 +293,10 @@ void ParallelTrace( uint blockID )
 		if ( tIn > tOut )
 			continue;
 
+#if BLOCK_GET_STATS == 1
+		InterlockedAdd( blockTraceStats[0].traceProcessedCount, 1 );
+#endif // #if BLOCK_GET_STATS == 1
+
 		const float scale = c_blockGridScales[jobMip].z;
 		const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;	
 		const float3 pIn = mad( rayDir, tIn, rayOrgWS );
@@ -334,18 +346,19 @@ void ParallelTrace( uint blockID )
 		
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
-#if 1
-		bool hitFound = false;
-		while ( !hitFound )
+		uint stopTraversal = 0;
+		while ( !stopTraversal )
 		{
+#if BLOCK_GET_STATS == 1
+			InterlockedAdd( blockTraceStats[0].traceStepCount, 1 );
+#endif // #if BLOCK_GET_STATS == 1
 			const uint occupancyBit = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
 			if ( (block.occupancy & (1 << occupancyBit)) != 0 )
 			{				
-#if 1
 				const uint pixelTraceBucket = jobBlockID * traceCellWidthPerBlock + Div3( jobPixelCoord.y );
 				const uint pixelTraceCellBit = Div3( jobPixelCoord.x ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + Mod3( jobPixelCoord.y ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + Mod3( jobPixelCoord.x );
 				InterlockedOr( g_traceCellBits[pixelTraceBucket], 1 << pixelTraceCellBit );
-#endif
+
 #if HLSL_DEBUG_BLOCK == 1
 				if ( debug )
 					blockContext[0].hitFoundCoords = int4( coords, 1 );
@@ -357,7 +370,7 @@ void ParallelTrace( uint blockID )
 
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
-				hitFound = true;
+				stopTraversal = 2;
 			}
 			else
 			{
@@ -404,13 +417,15 @@ void ParallelTrace( uint blockID )
 #endif //#if HLSL_DEBUG_PIXEL == 1
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
-					hitFound = true;
+					stopTraversal = 1;
 				}			
 #endif
 			}
 
 		}
-#endif
+#if BLOCK_GET_STATS == 1
+		InterlockedAdd( blockTraceStats[0].traceHitCount, stopTraversal == 2 ? 1 : 0 );
+#endif // #if BLOCK_GET_STATS == 1
 	}
 }
 
@@ -442,12 +457,6 @@ void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixel
 			
 			BlockCellItem blockCellItem;
 			blockCellItem.r8g8b8a8 = (blockCell.color & ~0xFF) | 0xFF;
-#if 0
-			blockCellItem.r8g8b8a8 = 0xFF;
-			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 1 ? 0xFF000000 : 0;
-			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 2 ? 0x00FF0000 : 0;
-			blockCellItem.r8g8b8a8 |= (GRID_CELL_BUCKET+1) & 4 ? 0x0000FF00 : 0;
-#endif
 			blockCellItem.u8v8w8h8 = pixelOccupancy;
 			blockCellItem.depth = pixelDepth;
 #if HLSL_DEBUG_BLOCK == 1
@@ -465,6 +474,11 @@ void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixel
 				blockContext[0].pixelDepths[y][x] = blockCellItem.depth;
 			}
 #endif // #if HLSL_DEBUG_BLOCK == 1
+
+#if BLOCK_GET_STATS == 1
+			InterlockedAdd( blockTraceStats[0].pixelGridCount, 1 );
+			InterlockedAdd( blockTraceStats[0].pixelCellCount, countbits( pixelOccupancy ) );
+#endif // #if BLOCK_GET_STATS == 1
 		}
 	}
 }
@@ -490,6 +504,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 
 	BlockCell blockCell = (BlockCell)0;
 	bool cull = packedID >= maxCellCount || !PackedColor_Unpack( packedID, blockCell );
+
+#if BLOCK_GET_STATS == 1
+	InterlockedAdd( blockTraceStats[0].blockInputCount, 1 );	
+#endif // #if BLOCK_GET_STATS == 1
 
 	// Parallel Init
 
