@@ -95,6 +95,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					const uint b = (octreeLeaves[childLeafID].z9_b23 & 0x007FFFFF) / sampleCount;
 					const uint cellPos = ((childID0&4)<<3) | ((childID1&4)<<2) | ((childID0&2)<<2) | ((childID1&2)<<1) | ((childID0&1)<<1) | ((childID1&1)<<0);
 					cellRGBA[cellCount] = (r << 24) | (g << 16) | (b << 8) | cellPos;
+
 					cellOccupancy[cellCount] = octreeLeaves[childLeafID].occupancy27;
 					++cellCount;
 
@@ -109,6 +110,28 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	[branch]
 	if ( cellCount < cellMinCount )
 		return;
+
+#if HLSL_DEBUG_OCCUPANCY == 1
+	{
+		uint uniqueOccupancyCount = 0;
+		for ( uint cellID = 0; cellID < cellCount; ++cellID )
+		{
+			const uint occupancy = cellOccupancy[cellID];
+			uint cellOccupancyID = 0;
+			for ( cellOccupancyID = 0; cellOccupancyID < cellID; ++cellOccupancyID )
+			{
+				if ( cellOccupancy[cellOccupancyID] == occupancy )
+				{
+					break;
+				}
+			}
+			uniqueOccupancyCount += cellOccupancyID == cellID ? 1 : 0;
+		}	
+
+		InterlockedAdd( block_uniqueOccupancyCount( c_octreeCurrentBucket ), uniqueOccupancyCount );
+		InterlockedMax( block_uniqueOccupancyMax( c_octreeCurrentBucket ), uniqueOccupancyCount );
+	}
+#endif // #if HLSL_DEBUG_OCCUPANCY == 1
 
 	InterlockedAdd( block_cellCount( c_octreeCurrentBucket ), cellCount );
 			

@@ -10,6 +10,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
+#define HLSL_DEBUG_OCCUPANCY						1
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_BLOCK							0
 #define HLSL_DEBUG_PIXEL							0
@@ -491,7 +492,11 @@ struct PixelBlendDebugBuffer
 #define block_count_offset(	BUCKET )						(block_cellGroupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
 #define block_packedOffset_offset( BUCKET )					(block_count_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
 #define block_cellCount_offset( BUCKET )					(block_packedOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET)
-#define block_all_offset									block_cellCount_offset( HLSL_BUCKET_COUNT )
+
+#define block_uniqueOccupancyCount_offset( BUCKET )			(block_cellCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
+#define block_uniqueOccupancyMax_offset( BUCKET )			(block_uniqueOccupancyCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
+
+#define block_all_offset									block_uniqueOccupancyMax_offset( HLSL_BUCKET_COUNT )
 
 #define block_vertexCountPerInstance( BUCKET )				blockIndirectArgs[block_vertexCountPerInstance_offset( BUCKET )]
 #define block_renderInstanceCount( BUCKET )					blockIndirectArgs[block_renderInstanceCount_offset( BUCKET )]
@@ -517,6 +522,10 @@ struct PixelBlendDebugBuffer
 #define block_count( BUCKET )								blockIndirectArgs[block_count_offset( BUCKET )]
 #define block_packedOffset( BUCKET )						blockIndirectArgs[block_packedOffset_offset( BUCKET )]
 #define block_cellCount( BUCKET )							blockIndirectArgs[block_cellCount_offset( BUCKET )]
+
+#define block_uniqueOccupancyCount( BUCKET )				blockIndirectArgs[block_uniqueOccupancyCount_offset( BUCKET )]
+#define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
+
 
 END_V6_HLSL_NAMESPACE
 

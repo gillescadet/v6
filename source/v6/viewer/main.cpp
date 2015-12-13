@@ -172,6 +172,18 @@ enum
 
 enum
 {
+	QUERY_FREQUENCY,
+	QUERY_FRAME_BEGIN,
+	QUERY_T0,
+	QUERY_T1,
+	QUERY_T2,
+	QUERY_FRAME_END,
+
+	QUERY_COUNT
+};
+
+enum
+{
 	MESH_TRIANGLE,
 	MESH_BOX_WIREFRAME,
 	MESH_BOX_RED,
@@ -297,6 +309,12 @@ struct GPUMesh_s
 	D3D11_PRIMITIVE_TOPOLOGY m_topology;	
 };
 
+struct GPUQuery_s 
+{
+	ID3D11Query*	query;
+	core::u64		data;
+};
+
 struct GPUContext_s
 {
 	IDXGISwapChain*				swapChain;	
@@ -331,6 +349,8 @@ struct GPUContext_s
 	GPUConstantBuffer_s			constantBuffers[CONSTANT_BUFFER_COUNT];
 	GPUCompute_s				computes[COMPUTE_COUNT];
 	GPUShader_s					shaders[SHADER_COUNT];
+	GPUQuery_s					queries[2][QUERY_COUNT];
+	GPUQuery_s*					pendingQueries;
 };
 
 struct RenderingView_s
@@ -684,12 +704,12 @@ static const char* ModeToString( DrawMode_e drawMode )
 		case DRAW_MODE_BLOCK: 
 		{
 			if ( g_showVoxel )
-				return "voxel block";
+				return "voxel";
 			if ( g_traceMode == 1)
-				return "trace block V1";
+				return "traceV1";
 			if ( g_traceMode == 2)
-				return "trace block V2";
-			return "draw block";
+				return "traceV2";
+			return "point";
 		}
 	}
 	return "unknown";
@@ -1350,6 +1370,77 @@ static void ConstantBuffer_UnmapWrite( ID3D11DeviceContext* context, GPUConstant
 	context->Unmap( buffer->buf, 0 );
 }
 
+static void GPUQuery_CreateTimeStamp( ID3D11Device* device, GPUQuery_s* query )
+{
+	query->data = 0;
+
+	D3D11_QUERY_DESC queryDesc = {};
+	queryDesc.Query = D3D11_QUERY_TIMESTAMP;
+    queryDesc.MiscFlags = 0;
+	V6_ASSERT_D3D11( device->CreateQuery( &queryDesc, &query->query ) );
+}
+
+static void GPUQuery_CreateTimeStampDisjoint( ID3D11Device* device, GPUQuery_s* query )
+{
+	query->data = 0;
+
+	D3D11_QUERY_DESC queryDesc = {};
+	queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    queryDesc.MiscFlags = 0;
+	V6_ASSERT_D3D11( device->CreateQuery( &queryDesc, &query->query ) );
+}
+
+static void GPUQuery_BeginTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
+{
+	V6_ASSERT( query->data != (core::u64)-1 );
+	query->data = (core::u64)-1;
+	context->Begin( query->query );
+}
+
+static void GPUQuery_EndTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
+{
+	V6_ASSERT( query->data == (core::u64)-1 );
+	query->data = 0;
+	context->End( query->query );
+}
+
+static bool GPUQuery_ReadTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
+{
+	V6_ASSERT( query->data != (core::u64)-1 );
+	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timestampDisjoint = {};
+	if ( context->GetData( query->query, &timestampDisjoint, sizeof( timestampDisjoint ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) != S_OK )
+		return false;
+	if ( timestampDisjoint.Disjoint || timestampDisjoint.Frequency == 0 )
+		return false;
+	query->data = timestampDisjoint.Frequency;
+	return true;
+}
+
+static void GPUQuery_WriteTimeStamp( ID3D11DeviceContext* context, GPUQuery_s* query )
+{
+	query->data = 0;
+	context->End( query->query );
+}
+
+static bool GPUQuery_ReadTimeStamp( ID3D11DeviceContext* context, GPUQuery_s* query )
+{
+	return context->GetData( query->query, &query->data, sizeof( query->data ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) == S_OK;
+}
+
+static float GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* queryEnd, const GPUQuery_s* queryDisjoint )
+{
+	V6_ASSERT( queryStart->data != (core::u64)-1 );
+	V6_ASSERT( queryEnd->data != (core::u64)-1 );
+	V6_ASSERT( queryDisjoint->data != 0 );
+	V6_ASSERT( queryDisjoint->data != (core::u64)-1 );
+	return (float)(queryEnd->data - queryStart->data) / queryDisjoint->data;
+}
+
+static void GPUQuery_Release( GPUQuery_s* query )
+{
+	query->query->Release();
+}
+
 static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32 height, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack )
 {
 	memset( context, 0, sizeof( *context ) );
@@ -1685,6 +1776,17 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER32], "block_render_x32_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_BLOCK_RENDER64], "block_render_x64_vs.cso", "block_render_ps.cso", 0, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_MSAA], "msaa_vs.cso", "msaa_ps.cso", 0, fileSystem, stack );
+
+	for ( core::u32 bufferID = 0; bufferID < 2; ++bufferID )
+	{
+		for ( core::u32 queryID = 0; queryID < QUERY_COUNT; ++queryID )
+		{
+			if ( queryID == QUERY_FREQUENCY )
+				GPUQuery_CreateTimeStampDisjoint( device, &context->queries[bufferID][queryID] );
+			else
+				GPUQuery_CreateTimeStamp( device, &context->queries[bufferID][queryID] );
+		}
+	}
 }
 
 void GPUContext_Release( GPUContext_s* context )
@@ -1709,6 +1811,12 @@ void GPUContext_Release( GPUContext_s* context )
 		shader->m_vertexShader->Release();
 		shader->m_pixelShader->Release();
 		shader->m_inputLayout->Release();
+	}
+
+	for ( core::u32 bufferID = 0; bufferID < 2; ++bufferID )
+	{
+		for ( core::u32 queryID = 0; queryID < QUERY_COUNT; ++queryID )
+			GPUQuery_Release( &context->queries[bufferID][queryID] );
 	}
 		
 	context->colorBuffer->Release();
@@ -3666,27 +3774,30 @@ void CRenderingDevice::PackColor()
 
 		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 		{
-			if ( blockIndirectArgs[block_count_offset( bucket )] == 0 )
+			if ( block_count( bucket ) == 0 )
 				continue;
 
 			static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
-			const core::u32 maxCellCount = blockIndirectArgs[block_count_offset( bucket )] * cellPerBucketCounts[bucket];
+			const core::u32 maxCellCount = block_count( bucket ) * cellPerBucketCounts[bucket];
 
 			V6_MSG( "\n" );
 			ReadBack_Log( "block", bucket, "bucket" );
-			V6_ASSERT( blockIndirectArgs[block_vertexCountPerInstance_offset( bucket )] == 1 );
-			ReadBack_Log( "block", blockIndirectArgs[block_renderInstanceCount_offset( bucket )], "renderInstanceCount" );
-			V6_ASSERT( blockIndirectArgs[block_startVertexLocation_offset( bucket )] == 0 );
-			V6_ASSERT( blockIndirectArgs[block_renderInstanceLocation_offset( bucket )] == 0 );
-			ReadBack_Log( "block", blockIndirectArgs[block_cellGroupCountX_offset( bucket )], "cellGroupCountX" );
-			V6_ASSERT( blockIndirectArgs[block_cellGroupCountY_offset( bucket )] == 1 );
-			V6_ASSERT( blockIndirectArgs[block_cellGroupCountZ_offset( bucket )] == 1 );
-			ReadBack_Log( "block", blockIndirectArgs[block_count_offset( bucket )], "blockCount" );
-			ReadBack_Log( "block", blockIndirectArgs[block_packedOffset_offset( bucket )], "packedOffset" );
-			ReadBack_Log( "block", blockIndirectArgs[block_cellCount_offset( bucket )], "realCellCount" );
+			V6_ASSERT( block_vertexCountPerInstance( bucket ) == 1 );
+			ReadBack_Log( "block", block_renderInstanceCount( bucket ), "renderInstanceCount" );
+			V6_ASSERT( block_startVertexLocation( bucket ) == 0 );
+			V6_ASSERT( block_renderInstanceLocation( bucket ) == 0 );
+			ReadBack_Log( "block", block_cellGroupCountX( bucket ), "cellGroupCountX" );
+			V6_ASSERT( block_cellGroupCountY( bucket ) == 1 );
+			V6_ASSERT( block_cellGroupCountZ( bucket ) == 1 );
+			ReadBack_Log( "block", block_count( bucket ), "blockCount" );
+			ReadBack_Log( "block", block_packedOffset( bucket ), "packedOffset" );
+			ReadBack_Log( "block", block_cellCount( bucket ), "realCellCount" );
+			ReadBack_Log( "block", maxCellCount, "maxCellCount" );
+			ReadBack_Log( "block", block_uniqueOccupancyCount( bucket ) / (float)block_count( bucket ), "avgOccupancyCount" );
+			ReadBack_Log( "block", block_uniqueOccupancyMax( bucket ), "maxOccupancyCount" );
 			ReadBack_Log( "block", maxCellCount, "maxCellCount" );
 
-			allRealCellCount += blockIndirectArgs[block_cellCount_offset( bucket )];
+			allRealCellCount += block_cellCount( bucket );
 			allMaxCellCount += maxCellCount;
 		}		
 
@@ -4584,7 +4695,12 @@ void CRenderingDevice::Draw( float dt )
 	
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
+		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+
 		DrawWorld( &viewMatrix );
+
+		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
+		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
 #if 0
@@ -4598,6 +4714,8 @@ void CRenderingDevice::Draw( float dt )
 		if ( g_sample < SAMPLE_MAX_COUNT )
 		{
 			V6_MSG( "Capturing sample #%03d...", g_sample );
+
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 
 			static core::u32 lastSumLeafCount = 0;
 
@@ -4629,34 +4747,58 @@ void CRenderingDevice::Draw( float dt )
 			
 			++g_sample;
 
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
+
 			if ( g_sample == SAMPLE_MAX_COUNT )
 			{
 				PackColor();
 				V6_MSG( "          all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
 				s_logReadBack = false;
 			}
+
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 		}
 		else
 		{
-			if ( !g_traceMode || g_showMip || g_showOverdraw || g_showVoxel || !g_useOccupancy )
+			if ( !g_traceMode || g_showMip || g_showOverdraw || g_showVoxel || !g_useOccupancy )			
 			{
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+				
 				DrawBlock( &viewMatrix, &s_sampleCenter, g_showMip, g_showOverdraw, g_showVoxel, g_useOccupancy );
+				
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
+				
 				if ( g_filterPixel && !g_showMip && !g_showOverdraw && !g_showVoxel )
 					PixelFilter();
+				
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			}
 			else if ( g_traceMode == 1 )
 			{
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+				
 				TraceBlockV1( &viewMatrix, &s_sampleCenter );
+				
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
+
 				if ( g_filterPixel )
 					PixelTrace();
+
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			}
 			else if ( g_traceMode == 2 )
 			{
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+
 				TraceBlockV2( &viewMatrix, &s_sampleCenter );
+
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 #if 1
 				if ( g_filterPixel )
 					PixelBlend();
 #endif
+
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			}
 
 			s_logReadBack = false;
@@ -4709,7 +4851,7 @@ int main()
 	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;
 	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM / 2;	
 
-	const char* const title = "V6 Player | version: 0.1";
+	const char* const title = "V6";
 
 	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth, nHeight );
 	if (!hWnd)
@@ -4735,6 +4877,27 @@ int main()
 	__int64 frameTickLast = GetTickCount(); 
 	for ( __int64 frameId = 0; ; ++frameId )
 	{
+		const v6::core::u32 bufferID = frameId & 1;
+
+		v6::viewer::GPUQuery_s* pendingQueries = oRenderingDevice.gpuContext.queries[bufferID];
+		static float tfTime = 0.0f;
+		static float t0Time = 0.0f;
+		static float t1Time = 0.0f;
+		static int tCount = 0;
+		if ( v6::viewer::GPUQuery_ReadTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] ) )
+		{
+			for ( v6::core::u32 queryID = v6::viewer::QUERY_FRAME_BEGIN; queryID < v6::viewer::QUERY_COUNT; ++queryID )
+				v6::viewer::GPUQuery_ReadTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[queryID] );
+			
+			tfTime += v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_FRAME_BEGIN], &pendingQueries[v6::viewer::QUERY_FRAME_END], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+			t0Time += v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T0], &pendingQueries[v6::viewer::QUERY_T1], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+			t1Time += v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T1], &pendingQueries[v6::viewer::QUERY_T2], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+			
+			++tCount;
+		}
+		
+		oRenderingDevice.gpuContext.pendingQueries = pendingQueries;
+		
 		__int64 frameTick = v6::core::GetTickCount(); 
 		__int64 frameDelta = frameTick - frameTickLast;
 
@@ -4760,9 +4923,20 @@ int main()
 			if ( fpsDelta > 0.0f )
 			{
 				const float fps = 10 / v6::core::ConvertTicksToSeconds( fpsDelta );
-				char text[256];
-				sprintf_s( text, sizeof( text ), "%s | fps: %.1f | %s mode", title, fps, v6::viewer::ModeToString( v6::viewer::g_drawMode ) );
+				char text[1024];
+				sprintf_s( text, sizeof( text ), "%s | fps: %.1f | tf: %.2f | t0: %.2f | t1: %.2f | %s mode", 
+					title, 
+					fps, 
+					tfTime * 1000.0f / tCount,
+					t0Time * 1000.0f / tCount,
+					t1Time * 1000.0f / tCount,
+					v6::viewer::ModeToString( v6::viewer::g_drawMode ) );
 				SetWindowTextA( hWnd, text );
+
+				tfTime = 0;
+				t0Time = 0;
+				t1Time = 0;
+				tCount = 0;
 			}
 		}
 		
@@ -4782,8 +4956,15 @@ int main()
 				return 0;
 			}
 		}
-			
-		oRenderingDevice.Draw( dt );
+				
+		v6::viewer::GPUQuery_BeginTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+		v6::viewer::GPUQuery_WriteTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FRAME_BEGIN] );
+		
+		oRenderingDevice.Draw( dt );		
+
+		v6::viewer::GPUQuery_WriteTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FRAME_END] );
+		v6::viewer::GPUQuery_EndTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+
 		oRenderingDevice.Present();
 	}
 }
