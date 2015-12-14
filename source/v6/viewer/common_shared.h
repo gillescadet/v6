@@ -34,11 +34,13 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SLOT					12
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			13
 #define HLSL_BLOCK_CONTEXT_SLOT						14
-#define HLSL_BLOCK_TRACE_STATS_SLOT					15
-#define HLSL_BLOCK_DEBUG_SLOT						16
-#define HLSL_TRACE_DEBUG_SLOT						17
-#define HLSL_PIXEL_COLOR_SLOT						18
-#define HLSL_PIXEL_DEBUG_SLOT						19
+#define HLSL_BLOCK_DEBUG_SLOT						15
+#define HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT			16
+#define HLSL_TRACE_INDIRECT_ARGS_SLOT				17
+#define HLSL_TRACE_STATS_SLOT						18
+#define HLSL_TRACE_DEBUG_SLOT						19
+#define HLSL_PIXEL_COLOR_SLOT						20
+#define HLSL_PIXEL_DEBUG_SLOT						21
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 #define HLSL_GENERIC_ALPHA_SLOT						3
@@ -63,8 +65,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_SRV					CONCAT( t, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SRV			CONCAT( t, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_SRV						CONCAT( t, HLSL_BLOCK_CONTEXT_SLOT )
-#define HLSL_BLOCK_TRACE_STATS_SRV					CONCAT( t, HLSL_BLOCK_TRACE_STATS_SLOT )
 #define HLSL_BLOCK_DEBUG_SRV						CONCAT( t, HLSL_BLOCK_DEBUG_SLOT )
+
+#define HLSL_TRACE_CULLED_BLOCK_COLOR_SRV			CONCAT( t, HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT )
+#define HLSL_TRACE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_TRACE_INDIRECT_ARGS_SLOT )
+#define HLSL_TRACE_STATS_SRV						CONCAT( t, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_SRV						CONCAT( t, HLSL_TRACE_DEBUG_SLOT )
 
 #define HLSL_PIXEL_COLOR_SRV						CONCAT( t, HLSL_PIXEL_COLOR_SLOT )
@@ -89,16 +94,19 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_CELL_ITEM_UAV					CONCAT( u, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV			CONCAT( u, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_UAV						CONCAT( u, HLSL_BLOCK_CONTEXT_SLOT )
-#define HLSL_BLOCK_TRACE_STATS_UAV					CONCAT( u, HLSL_BLOCK_TRACE_STATS_SLOT )
 #define HLSL_BLOCK_DEBUG_UAV						CONCAT( u, HLSL_BLOCK_DEBUG_SLOT )
+
+#define HLSL_TRACE_CULLED_BLOCK_COLOR_UAV			CONCAT( u, HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT )
+#define HLSL_TRACE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_TRACE_INDIRECT_ARGS_SLOT )
+#define HLSL_TRACE_STATS_UAV						CONCAT( u, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
 
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						8
+#define HLSL_GRID_MACRO_SHIFT						9
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
-#define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)w
+#define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_MASK						(HLSL_GRID_MACRO_WIDTH-1)
 
@@ -485,9 +493,13 @@ struct PixelBlendDebugBuffer
 #define block_baseVertexLocation2_offset( BUCKET )			(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 3))
 #define block_startInstanceLocation2_offset( BUCKET )		(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 4))
 
-#define block_cellGroupCountX_offset( BUCKET )				(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 0))
-#define block_cellGroupCountY_offset( BUCKET )				(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 1))
-#define block_cellGroupCountZ_offset( BUCKET )				(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 2))
+#define block_groupCountX_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 0))
+#define block_groupCountY_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 1))
+#define block_groupCountZ_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 2))
+
+#define block_cellGroupCountX_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 0))
+#define block_cellGroupCountY_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 1))
+#define block_cellGroupCountZ_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 2))
 
 #define block_count_offset(	BUCKET )						(block_cellGroupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
 #define block_packedOffset_offset( BUCKET )					(block_count_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
@@ -515,6 +527,10 @@ struct PixelBlendDebugBuffer
 #define block_baseVertexLocation2( BUCKET )					blockIndirectArgs[block_baseVertexLocation2_offset( BUCKET )]
 #define block_startInstanceLocation2( BUCKET )				blockIndirectArgs[block_startInstanceLocation2_offset( BUCKET )]
 
+#define block_groupCountX( BUCKET )							blockIndirectArgs[block_groupCountX_offset( BUCKET )]
+#define block_groupCountY( BUCKET )							blockIndirectArgs[block_groupCountY_offset( BUCKET )]
+#define block_groupCountZ( BUCKET )							blockIndirectArgs[block_groupCountZ_offset( BUCKET )]
+
 #define block_cellGroupCountX( BUCKET )						blockIndirectArgs[block_cellGroupCountX_offset( BUCKET )]
 #define block_cellGroupCountY( BUCKET )						blockIndirectArgs[block_cellGroupCountY_offset( BUCKET )]
 #define block_cellGroupCountZ( BUCKET )						blockIndirectArgs[block_cellGroupCountZ_offset( BUCKET )]
@@ -526,6 +542,16 @@ struct PixelBlendDebugBuffer
 #define block_uniqueOccupancyCount( BUCKET )				blockIndirectArgs[block_uniqueOccupancyCount_offset( BUCKET )]
 #define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
 
+#define trace_culledCellGroupCountX_offset					0
+#define trace_culledCellGroupCountY_offset					1
+#define trace_culledCellGroupCountZ_offset					2
+#define trace_culledBlockCount_offset						3
+#define trace_all_offset									4
+
+#define trace_culledCellGroupCountX							traceIndirectArgs[trace_culledCellGroupCountX_offset]
+#define trace_culledCellGroupCountY							traceIndirectArgs[trace_culledCellGroupCountY_offset]
+#define trace_culledCellGroupCountZ							traceIndirectArgs[trace_culledCellGroupCountZ_offset]
+#define trace_culledBlockCount								traceIndirectArgs[trace_culledBlockCount_offset]
 
 END_V6_HLSL_NAMESPACE
 

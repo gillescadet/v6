@@ -1,5 +1,9 @@
 #include "block_render.hlsli"
+
+Buffer< uint > blockColors									: register( HLSL_BLOCK_COLOR_SRV );
 #include "block_cell.hlsli"
+
+Buffer< uint > blockIndirectArgs							: register( HLSL_BLOCK_INDIRECT_ARGS_SRV );
 
 void ComputeBoundigBoxFromOccupancy( uint occupancy, out uint3 boxMin, out uint3 boxMax )
 {
@@ -68,7 +72,8 @@ PixelInput main( uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID  )
 		instanceID = instanceID / HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE;
 	}
 
-	if ( !PackedColor_Unpack( instanceID, blockCell ) )
+	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );
+	if ( !PackedColor_Unpack( instanceID, packedOffset, blockCell ) )
 	{	
 		o.position = float4( -2.0, -2.0, -2.0, 1.0 );
 	}

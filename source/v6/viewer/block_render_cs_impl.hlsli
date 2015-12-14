@@ -1,10 +1,13 @@
 #define HLSL
 
 #include "common_shared.h"
+
+Buffer< uint > blockColors									: register( HLSL_BLOCK_COLOR_SRV );
 #include "block_cell.hlsli"
 
 #define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH
 
+Buffer< uint > blockIndirectArgs							: register( HLSL_BLOCK_INDIRECT_ARGS_SRV );
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
 RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
@@ -21,7 +24,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	BlockCell blockCell;
 
-	if ( !PackedColor_Unpack( packedID, blockCell ) )
+	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );
+	if ( !PackedColor_Unpack( packedID, packedOffset, blockCell ) )
 		return;
 
 	const matrix mx = mul( c_blockViewToProj, c_blockObjectToView );
@@ -83,7 +87,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		minScreenPos = min( minScreenPos, screenPos );
 		maxScreenPos = max( maxScreenPos, screenPos );
 		pixelDepth = min( pixelDepth, posCS.w );
-		clippedCount += any( abs( posCS.xyz ) > posCS.w ) ? 1 : 0;
+		clippedCount += (abs( posCS.x ) > posCS.w || abs( posCS.y ) > posCS.w || posCS.w < 0) ? 1 : 0;
 	}
 
 	if ( clippedCount == 8 )
@@ -98,7 +102,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #else // #if HLSL_TRACE_USE_ALIGNED_QUAD == 1
 	const float4 posCS = mul( mx, float4( blockCell.posOS, 1.0 ) );
 
-	if ( any( abs( posCS.xyz ) > posCS.w ) )
+	if ( abs( posCS.x ) > posCS.w || abs( posCS.y ) > posCS.w || posCS.w < 0 )
 		return;
 
 	const float2 pixelOrg = mad( posCS.xy / posCS.w, 0.5f, 0.5f ) * c_blockFrameSize;

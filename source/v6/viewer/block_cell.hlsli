@@ -2,9 +2,6 @@
 #define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
 #define GRID_CELL_MASK		(GRID_CELL_COUNT-1)
 
-TYPEDBUFFER( blockColors, uint, HLSL_BLOCK_COLOR_SLOT );
-TYPEDBUFFER( blockIndirectArgs, uint, HLSL_BLOCK_INDIRECT_ARGS_SLOT );
-
 struct BlockCell
 {	
 	float3	posWS;
@@ -14,7 +11,7 @@ struct BlockCell
 	uint	occupancy;
 };
 
-bool PackedColor_Unpack( uint packedID, OUTPUT( BlockCell ) o )
+bool PackedColor_Unpack( uint packedID, uint packedOffset, OUTPUT( BlockCell ) o )
 {
 	o.posWS = float3( 0.0f, 0.0f, 0.0f );
 	o.halfCellSize = 0.0f;
@@ -22,8 +19,7 @@ bool PackedColor_Unpack( uint packedID, OUTPUT( BlockCell ) o )
 	o.mip = 0;
 	o.occupancy = 0;
 
-	const uint blockID = packedID >> GRID_CELL_SHIFT;
-	const uint packedOffset = block_packedOffset( GRID_CELL_BUCKET );	
+	const uint blockID = packedID >> GRID_CELL_SHIFT;	
 	const uint packedCount = 1 + GRID_CELL_COUNT * HLSL_COUNT;
 	const uint packedBaseID = packedOffset + blockID * packedCount;	
 	const uint packedRank = packedBaseID + 1 + (packedID & GRID_CELL_MASK) * HLSL_COUNT;

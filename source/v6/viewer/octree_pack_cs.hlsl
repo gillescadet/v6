@@ -26,6 +26,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		block_vertexCountPerInstance( c_octreeCurrentBucket ) = 1;
 		block_indexCountPerInstance( c_octreeCurrentBucket ) = 36;
 		block_indexCountPerInstance2( c_octreeCurrentBucket ) = 36;
+		block_groupCountY( c_octreeCurrentBucket ) = 1;
+		block_groupCountZ( c_octreeCurrentBucket ) = 1;
 		block_cellGroupCountY( c_octreeCurrentBucket ) = 1;
 		block_cellGroupCountZ( c_octreeCurrentBucket ) = 1;
 	}
@@ -154,11 +156,14 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	}
 
 	const uint blockCount = blockID + 1;
+	const uint groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+	InterlockedMax( block_groupCountX( c_octreeCurrentBucket ), groupCount );
+
 	const uint instanceCount = blockCount * cellMaxCount;
 	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), instanceCount );
 	InterlockedMax( block_instanceCount( c_octreeCurrentBucket ), instanceCount );
 	InterlockedMax( block_instanceCount2( c_octreeCurrentBucket ), instanceCount * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE );
 
-	const uint groupCount = GROUP_COUNT( instanceCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
-	InterlockedMax( block_cellGroupCountX( c_octreeCurrentBucket ), groupCount );
+	const uint groupCellCount = GROUP_COUNT( instanceCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+	InterlockedMax( block_cellGroupCountX( c_octreeCurrentBucket ), groupCellCount );
 }

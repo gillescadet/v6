@@ -1,15 +1,18 @@
 #define HLSL
 
 #include "common_shared.h"
+
+Buffer< uint > blockColors									: register( HLSL_TRACE_CULLED_BLOCK_COLOR_SRV );
 #include "block_cell.hlsli"
 
 #define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH
 
+Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV );
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
 RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
 #if BLOCK_GET_STATS == 1
-RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_BLOCK_TRACE_STATS_UAV );
+RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_TRACE_STATS_UAV );
 #endif // #if BLOCK_GET_STATS == 1
 #if HLSL_DEBUG_BLOCK == 1
 RWStructuredBuffer< DebugBlock > debugBlocks				: register( HLSL_BLOCK_DEBUG_UAV );
@@ -106,7 +109,7 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 		minScreenPos = min( minScreenPos, screenPos );
 		maxScreenPos = max( maxScreenPos, screenPos );
 		pixelDepth = min( pixelDepth, posCS.w );
-		clippedCount += any( abs( posCS.xyz ) > posCS.w ) ? 1 : 0;
+		clippedCount += (abs( posCS.x ) > posCS.w || abs( posCS.y ) > posCS.w || posCS.w < 0) ? 1 : 0;
 	}
 	
 	const float2 screenPos = (minScreenPos + maxScreenPos) * 0.5f;
@@ -500,10 +503,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 	
 	// Decode
 
-	const uint maxCellCount = blockIndirectArgs[block_count_offset( GRID_CELL_BUCKET )] * GRID_CELL_COUNT;
+	const uint maxCellCount = trace_culledBlockCount * GRID_CELL_COUNT;
 
 	BlockCell blockCell = (BlockCell)0;
-	bool cull = packedID >= maxCellCount || !PackedColor_Unpack( packedID, blockCell );
+	bool cull = packedID >= maxCellCount || !PackedColor_Unpack( packedID, 0, blockCell );
 
 #if BLOCK_GET_STATS == 1
 	InterlockedAdd( blockTraceStats[0].blockInputCount, 1 );	
