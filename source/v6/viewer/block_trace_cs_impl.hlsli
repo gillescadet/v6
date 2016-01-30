@@ -563,7 +563,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 
 	AllMemoryBarrierWithGroupSync();
 
-	ParallelTrace( blockID );
+	if ( !c_blockSkipTrace )
+		ParallelTrace( blockID );
 
 	AllMemoryBarrierWithGroupSync();
 

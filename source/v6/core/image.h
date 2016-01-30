@@ -8,6 +8,7 @@
 BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
+class IStreamReader;
 class IStreamWriter;
 struct Color_s;
 
@@ -30,12 +31,13 @@ public:
 	int			GetHeight() const { return height; }
 	int			GetWidth() const { return width; }
 	int			GetSize() const { return width * height * 4; }
-	void		WriteBitmap( core::IStreamWriter& oStream );
+	void		WriteBitmap( IStreamWriter& oStream );
 };
 
 void	Image_Clear( Image_s* image );
 void	Image_Create( Image_s* image, IAllocator* heap, u32 width, u32 height );
 u32		Image_GetSize( Image_s* image );
+bool	Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator );
 void	Image_Release( Image_s* image );
 void	Image_WriteBitmap( Image_s* image, IStreamWriter* stream );
 	

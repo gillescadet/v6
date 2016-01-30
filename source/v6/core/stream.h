@@ -24,6 +24,27 @@ public:
 	virtual int GetRamaining() const { return GetSize() - GetPos(); }
 	virtual int GetSize() const = 0;
 	virtual void Read( int nSize, void * pData ) = 0;
+	virtual void Skip( int nSize ) = 0;
+};
+
+class CFileReader : public IStreamReader
+{
+public:
+	CFileReader();
+	virtual ~CFileReader();
+
+public:
+	bool Open(const char * sFilename);
+	void Close();
+
+public:
+	virtual int GetPos() const;
+	virtual int GetSize() const;
+	virtual void Read( int nSize, void *data );
+	virtual void Skip( int nSize );
+
+private:
+	void* m_file;
 };
 
 class CFileWriter : public IStreamWriter
@@ -78,6 +99,7 @@ public:
 	virtual int GetPos() const { return m_nPos; }	
 	virtual int GetSize() const { return m_nSize; }
 	virtual void Read( int nSize, void * pData );
+	virtual void Skip( int nSize );
 
 private:
 	const void * m_pBuffer;

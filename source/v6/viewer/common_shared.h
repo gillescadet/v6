@@ -10,7 +10,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
-#define HLSL_DEBUG_OCCUPANCY						1
+#define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_BLOCK							0
 #define HLSL_DEBUG_PIXEL							0
@@ -104,7 +104,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						9
+#define HLSL_GRID_MACRO_SHIFT						8
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -206,9 +206,12 @@ CBUFFER( CBBlock, 4 )
 	float2				c_blockScreenToClipOffset;
 	
 	float				c_blockZNear;
+	float3				c_blockUnused;
+
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
 	uint				c_blockUseOccupancy;
+	uint				c_blockSkipTrace;
 
 #if HLSL_DEBUG_BLOCK == 1
 	uint				c_blockDebugPackedID;
@@ -507,8 +510,9 @@ struct PixelBlendDebugBuffer
 
 #define block_uniqueOccupancyCount_offset( BUCKET )			(block_cellCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
 #define block_uniqueOccupancyMax_offset( BUCKET )			(block_uniqueOccupancyCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
+#define block_slotOccupancyCount_offset( BUCKET )			(block_uniqueOccupancyMax_offset( HLSL_BUCKET_COUNT ) + BUCKET)
 
-#define block_all_offset									block_uniqueOccupancyMax_offset( HLSL_BUCKET_COUNT )
+#define block_all_offset									block_slotOccupancyCount_offset( HLSL_BUCKET_COUNT )
 
 #define block_vertexCountPerInstance( BUCKET )				blockIndirectArgs[block_vertexCountPerInstance_offset( BUCKET )]
 #define block_renderInstanceCount( BUCKET )					blockIndirectArgs[block_renderInstanceCount_offset( BUCKET )]
@@ -541,6 +545,7 @@ struct PixelBlendDebugBuffer
 
 #define block_uniqueOccupancyCount( BUCKET )				blockIndirectArgs[block_uniqueOccupancyCount_offset( BUCKET )]
 #define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
+#define block_slotOccupancyCount( BUCKET )					blockIndirectArgs[block_slotOccupancyCount_offset( BUCKET )]
 
 #define trace_culledCellGroupCountX_offset					0
 #define trace_culledCellGroupCountY_offset					1

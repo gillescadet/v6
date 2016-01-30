@@ -116,6 +116,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #if HLSL_DEBUG_OCCUPANCY == 1
 	{
 		uint uniqueOccupancyCount = 0;
+		uint slotOccupancyCount = 0;
 		for ( uint cellID = 0; cellID < cellCount; ++cellID )
 		{
 			const uint occupancy = cellOccupancy[cellID];
@@ -128,10 +129,12 @@ void main( uint3 DTid : SV_DispatchThreadID )
 				}
 			}
 			uniqueOccupancyCount += cellOccupancyID == cellID ? 1 : 0;
+			slotOccupancyCount += countbits( occupancy );
 		}	
 
 		InterlockedAdd( block_uniqueOccupancyCount( c_octreeCurrentBucket ), uniqueOccupancyCount );
 		InterlockedMax( block_uniqueOccupancyMax( c_octreeCurrentBucket ), uniqueOccupancyCount );
+		InterlockedAdd( block_slotOccupancyCount( c_octreeCurrentBucket ), slotOccupancyCount );
 	}
 #endif // #if HLSL_DEBUG_OCCUPANCY == 1
 

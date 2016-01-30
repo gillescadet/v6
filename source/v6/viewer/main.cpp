@@ -24,7 +24,6 @@
 #include <v6/core/vec3i.h>
 
 #include <v6/viewer/obj_reader.h>
-#include <v6/viewer/tga_reader.h>
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -532,7 +531,7 @@ static bool g_readMSAASamplePositions		= false;
 static bool g_useMSAA						= true;
 static bool g_debugBlocks					= false;
 static bool g_transparentDebug				= false;
-static bool g_skipTrace						= false;
+static int g_skipTrace						= 0;
 
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
@@ -581,7 +580,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'G': if ( pressed ) { g_debugBlocks = true; } break;
 			case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
 			case 'I': if ( pressed ) { s_logReadBack = true; } break;
-			case 'J': g_skipTrace = pressed ? !g_skipTrace: g_skipTrace; break;				
+			case 'J': g_skipTrace = pressed ? ((g_skipTrace+1)%3): g_skipTrace; break;
 			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
 			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
 			case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
@@ -2635,7 +2634,8 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 				continue;
 
 			core::Image_s image = {};
-			if ( core::FilePath_HasExtension( textureFilename, "tga" ) && Tga_ReadFromFile( &image, textureFilename, sceneContext->allocator ) )
+			core::CFileReader fileReader;
+			if ( core::FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename ) && core::Image_ReadTga( &image, &fileReader, sceneContext->allocator ) )
 			{
 				static const char* textureNames[TEXTURE_GENERIC_COUNT] = { "diffuse", "alpha", "bump" };
 				const core::u32 textureID = scene->textureCount;
@@ -3819,6 +3819,7 @@ void CRenderingDevice::PackColor()
 			ReadBack_Log( "block", maxCellCount, "maxCellCount" );
 			ReadBack_Log( "block", block_uniqueOccupancyCount( bucket ) / (float)block_count( bucket ), "avgOccupancyCount" );
 			ReadBack_Log( "block", block_uniqueOccupancyMax( bucket ), "maxOccupancyCount" );
+			ReadBack_Log( "block", block_slotOccupancyCount( bucket ) / (float)block_cellCount( bucket ), "avgOccupancySlot" );
 			ReadBack_Log( "block", maxCellCount, "maxCellCount" );
 
 			allRealCellCount += block_cellCount( bucket );
@@ -4062,6 +4063,8 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
 		cbBlock->c_blockZNear = ZNEAR;
 
+		cbBlock->c_blockSkipTrace = g_skipTrace;
+
 #if HLSL_DEBUG_BLOCK == 1
 		cbBlock->c_blockDebugPackedID = g_pickedPackedID;
 #endif // #if HLSL_DEBUG_BLOCK == 1
@@ -4124,7 +4127,7 @@ void CRenderingDevice::TraceBlockV2( const core::Mat4x4* viewMatrix, const core:
 			gpuContext.userDefinedAnnotation->EndEvent();
 		}
 
-		if ( !g_skipTrace )
+		if ( g_skipTrace < 2 )
 		{		
 			gpuContext.userDefinedAnnotation->BeginEvent( L"Draw Bucket");
 		
@@ -4703,14 +4706,10 @@ void CRenderingDevice::Draw( float dt )
 	}
 
 	if ( g_keyLeftPressed != g_keyRightPressed )
-	{
 		keyDeltaX = g_keyLeftPressed ? -1 : 1;
-	}
 
 	if ( g_keyDownPressed != g_keyUpPressed )
-	{
 		keyDeltaZ = g_keyDownPressed ? -1 : 1;
-	}
 		
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
 	

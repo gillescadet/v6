@@ -57,6 +57,22 @@ struct SBitmapHeader
 	u32 GammaBlue;
 };
 
+struct TgaHeader_s
+{
+	char		idlength;
+	char		colourmaptype;
+	char		datatypecode;
+	short int	colourmaporigin;
+	short int	colourmaplength;
+	char		colourmapdepth;
+	short int	x_origin;
+	short int	y_origin;
+	short		width;
+	short		height;
+	char		bitsperpixel;
+	char		imagedescriptor;
+};
+
 #pragma pack(pop)
 
 END_ANONYMOUS_NAMESPACE
@@ -71,12 +87,12 @@ void Image_Create( Image_s* image, IAllocator* heap, u32 width, u32 height )
 
 void Image_Clear( Image_s* image )
 {
-	memset( image->pixels, 0, Image_GetSize( image ) * sizeof( Color_s ) );
+	memset( image->pixels, 0, Image_GetSize( image ) );
 }
 
 u32	Image_GetSize( Image_s* image )
 {
-	return image->width * image->height;
+	return image->width * image->height * 4;
 }
 
 void Image_Release( Image_s* image )
@@ -116,6 +132,124 @@ void Image_WriteBitmap( Image_s* image, IStreamWriter* stream )
 	stream->Write( image->pixels, bh.SizeImage );
 }
 
+static void MergeBytes( Color_s *pixel, unsigned char *p, int bytes )
+{
+	switch (bytes)
+	{
+	case 1:
+		pixel->r = p[0];
+		pixel->g = p[0];
+		pixel->b = p[0];
+		pixel->a = 0;
+		break;
+	case 2:
+		pixel->r = (p[1] & 0x7c) << 1;
+		pixel->g = ((p[1] & 0x03) << 6) | ((p[0] & 0xe0) >> 2);
+		pixel->b = (p[0] & 0x1f) << 3;
+		pixel->a = (p[1] & 0x80);
+		break;
+	case 3:
+		pixel->r = p[2];
+		pixel->g = p[1];
+		pixel->b = p[0];
+		pixel->a = 0;
+		break;
+	case 4:
+		pixel->r = p[2];
+		pixel->g = p[1];
+		pixel->b = p[0];
+		pixel->a = p[3];
+		break;
+	default:
+		V6_ASSERT_NOT_SUPPORTED();
+	}
+}
+
+bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator )
+{
+	TgaHeader_s header;
+	reader->Read( sizeof(header), &header );
+
+	if (header.datatypecode != 2 && header.datatypecode != 3 && header.datatypecode != 10)
+	{
+		V6_ASSERT_ALWAYS("Can only handle image type 2, 3 and 10");
+		return false;
+	}
+
+	if (header.bitsperpixel != 8 && header.bitsperpixel != 16 && header.bitsperpixel != 24 && header.bitsperpixel != 32)
+	{
+		V6_ASSERT_ALWAYS("Can only handle pixel depths of 8, 16, 24, and 32");
+		return false;
+	}
+
+	if (header.colourmaptype != 0 && header.colourmaptype != 1)
+	{
+		V6_ASSERT_ALWAYS("Can only handle colour map types of 0 and 1");
+		return false;
+	}
+
+	Image_Create(image, allocator, header.width, header.height);
+	u32 pixelCount = header.width * header.height;
+	Image_Clear(image);
+
+	u32 skipover = 0;
+	skipover += header.idlength;
+	skipover += header.colourmaptype * header.colourmaplength;
+	reader->Skip( skipover );
+
+	const u32 bytesPerPixel = header.bitsperpixel / 8;
+	for (u32 pixelID = 0; pixelID < pixelCount;)
+	{
+		// Uncompressed - RGB
+		if (header.datatypecode == 2)
+		{
+			u8 p[5];
+			reader->Read( bytesPerPixel, p );
+			MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
+			++pixelID;
+		}
+		// Uncompressed - Black and White
+		else if (header.datatypecode == 3)
+		{
+			u8 p[5];
+			reader->Read( bytesPerPixel, p );
+			MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
+			++pixelID;
+		}
+		// Compressed
+		else if (header.datatypecode == 10)
+		{
+			u8 p[5];
+			reader->Read( bytesPerPixel + 1, p );
+			u32 j = p[0] & 0x7f;
+			MergeBytes(&image->pixels[pixelID], &p[1], bytesPerPixel);
+			++pixelID;
+
+			// RLE chunk
+			if (p[0] & 0x80)
+			{
+				for (u32 i = 0; i < j; ++i)
+				{
+					MergeBytes(&image->pixels[pixelID], &p[1], bytesPerPixel);
+					++pixelID;
+				}
+			}
+			// Normal chunk
+			else
+			{
+				for (u32 i = 0; i < j; ++i)
+				{
+					reader->Read( bytesPerPixel, p );
+					MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
+					++pixelID;
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
 CImage::CImage(IAllocator & oHeap, int nWidth, int nHeight)
 {
 	heap = &oHeap;
@@ -129,7 +263,7 @@ CImage::~CImage()
 	heap->free( pixels );
 }
 
-void CImage::WriteBitmap(core::IStreamWriter& oStream)
+void CImage::WriteBitmap( IStreamWriter& oStream )
 {
 	SBitmapFileHeader bfh;
 	SBitmapHeader bh;

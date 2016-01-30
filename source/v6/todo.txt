@@ -1,2 +1,19 @@
-01/09/2016:
-- todo creation
+Bugs:
+#01: driver crash while exploring after baking
+#02: camera motion latency/inertia. This is particularly obvious when rendering in 1024x1024 at 30 fps.
+#03: static colored dots artifacts
+
+Optmization plan:
+- measure performance before optimization
+- do an optmized version with plain data
+- compress colors: block: 4 + color: 8 + presence: 8
+- culling: separe block pos from remaining data, pack all when culling
+- culling: cull the center and not the 8 vertices
+- culling: do the InterlockedMax in a post-compute (generalize the idea for all shaders)
+- reduce sampling count: 5x using 3 samples
+- detect high AA pixels
+- detect plain data
+
+On spare time:
+- save geo on disk
+- save build on disk
