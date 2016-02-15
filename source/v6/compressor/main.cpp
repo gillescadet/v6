@@ -363,14 +363,16 @@ EncodedBlock Block_Encode( uint blockPos, uint cellRGBA[64], uint cellCount )
 
 	uint cellPosToID[64];
 
-	for ( uint cellPos = 0; cellPos < 64; ++cellPos )
-		cellPosToID[cellPos] = (uint)-1;
-
-	for ( uint cellID = 0; cellID < cellCount; ++cellID )
 	{
-		const uint cellPos = UnpackRGBA( cellRGBA[cellID] ).a;
-		block.cellPresence[cellPos >> 5] |= 1 << (cellPos & 0x1F);
-		cellPosToID[cellPos] = cellID;
+		for ( uint cellPos = 0; cellPos < 64; ++cellPos )
+			cellPosToID[cellPos] = (uint)-1;
+
+		for ( uint cellID = 0; cellID < cellCount; ++cellID )
+		{
+			const uint cellPos = UnpackRGBA( cellRGBA[cellID] ).a;
+			block.cellPresence[cellPos >> 5] |= 1 << (cellPos & 0x1F);
+			cellPosToID[cellPos] = cellID;
+		}
 	}
 
 	// Ouput cell colors
@@ -380,34 +382,36 @@ EncodedBlock Block_Encode( uint blockPos, uint cellRGBA[64], uint cellCount )
 	block.cellColorIndices[2] = 0;
 	block.cellColorIndices[3] = 0;
 	
-	uint cellRank = 0;
-	for ( uint cellPos = 0; cellPos < 64; ++cellPos )
 	{
-		if ( cellPosToID[cellPos] == (uint)-1 )
-			continue;
-
-		const uint cellID = cellPosToID[cellPos];
-		const uint4 color = UnpackRGBA( cellRGBA[cellID] );
-
-		uint bestColorID = 0;
-		uint bestError = 0xFFFFFFFF;
-			
-		for ( uint colorID = 0; colorID < 4; ++colorID )
+		uint cellRank = 0;
+		for ( uint cellPos = 0; cellPos < 64; ++cellPos )
 		{
-			const int dR = color.r - colors[colorID].r;
-			const int dG = color.g - colors[colorID].g;
-			const int dB = color.b - colors[colorID].b;
+			if ( cellPosToID[cellPos] == (uint)-1 )
+				continue;
 
-			const uint error = dR * dR + dG * dG + dB * dB;
-			if ( error < bestError )
+			const uint cellID = cellPosToID[cellPos];
+			const uint4 color = UnpackRGBA( cellRGBA[cellID] );
+
+			uint bestColorID = 0;
+			uint bestError = 0xFFFFFFFF;
+			
+			for ( uint colorID = 0; colorID < 4; ++colorID )
 			{
-				bestError = error;
-				bestColorID = colorID;
-			}
-		}
+				const int dR = color.r - colors[colorID].r;
+				const int dG = color.g - colors[colorID].g;
+				const int dB = color.b - colors[colorID].b;
 
-		block.cellColorIndices[cellRank >> 4] |= bestColorID << ((cellRank << 1) & 0x1F);
-		++cellRank;
+				const uint error = dR * dR + dG * dG + dB * dB;
+				if ( error < bestError )
+				{
+					bestError = error;
+					bestColorID = colorID;
+				}
+			}
+
+			block.cellColorIndices[cellRank >> 4] |= bestColorID << ((cellRank << 1) & 0x1F);
+			++cellRank;
+		}
 	}
 
 	return block;
@@ -479,7 +483,9 @@ void TestImageCompression( core::IAllocator* allocator )
 	//const char* filenameSrc = "D:/media/image/femme.tga";
 	//const char* filenameSrc = "D:/media/image/montagne.tga";
 	//const char* filenameSrc = "D:/media/image/ville.tga";
-	const char* filenameSrc = "D:/media/image/plage.tga";
+	//const char* filenameSrc = "D:/media/image/plage.tga";
+	//const char* filenameSrc = "D:/media/image/rgb.tga";
+	const char* filenameSrc = "D:/media/image/sponza01.tga";
 	core::Image_s imageSrc = {};
 	core::CFileReader fileReader;
 	if ( !fileReader.Open( filenameSrc ) || !core::Image_ReadTga( &imageSrc, &fileReader, allocator ) )
@@ -509,7 +515,9 @@ void TestImageCompression( core::IAllocator* allocator )
 	//const char* filenameDst = "D:/media/image/femme_bc1.bmp";
 	//const char* filenameDst = "D:/media/image/montagne_bc1.bmp";
 	//const char* filenameDst = "D:/media/image/ville_bc1.bmp";
-	const char* filenameDst = "D:/media/image/plage_bc1.bmp";
+	//const char* filenameDst = "D:/media/image/plage_bc1.bmp";
+	//const char* filenameDst = "D:/media/image/rgb_bc1.bmp";
+	const char* filenameDst = "D:/media/image/sponza01_bc1.bmp";
 	core::CFileWriter fileWriter;
 	if ( !fileWriter.Open( filenameDst ) )
 	{
@@ -576,7 +584,7 @@ int main()
 		
 	TestImageCompression( &stack );
 
-	TestBlockCompression( &stack );
+	// TestBlockCompression( &stack );
 
 	return 0;
 }

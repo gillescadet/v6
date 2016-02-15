@@ -12,9 +12,10 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
+#define HLSL_DEBUG_CULL								0
 #define HLSL_DEBUG_BLOCK							0
-#define HLSL_DEBUG_PIXEL							0
-#define HLSL_TRACE_USE_ALIGNED_QUAD					1
+#define HLSL_DEBUG_PIXEL							1
+#define HLSL_DEBUG_TRACE							1
 
 #define HLSL_TRILINEAR_SLOT							0
 
@@ -29,18 +30,21 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT			7
 #define HLSL_OCTREE_LEAF_SLOT						8
 #define HLSL_OCTREE_INDIRECT_ARGS_SLOT				9
-#define HLSL_BLOCK_COLOR_SLOT						10
-#define HLSL_BLOCK_INDIRECT_ARGS_SLOT				11
-#define HLSL_BLOCK_CELL_ITEM_SLOT					12
-#define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			13
-#define HLSL_BLOCK_CONTEXT_SLOT						14
-#define HLSL_BLOCK_DEBUG_SLOT						15
-#define HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT			16
-#define HLSL_TRACE_INDIRECT_ARGS_SLOT				17
-#define HLSL_TRACE_STATS_SLOT						18
-#define HLSL_TRACE_DEBUG_SLOT						19
-#define HLSL_PIXEL_COLOR_SLOT						20
-#define HLSL_PIXEL_DEBUG_SLOT						21
+#define HLSL_BLOCK_POS_SLOT							10
+#define HLSL_BLOCK_DATA_SLOT						11
+#define HLSL_BLOCK_INDIRECT_ARGS_SLOT				12
+#define HLSL_BLOCK_CELL_ITEM_SLOT					13
+#define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			14
+#define HLSL_BLOCK_CONTEXT_SLOT						15
+#define HLSL_BLOCK_DEBUG_SLOT						16
+#define HLSL_CULL_STATS_SLOT						17
+#define HLSL_CULL_DEBUG_SLOT						18
+#define HLSL_TRACE_CULLED_BLOCK_SLOT				19
+#define HLSL_TRACE_INDIRECT_ARGS_SLOT				20
+#define HLSL_TRACE_STATS_SLOT						21
+#define HLSL_TRACE_DEBUG_SLOT						22
+#define HLSL_PIXEL_COLOR_SLOT						23
+#define HLSL_PIXEL_DEBUG_SLOT						24
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 #define HLSL_GENERIC_ALPHA_SLOT						3
@@ -60,14 +64,18 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_OCTREE_LEAF_SRV						CONCAT( t, HLSL_OCTREE_LEAF_SLOT )
 #define HLSL_OCTREE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_OCTREE_INDIRECT_ARGS_SLOT )
 
-#define HLSL_BLOCK_COLOR_SRV						CONCAT( t, HLSL_BLOCK_COLOR_SLOT )
+#define HLSL_BLOCK_POS_SRV							CONCAT( t, HLSL_BLOCK_POS_SLOT )
+#define HLSL_BLOCK_DATA_SRV							CONCAT( t, HLSL_BLOCK_DATA_SLOT )
 #define HLSL_BLOCK_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 #define HLSL_BLOCK_CELL_ITEM_SRV					CONCAT( t, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SRV			CONCAT( t, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_SRV						CONCAT( t, HLSL_BLOCK_CONTEXT_SLOT )
 #define HLSL_BLOCK_DEBUG_SRV						CONCAT( t, HLSL_BLOCK_DEBUG_SLOT )
 
-#define HLSL_TRACE_CULLED_BLOCK_COLOR_SRV			CONCAT( t, HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT )
+#define HLSL_CULL_STATS_SRV							CONCAT( t, HLSL_CULL_STATS_SLOT )
+#define HLSL_CULL_DEBUG_SRV							CONCAT( t, HLSL_CULL_DEBUG_SLOT )
+
+#define HLSL_TRACE_CULLED_BLOCK_SRV					CONCAT( t, HLSL_TRACE_CULLED_BLOCK_SLOT )
 #define HLSL_TRACE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_TRACE_INDIRECT_ARGS_SLOT )
 #define HLSL_TRACE_STATS_SRV						CONCAT( t, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_SRV						CONCAT( t, HLSL_TRACE_DEBUG_SLOT )
@@ -89,14 +97,18 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_OCTREE_LEAF_UAV						CONCAT( u, HLSL_OCTREE_LEAF_SLOT )
 #define HLSL_OCTREE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_OCTREE_INDIRECT_ARGS_SLOT )
 
-#define HLSL_BLOCK_COLOR_UAV						CONCAT( u, HLSL_BLOCK_COLOR_SLOT )
+#define HLSL_BLOCK_POS_UAV							CONCAT( u, HLSL_BLOCK_POS_SLOT )
+#define HLSL_BLOCK_DATA_UAV							CONCAT( u, HLSL_BLOCK_DATA_SLOT )
 #define HLSL_BLOCK_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 #define HLSL_BLOCK_CELL_ITEM_UAV					CONCAT( u, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV			CONCAT( u, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
 #define HLSL_BLOCK_CONTEXT_UAV						CONCAT( u, HLSL_BLOCK_CONTEXT_SLOT )
 #define HLSL_BLOCK_DEBUG_UAV						CONCAT( u, HLSL_BLOCK_DEBUG_SLOT )
 
-#define HLSL_TRACE_CULLED_BLOCK_COLOR_UAV			CONCAT( u, HLSL_TRACE_CULLED_BLOCK_COLOR_SLOT )
+#define HLSL_CULL_STATS_UAV							CONCAT( u, HLSL_CULL_STATS_SLOT )
+#define HLSL_CULL_DEBUG_UAV							CONCAT( u, HLSL_CULL_DEBUG_SLOT )
+
+#define HLSL_TRACE_CULLED_BLOCK_UAV					CONCAT( u, HLSL_TRACE_CULLED_BLOCK_SLOT )
 #define HLSL_TRACE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_TRACE_INDIRECT_ARGS_SLOT )
 #define HLSL_TRACE_STATS_UAV						CONCAT( u, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
@@ -133,7 +145,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				64
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				64
-#define	HLSL_MIP_MAX_COUNT							8
+#define	HLSL_MIP_MAX_COUNT							16
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				3
@@ -222,10 +234,8 @@ CBUFFER( CBBlock, 4 )
 
 CBUFFER( CBPixel, 5 )
 {
-	float				c_pixelDepthLinearScale;
-	float				c_pixelDepthLinearBias;
 	uint2				c_pixelFrameSize;
-	float4				c_pixelInvCellSizes[HLSL_MIP_MAX_COUNT];
+	float2				c_pixelPad1;
 	float3				c_pixelBackColor;
 	float				c_pixelPad2;
 #if HLSL_DEBUG_PIXEL == 1	
@@ -254,11 +264,7 @@ struct OctreeLeaf
 struct BlockCellItem
 {
 	uint	r8g8b8a8;
-	uint	u8v8w8h8;
-	float	depth;
-#if HLSL_DEBUG_BLOCK == 1
-	uint	packedID;
-#endif // HLSL_DEBUG_BLOCK == 1
+	uint	depth23_occupancy9;
 	uint	nextID;
 };
 
@@ -335,22 +341,25 @@ struct BlockContext
 	float	pixelDepths[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
 #endif // HLSL_DEBUG_BLOCK == 1
 
-#if HLSL_DEBUG_PIXEL == 1
+#if HLSL_DEBUG_TRACE == 1
 	uint	debugBlockCount;
-	uint	debugTraceCount;
-#endif // #if HLSL_DEBUG_PIXEL == 1
+	uint	debugCellCount;
+#endif // #if HLSL_DEBUG_TRACE == 1
+};
+
+struct BlockCullStats 
+{
+	uint	blockInputCount;
+	uint	blockPassedCount;
 };
 
 struct BlockTraceStats 
 {
 	uint	blockInputCount;
 	uint	blockProcessedCount;
-	uint	traceInputCount;
-	uint	traceProcessedCount;
-	uint	traceStepCount;
-	uint	traceHitCount;
-	uint	pixelGridCount;
-	uint	pixelCellCount;
+	uint	cellProcessedCount;
+	uint	sampleProcessedCount;
+	uint	pixelSampleCount;
 };
 
 #if HLSL_DEBUG_BLOCK == 1
@@ -366,70 +375,129 @@ struct DebugBlock
 
 #endif // #if HLSL_DEBUG_BLOCK == 1
 
+#if HLSL_DEBUG_CULL == 1
+
+struct DebugCullVertex
+{
+	float3 posWS;
+	float4 posCS;
+	uint clippedCount;
+};
+
+struct DebugCull
+{
+	uint posOffset;
+	uint blockPosID;
+	uint packedBlockPos;
+	uint mip;
+	uint blockPos;
+	uint xMin;
+	uint yMin;
+	uint zMin;
+	int3 cellMinCoords;	
+	float gridScale;
+	float cellSize;
+	float3 posMinWS;
+	float deltaWS;
+	DebugCullVertex vertices[8];
+	uint clippedCount;
+	uint dataSize;
+	uint firstDataOffset;
+	uint blockDataID;
+	uint culledBlockBaseID;
+	uint culledBlocks[8];
+};
+
+#endif // #if HLSL_DEBUG_CULL 1
+
 #if HLSL_DEBUG_PIXEL == 1
-
-struct DebugTrace
-{
-	float3	blockCenter;
-	uint	blockOccupancy;
-
-	float3	org;
-	float3	dir;	
-	float	tIn;
-	float	tOut;
-	
-	float	scale;
-	float	offset;	
-	float3	pIn;
-	float3	coordIn;			
-	int3	coords;
-	float3	tCur;
-	float3	tDelta;		
-	int3	step;
-	uint2	jobPixelCoord;
-
-	int4	hitFoundCoords;
-	uint	hitFailBits;
-};
-
-struct PixelDebugLayer
-{
-	float4 colorAndDepth;
-	float2 uv;	
-	float2 wh;
-	//int2 uvMin;
-	//int2 uvMax;
-	uint packedID;
-};
-
-struct PixelDebugPoint
-{
-	PixelDebugLayer layers[4];
-	uint layerCount;
-};
-
-struct PixelDebugBuffer
-{
-	PixelDebugPoint points[3][3];
-	float3 colorBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
-	float depthBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
-};
-
-struct PixelBlendDebugLayer
-{
-	float4 colorAndDepth;
-	uint occupancy;	
-};
 
 struct PixelBlendDebugBuffer
 {
-	PixelBlendDebugLayer layers[4];
-	uint layerCount;
-	float3 colorBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
-	float depthBuffer[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	BlockCellItem cellItems[16];
+	uint pixelRank;
+	uint itemCount;
 };
 
 #endif // #if HLSL_DEBUG_PIXEL == 1
+
+#if HLSL_DEBUG_TRACE == 1
+
+struct DebugTraceCellSample
+{
+	uint	hit;
+};
+
+struct DebugTraceCellGrid
+{
+	uint	pixelOccupancy;
+	int2	pixelCoords;
+	uint	blockCellItemID;
+	uint	nextBlockCellItemID;
+};
+
+struct DebugTraceCell
+{
+	uint					cellRGBA;
+	uint					cellPos;
+	float3					cellPosRS;
+	uint					pixelDepth23_none9;
+	int2					multiSampledMinPixelCoords;	
+	uint					cellY;
+	uint					cellZ;
+	uint					cellX;
+	uint3					cellCoords;
+	float3					cellPosWS;
+	float4					cellPosCS;
+	float2					cellScreenPos;
+	float2					multiSampledPixelPos;
+	float					rayEndVSX;
+	float					rayEndVSY;
+	float3					rayEndVS0;
+	float3					rayEndVS1;
+	float3					rayEndVS2;
+	float3					rayEndWS0;
+	float3					rayEndWSR;
+	float3					rayEndWSU;
+	float3					rayEndRS0;
+	int2					minPixelCoords;
+	uint2					hitOffset;
+	float					cellScale;
+	uint					pixelOccupancyMask;	
+	uint2					frameSize;
+	DebugTraceCellSample	samples[2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + 1][2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + 1];
+	DebugTraceCellGrid		grids[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+};
+
+struct DebugTraceBlock
+{
+	uint			blockSize;	
+	uint			blockPosDataID;
+	uint			packedBlockPos;
+	uint			mip;
+	uint			blockPos;
+	uint			blockX;
+	uint			blockY;
+	uint			blockZ;
+	int3			blockCoords;
+	float			gridScale;
+	uint			endPointColors;
+	uint			cellParams_paletteColors[4];
+	matrix			cellParams_worldToProjMatrix;
+	float3			cellParams_rayOrgWS;
+	float3			cellParams_firstCellPosWS;
+	float			cellParams_cellSize;
+	uint			cellParams_blockPosDataID;
+	uint			cellParams_mip;
+};
+
+struct DebugTraceV2
+{
+	DebugTraceBlock block;
+	DebugTraceCell	cell;
+};
+
+#endif // #if HLSL_DEBUG_TRACE == 1
 
 #define sample_groupCountX_offset							0
 #define sample_groupCountY_offset							1
@@ -479,34 +547,14 @@ struct PixelBlendDebugBuffer
 #define octree_leafCount									octreeIndirectArgs[octree_leafCount_offset]
 #define octree_nodeCount									octreeIndirectArgs[octree_nodeCount_offset]
 
-#define block_vertexCountPerInstance_offset( BUCKET )		(BUCKET * 4 + 0)
-#define block_renderInstanceCount_offset( BUCKET )			(BUCKET * 4 + 1)
-#define block_startVertexLocation_offset( BUCKET )			(BUCKET * 4 + 2)
-#define block_renderInstanceLocation_offset( BUCKET )		(BUCKET * 4 + 3)
+#define block_groupCountX_offset( BUCKET )					(BUCKET * 3 + 0)
+#define block_groupCountY_offset( BUCKET )					(BUCKET * 3 + 1)
+#define block_groupCountZ_offset( BUCKET )					(BUCKET * 3 + 2)
 
-#define block_indexCountPerInstance_offset( BUCKET )		(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 0))
-#define block_instanceCount_offset( BUCKET )				(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 1))
-#define block_startIndexLocation_offset( BUCKET )			(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 2))
-#define block_baseVertexLocation_offset( BUCKET )			(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 3))
-#define block_startInstanceLocation_offset( BUCKET )		(block_renderInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 4))
-
-#define block_indexCountPerInstance2_offset( BUCKET )		(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 0))
-#define block_instanceCount2_offset( BUCKET )				(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 1))
-#define block_startIndexLocation2_offset( BUCKET )			(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 2))
-#define block_baseVertexLocation2_offset( BUCKET )			(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 3))
-#define block_startInstanceLocation2_offset( BUCKET )		(block_startInstanceLocation_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 5 + 4))
-
-#define block_groupCountX_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 0))
-#define block_groupCountY_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 1))
-#define block_groupCountZ_offset( BUCKET )					(block_startInstanceLocation2_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 2))
-
-#define block_cellGroupCountX_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 0))
-#define block_cellGroupCountY_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 1))
-#define block_cellGroupCountZ_offset( BUCKET )				(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + (BUCKET * 3 + 2))
-
-#define block_count_offset(	BUCKET )						(block_cellGroupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
-#define block_packedOffset_offset( BUCKET )					(block_count_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
-#define block_cellCount_offset( BUCKET )					(block_packedOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET)
+#define block_count_offset(	BUCKET )						(block_groupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define block_posOffset_offset( BUCKET )					(block_count_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define block_dataOffset_offset( BUCKET )					(block_posOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define block_cellCount_offset( BUCKET )					(block_dataOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET)
 
 #define block_uniqueOccupancyCount_offset( BUCKET )			(block_cellCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
 #define block_uniqueOccupancyMax_offset( BUCKET )			(block_uniqueOccupancyCount_offset( HLSL_BUCKET_COUNT ) + BUCKET)
@@ -514,48 +562,28 @@ struct PixelBlendDebugBuffer
 
 #define block_all_offset									block_slotOccupancyCount_offset( HLSL_BUCKET_COUNT )
 
-#define block_vertexCountPerInstance( BUCKET )				blockIndirectArgs[block_vertexCountPerInstance_offset( BUCKET )]
-#define block_renderInstanceCount( BUCKET )					blockIndirectArgs[block_renderInstanceCount_offset( BUCKET )]
-#define block_startVertexLocation( BUCKET )					blockIndirectArgs[block_startVertexLocation_offset( BUCKET )]
-#define block_renderInstanceLocation( BUCKET )				blockIndirectArgs[block_renderInstanceLocation_offset( BUCKET )]
-
-#define block_indexCountPerInstance( BUCKET )				blockIndirectArgs[block_indexCountPerInstance_offset( BUCKET )]
-#define block_instanceCount( BUCKET )						blockIndirectArgs[block_instanceCount_offset( BUCKET )]
-#define block_startIndexLocation( BUCKET )					blockIndirectArgs[block_startIndexLocation_offset( BUCKET )]
-#define block_baseVertexLocation( BUCKET )					blockIndirectArgs[block_baseVertexLocation_offset( BUCKET )]
-#define block_startInstanceLocation( BUCKET )				blockIndirectArgs[block_startInstanceLocation_offset( BUCKET )]
-
-#define block_indexCountPerInstance2( BUCKET )				blockIndirectArgs[block_indexCountPerInstance2_offset( BUCKET )]
-#define block_instanceCount2( BUCKET )						blockIndirectArgs[block_instanceCount2_offset( BUCKET )]
-#define block_startIndexLocation2( BUCKET )					blockIndirectArgs[block_startIndexLocation2_offset( BUCKET )]
-#define block_baseVertexLocation2( BUCKET )					blockIndirectArgs[block_baseVertexLocation2_offset( BUCKET )]
-#define block_startInstanceLocation2( BUCKET )				blockIndirectArgs[block_startInstanceLocation2_offset( BUCKET )]
-
 #define block_groupCountX( BUCKET )							blockIndirectArgs[block_groupCountX_offset( BUCKET )]
 #define block_groupCountY( BUCKET )							blockIndirectArgs[block_groupCountY_offset( BUCKET )]
 #define block_groupCountZ( BUCKET )							blockIndirectArgs[block_groupCountZ_offset( BUCKET )]
 
-#define block_cellGroupCountX( BUCKET )						blockIndirectArgs[block_cellGroupCountX_offset( BUCKET )]
-#define block_cellGroupCountY( BUCKET )						blockIndirectArgs[block_cellGroupCountY_offset( BUCKET )]
-#define block_cellGroupCountZ( BUCKET )						blockIndirectArgs[block_cellGroupCountZ_offset( BUCKET )]
-
 #define block_count( BUCKET )								blockIndirectArgs[block_count_offset( BUCKET )]
-#define block_packedOffset( BUCKET )						blockIndirectArgs[block_packedOffset_offset( BUCKET )]
+#define block_posOffset( BUCKET )							blockIndirectArgs[block_posOffset_offset( BUCKET )]
+#define block_dataOffset( BUCKET )							blockIndirectArgs[block_dataOffset_offset( BUCKET )]
 #define block_cellCount( BUCKET )							blockIndirectArgs[block_cellCount_offset( BUCKET )]
 
 #define block_uniqueOccupancyCount( BUCKET )				blockIndirectArgs[block_uniqueOccupancyCount_offset( BUCKET )]
 #define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
 #define block_slotOccupancyCount( BUCKET )					blockIndirectArgs[block_slotOccupancyCount_offset( BUCKET )]
 
-#define trace_culledCellGroupCountX_offset					0
-#define trace_culledCellGroupCountY_offset					1
-#define trace_culledCellGroupCountZ_offset					2
+#define trace_culledBlockGroupCountX_offset					0
+#define trace_culledBlockGroupCountY_offset					1
+#define trace_culledBlockGroupCountZ_offset					2
 #define trace_culledBlockCount_offset						3
 #define trace_all_offset									4
 
-#define trace_culledCellGroupCountX							traceIndirectArgs[trace_culledCellGroupCountX_offset]
-#define trace_culledCellGroupCountY							traceIndirectArgs[trace_culledCellGroupCountY_offset]
-#define trace_culledCellGroupCountZ							traceIndirectArgs[trace_culledCellGroupCountZ_offset]
+#define trace_culledBlockGroupCountX						traceIndirectArgs[trace_culledBlockGroupCountX_offset]
+#define trace_culledBlockGroupCountY						traceIndirectArgs[trace_culledBlockGroupCountY_offset]
+#define trace_culledBlockGroupCountZ						traceIndirectArgs[trace_culledBlockGroupCountZ_offset]
 #define trace_culledBlockCount								traceIndirectArgs[trace_culledBlockCount_offset]
 
 END_V6_HLSL_NAMESPACE

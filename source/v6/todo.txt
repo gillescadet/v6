@@ -1,3 +1,6 @@
+Todo:
+- check memory allocation, there is a mismatch between allocated and used data 
+
 Bugs:
 #01: driver crash while exploring after baking
 #02: camera motion latency/inertia. This is particularly obvious when rendering in 1024x1024 at 30 fps.
@@ -15,5 +18,24 @@ Optmization plan:
 - detect plain data
 
 On spare time:
+- magnifier tool
 - save geo on disk
 - save build on disk
+
+Bench #01:
+- config.context           :  occupancy
+- config.model             :     Sponza
+- config.resolution        :    512x512
+- time.frame               :      9.4ms
+- time.culling             :      1.1ms
+- time.trace               :      7.4ms
+- time.blend               :      0.9ms
+- stats.cellItemCount      :    1601837
+- stats.blockInputCount    :     801920
+- stats.blockProcessedCount:     639679
+- stats.traceInputCount    :   10054626
+- stats.traceProcessedCount:    6977122
+- stats.traceStepCount     :   15054386
+- stats.traceHitCount      :    4612522
+- stats.pixelGridCount     :    1601837
+- stats.pixelCellCount     :    4612522

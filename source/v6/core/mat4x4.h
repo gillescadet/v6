@@ -193,7 +193,7 @@ V6_INLINE Mat4x4 Mat4x4_Projection( float n, float f, float fov, float aspectRat
 	// h = cot( fovY / 2.0 )
 	// w = h / aspectRatio
 
-	const float tanHalf = tan( fov * 0.5f );
+	const float tanHalf = Tan( fov * 0.5f );
 	const float h = 1.0f / tanHalf;
 	const float w = h / aspectRatio;
 	const float q = f / (n - f);

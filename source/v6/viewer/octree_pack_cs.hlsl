@@ -1,11 +1,13 @@
 #define HLSL
 #include "common_shared.h"
+#include "block_encoding.hlsli"
 
 Buffer< uint > firstChildOffsets				: register( HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV );
 StructuredBuffer< OctreeLeaf > octreeLeaves		: register( HLSL_OCTREE_LEAF_SRV );
 Buffer< uint > octreeIndirectArgs 				: register( HLSL_OCTREE_INDIRECT_ARGS_SRV );
 
-RWBuffer< uint > blockColors					: register( HLSL_BLOCK_COLOR_UAV );
+RWBuffer< uint > blockPositions					: register( HLSL_BLOCK_POS_UAV );
+RWBuffer< uint > blockData						: register( HLSL_BLOCK_DATA_UAV );
 RWBuffer< uint > blockIndirectArgs 				: register( HLSL_BLOCK_INDIRECT_ARGS_UAV );
 
 [ numthreads( HLSL_OCTREE_THREAD_GROUP_SIZE, 1, 1 ) ]
@@ -15,21 +17,19 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	if ( leafID >= octree_leafCount )
 		return;
 		
-	const uint buckets[] = { 0, 4, 8, 16, 32, 64 };
+	const uint buckets[] =			{ 0, 4, 8, 16, 32, 64 };
+	const uint blockDataSize[] =	{ 0, 4, 4, 4 , 5 , 7  };
 	
-	const uint packedCountInPreviousBucket = 1 + buckets[c_octreeCurrentBucket] * HLSL_COUNT;
-	const uint packedOffset = block_packedOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 ) * packedCountInPreviousBucket;
+	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
+	const uint posOffset = block_posOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 );
+	const uint dataOffset = block_dataOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 ) * dataSizeInPreviousBucket;
 		
 	if ( DTid.x == 0 )
 	{
-		block_packedOffset( c_octreeCurrentBucket ) = packedOffset;
-		block_vertexCountPerInstance( c_octreeCurrentBucket ) = 1;
-		block_indexCountPerInstance( c_octreeCurrentBucket ) = 36;
-		block_indexCountPerInstance2( c_octreeCurrentBucket ) = 36;
+		block_posOffset( c_octreeCurrentBucket ) = posOffset;
+		block_dataOffset( c_octreeCurrentBucket ) = dataOffset;
 		block_groupCountY( c_octreeCurrentBucket ) = 1;
 		block_groupCountZ( c_octreeCurrentBucket ) = 1;
-		block_cellGroupCountY( c_octreeCurrentBucket ) = 1;
-		block_cellGroupCountZ( c_octreeCurrentBucket ) = 1;
 	}
 
 	uint3 coords;
@@ -143,30 +143,23 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	uint blockID;
 	InterlockedAdd( block_count( c_octreeCurrentBucket ), 1, blockID );
 		
-	const uint packedCount = 1 + cellMaxCount * HLSL_COUNT;
-	const uint packedBaseID = packedOffset + blockID * packedCount;	
+	const uint posBaseID = posOffset + blockID;	
+	const uint dataSize = blockDataSize[c_octreeCurrentBucket+1];
+	const uint dataBaseID = dataOffset + blockID * dataSize;	
+
 	const uint3 blockCoords = coords >> HLSL_GRID_BLOCK_SHIFT;
 	const uint blockPos = (blockCoords.z << HLSL_GRID_MACRO_2XSHIFT) | (blockCoords.y << HLSL_GRID_MACRO_SHIFT) | blockCoords.x;
-	blockColors[packedBaseID] = (mip << 28) | blockPos;
+	blockPositions[posBaseID] = (mip << 28) | blockPos;
 
-	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
-	{
-		const uint packedRank = packedBaseID + 1 + cellID * HLSL_COUNT;
-		blockColors[packedRank + 0] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_CELL_EMPTY;
-#if HLSL_COUNT == 2
-		blockColors[packedRank + 1] = cellID < cellCount ? cellOccupancy[cellID] : 0;
-#endif // #if HLSL_COUNT == 2
-	}
+	const EncodedBlock encodedBlock = Block_Encode( 0, cellRGBA, cellCount );
+
+	blockData[dataBaseID+0] = encodedBlock.cellEndColors;
+	blockData[dataBaseID+1] = encodedBlock.cellPresence[0];
+	blockData[dataBaseID+2] = encodedBlock.cellPresence[1];	
+	for ( uint colorOffset = 0; colorOffset < dataSize-3; ++colorOffset )
+		blockData[dataBaseID+3+colorOffset] = encodedBlock.cellColorIndices[colorOffset];
 
 	const uint blockCount = blockID + 1;
 	const uint groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 	InterlockedMax( block_groupCountX( c_octreeCurrentBucket ), groupCount );
-
-	const uint instanceCount = blockCount * cellMaxCount;
-	InterlockedMax( block_renderInstanceCount( c_octreeCurrentBucket ), instanceCount );
-	InterlockedMax( block_instanceCount( c_octreeCurrentBucket ), instanceCount );
-	InterlockedMax( block_instanceCount2( c_octreeCurrentBucket ), instanceCount * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE );
-
-	const uint groupCellCount = GROUP_COUNT( instanceCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
-	InterlockedMax( block_cellGroupCountX( c_octreeCurrentBucket ), groupCellCount );
 }

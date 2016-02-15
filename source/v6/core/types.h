@@ -12,13 +12,16 @@ typedef unsigned char		u8;
 
 typedef signed short		s16;
 typedef unsigned short		u16;
+struct hex16 { u16 n; };
 
 typedef signed int			s32;
 typedef unsigned int		u32;
 typedef unsigned int		uint;
+struct hex32 { u32 n; };
 
 typedef signed long long	s64;
 typedef unsigned long long	u64;
+struct hex64 { u64 n; };
 
 END_V6_CORE_NAMESPACE
 

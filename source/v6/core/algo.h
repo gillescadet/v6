@@ -31,9 +31,7 @@ void QuickSort(T * pValues, int nFirst, int nLast)
 			--nMax;
 		} while (pValues[nMax] > oPivot);
 		if (nMin >= nMax)
-		{
 			break;
-		}
 		Swap(pValues[nMin], pValues[nMax]);
 	}
 	Swap(pValues[nFirst], pValues[nMax]);

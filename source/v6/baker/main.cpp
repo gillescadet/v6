@@ -53,7 +53,7 @@ int main()
 
 	{
 		v6::core::FrameManager frameManager( &oHeap );
-		v6::core::FrameDesc desc = {  nWidth, nHeight };
+		v6::core::FrameDesc desc = { (v6::core::uint)nWidth, (v6::core::uint)nHeight };
 		v6::core::FrameBuffer* frameBuffer = frameManager.CreateFrameBuffer( &desc );
 		
 		oTileReader.FillFrameBuffer( frameBuffer );

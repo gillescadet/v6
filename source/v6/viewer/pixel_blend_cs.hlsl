@@ -8,115 +8,89 @@ Buffer< uint > firstBlockCellItemIDs							: register( HLSL_BLOCK_FIRST_CELL_ITE
 
 RWTexture2D< float4 > outputColors								: register( HLSL_COLOR_UAV );
 #if HLSL_DEBUG_PIXEL == 1
-RWStructuredBuffer< PixelBlendDebugBuffer > pixelDebugBuffer	: register( HLSL_PIXEL_DEBUG_UAV );
+RWStructuredBuffer< PixelBlendDebugBuffer > debugBuffers		: register( HLSL_PIXEL_DEBUG_UAV );
 #endif // #if HLSL_DEBUG_PIXEL == 1
 
-static const float s_depthMax = 1e32f;
+#define debugBuffer debugBuffers[0]
 
-#if HLSL_DEBUG_PIXEL == 1
-static const uint s_pixelMode = c_pixelMode;
-#else
-static const uint s_pixelMode = 0;
-#endif
-
-float3 testAlignedQuadA( uint2 screenPos, bool debug )
+struct PixelBuffer_s
 {
-	float depthBuffer[BUFFER_WIDTH][BUFFER_WIDTH];
-	float3 colorBuffer[BUFFER_WIDTH][BUFFER_WIDTH];
+	uint depth23_any9;
+	uint r8g8b8a8;
+};
 
+static const uint s_depthMax = 0xFFFFFFFF;
+static const uint pixelPerGroup = 64;
+static const uint samplePerPixel = BUFFER_WIDTH * BUFFER_WIDTH;
+
+uint3 UnpackRGBA( uint rgba )
+{
+	return uint3( (rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF );
+}
+
+float3 Blend( uint2 screenPos, uint2 bufferPos )
+{
+	PixelBuffer_s pixels[samplePerPixel];
 	{
-		for ( uint v = 0; v < BUFFER_WIDTH; ++v )
-		{
-			for ( uint u = 0; u < BUFFER_WIDTH; ++u )
-			{
-				depthBuffer[v][u] = s_depthMax;
-				colorBuffer[v][u] = float3( 0.0f, 0.0f, 0.0f );
-			}
-		}
+		for (uint sampleID = 0; sampleID < samplePerPixel; ++sampleID)
+			pixels[sampleID].depth23_any9 = s_depthMax;
 	}
 	
-	const uint pixelID = screenPos.y * c_pixelFrameSize.x + screenPos.x;
-			
-	BlockCellItem blockCellItem;
-	for ( uint blockCellItemID = firstBlockCellItemIDs[pixelID]; blockCellItemID != 0; blockCellItemID = blockCellItem.nextID )
-	{
-		blockCellItem = blockCellItems[blockCellItemID];
-			
-		const float inv255 = 1.0f / 255.0f;
-		const float r = ((blockCellItem.r8g8b8a8 >> 24) & 0xFF) * inv255;
-		const float g = ((blockCellItem.r8g8b8a8 >> 16) & 0xFF) * inv255;
-		const float b = ((blockCellItem.r8g8b8a8 >> 8) & 0xFF) * inv255;
-		const float3 otherColor = float3( r, g, b );
-				
-		const uint occupancy = blockCellItem.u8v8w8h8;
+	const uint pixelID = bufferPos.y * c_pixelFrameSize.x + bufferPos.x;
 
 #if HLSL_DEBUG_PIXEL == 1
-		const uint layer = pixelDebugBuffer[0].layerCount;
-		if ( debug && layer < 4 )
-		{				
-			PixelBlendDebugLayer debugLayer;
-			debugLayer.colorAndDepth = float4( otherColor, blockCellItem.depth );
-			debugLayer.occupancy = occupancy;
-
-			pixelDebugBuffer[0].layers[layer] = debugLayer;
-			++pixelDebugBuffer[0].layerCount;
-		}
-#endif // #if HLSL_DEBUG_PIXEL == 1				
-
-		uint occupancyBit = 0;
-		for ( uint v = 0; v < BUFFER_WIDTH; ++v )
-		{
-			for ( uint u = 0; u < BUFFER_WIDTH; ++u, ++occupancyBit )
-			{
-				if ( (occupancy & (1 << occupancyBit)) != 0 && blockCellItem.depth < depthBuffer[v][u] )
-				{
-					depthBuffer[v][u] = blockCellItem.depth;
-					colorBuffer[v][u] = otherColor;
-				}
-			}
-		}				
-	}
-	
-	float3 finalColor = float3( 0.0f, 0.0f, 0.0f );
-	float rasterCount = 0;
-
-	{
-		for ( uint v = 0; v < BUFFER_WIDTH; ++v )
-		{
-			for ( uint u = 0; u < BUFFER_WIDTH; ++u )
-			{
-				finalColor += colorBuffer[v][u];
-				rasterCount += depthBuffer[v][u] < s_depthMax ? 1.0f : 0.0f;
-
-#if HLSL_DEBUG_PIXEL == 1
-				if ( debug )
-				{
-					pixelDebugBuffer[0].colorBuffer[v][u] = colorBuffer[v][u];
-					pixelDebugBuffer[0].depthBuffer[v][u] = depthBuffer[v][u];
-				}
+	uint itemID = 0;
 #endif // #if HLSL_DEBUG_PIXEL == 1
+	for ( uint blockCellItemID = firstBlockCellItemIDs[pixelID]; blockCellItemID != 0; blockCellItemID = blockCellItems[blockCellItemID].nextID )
+	{
+		const uint depth23_occupancy9 = blockCellItems[blockCellItemID].depth23_occupancy9;
+		const uint r8g8b8a8 = blockCellItems[blockCellItemID].r8g8b8a8;
+		for ( uint sampleID = 0; sampleID < samplePerPixel; ++sampleID )
+		{
+			if ( (depth23_occupancy9 & (1 << sampleID)) != 0 && depth23_occupancy9 < pixels[sampleID].depth23_any9 )
+			{
+				pixels[sampleID].depth23_any9 = depth23_occupancy9;
+				pixels[sampleID].r8g8b8a8 = r8g8b8a8;
+			}
+		}
+#if HLSL_DEBUG_PIXEL == 1
+		if ( c_pixelDebug )
+		{
+			debugBuffer.cellItems[itemID] = blockCellItems[blockCellItemID];
+			++itemID;
+		}
+#endif // #if HLSL_DEBUG_PIXEL == 1
+	}
+
+	uint3 rasterColorSum = uint3( 0, 0, 0 );
+	uint rasterCount = 0;
+
+	{
+		for ( uint sampleID = 0; sampleID < samplePerPixel; ++sampleID )
+		{
+			if ( pixels[sampleID].depth23_any9 != s_depthMax )
+			{
+				rasterColorSum += UnpackRGBA( pixels[sampleID].r8g8b8a8 );
+				rasterCount += 1.0f;
 			}
 		}
 	}
-	
+
 	if ( rasterCount == 0 )
 		return c_pixelBackColor;
 	else
-		return finalColor / rasterCount;
-		//return finalColor / 16.0f;
+		// fixme: this is done to fill some holes between joint voxels that should'nt happen.
+#if 1
+		return rasterColorSum * (1.0f / (BUFFER_WIDTH * BUFFER_WIDTH * 255.0f ));
+#else
+		return rasterColorSum * rcp( rasterCount * 255.0f );
+#endif
 }
 
-[ numthreads( 16, 16, 1 ) ]
+[ numthreads( 8, 8, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-#if HLSL_DEBUG_PIXEL == 1
-	const bool debug = c_pixelDebug != 0 && c_pixelDebugCoords.x == DTid.x && c_pixelDebugCoords.y == DTid.y;
-#else
-	const bool debug = false;
-#endif // #if HLSL_DEBUG_PIXEL == 1
-	
-	const uint2 screenPos = uint2( DTid.x, c_pixelFrameSize.y - DTid.y - 1 );
-
-	if ( s_pixelMode == 0 )
-		outputColors[DTid.xy] = float4( testAlignedQuadA( screenPos, debug ), 1.0f );
+	const uint2 bufferPos = DTid.xy;
+	const uint2 screenPos = uint2( bufferPos.x, c_pixelFrameSize.y - bufferPos.y - 1 );
+	outputColors[screenPos] = float4( Blend( screenPos, bufferPos ), 1.0f );
 }

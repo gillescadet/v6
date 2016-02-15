@@ -19,9 +19,9 @@ inline Vec3 RandSphere()
 
 	const float alpha = RandFloat() * PI * 2.0f;
 	const float u = RandFloat() * 2.0f - 1.0f;
-	const float v = sqrtf( 1.0f - u * u );
-	const float x = v * cos( alpha );
-	const float y = v * sin( alpha );
+	const float v = Sqrt( 1.0f - u * u );
+	const float x = v * Cos( alpha );
+	const float y = v * Sin( alpha );
 	const float z = u;
 	return Vec3_Make( x, y, z );
 }

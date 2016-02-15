@@ -400,6 +400,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				}
 			};
 			
+			static const core::u32 NA = (core::u32)-1;
 			int ids[12];
 
 			if ( separatorCount == 0 )
@@ -409,7 +410,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			
 				{
 					V6_ASSERT( triangleID < triangleCount );		
-					const core::u32 indexRanks[] = { 0, -1, -1,  1, -1, -1, 2, -1, -1 };
+					const core::u32 indexRanks[] = { 0, NA, NA,  1, NA, NA, 2, NA, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -418,7 +419,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				if ( vertexCount == 4 )
 				{
 					V6_ASSERT( triangleID < triangleCount );			
-					const core::u32 indexRanks[] = { 0, -1, -1,  2, -1, -1, 3, -1, -1 };
+					const core::u32 indexRanks[] = { 0, NA, NA,  2, NA, NA, 3, NA, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -434,7 +435,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-					const core::u32 indexRanks[] = { 0, 1, -1,  2, 3, -1, 4, 5, -1 };
+					const core::u32 indexRanks[] = { 0, 1, NA,  2, 3, NA, 4, 5, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -444,7 +445,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-					const core::u32 indexRanks[] = { 0, 1, -1,  4, 5, -1, 6, 7, -1 };
+					const core::u32 indexRanks[] = { 0, 1, NA,  4, 5, NA, 6, 7, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -463,7 +464,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, -1, 1, 2, -1, 3, 4, -1, 5 };
+						const core::u32 indexRanks[] = { 0, NA, 1, 2, NA, 3, 4, NA, 5 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;
@@ -473,7 +474,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, -1, 1, 4, -1, 5, 6, -1, 7 };
+						const core::u32 indexRanks[] = { 0, NA, 1, 4, NA, 5, 6, NA, 7 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;

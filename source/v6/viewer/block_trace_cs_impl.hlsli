@@ -2,7 +2,7 @@
 
 #include "common_shared.h"
 
-Buffer< uint > blockColors									: register( HLSL_TRACE_CULLED_BLOCK_COLOR_SRV );
+Buffer< uint > blockColors									: register( HLSL_TRACE_CULLED_BLOCK_SRV );
 #include "block_cell.hlsli"
 
 #define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH

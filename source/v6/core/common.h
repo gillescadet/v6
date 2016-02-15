@@ -17,9 +17,10 @@
 #define V6_ASSERT_ALWAYS( EXP )		assert( false && (EXP) )
 #define V6_ASSERT_NOT_SUPPORTED()	V6_ASSERT_ALWAYS( "Not supported" )
 
-#define V6_MSG( ... )				{ printf("[MSG] "); printf(__VA_ARGS__); }
-#define V6_WARNING( ... )			{ printf("[WRN] "); printf(__VA_ARGS__); }
-#define V6_ERROR( ... )				{ printf("[ERR] "); printf(__VA_ARGS__); }
+#define V6_PRINT( ... )				{ printf( __VA_ARGS__ ); }
+#define V6_MSG( ... )				{ V6_PRINT( "[MSG] " ); V6_PRINT( __VA_ARGS__ ); }
+#define V6_WARNING( ... )			{ V6_PRINT( "[WRN] " ); V6_PRINT( __VA_ARGS__ ); }
+#define V6_ERROR( ... )				{ V6_PRINT( "[ERR] " ); V6_PRINT( __VA_ARGS__ ); }
 
 #define V6_INLINE					__inline
 
@@ -34,9 +35,11 @@
 #include <float.h>
 #include <malloc.h>
 #include <math.h>
+#include <memory.h>
 #include <new>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #pragma warning( pop )
 
 #include <v6/core/types.h>
