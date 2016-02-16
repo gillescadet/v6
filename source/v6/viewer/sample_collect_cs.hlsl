@@ -62,14 +62,14 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const float3 up = ups[c_sampleFaceID];
 	const float3 right = cross( lookAt, up );
 			
-	PixelSample pixelSamples[HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ];
+	PixelSample pixelSamples[HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ];
 	uint uniquePixelSampleCount = 0;
 
-	for ( uint j = 0; j < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++j )
+	for ( uint j = 0; j < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++j )
 	{
-		for ( uint i = 0; i < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++i )
+		for ( uint i = 0; i < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++i )
 		{
-			const uint2 pixelCoords = uint2( DTid.x * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + i, DTid.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + j );
+			const uint2 pixelCoords = uint2( DTid.x * HLSL_CELL_SUPER_SAMPLING_WIDTH + i, DTid.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + j );
 			const int3 coords = int3( pixelCoords.x, pixelCoords.y, 0 );
 			const float3 cubeColor = colors.Load( coords ).rgb;
 			const float cubeDepth = 1.0f / ( mad ( depths.Load( coords ), c_sampleDepthLinearScale, c_sampleDepthLinearBias ) );
@@ -89,8 +89,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 			const float3 cellCoords = mad( pos, c_sampleInvGridScales[mip].x * HLSL_GRID_HALF_WIDTH, HLSL_GRID_HALF_WIDTH );
 			const int3 sampleCoords = int3( cellCoords );
-			const int3 subCellCoords = min( int3( frac( cellCoords ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH ), 2 );
-			const uint subCellID = subCellCoords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + subCellCoords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
+			const int3 subCellCoords = min( int3( frac( cellCoords ) * HLSL_CELL_SUPER_SAMPLING_WIDTH ), 2 );
+			const uint subCellID = subCellCoords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + subCellCoords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
 			const uint occupancy = 1 << subCellID;
 
 #if HLSL_DEBUG_COLLECT == 1

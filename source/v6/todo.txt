@@ -23,19 +23,35 @@ On spare time:
 - save build on disk
 
 Bench #01:
-- config.context           :  occupancy
-- config.model             :     Sponza
-- config.resolution        :    512x512
-- time.frame               :      9.4ms
-- time.culling             :      1.1ms
-- time.trace               :      7.4ms
-- time.blend               :      0.9ms
-- stats.cellItemCount      :    1601837
-- stats.blockInputCount    :     801920
-- stats.blockProcessedCount:     639679
-- stats.traceInputCount    :   10054626
-- stats.traceProcessedCount:    6977122
-- stats.traceStepCount     :   15054386
-- stats.traceHitCount      :    4612522
-- stats.pixelGridCount     :    1601837
-- stats.pixelCellCount     :    4612522
+- config.context            :  occupancy
+- config.model              :     Sponza
+- config.resolution         :    512x512
+- time.frame                :      9.4ms
+- time.culling              :      1.1ms
+- time.trace                :      7.4ms
+- time.blend                :      0.9ms
+- stats.cellItemCount       :    1601837
+- stats.blockInputCount     :     801920
+- stats.blockProcessedCount :     639679
+- stats.traceInputCount     :   10054626
+- stats.traceProcessedCount :    6977122
+- stats.traceStepCount      :   15054386
+- stats.traceHitCount       :    4612522
+- stats.pixelGridCount      :    1601837
+- stats.pixelCellCount      :    4612522
+						    
+						    
+Bench #02:				    
+- config.context            :   decoding
+- config.model              :     Sponza
+- config.resolution         :    512x512
+- time.frame                :    12.90ms
+- time.culling              :     0.25ms // was badly measured at 0.9ms due to adaptive GPU frequency
+- time.trace                :    10.35ms
+- time.blend                :     2.30ms
+- stats.blockInputCount     :     442688
+- stats.blockPassedCount    :      52869
+- stats.cellProcessedCount  :     739161
+- stats.sampleProcessedCount:   36218889
+- stats.pixelSampleCount    :   10453492
+- stats.cellItemCount       :    2735353

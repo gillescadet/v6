@@ -14,7 +14,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_CULL								0
 #define HLSL_DEBUG_BLOCK							0
-#define HLSL_DEBUG_PIXEL							1
+#define HLSL_DEBUG_PIXEL							0
 #define HLSL_DEBUG_TRACE							1
 
 #define HLSL_TRILINEAR_SLOT							0
@@ -116,7 +116,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						8
+#define HLSL_GRID_MACRO_SHIFT						9
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -148,12 +148,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define	HLSL_MIP_MAX_COUNT							16
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
-#define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				3
-#define HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ			(HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH)
-#define HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE			(HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH)
-#define	HLSL_PIXEL_MULTISAMPLE_COUNT				8
-#define	HLSL_PIXEL_MULTISAMPLE_WIDTH				1024
-#define HLSL_COUNT									2
+#define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
+#define HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
+#define HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
+#define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
+#define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				1
 
 CBUFFER( CBBasic, 0 )
 {
@@ -215,10 +214,11 @@ CBUFFER( CBBlock, 4 )
 	float2				c_blockMultiSampledFrameSize;
 	
 	float2				c_blockScreenToClipScale;
-	float2				c_blockScreenToClipOffset;
+	float2				c_blockMultiSampledScreenToClipScale;
 	
+	float2				c_blockScreenToClipOffset;	
 	float				c_blockZNear;
-	float3				c_blockUnused;
+	float				c_blockUnused;
 
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
@@ -261,12 +261,27 @@ struct OctreeLeaf
 	uint occupancy27;
 };
 
+#if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 1
+
+struct BlockCellItem
+{
+	uint	r8g8b8a8;
+	uint	depth23_hitMask9;
+	uint	nextID;
+};
+
+#endif // #if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 1
+
+#if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 3
+
 struct BlockCellItem
 {
 	uint	r8g8b8a8;
 	uint	depth23_occupancy9;
 	uint	nextID;
 };
+
+#endif // #if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 3
 
 struct BlockContext
 {	
@@ -336,9 +351,9 @@ struct BlockContext
 	int4	hitFoundCoords;
 	uint	hitFailBits;
 
-	uint	pixelColors[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
-	uint	pixelOccupancies[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
-	float	pixelDepths[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	uint	pixelColors[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
+	uint	pixelOccupancies[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
+	float	pixelDepths[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
 #endif // HLSL_DEBUG_BLOCK == 1
 
 #if HLSL_DEBUG_TRACE == 1
@@ -465,8 +480,8 @@ struct DebugTraceCell
 	float					cellScale;
 	uint					pixelOccupancyMask;	
 	uint2					frameSize;
-	DebugTraceCellSample	samples[2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + 1][2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + 1];
-	DebugTraceCellGrid		grids[HLSL_PIXEL_SUPER_SAMPLING_WIDTH][HLSL_PIXEL_SUPER_SAMPLING_WIDTH];
+	DebugTraceCellSample	samples[2 * HLSL_CELL_SUPER_SAMPLING_WIDTH + 1][2 * HLSL_CELL_SUPER_SAMPLING_WIDTH + 1];
+	DebugTraceCellGrid		grids[3][3];
 };
 
 struct DebugTraceBlock

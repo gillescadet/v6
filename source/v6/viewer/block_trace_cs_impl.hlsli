@@ -5,7 +5,7 @@
 Buffer< uint > blockColors									: register( HLSL_TRACE_CULLED_BLOCK_SRV );
 #include "block_cell.hlsli"
 
-#define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH
+#define BUFFER_WIDTH HLSL_CELL_SUPER_SAMPLING_WIDTH
 
 Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV );
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
@@ -29,7 +29,7 @@ struct TraceBlock_s
 	uint	debug4_jobWidth12_jobOffset12_mip4;
 };
 
-#if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 3
+#if HLSL_CELL_SUPER_SAMPLING_WIDTH == 3
 static const uint			pixelCountMax = 49;
 static const uint			traceCellWidthPerBlock = 3;
 static const uint			traceJobPerInt = 4;
@@ -61,11 +61,11 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 		
 	{
 		uint occupancyBit = 0;
-		for ( uint z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
+		for ( uint z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
 		{
-			for ( uint y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+			for ( uint y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 			{
-				for ( uint x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x, ++occupancyBit )
+				for ( uint x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x, ++occupancyBit )
 				{
 					if ( (blockCell.occupancy & (1 << occupancyBit)) != 0 )
 					{
@@ -115,7 +115,7 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 	const float2 screenPos = (minScreenPos + maxScreenPos) * 0.5f;
 	const float2 screenRadius = (maxScreenPos - minScreenPos) * 0.5f;
 	const float2 multiSampledPixelPos = mad( screenPos, 0.5f, 0.5f ) * c_blockMultiSampledFrameSize;
-	const float2 multiSampledPixelRadius = min( screenRadius * 0.5f * c_blockMultiSampledFrameSize, HLSL_PIXEL_SUPER_SAMPLING_WIDTH );
+	const float2 multiSampledPixelRadius = min( screenRadius * 0.5f * c_blockMultiSampledFrameSize, HLSL_CELL_SUPER_SAMPLING_WIDTH );
 	multiSampledMinPixelCoords = clamp( int2( multiSampledPixelPos - multiSampledPixelRadius ), 0, c_blockMultiSampledFrameSize-1 );
 	multiSampledMaxPixelCoords = clamp( int2( multiSampledPixelPos + multiSampledPixelRadius ), 0, c_blockMultiSampledFrameSize-1 );	
 
@@ -143,8 +143,8 @@ bool Clip( BlockCell blockCell, out uint2 multiSampledMinPixelCoords, out uint2 
 
 void Assign( BlockCell blockCell, uint blockID, uint2 multiSampledMinPixelCoords, uint2 multiSampledMaxPixelCoords, out uint2 minPixelCoords, bool debug, bool debugBlock )
 {
-	minPixelCoords = uint2( (multiSampledMinPixelCoords + 0.5f) / float( HLSL_PIXEL_SUPER_SAMPLING_WIDTH ) );
-	const uint2 multiSampledMinPixelBase = minPixelCoords * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+	minPixelCoords = uint2( (multiSampledMinPixelCoords + 0.5f) / float( HLSL_CELL_SUPER_SAMPLING_WIDTH ) );
+	const uint2 multiSampledMinPixelBase = minPixelCoords * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 	const uint2 multiSampledMinPixelOffset = multiSampledMinPixelCoords - multiSampledMinPixelBase;	
 	const uint2 multiSampledSize = 1 + multiSampledMaxPixelCoords - multiSampledMinPixelCoords;
 	const uint multiSampledPixelCount = multiSampledSize.x * multiSampledSize.y;
@@ -225,7 +225,7 @@ void ParallelTrace( uint blockID )
 		const float jobPixelY = lineCount + 0.5f;		
 		
 		const float2 jobMultiSampledScreenPos = float2( jobPixelBaseX + jobPixelOffsetX + jobPixelX, jobPixelBaseY + jobPixelOffsetY + jobPixelY );
-		const float3 rayEndVS = float3( mad( jobMultiSampledScreenPos, c_blockScreenToClipScale, c_blockScreenToClipOffset ), -c_blockZNear );
+		const float3 rayEndVS = float3( mad( jobMultiSampledScreenPos, c_blockMultiSampledScreenToClipScale, c_blockScreenToClipOffset ), -c_blockZNear );
 		const float3 rayEndWS = mul( c_blockViewToObject, float4( rayEndVS, 1.0f ) ).xyz;
 		const float3 rayDir = normalize( rayEndWS - rayOrgWS );
 		const float3 rayInvDir = rcp( rayDir );
@@ -301,10 +301,10 @@ void ParallelTrace( uint blockID )
 #endif // #if BLOCK_GET_STATS == 1
 
 		const float scale = c_blockGridScales[jobMip].z;
-		const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;	
+		const float offset = HLSL_CELL_SUPER_SAMPLING_WIDTH * 0.5f;	
 		const float3 pIn = mad( rayDir, tIn, rayOrgWS );
 		const float3 coordIn = (pIn - block.center) * scale + offset;			
-		int3 coords = min( (int3)coordIn, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+		int3 coords = min( (int3)coordIn, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
 		float3 tCur = tMin;
 		const float3 tDelta = c_blockGridScales[jobMip].w * abs( rayInvDir );		
 		for ( uint phase = 0; phase < 2; ++phase )
@@ -355,11 +355,11 @@ void ParallelTrace( uint blockID )
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockTraceStats[0].traceStepCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
-			const uint occupancyBit = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
+			const uint occupancyBit = coords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + coords.x;
 			if ( (block.occupancy & (1 << occupancyBit)) != 0 )
 			{				
 				const uint pixelTraceBucket = jobBlockID * traceCellWidthPerBlock + Div3( jobPixelCoord.y );
-				const uint pixelTraceCellBit = Div3( jobPixelCoord.x ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + Mod3( jobPixelCoord.y ) * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + Mod3( jobPixelCoord.x );
+				const uint pixelTraceCellBit = Div3( jobPixelCoord.x ) * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + Mod3( jobPixelCoord.y ) * HLSL_CELL_SUPER_SAMPLING_WIDTH + Mod3( jobPixelCoord.x );
 				InterlockedOr( g_traceCellBits[pixelTraceBucket], 1 << pixelTraceCellBit );
 
 #if HLSL_DEBUG_BLOCK == 1
@@ -411,7 +411,7 @@ void ParallelTrace( uint blockID )
 					coords.z += step.z;
 				}
 		
-				if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
+				if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_CELL_SUPER_SAMPLING_WIDTH )
 				{
 #if HLSL_DEBUG_BLOCK == 1
 #if HLSL_DEBUG_PIXEL == 1
@@ -441,10 +441,10 @@ void Output( BlockCell blockCell, float pixelDepth, uint blockID, uint2 minPixel
 		if ( g_traceCellBits[bucketBase+y] == 0 )
 			continue;
 
-		const uint pixelOccupancyMask = (1 << (HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 3))-1;
+		const uint pixelOccupancyMask = (1 << (HLSL_CELL_SUPER_SAMPLING_WIDTH * 3))-1;
 		for ( uint x = 0; x < 3; ++x )
 		{
-			const uint pixelOccupancy = (g_traceCellBits[bucketBase+y] >> (x * HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 3)) & pixelOccupancyMask;
+			const uint pixelOccupancy = (g_traceCellBits[bucketBase+y] >> (x * HLSL_CELL_SUPER_SAMPLING_WIDTH * 3)) & pixelOccupancyMask;
 			if ( pixelOccupancy == 0 )
 				continue;
 

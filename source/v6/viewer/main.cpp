@@ -41,13 +41,13 @@
 BEGIN_V6_VIEWER_NAMESPACE
 
 static const float AVERAGE_LAYER_COUNT		= 2.0f;
-#if HLSL_PIXEL_SUPER_SAMPLING_WIDTH > 1
-static const float AVERAGE_SAMPLE_PER_PIXEL	= 0.25f * HLSL_PIXEL_SUPER_SAMPLING_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+#if HLSL_CELL_SUPER_SAMPLING_WIDTH > 1
+static const float AVERAGE_SAMPLE_PER_PIXEL	= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 #else
 static const float AVERAGE_SAMPLE_PER_PIXEL	= 1.0f;
 #endif
 static const core::u32 ZOOM					= 1;
-static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
 static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
@@ -404,11 +404,11 @@ struct SceneDebug_s : Scene_s
 {
 	core::u32 meshLineID;
 	core::u32 meshGridID;
-	core::u32 meshCellIDs[HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE][2];
+	core::u32 meshCellIDs[HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE][2];
 	core::u32 meshBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
 	core::u32 entityLineID;
 	core::u32 entityGridID;
-	core::u32 entityCellIDs[HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE][2];	
+	core::u32 entityCellIDs[HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE][2];	
 	core::u32 entityBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
 	core::u32 entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
 };
@@ -2798,11 +2798,11 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 	Material_Create( &scene->materials[scene->materialCount++], Material_DrawBasic );
 	
 	core::u32 cellID = 0;
-	for ( int z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
+	for ( int z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
 	{
-		for ( int y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+		for ( int y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 		{
-			for ( int x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
+			for ( int x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
 			{						
 				for ( core::u32 cellType = 0; cellType < 2; ++cellType )
 				{
@@ -2949,18 +2949,18 @@ core::u32 Grid_Trace( const core::Vec3* gridCenter, float gridScale, core::u32 g
 	if ( tIn > tOut )
 		return 0;
 
-	const float cellSize = (gridScale * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+	const float cellSize = (gridScale * 2.0f) / HLSL_CELL_SUPER_SAMPLING_WIDTH;
 	const float scale = 1.0f / cellSize;
-	const float offset = HLSL_PIXEL_SUPER_SAMPLING_WIDTH * 0.5f;
+	const float offset = HLSL_CELL_SUPER_SAMPLING_WIDTH * 0.5f;
 	
 	const core::Vec3 tDelta = cellSize * invDir.Abs();	
 
 	const core::Vec3 pIn = *rayOrg + tIn * *rayDir;
 	const core::Vec3 coordIn = (pIn - *gridCenter) * scale + offset;
 		
-	const int x = min( (int)coordIn.x, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
-	const int y = min( (int)coordIn.y, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
-	const int z = min( (int)coordIn.z, HLSL_PIXEL_SUPER_SAMPLING_WIDTH-1 );
+	const int x = min( (int)coordIn.x, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
+	const int y = min( (int)coordIn.y, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
+	const int z = min( (int)coordIn.z, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
 	core::Vec3i coords = core::Vec3i_Make( x, y, z );
 	const core::Vec3i step = core::Vec3i_Make( rayDir->x < 0.0f ? -1 : 1, rayDir->y < 0.0f ? -1 : 1, rayDir->z < 0.0f ? -1 : 1 );
 	core::Vec3 tCur = tMin;
@@ -2976,7 +2976,7 @@ core::u32 Grid_Trace( const core::Vec3* gridCenter, float gridScale, core::u32 g
 
 	for ( ;; )
 	{
-		const core::u32 cellID = coords.z * HLSL_PIXEL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_PIXEL_SUPER_SAMPLING_WIDTH + coords.x;
+		const core::u32 cellID = coords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + coords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + coords.x;
 		const core::u32 occupancyBit = 1 << cellID;
 		hitFound |= (gridOccupancy & occupancyBit);
 		if ( hitFound )
@@ -2999,7 +2999,7 @@ core::u32 Grid_Trace( const core::Vec3* gridCenter, float gridScale, core::u32 g
 		tCur[nextAxis] = tNext[nextAxis];
 		coords[nextAxis] += step[nextAxis];
 		
-		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_PIXEL_SUPER_SAMPLING_WIDTH )
+		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_CELL_SUPER_SAMPLING_WIDTH )
 			break;
 	}
 
@@ -3028,15 +3028,15 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 	Mesh_UpdateVertices( gpuContext->deviceContext, &scene->meshes[scene->meshLineID], vertices );
 	Entity_SetVisible( &scene->entities[scene->entityLineID], true );
 	
-	const float cellSize = (gridScale * 2.0f) / HLSL_PIXEL_SUPER_SAMPLING_WIDTH;
+	const float cellSize = (gridScale * 2.0f) / HLSL_CELL_SUPER_SAMPLING_WIDTH;
 	const core::Vec3 cellOrg = *gridCenter - gridScale + cellSize * 0.5f;
 	
 	core::u32 cellID = 0;
-	for ( int z = 0; z < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++z )
+	for ( int z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
 	{
-		for ( int y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+		for ( int y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 		{
-			for ( int x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
+			for ( int x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
 			{
 				const core::Vec3 cellCenter = cellOrg + core::Vec3_Make( (float)x, (float)y, (float)z ) * cellSize;
 				
@@ -3055,7 +3055,7 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 	
 	const core::u32 hitFound = Grid_Trace( gridCenter, gridScale, gridOccupancy, rayOrg, &rayDir, nullptr );
 
-	for ( core::u32 cellID = 0; cellID < HLSL_PIXEL_SUPER_SAMPLING_WIDTH_CUBE; ++cellID )
+	for ( core::u32 cellID = 0; cellID < HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE; ++cellID )
 		Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], (hitFound & (1 << cellID)) != 0 );
 }
 
@@ -3121,7 +3121,7 @@ void Block_DebugDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const hl
 						{
 							V6_ASSERT( entityBlockID < DEBUG_BLOCK_MAX_COUNT );
 
-							const float scale = cellScales[debugBlock->mip] / HLSL_PIXEL_SUPER_SAMPLING_WIDTH; 
+							const float scale = cellScales[debugBlock->mip] / HLSL_CELL_SUPER_SAMPLING_WIDTH; 
 							const float3 center = debugBlock->posWS - cellScales[debugBlock->mip] + core::Vec3_Make( (float)x, (float)y, (float)z ) * scale * 2.0f + scale;
 														
 							const core::u32 entityID = scene->entityBlockIDs[entityBlockID][(hitFound & occupancyBit) != 0 ? 1 : 0];
@@ -3296,9 +3296,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Scene_CreateDebug( m_debugScene, gpuContext.device );
 
 	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );
+#if 0
 	Cube_Create( gpuContext.device, &m_cube, CUBE_SIZE );
 	Sample_Create( gpuContext.device, &m_sample, &m_config, heap );
 	Octree_Create( gpuContext.device, &m_octree, &m_config, heap );
+#endif
 	Block_Create( gpuContext.device, &m_block, &m_config, heap );
 	Pixel_Create( gpuContext.device, &m_pixel, &m_config, heap );
 
@@ -3554,7 +3556,7 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.uav, nullptr );
 	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_SAMPLECOLLECT].m_computeShader, nullptr, 0 );
 		
-	const core::u32 cubeGroupCount = (m_cube.size / HLSL_PIXEL_SUPER_SAMPLING_WIDTH) >> 3;
+	const core::u32 cubeGroupCount = (m_cube.size / HLSL_CELL_SUPER_SAMPLING_WIDTH) >> 3;
 	gpuContext.deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset		
@@ -3837,14 +3839,15 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 		cbBlock->c_blockShowMip = false;
 		cbBlock->c_blockShowOverdraw = false;
 
-		cbBlock->c_blockFrameSize.x = (float)m_width;
-		cbBlock->c_blockFrameSize.y = (float)m_height;
+		const core::Vec2 frameSize = core::Vec2_Make( (float)m_width, (float)m_height );
+		cbBlock->c_blockFrameSize = frameSize;
 
-		const core::Vec2 multiSampledFrameSize = core::Vec2_Make( (float)(m_width * HLSL_PIXEL_SUPER_SAMPLING_WIDTH), (float)(m_height * HLSL_PIXEL_SUPER_SAMPLING_WIDTH) );
+		const core::Vec2 multiSampledFrameSize = core::Vec2_Make( (float)(m_width * HLSL_CELL_SUPER_SAMPLING_WIDTH), (float)(m_height * HLSL_CELL_SUPER_SAMPLING_WIDTH) );
 		cbBlock->c_blockMultiSampledFrameSize = multiSampledFrameSize;
 
-		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / m_projMatrix.m_row0.x, ZNEAR / m_projMatrix.m_row1.y );
-		cbBlock->c_blockScreenToClipScale = screenToClipOffset / (multiSampledFrameSize * 0.5f);
+		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / m_projMatrix.m_row0.x, ZNEAR / m_projMatrix.m_row1.y );		
+		cbBlock->c_blockScreenToClipScale = screenToClipOffset / (frameSize * 0.5f);
+		cbBlock->c_blockMultiSampledScreenToClipScale = screenToClipOffset / (multiSampledFrameSize * 0.5f);
 		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
 		cbBlock->c_blockZNear = ZNEAR;
 
@@ -4097,9 +4100,9 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 
 #if 0
 					V6_MSG( "samples:\n" );
-					for ( core::u32 y = 0; y < 1 + 2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+					for ( core::u32 y = 0; y < 1 + 2 * HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 					{
-						for ( core::u32 x = 0; x < 1 + 2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+						for ( core::u32 x = 0; x < 1 + 2 * HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x )
 						{					
 							V6_MSG( "x: %d, y: %d\n", x, y );
 							__MSG_SAMPLE( cellID, x, y, rayDir );
@@ -4111,10 +4114,10 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 #endif
 
 					V6_MSG( "draw samples:\n" );
-					for ( core::u32 y = 0; y < 1 + 2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+					for ( core::u32 y = 0; y < 1 + 2 * HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 					{
 						V6_MSG( "[ " );
-						for ( core::u32 x = 0; x < 1 + 2 * HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+						for ( core::u32 x = 0; x < 1 + 2 * HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x )
 						{					
 							V6_PRINT( "%c ", __GET_SAMPLE( cellID, x, y, hit ) ? 'x' : '.' );
 						}
@@ -4127,9 +4130,9 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 
 #if 0
 					V6_MSG( "grids:\n" );
-					for ( core::u32 y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+					for ( core::u32 y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 					{
-						for ( core::u32 x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+						for ( core::u32 x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x )
 						{					
 							V6_MSG( "x: %d, y: %d\n", x, y );
 							__MSG_GRID_HEX32( cellID, x, y, pixelOccupancy );
@@ -4141,10 +4144,10 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 #endif
 
 					V6_MSG( "draw grid: %d, %d\n", __GET_CELL( cellID, minPixelCoords ).x, __GET_CELL( cellID, minPixelCoords ).y );
-					for ( core::u32 y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+					for ( core::u32 y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 					{
 						V6_MSG( "[ " );
-						for ( core::u32 x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+						for ( core::u32 x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x )
 						{
 							V6_PRINT( "%03X ", __GET_GRID( cellID, x, y, pixelOccupancy ) );
 							if ( __GET_GRID( cellID, x, y, pixelOccupancy ) > 0 )
@@ -4169,9 +4172,9 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 
 					for ( core::u32 cellID = 0; cellID < blockContext->debugCellCount; ++cellID )
 					{						
-						for ( core::u32 y = 0; y < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++y )
+						for ( core::u32 y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
 						{
-							for ( core::u32 x = 0; x < HLSL_PIXEL_SUPER_SAMPLING_WIDTH; ++x )
+							for ( core::u32 x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x )
 							{
 								if ( __GET_GRID( cellID, x, y, pixelOccupancy ) > 0 )
 								{
@@ -4402,6 +4405,11 @@ void CRenderingDevice::Draw( float dt )
 
 			if ( g_sample == 0 )
 			{
+#if 1
+				Cube_Create( gpuContext.device, &m_cube, CUBE_SIZE );
+				Sample_Create( gpuContext.device, &m_sample, &m_config, m_heap );
+				Octree_Create( gpuContext.device, &m_octree, &m_config, m_heap );
+#endif
 				s_sampleCenter = s_headOffset;
 				lastSumLeafCount = 0;
 				ClearNode();
@@ -4434,6 +4442,11 @@ void CRenderingDevice::Draw( float dt )
 			{
 				V6_MSG( "Packing all samples..." );
 				PackColor();
+#if 1
+				Cube_Release( &m_cube );
+				Sample_Release( gpuContext.device, &m_sample );
+				Octree_Release( gpuContext.device, &m_octree );
+#endif
 				V6_MSG( "\r" );
 				V6_MSG( "Packed  all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
 				s_logReadBack = false;
@@ -4476,9 +4489,11 @@ void CRenderingDevice::Present()
 
 void CRenderingDevice::Release()
 {
+#if 0
 	Cube_Release( &m_cube );
 	Sample_Release( gpuContext.device, &m_sample );
 	Octree_Release( gpuContext.device, &m_octree );
+#endif
 	Block_Release( gpuContext.device, &m_block, m_heap );
 	Pixel_Release( gpuContext.device, &m_pixel );
 
