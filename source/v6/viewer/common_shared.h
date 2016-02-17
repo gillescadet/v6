@@ -116,7 +116,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_PIXEL_COLOR_UAV						CONCAT( u, HLSL_PIXEL_COLOR_SLOT )
 #define HLSL_PIXEL_DEBUG_UAV						CONCAT( u, HLSL_PIXEL_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						9
+#define HLSL_GRID_MACRO_SHIFT						8
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -220,6 +220,13 @@ CBUFFER( CBBlock, 4 )
 	float				c_blockZNear;
 	float				c_blockUnused;
 
+	float3				c_blockRayDirBase;
+	float				c_blockPad0;
+	float3				c_blockRayDirUp;
+	float				c_blockPad1;
+	float3				c_blockRayDirRight;
+	float				c_blockPad2;
+
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
 	uint				c_blockUseOccupancy;
@@ -235,9 +242,9 @@ CBUFFER( CBBlock, 4 )
 CBUFFER( CBPixel, 5 )
 {
 	uint2				c_pixelFrameSize;
-	float2				c_pixelPad1;
+	float2				c_pixelPad3;
 	float3				c_pixelBackColor;
-	float				c_pixelPad2;
+	float				c_pixelPad4;
 #if HLSL_DEBUG_PIXEL == 1	
 	uint				c_pixelMode;
 	uint				c_pixelDebug;

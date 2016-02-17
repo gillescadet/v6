@@ -52,8 +52,13 @@ static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
 static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
 static const float ZFAR						= 10000.0f;
+#if V6_SIMPLE_SCENE == 1
+static const float FOV						= core::DegToRad( 90.0f );
+#else
+static const float FOV						= core::DegToRad( 70.0f );
+#endif
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 1;
+static const int SAMPLE_MAX_COUNT			= 8;
 static const float FREE_SCALE				= 50.0f;
 //static const float FREE_SCALE				= 400.0f;
 static const core::u32 RANDOM_CUBE_COUNT	= 100;
@@ -157,6 +162,7 @@ enum
 	COMPUTE_FILTERPIXEL,
 	COMPUTE_TRACEPIXEL,
 	COMPUTE_BLENDPIXEL,
+
 	COMPUTE_COUNT
 };
 
@@ -530,6 +536,7 @@ static bool g_useMSAA						= true;
 static bool g_debugBlocks					= false;
 static bool g_transparentDebug				= false;
 static bool g_skipTrace						= false;
+static bool g_reloadShaders					= false;
 
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
@@ -588,6 +595,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'S': g_keyDownPressed = pressed; break;
 			case 'W': g_keyUpPressed = pressed; break;			
 			case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
+			case 'Z': if ( pressed ) { g_reloadShaders = true; }; break;
 			case ' ':
 				if ( pressed ) 
 				{
@@ -853,6 +861,11 @@ static bool Compute_Create( ID3D11Device* device, GPUCompute_s* compute, const c
 	return true;
 }
 
+static void Compute_Release( GPUCompute_s* compute )
+{	
+	compute->m_computeShader->Release();
+}
+
 static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
 {
 	core::ScopedStack scopedStack( stack );
@@ -1013,6 +1026,13 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 	}
 
 	return true;
+}
+
+static void Shader_Release( GPUShader_s* shader )
+{
+	shader->m_inputLayout->Release();
+	shader->m_vertexShader->Release();
+	shader->m_pixelShader->Release();
 }
 
 static void ReadBack_Log( const char* res, core::u32 value, const char* name )
@@ -1475,6 +1495,55 @@ static void GPUQuery_Release( GPUQuery_s* query )
 	query->query->Release();
 }
 
+static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* fileSystem, core::IStack* stack )
+{
+	ID3D11Device* device = context->device;
+	
+	Compute_Create( device, &context->computes[COMPUTE_SAMPLECOLLECT], "sample_collect_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BUILDINNER], "octree_build_inner_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BUILDLEAF], "octree_build_leaf_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_FILLLEAF], "octree_fill_leaf_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_PACKCOLOR], "octree_pack_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS4], "block_trace_stats_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS8], "block_trace_stats_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS16], "block_trace_stats_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS32], "block_trace_stats_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_FILTERPIXEL], "pixel_filter_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_TRACEPIXEL], "pixel_trace_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
+
+	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
+	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
+	Shader_Create( device, &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+	Shader_Create( device, &context->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+}
+
+static void GPUContext_ReleaseShaders( GPUContext_s* context )
+{
+	for ( uint computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
+		Compute_Release( &context->computes[computeID] );
+
+	for ( uint shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
+		Shader_Release( &context->shaders[shaderID] );
+}
+
 static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32 height, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack )
 {
 	memset( context, 0, sizeof( *context ) );
@@ -1776,40 +1845,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "block" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
 
-	Compute_Create( device, &context->computes[COMPUTE_SAMPLECOLLECT], "sample_collect_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BUILDINNER], "octree_build_inner_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BUILDLEAF], "octree_build_leaf_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_FILLLEAF], "octree_fill_leaf_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_PACKCOLOR], "octree_pack_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS4], "block_trace_stats_x4_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS8], "block_trace_stats_x8_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS16], "block_trace_stats_x16_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS32], "block_trace_stats_x32_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_FILTERPIXEL], "pixel_filter_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_TRACEPIXEL], "pixel_trace_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
-		
-	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
-	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
-	Shader_Create( device, &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
-	Shader_Create( device, &context->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+	GPUContext_CreateShaders( context, fileSystem, stack );	
 
 	for ( core::u32 bufferID = 0; bufferID < 2; ++bufferID )
 	{
@@ -1833,19 +1869,7 @@ void GPUContext_Release( GPUContext_s* context )
 			ConstantBuffer_Release( &context->constantBuffers[constantBufferID ] );
 	}
 
-	for ( uint computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
-	{
-		GPUCompute_s* compute = &context->computes[computeID];
-		compute->m_computeShader->Release();		
-	}
-
-	for ( uint shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
-	{
-		GPUShader_s* shader = &context->shaders[shaderID];
-		shader->m_vertexShader->Release();
-		shader->m_pixelShader->Release();
-		shader->m_inputLayout->Release();
-	}
+	GPUContext_ReleaseShaders( context );
 
 	for ( core::u32 bufferID = 0; bufferID < 2; ++bufferID )
 	{
@@ -3277,13 +3301,8 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_width = nWidth;
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
-#if V6_SIMPLE_SCENE == 1
-	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, core::DegToRad( 90.0f ), m_aspectRatio );
-	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), m_aspectRatio );
-#else
-	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );
-	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 70.0f ), m_aspectRatio );
-#endif
+	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, FOV, m_aspectRatio );
+	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, FOV, m_aspectRatio );
 	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
 
 	GPUContext_Create( &gpuContext, nWidth, nHeight, hWnd, fileSystem, heap, stack );
@@ -3850,6 +3869,19 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 		cbBlock->c_blockMultiSampledScreenToClipScale = screenToClipOffset / (multiSampledFrameSize * 0.5f);
 		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
 		cbBlock->c_blockZNear = ZNEAR;
+
+		const float tanHalf = core::Tan( FOV * 0.5f );
+		const float scale = tanHalf / (0.5f * m_config.screenHeight);
+
+		const core::Vec3 forward = -viewMatrix->GetZAxis()->Normalized();
+		const core::Vec3 right = viewMatrix->GetXAxis()->Normalized() * scale;
+		const core::Vec3 up = viewMatrix->GetYAxis()->Normalized() * scale;
+
+		cbBlock->c_blockRayDirBase = forward + up * (-0.5f * m_config.screenHeight + 0.5f) + right * (-0.5f * m_config.screenWidth + 0.5f);
+		cbBlock->c_blockRayDirUp = up;
+		cbBlock->c_blockRayDirRight = right;
+		cbBlock->c_blockFrameSize.x = (float)m_config.screenWidth;
+		cbBlock->c_blockFrameSize.y = (float)m_config.screenHeight;
 
 		cbBlock->c_blockSkipTrace = g_skipTrace;
 
@@ -4460,17 +4492,14 @@ void CRenderingDevice::Draw( float dt )
 		}
 		else
 		{
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
-			
-#if 1
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );			
+
 			TraceBlock( &viewMatrix, &s_sampleCenter );
-#endif
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
-#if 1
+
 			if ( g_filterPixel )
-				BlendPixel();
-#endif
+				BlendPixel();			
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 
@@ -4629,6 +4658,13 @@ int main()
 #endif
 				return 0;
 			}
+		}
+
+		if ( v6::viewer::g_reloadShaders )
+		{
+			v6::viewer::GPUContext_ReleaseShaders( &oRenderingDevice.gpuContext );
+			v6::viewer::GPUContext_CreateShaders( &oRenderingDevice.gpuContext, &filesystem, &stack );
+			v6::viewer::g_reloadShaders = false;
 		}
 				
 		v6::viewer::GPUQuery_BeginTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] );

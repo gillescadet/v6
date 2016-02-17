@@ -7,7 +7,7 @@ Texture2D texAlpha				: register( HLSL_GENERIC_ALPHA_SRV );
 
 static const float3 s_sunDir = normalize( float3( 0.8f, 1.0f, 0.5f ) );
 static const float3 s_skyColor = float3( 0.1f, 0.3f, 0.75f );
-static const float3 s_sunColor = float3( 1.0f, 0.75f, 0.2f ) * 2.0f;
+static const float3 s_sunColor = float3( 1.0f, 0.75f, 0.5f ) * 2.0f;
 
 float4 main( PixelInput i ) : SV_TARGET
 {

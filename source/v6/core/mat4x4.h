@@ -30,9 +30,9 @@ public:
 		Vec4 m_rows[4];
 	};	
 
-	Vec3* GetXAxis() { return (Vec3*)&m_row0; }
-	Vec3* GetYAxis() { return (Vec3*)&m_row1; }
-	Vec3* GetZAxis() { return (Vec3*)&m_row2; }
+	const Vec3* GetXAxis() const { return (Vec3*)&m_row0; }
+	const Vec3* GetYAxis() const { return (Vec3*)&m_row1; }
+	const Vec3* GetZAxis() const { return (Vec3*)&m_row2; }
 };
 
 V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)

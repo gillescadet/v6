@@ -75,7 +75,7 @@ void ProcessCell( uint cellRGBA, uint cellPos, CellParams cellParams )
 		const float3 cellPosWS = mad( cellCoords, cellParams.cellSize, cellParams.firstCellPosWS );			
 		const float4 cellPosCS = mul( cellParams.worldToProjMatrix, float4( cellPosWS, 1.0f ) );
 		const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );		
-		cellPosRS = cellPosWS - cellParams.rayOrgWS;
+		cellPosRS = cellPosWS - cellParams.rayOrgWS; // optimization: do everything in camera relative space
 		pixelDepth23_none9 = uint( cellPosCS.w * c_blockGridScales[HLSL_MIP_MAX_COUNT-1].z ) << 9;
 
 		const float2 pixelPos = mad( cellScreenPos, 0.5f, 0.5f ) * c_blockFrameSize;
@@ -83,19 +83,15 @@ void ProcessCell( uint cellRGBA, uint cellPos, CellParams cellParams )
 	}
 	
 	{
-		const float rayEndVSX = mad( pixelCoords.x - 0.5f, c_blockScreenToClipScale.x, c_blockScreenToClipOffset.x );
-		const float rayEndVSY = mad( pixelCoords.y - 0.5f, c_blockScreenToClipScale.y, c_blockScreenToClipOffset.y );
-		const float3 rayEndVS0 = float3( rayEndVSX, rayEndVSY, -c_blockZNear );
-		const float3 rayEndVS1 = float3( rayEndVSX + c_blockScreenToClipScale.x, rayEndVSY, -c_blockZNear );
-		const float3 rayEndVS2 = float3( rayEndVSX, rayEndVSY  + c_blockScreenToClipScale.y, -c_blockZNear );
-		const float3 rayEndWS0 = mul( c_blockViewToObject, float4( rayEndVS0, 1.0f ) ).xyz;
-		const float3 rayEndWSR = mul( c_blockViewToObject, float4( rayEndVS1, 1.0f ) ).xyz - rayEndWS0;
-		const float3 rayEndWSU = mul( c_blockViewToObject, float4( rayEndVS2, 1.0f ) ).xyz - rayEndWS0;
-		const float3 rayEndRS0 = rayEndWS0 - cellParams.rayOrgWS;		
+		const float3 rayEndWSR = c_blockRayDirRight;
+		const float3 rayEndWSU = c_blockRayDirUp;
+		const float3 rayEndRS0 = c_blockRayDirBase + (pixelCoords.y-1) * rayEndWSU + (pixelCoords.x-1) * rayEndWSR;
+
 		const float cellScale = c_blockGridScales[cellParams.mip].y;
-
 		const int2 frameSize = int2( c_blockFrameSize.xy );
-
+		
+		// 0.60ms / 2.20ms
+		
 		uint hitMask = 0;
 		uint hitShift = 0;
 		for ( int y = -1; y <= 1; ++y )
@@ -103,7 +99,6 @@ void ProcessCell( uint cellRGBA, uint cellPos, CellParams cellParams )
 			float3 rayDir = rayEndRS0 + (y+1) * rayEndWSU;
 			for ( int x = -1; x <= 1; ++x, rayDir += rayEndWSR, ++hitShift )
 			{
-				// optimization: precompute rayInvDir
 				const float3 rayInvDir = rcp( rayDir );
 				const float3 offset = cellScale * rayInvDir;	
 				const float3 t0 = mad( cellPosRS, rayInvDir, +offset );
@@ -118,9 +113,11 @@ void ProcessCell( uint cellRGBA, uint cellPos, CellParams cellParams )
 			}
 		}
 
+		// 1.00ms / 2.20ms
+		// could be 0.70ms with 64bits export
 		if ( hitMask )
 		{		
-			uint blockCellItemID;
+			uint blockCellItemID = 0;
 			InterlockedAdd( blockContext[0].cellItemCount, 1, blockCellItemID );
 			blockCellItemID += 1;
 
@@ -129,7 +126,7 @@ void ProcessCell( uint cellRGBA, uint cellPos, CellParams cellParams )
 			uint nextBlockCellItemID;
 			InterlockedExchange( firstBlockCellItemIDs[pixelID], blockCellItemID, nextBlockCellItemID );
 
-			BlockCellItem blockCellItem;
+			BlockCellItem blockCellItem = (BlockCellItem)0;
 			blockCellItem.r8g8b8a8 = cellRGBA;
 			blockCellItem.depth23_hitMask9 = pixelDepth23_none9 | hitMask;
 			blockCellItem.nextID = nextBlockCellItemID;
