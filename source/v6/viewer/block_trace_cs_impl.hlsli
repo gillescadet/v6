@@ -10,7 +10,7 @@ Buffer< uint > blockColors									: register( HLSL_TRACE_CULLED_BLOCK_SRV );
 Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV );
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > firstBlockCellItemIDs						: register( HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV );
-RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CONTEXT_UAV );
+RWStructuredBuffer< BlockContext > blockContext				: register( HLSL_BLOCK_CELL_ITEM_COUNT_UAV );
 #if BLOCK_GET_STATS == 1
 RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_TRACE_STATS_UAV );
 #endif // #if BLOCK_GET_STATS == 1

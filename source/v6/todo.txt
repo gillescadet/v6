@@ -20,6 +20,8 @@ Optmization plan:
 - skip min/max for know ray direction
 - isolate each stage timings
 - encode BlockCellItem on 64 bits: depth 16bits, rgb 16bits, next 23bits, hitMask 9 bits
+- encode next on 10 bits: 2 bits for a page and 8 bits for an index, this sould will keep write speed while increasing read speed
+- sort cells by distance
 
 
 On spare time:
@@ -74,3 +76,18 @@ Bench #03:
 - stats.sampleProcessedCount:     743998
 - stats.pixelSampleCount    :    1163449
 - stats.cellItemCount       :     694141
+
+Bench #04:
+- config.context            : cell bucket
+- config.model              :     Sponza
+- config.resolution         :    512x512
+- time.frame                :     2.85ms
+- time.culling              :     0.25ms
+- time.trace                :     2.20ms
+- time.blend                :     0.45ms
+- stats.blockInputCount     :     439936
+- stats.blockPassedCount    :      50881
+- stats.cellProcessedCount  :     723037
+- stats.sampleProcessedCount:     723037
+- stats.pixelSampleCount    :    1188061
+- stats.cellItemCount       :     673564

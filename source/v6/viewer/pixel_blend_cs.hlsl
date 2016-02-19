@@ -47,12 +47,20 @@ void SamplePixel( int2 bufferBasePos, uint2 groupID )
 
 	const int2 bufferPos = bufferBasePos + groupID;
 	if ( bufferPos.x >= 0 && bufferPos.x < (int)c_pixelFrameSize.x && bufferPos.y >= 0 && bufferPos.y < (int)c_pixelFrameSize.y )
-	{
+	{		
 		const uint pixelID = bufferPos.y * c_pixelFrameSize.x + bufferPos.x;
-		for ( uint blockCellItemID = firstBlockCellItemIDs[pixelID]; blockCellItemID != 0; blockCellItemID = blockCellItems[blockCellItemID].nextID )
+		const uint blockCellItemBucket = mad( bufferPos.y >> 3, c_pixelFrameSize.x >> 3, bufferPos.x >> 3 );
+		const uint blockCellSubBucketMaxCount = (c_pixelFrameSize.x >> 3) * (c_pixelFrameSize.y >> 3);
+		uint blockCellItemID = firstBlockCellItemIDs[pixelID];		
+		uint step = 0;
+		while ( blockCellItemID != 0 )
 		{
-			const uint depth23_hitMask9 = blockCellItems[blockCellItemID].depth23_hitMask9;			
-			const uint r8g8b8a8 = blockCellItems[blockCellItemID].r8g8b8a8;
+			const uint blockCellItemPage = blockCellItemID >> 8;
+			const uint blockCellItemSubID = blockCellItemID & 0xFF;
+			const uint blockCellItemOffset = mad( blockCellItemPage, blockCellSubBucketMaxCount, blockCellItemBucket ) * HLSL_CELL_ITEM_PER_SUB_BUCKET_MAX_COUNT;
+			const uint blockCellItemAddress = blockCellItemOffset + blockCellItemSubID;
+			const uint depth23_hitMask9 = blockCellItems[blockCellItemAddress].depth23_hitMask9;
+			const uint r8g8b8a8 = blockCellItems[blockCellItemAddress].r8g8b8a8;			
 			for ( uint hitShift = 0; hitShift < 9; ++hitShift )
 			{
 				const uint hitMask = 1 << hitShift;
@@ -62,19 +70,19 @@ void SamplePixel( int2 bufferBasePos, uint2 groupID )
 					pixels[hitShift].r8g8b8a8 = r8g8b8a8;
 				}
 			}
+			blockCellItemID = blockCellItems[blockCellItemAddress].nextID;
+			++step;
 		}
 	}
 
 	g_pixelBuffers[groupID.y][groupID.x].pixels = pixels;
 }
 
-[ numthreads( 8, 8, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID, uint3 GDTid : SV_GroupThreadID )
+float3 Blend( uint3 DTid, uint3 GTid )
 {
-	const uint2 groupID = GDTid.xy + 1;
+	const uint2 groupID = GTid.xy + 1;
 	const int2 bufferPos = DTid.xy;
-	const int2 bufferBasePos = bufferPos - groupID;
-	const uint2 screenPos = uint2( bufferPos.x, c_pixelFrameSize.y - bufferPos.y - 1 );
+	const int2 bufferBasePos = bufferPos - groupID;	
 	
 	// Sample this pixel
 		
@@ -82,10 +90,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GDTid : SV_GroupThreadID )
 	
 	// Sample an external pixel at the boundary of the 8x8 grid
 
-	if ( GDTid.y < 4 || GDTid.x == 0 )
+	if ( GTid.y < 4 || GTid.x == 0 )
 	{		
 		uint2 borderGroupID;
-		switch ( GDTid.y )
+		switch ( GTid.y )
 		{
 		case 0:
 			borderGroupID = uint2( 0, groupID.x );
@@ -137,88 +145,59 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GDTid : SV_GroupThreadID )
 	}
 		
 	const float3 color = UnpackRGBA( thisRGBA ) / 255.0f;
+	return color;
+}
+
+float3 ComputeOverdrawColor( uint3 DTid )
+{
+	const int2 bufferPos = DTid.xy;
+
+	const uint pixelID = bufferPos.y * c_pixelFrameSize.x + bufferPos.x;
+	const uint blockCellItemOffset = mad( bufferPos.y >> 3, c_pixelFrameSize.x >> 3, bufferPos.x >> 3 ) * HLSL_CELL_ITEM_PER_BUCKET_MAX_COUNT;
+	uint blockCellItemID = firstBlockCellItemIDs[pixelID];		
+	uint step = 0;
+	while ( blockCellItemID != 0 )
+	{
+		const uint blockCellItemAddress = blockCellItemOffset + blockCellItemID;
+		blockCellItemID = blockCellItems[blockCellItemAddress].nextID;
+		++step;
+	}
+	
+#if 1
+	float3 color;
+	if ( step < 1 )
+		color = float3( 0.0f, 0.0f, 0.0f );
+	else if ( step < 2 )
+		color = float3( 0.0f, 0.0f, 1.0f );
+	else if ( step < 4 )
+		color = float3( 0.0f, 0.5f, 0.5f );
+	else if ( step < 8 )
+		color = float3( 0.0f, 1.0f, 0.0f );
+	else if ( step < 16 )
+		color = float3( 0.5f, 0.5f, 0.0f );
+	else
+		color = float3( 1.0f, 0.0f, 0.0f );
+#else
+	float3 color;
+	if ( step < 64 )
+		color = float3( 0.0f, 0.0f, 0.0f );
+	else
+		color = float3( 1.0f, 0.0f, 0.0f );
+#endif
+
+	return color;
+}
+
+[ numthreads( 8, 8, 1 ) ]
+void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
+{
+	const uint2 screenPos = uint2( DTid.x, c_pixelFrameSize.y - DTid.y - 1 );
+#if 1
+	const float3 color = Blend( DTid, GTid );
+#else
+	const float3 color = ComputeOverdrawColor( DTid );
+#endif
 	outputColors[screenPos] = float4( color, 1.0f );
 }
 
 #endif // #if BUFFER_WIDTH == 1
-
-#if BUFFER_WIDTH == 3
-
-struct PixelBuffer_s
-{
-	uint depth23_any9;
-	uint r8g8b8a8;
-};
-
-static const uint s_depthMax = 0xFFFFFFFF;
-static const uint pixelPerGroup = 64;
-static const uint samplePerPixel = BUFFER_WIDTH * BUFFER_WIDTH;
-
-float3 Blend( uint2 screenPos, uint2 bufferPos )
-{
-	PixelBuffer_s pixels[samplePerPixel];
-	{
-		for (uint sampleID = 0; sampleID < samplePerPixel; ++sampleID)
-			pixels[sampleID].depth23_any9 = s_depthMax;
-	}
-	
-	const uint pixelID = bufferPos.y * c_pixelFrameSize.x + bufferPos.x;
-
-#if HLSL_DEBUG_PIXEL == 1
-	uint itemID = 0;
-#endif // #if HLSL_DEBUG_PIXEL == 1
-	for ( uint blockCellItemID = firstBlockCellItemIDs[pixelID]; blockCellItemID != 0; blockCellItemID = blockCellItems[blockCellItemID].nextID )
-	{
-		const uint depth23_occupancy9 = blockCellItems[blockCellItemID].depth23_occupancy9;
-		const uint r8g8b8a8 = blockCellItems[blockCellItemID].r8g8b8a8;
-		for ( uint sampleID = 0; sampleID < samplePerPixel; ++sampleID )
-		{
-			if ( (depth23_occupancy9 & (1 << sampleID)) != 0 && depth23_occupancy9 < pixels[sampleID].depth23_any9 )
-			{
-				pixels[sampleID].depth23_any9 = depth23_occupancy9;
-				pixels[sampleID].r8g8b8a8 = r8g8b8a8;
-			}
-		}
-#if HLSL_DEBUG_PIXEL == 1
-		if ( c_pixelDebug )
-		{
-			debugBuffer.cellItems[itemID] = blockCellItems[blockCellItemID];
-			++itemID;
-		}
-#endif // #if HLSL_DEBUG_PIXEL == 1
-	}
-
-	uint3 rasterColorSum = uint3( 0, 0, 0 );
-	uint rasterCount = 0;
-
-	{
-		for ( uint sampleID = 0; sampleID < samplePerPixel; ++sampleID )
-		{
-			if ( pixels[sampleID].depth23_any9 != s_depthMax )
-			{
-				rasterColorSum += UnpackRGBA( pixels[sampleID].r8g8b8a8 );
-				rasterCount += 1.0f;
-			}
-		}
-	}
-
-	if ( rasterCount == 0 )
-		return c_pixelBackColor;
-	else
-		// fixme: this is done to fill some holes between joint voxels that should'nt happen.
-#if 1
-		return rasterColorSum * (1.0f / (BUFFER_WIDTH * BUFFER_WIDTH * 255.0f ));
-#else
-		return rasterColorSum * rcp( rasterCount * 255.0f );
-#endif
-}
-
-[ numthreads( 8, 8, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID )
-{
-	const uint2 bufferPos = DTid.xy;
-	const uint2 screenPos = uint2( bufferPos.x, c_pixelFrameSize.y - bufferPos.y - 1 );
-	outputColors[screenPos] = float4( Blend( screenPos, bufferPos ), 1.0f );
-}
-
-#endif // #if BUFFER_WIDTH == 3

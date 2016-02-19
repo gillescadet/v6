@@ -72,13 +72,13 @@ EncodedBlock Block_Encode( uint blockPos, uint cellRGBA[64], uint cellCount )
 	colors[1].g = (minColor.g & 0xFC) | (minColor.g >> 6);
 	colors[1].b = (minColor.b & 0xF8) | (minColor.b >> 5);
 	
-	colors[2].r = (170 * colors[0].r + 85 * colors[1].r) >> 8;
-	colors[2].g = (170 * colors[0].g + 85 * colors[1].g) >> 8;
-	colors[2].b = (170 * colors[0].b + 85 * colors[1].b) >> 8;
+	colors[2].r = (171 * colors[0].r + 85 * colors[1].r) >> 8;
+	colors[2].g = (171 * colors[0].g + 85 * colors[1].g) >> 8;
+	colors[2].b = (171 * colors[0].b + 85 * colors[1].b) >> 8;
 	
-	colors[3].r = (85 * colors[0].r + 170 * colors[1].r) >> 8;
-	colors[3].g = (85 * colors[0].g + 170 * colors[1].g) >> 8;
-	colors[3].b = (85 * colors[0].b + 170 * colors[1].b) >> 8;
+	colors[3].r = (85 * colors[0].r + 171 * colors[1].r) >> 8;
+	colors[3].g = (85 * colors[0].g + 171 * colors[1].g) >> 8;
+	colors[3].b = (85 * colors[0].b + 171 * colors[1].b) >> 8;
 
 	// Output cell presence
 
@@ -180,13 +180,13 @@ void Block_DecodeColors( uint cellEndColors, out uint paletteColors[4] )
 	colors[1].g = minColor.g | (minColor.g >> 6);
 	colors[1].b = minColor.b | (minColor.b >> 5);
 
-	colors[2].r = (170 * colors[0].r + 85 * colors[1].r) >> 8;
-	colors[2].g = (170 * colors[0].g + 85 * colors[1].g) >> 8;
-	colors[2].b = (170 * colors[0].b + 85 * colors[1].b) >> 8;
+	colors[2].r = (171 * colors[0].r + 85 * colors[1].r) >> 8;
+	colors[2].g = (171 * colors[0].g + 85 * colors[1].g) >> 8;
+	colors[2].b = (171 * colors[0].b + 85 * colors[1].b) >> 8;
 
-	colors[3].r = (85 * colors[0].r + 170 * colors[1].r) >> 8;
-	colors[3].g = (85 * colors[0].g + 170 * colors[1].g) >> 8;	
-	colors[3].b = (85 * colors[0].b + 170 * colors[1].b) >> 8;
+	colors[3].r = (85 * colors[0].r + 171 * colors[1].r) >> 8;
+	colors[3].g = (85 * colors[0].g + 171 * colors[1].g) >> 8;	
+	colors[3].b = (85 * colors[0].b + 171 * colors[1].b) >> 8;
 
 	paletteColors[0] = PackRGBA( colors[0] );
 	paletteColors[1] = PackRGBA( colors[1] );

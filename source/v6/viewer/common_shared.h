@@ -35,7 +35,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_INDIRECT_ARGS_SLOT				12
 #define HLSL_BLOCK_CELL_ITEM_SLOT					13
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT			14
-#define HLSL_BLOCK_CONTEXT_SLOT						15
+#define HLSL_BLOCK_CELL_ITEM_COUNT_SLOT				15
 #define HLSL_BLOCK_DEBUG_SLOT						16
 #define HLSL_CULL_STATS_SLOT						17
 #define HLSL_CULL_DEBUG_SLOT						18
@@ -69,7 +69,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 #define HLSL_BLOCK_CELL_ITEM_SRV					CONCAT( t, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_SRV			CONCAT( t, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
-#define HLSL_BLOCK_CONTEXT_SRV						CONCAT( t, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_CELL_ITEM_COUNT_SRV				CONCAT( t, HLSL_BLOCK_CELL_ITEM_COUNT_SLOT )
 #define HLSL_BLOCK_DEBUG_SRV						CONCAT( t, HLSL_BLOCK_DEBUG_SLOT )
 
 #define HLSL_CULL_STATS_SRV							CONCAT( t, HLSL_CULL_STATS_SLOT )
@@ -102,7 +102,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_BLOCK_INDIRECT_ARGS_SLOT )
 #define HLSL_BLOCK_CELL_ITEM_UAV					CONCAT( u, HLSL_BLOCK_CELL_ITEM_SLOT )
 #define HLSL_BLOCK_FIRST_CELL_ITEM_ID_UAV			CONCAT( u, HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT )
-#define HLSL_BLOCK_CONTEXT_UAV						CONCAT( u, HLSL_BLOCK_CONTEXT_SLOT )
+#define HLSL_BLOCK_CELL_ITEM_COUNT_UAV				CONCAT( u, HLSL_BLOCK_CELL_ITEM_COUNT_SLOT )
 #define HLSL_BLOCK_DEBUG_UAV						CONCAT( u, HLSL_BLOCK_DEBUG_SLOT )
 
 #define HLSL_CULL_STATS_UAV							CONCAT( u, HLSL_CULL_STATS_SLOT )
@@ -153,6 +153,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
 #define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				1
+#define HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT			16
+#define HLSL_CELL_ITEM_PER_SUB_BUCKET_MAX_COUNT		256
+#define HLSL_CELL_ITEM_PAGE_COUNT					4
+#define HLSL_CELL_ITEM_PER_BUCKET_MAX_COUNT			(HLSL_CELL_ITEM_PER_SUB_BUCKET_MAX_COUNT * HLSL_CELL_ITEM_PAGE_COUNT)
 
 CBUFFER( CBBasic, 0 )
 {
@@ -290,85 +294,6 @@ struct BlockCellItem
 
 #endif // #if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 3
 
-struct BlockContext
-{	
-	uint	cellItemCount;
-
-#if HLSL_DEBUG_BLOCK == 1	
-	float2	screenPos;
-	float2	screenRadius;
-	float2	multiSampledPixelPos;
-	float2	multiSampledPixelRadius;
-	uint2	multiSampledMinPixelCoords;
-	uint2	multiSampledMaxPixelCoords;
-	
-	uint	packedID;
-	uint	blockID;
-	bool	cull;
-	
-	uint2	minPixelCoords;
-	uint2	multiSampledMinPixelBase;	
-	uint2	multiSampledMinPixelOffset;
-	uint2	multiSampledSize;
-	uint	multiSampledPixelCount;	
-	uint	jobCount;
-
-	uint	jobBlockID;
-	uint	jobWidth;
-	uint	jobOffset;
-	uint	jobMip;
-	uint	jobPixelID;
-	uint	jobPixelBaseX;
-	uint	jobPixelBaseY;
-	uint	jobPixelOffsetX;
-	uint	jobPixelOffsetY;
-	float	lineCount;
-	float	jobPixelX;
-	float	jobPixelY;		
-		
-	float3	gridCenter;
-	float	gridScale;
-	uint	gridOccupancy;
-
-	float2	jobMultiSampledScreenPos;
-	float3	rayEndVS;
-	float3	rayOrgWS;	
-	float3	rayEndWS;
-	float3	rayDir;
-	float3	rayInvDir;
-	float3	alpha;
-	float3	beta;	
-	float3	t0;
-	float3	t1;
-	float3	tMin;
-	float3	tMax;
-	float	tIn;
-	float	tOut;
-
-	float	scale;
-	float	offset;	
-	float3	pIn;
-	float3	coordIn;			
-	int3	coords;
-	float3	tCur;
-	float3	tDelta;		
-	int3	step;
-	uint2	jobPixelCoord;
-
-	int4	hitFoundCoords;
-	uint	hitFailBits;
-
-	uint	pixelColors[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
-	uint	pixelOccupancies[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
-	float	pixelDepths[HLSL_CELL_SUPER_SAMPLING_WIDTH][HLSL_CELL_SUPER_SAMPLING_WIDTH];
-#endif // HLSL_DEBUG_BLOCK == 1
-
-#if HLSL_DEBUG_TRACE == 1
-	uint	debugBlockCount;
-	uint	debugCellCount;
-#endif // #if HLSL_DEBUG_TRACE == 1
-};
-
 struct BlockCullStats 
 {
 	uint	blockInputCount;
@@ -382,6 +307,8 @@ struct BlockTraceStats
 	uint	cellProcessedCount;
 	uint	sampleProcessedCount;
 	uint	pixelSampleCount;
+	uint	cellItemCount;
+	uint	cellItemMaxCountPerBucket;
 };
 
 #if HLSL_DEBUG_BLOCK == 1
@@ -517,6 +444,7 @@ struct DebugTraceV2
 {
 	DebugTraceBlock block;
 	DebugTraceCell	cell;
+	uint			debugCellCount;
 };
 
 #endif // #if HLSL_DEBUG_TRACE == 1
