@@ -193,3 +193,68 @@ void Block_DecodeColors( uint cellEndColors, out uint paletteColors[4] )
 	paletteColors[2] = PackRGBA( colors[2] );
 	paletteColors[3] = PackRGBA( colors[3] );
 }
+
+/* 
+
+{
+const uint dataSizePerBucket[] = { 4, 4, 4 , 5 , 7  };
+const uint dataSize = dataSizePerBucket[GRID_CELL_BUCKET];
+const uint firstDataOffset = block_dataOffset( GRID_CELL_BUCKET );	
+const uint blockDataID = firstDataOffset + blockID * dataSize;
+
+const uint endPointColors = blockData[blockDataID+0];
+uint presenceBits = blockData[blockDataID+1];
+
+uint cellPosPacked[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+uint cellPosOffset = 0;
+uint cellCount = 0;
+
+for (;;)
+{
+if ( presenceBits == 0 && cellPosOffset == 0 )
+{
+presenceBits = blockData[blockDataID+2];
+cellPosOffset = 32;
+}
+
+int cellPos = firstbitlow( presenceBits );
+if ( cellPos == -1 )
+break;
+
+presenceBits -= (1 << cellPos);
+cellPos += cellPosOffset;
+
+const uint cellPosBucket = cellCount >> 2;
+const uint cellPosShift = (cellCount & 3) << 3;
+cellPosPacked[cellPosBucket] |= cellPos << cellPosShift;
+++cellCount;
+}
+
+uint cellBaseID = 0;  
+InterlockedAdd( trace_cellCount, cellCount, cellBaseID );
+cellBaseID *= 2;
+
+uint paletteColors[4];
+Block_DecodeColors( endPointColors, paletteColors );
+
+const uint cellColorBucketCount = (cellCount + 15) >> 4;
+uint cellRank = 0;
+for ( uint cellColorBucket = 0; cellColorBucket < cellColorBucketCount; ++cellColorBucket )
+{
+uint cellColorIndices = blockData[blockDataID+3+cellColorBucket];
+for ( uint cellColorKey = 0; cellColorKey < 16 && cellRank < cellCount; ++cellColorKey, ++cellRank, cellColorIndices >>= 2 )
+{					
+const uint cellPosBucket = cellRank >> 2;
+const uint cellPos = cellPosPacked[cellPosBucket] & 0xFF;
+cellPosPacked[cellPosBucket] >>= 8;
+
+const uint colorID = cellColorIndices & 3;				
+const uint cellRGB_none = paletteColors[colorID];
+
+// optimization: find a way to write the block pos only once
+traceCells[cellBaseID + cellRank*2 + 0] = packedBlockPos;
+traceCells[cellBaseID + cellRank*2 + 1] = cellRGB_none | cellPos;
+}
+}
+
+*/

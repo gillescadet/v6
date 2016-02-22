@@ -18,9 +18,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		return;
 		
 	const uint buckets[] =			{ 0, 4, 8, 16, 32, 64 };
+
+#if HLSL_ENCODE_DATA == 1
 	const uint blockDataSize[] =	{ 0, 4, 4, 4 , 5 , 7  };
-	
 	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
+#else // #if HLSL_ENCODE_DATA == 1
+	const uint blockDataSize[] =	buckets;
+	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket] * 2;
+#endif // #if HLSL_ENCODE_DATA == 0
+
 	const uint posOffset = block_posOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 );
 	const uint dataOffset = block_dataOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 ) * dataSizeInPreviousBucket;
 		
@@ -143,21 +149,27 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	uint blockID;
 	InterlockedAdd( block_count( c_octreeCurrentBucket ), 1, blockID );
 		
-	const uint posBaseID = posOffset + blockID;	
 	const uint dataSize = blockDataSize[c_octreeCurrentBucket+1];
-	const uint dataBaseID = dataOffset + blockID * dataSize;	
+	const uint dataBaseID = dataOffset + blockID * dataSize;
+	const uint posBaseID = posOffset + blockID;	
 
 	const uint3 blockCoords = coords >> HLSL_GRID_BLOCK_SHIFT;
 	const uint blockPos = (blockCoords.z << HLSL_GRID_MACRO_2XSHIFT) | (blockCoords.y << HLSL_GRID_MACRO_SHIFT) | blockCoords.x;
-	blockPositions[posBaseID] = (mip << 28) | blockPos;
+	const uint packedBlockPos = blockPositions[posBaseID] = (mip << 28) | blockPos;
+	blockPositions[posBaseID] = packedBlockPos;
 
+#if HLSL_ENCODE_DATA == 1
 	const EncodedBlock encodedBlock = Block_Encode( 0, cellRGBA, cellCount );
-
+	
 	blockData[dataBaseID+0] = encodedBlock.cellEndColors;
 	blockData[dataBaseID+1] = encodedBlock.cellPresence[0];
 	blockData[dataBaseID+2] = encodedBlock.cellPresence[1];	
 	for ( uint colorOffset = 0; colorOffset < dataSize-3; ++colorOffset )
 		blockData[dataBaseID+3+colorOffset] = encodedBlock.cellColorIndices[colorOffset];
+#else
+	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
+		blockData[dataBaseID+cellID] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_EMPTY;
+#endif
 
 	const uint blockCount = blockID + 1;
 	const uint groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );

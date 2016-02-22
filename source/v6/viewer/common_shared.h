@@ -10,12 +10,11 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
+#define HLSL_ENCODE_DATA							1
+
 #define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
-#define HLSL_DEBUG_CULL								0
-#define HLSL_DEBUG_BLOCK							0
 #define HLSL_DEBUG_PIXEL							0
-#define HLSL_DEBUG_TRACE							1
 
 #define HLSL_TRILINEAR_SLOT							0
 
@@ -39,12 +38,12 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_DEBUG_SLOT						16
 #define HLSL_CULL_STATS_SLOT						17
 #define HLSL_CULL_DEBUG_SLOT						18
-#define HLSL_TRACE_CULLED_BLOCK_SLOT				19
-#define HLSL_TRACE_INDIRECT_ARGS_SLOT				20
-#define HLSL_TRACE_STATS_SLOT						21
-#define HLSL_TRACE_DEBUG_SLOT						22
-#define HLSL_PIXEL_COLOR_SLOT						23
-#define HLSL_PIXEL_DEBUG_SLOT						24
+#define HLSL_TRACE_CELLS_SLOT						22
+#define HLSL_TRACE_INDIRECT_ARGS_SLOT				23
+#define HLSL_TRACE_STATS_SLOT						24
+#define HLSL_TRACE_DEBUG_SLOT						25
+#define HLSL_PIXEL_COLOR_SLOT						26
+#define HLSL_PIXEL_DEBUG_SLOT						27
 
 #define HLSL_GENERIC_ALBEDO_SLOT					2
 #define HLSL_GENERIC_ALPHA_SLOT						3
@@ -75,7 +74,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_CULL_STATS_SRV							CONCAT( t, HLSL_CULL_STATS_SLOT )
 #define HLSL_CULL_DEBUG_SRV							CONCAT( t, HLSL_CULL_DEBUG_SLOT )
 
-#define HLSL_TRACE_CULLED_BLOCK_SRV					CONCAT( t, HLSL_TRACE_CULLED_BLOCK_SLOT )
+#define HLSL_TRACE_CELLS_SRV						CONCAT( t, HLSL_TRACE_CELLS_SLOT )
 #define HLSL_TRACE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_TRACE_INDIRECT_ARGS_SLOT )
 #define HLSL_TRACE_STATS_SRV						CONCAT( t, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_SRV						CONCAT( t, HLSL_TRACE_DEBUG_SLOT )
@@ -108,7 +107,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_CULL_STATS_UAV							CONCAT( u, HLSL_CULL_STATS_SLOT )
 #define HLSL_CULL_DEBUG_UAV							CONCAT( u, HLSL_CULL_DEBUG_SLOT )
 
-#define HLSL_TRACE_CULLED_BLOCK_UAV					CONCAT( u, HLSL_TRACE_CULLED_BLOCK_SLOT )
+#define HLSL_TRACE_CELLS_UAV						CONCAT( u, HLSL_TRACE_CELLS_SLOT )
 #define HLSL_TRACE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_TRACE_INDIRECT_ARGS_SLOT )
 #define HLSL_TRACE_STATS_UAV						CONCAT( u, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
@@ -133,7 +132,7 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_GRID_BLOCK_CELL_COUNT					(1 << HLSL_GRID_BLOCK_3XSHIFT)
 #define HLSL_GRID_BLOCK_CELL_POS_MASK				(HLSL_GRID_BLOCK_CELL_COUNT-1)
-#define HLSL_GRID_BLOCK_CELL_EMPTY					0xFF
+#define HLSL_GRID_BLOCK_EMPTY						0xFFFFFFFF
 
 #define HLSL_GRID_SHIFT								(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_BLOCK_SHIFT)
 #define HLSL_GRID_WIDTH								(1 << HLSL_GRID_SHIFT)
@@ -153,9 +152,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
 #define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				1
-#define HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT			16
+#define HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT			32
 #define HLSL_CELL_ITEM_PER_SUB_BUCKET_MAX_COUNT		256
-#define HLSL_CELL_ITEM_PAGE_COUNT					4
+#define HLSL_CELL_ITEM_PAGE_COUNT					8
 #define HLSL_CELL_ITEM_PER_BUCKET_MAX_COUNT			(HLSL_CELL_ITEM_PER_SUB_BUCKET_MAX_COUNT * HLSL_CELL_ITEM_PAGE_COUNT)
 
 CBUFFER( CBBasic, 0 )
@@ -234,13 +233,7 @@ CBUFFER( CBBlock, 4 )
 	uint				c_blockShowMip;
 	uint				c_blockShowOverdraw;	
 	uint				c_blockUseOccupancy;
-	uint				c_blockSkipTrace;
-
-#if HLSL_DEBUG_BLOCK == 1
-	uint				c_blockDebugPackedID;
-	uint				c_blockDebug;
-	uint2				c_blockDebugCoords;
-#endif // #if HLSL_DEBUG_BLOCK == 1
+	uint				c_blockProfileTrace;
 };
 
 CBUFFER( CBPixel, 5 )
@@ -276,9 +269,8 @@ struct OctreeLeaf
 
 struct BlockCellItem
 {
-	uint	r8g8b8a8;
-	uint	depth23_hitMask9;
-	uint	nextID;
+	uint	depth21_nextID11;
+	uint	r8g8b8_hitMask8;
 };
 
 #endif // #if HLSL_PIXEL_SUPER_SAMPLING_WIDTH == 1
@@ -298,66 +290,17 @@ struct BlockCullStats
 {
 	uint	blockInputCount;
 	uint	blockPassedCount;
+	uint	cellOutputCount;
 };
 
 struct BlockTraceStats 
 {
-	uint	blockInputCount;
-	uint	blockProcessedCount;
+	uint	cellInputCount;
 	uint	cellProcessedCount;
-	uint	sampleProcessedCount;
 	uint	pixelSampleCount;
 	uint	cellItemCount;
 	uint	cellItemMaxCountPerBucket;
 };
-
-#if HLSL_DEBUG_BLOCK == 1
-
-struct DebugBlock
-{
-	float3	posWS;
-	uint	color;
-	uint	mip;
-	uint	occupancy;	
-	uint	jobCount;
-};
-
-#endif // #if HLSL_DEBUG_BLOCK == 1
-
-#if HLSL_DEBUG_CULL == 1
-
-struct DebugCullVertex
-{
-	float3 posWS;
-	float4 posCS;
-	uint clippedCount;
-};
-
-struct DebugCull
-{
-	uint posOffset;
-	uint blockPosID;
-	uint packedBlockPos;
-	uint mip;
-	uint blockPos;
-	uint xMin;
-	uint yMin;
-	uint zMin;
-	int3 cellMinCoords;	
-	float gridScale;
-	float cellSize;
-	float3 posMinWS;
-	float deltaWS;
-	DebugCullVertex vertices[8];
-	uint clippedCount;
-	uint dataSize;
-	uint firstDataOffset;
-	uint blockDataID;
-	uint culledBlockBaseID;
-	uint culledBlocks[8];
-};
-
-#endif // #if HLSL_DEBUG_CULL 1
 
 #if HLSL_DEBUG_PIXEL == 1
 
@@ -369,85 +312,6 @@ struct PixelBlendDebugBuffer
 };
 
 #endif // #if HLSL_DEBUG_PIXEL == 1
-
-#if HLSL_DEBUG_TRACE == 1
-
-struct DebugTraceCellSample
-{
-	uint	hit;
-};
-
-struct DebugTraceCellGrid
-{
-	uint	pixelOccupancy;
-	int2	pixelCoords;
-	uint	blockCellItemID;
-	uint	nextBlockCellItemID;
-};
-
-struct DebugTraceCell
-{
-	uint					cellRGBA;
-	uint					cellPos;
-	float3					cellPosRS;
-	uint					pixelDepth23_none9;
-	int2					multiSampledMinPixelCoords;	
-	uint					cellY;
-	uint					cellZ;
-	uint					cellX;
-	uint3					cellCoords;
-	float3					cellPosWS;
-	float4					cellPosCS;
-	float2					cellScreenPos;
-	float2					multiSampledPixelPos;
-	float					rayEndVSX;
-	float					rayEndVSY;
-	float3					rayEndVS0;
-	float3					rayEndVS1;
-	float3					rayEndVS2;
-	float3					rayEndWS0;
-	float3					rayEndWSR;
-	float3					rayEndWSU;
-	float3					rayEndRS0;
-	int2					minPixelCoords;
-	uint2					hitOffset;
-	float					cellScale;
-	uint					pixelOccupancyMask;	
-	uint2					frameSize;
-	DebugTraceCellSample	samples[2 * HLSL_CELL_SUPER_SAMPLING_WIDTH + 1][2 * HLSL_CELL_SUPER_SAMPLING_WIDTH + 1];
-	DebugTraceCellGrid		grids[3][3];
-};
-
-struct DebugTraceBlock
-{
-	uint			blockSize;	
-	uint			blockPosDataID;
-	uint			packedBlockPos;
-	uint			mip;
-	uint			blockPos;
-	uint			blockX;
-	uint			blockY;
-	uint			blockZ;
-	int3			blockCoords;
-	float			gridScale;
-	uint			endPointColors;
-	uint			cellParams_paletteColors[4];
-	matrix			cellParams_worldToProjMatrix;
-	float3			cellParams_rayOrgWS;
-	float3			cellParams_firstCellPosWS;
-	float			cellParams_cellSize;
-	uint			cellParams_blockPosDataID;
-	uint			cellParams_mip;
-};
-
-struct DebugTraceV2
-{
-	DebugTraceBlock block;
-	DebugTraceCell	cell;
-	uint			debugCellCount;
-};
-
-#endif // #if HLSL_DEBUG_TRACE == 1
 
 #define sample_groupCountX_offset							0
 #define sample_groupCountY_offset							1
@@ -525,16 +389,16 @@ struct DebugTraceV2
 #define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
 #define block_slotOccupancyCount( BUCKET )					blockIndirectArgs[block_slotOccupancyCount_offset( BUCKET )]
 
-#define trace_culledBlockGroupCountX_offset					0
-#define trace_culledBlockGroupCountY_offset					1
-#define trace_culledBlockGroupCountZ_offset					2
-#define trace_culledBlockCount_offset						3
+#define trace_cellGroupCountX_offset						0
+#define trace_cellGroupCountY_offset						1
+#define trace_cellGroupCountZ_offset						2
+#define trace_cellCount_offset								3
 #define trace_all_offset									4
 
-#define trace_culledBlockGroupCountX						traceIndirectArgs[trace_culledBlockGroupCountX_offset]
-#define trace_culledBlockGroupCountY						traceIndirectArgs[trace_culledBlockGroupCountY_offset]
-#define trace_culledBlockGroupCountZ						traceIndirectArgs[trace_culledBlockGroupCountZ_offset]
-#define trace_culledBlockCount								traceIndirectArgs[trace_culledBlockCount_offset]
+#define trace_cellGroupCountX								traceIndirectArgs[trace_cellGroupCountX_offset]
+#define trace_cellGroupCountY								traceIndirectArgs[trace_cellGroupCountY_offset]
+#define trace_cellGroupCountZ								traceIndirectArgs[trace_cellGroupCountZ_offset]
+#define trace_cellCount										traceIndirectArgs[trace_cellCount_offset]
 
 END_V6_HLSL_NAMESPACE
 
