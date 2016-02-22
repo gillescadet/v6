@@ -126,3 +126,15 @@ Bench #06:
 - stats.sampleProcessedCount:     658189
 - stats.pixelSampleCount    :    1131880
 - stats.cellItemCount       :     615352
+
+Bench #07:
+- config.context            :  no decode
+- time.frame                :       1300
+- time.culling              :        185
+- time.trace                :        675
+- time.blend                :        440
+- stats.blockInputCount     :     449280
+- stats.blockPassedCount    :      46595
+- stats.cellProcessedCount  :     797728
+- stats.pixelSampleCount    :    1131880
+- stats.cellItemCount       :     615352

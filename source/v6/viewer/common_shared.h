@@ -10,7 +10,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define CONCAT( X, Y )								X ## Y
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
-#define HLSL_ENCODE_DATA							1
+#define HLSL_ENCODE_DATA							0
 
 #define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
@@ -132,7 +132,7 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_GRID_BLOCK_CELL_COUNT					(1 << HLSL_GRID_BLOCK_3XSHIFT)
 #define HLSL_GRID_BLOCK_CELL_POS_MASK				(HLSL_GRID_BLOCK_CELL_COUNT-1)
-#define HLSL_GRID_BLOCK_EMPTY						0xFFFFFFFF
+#define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
 #define HLSL_GRID_SHIFT								(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_BLOCK_SHIFT)
 #define HLSL_GRID_WIDTH								(1 << HLSL_GRID_SHIFT)
@@ -389,6 +389,8 @@ struct PixelBlendDebugBuffer
 #define block_uniqueOccupancyMax( BUCKET )					blockIndirectArgs[block_uniqueOccupancyMax_offset( BUCKET )]
 #define block_slotOccupancyCount( BUCKET )					blockIndirectArgs[block_slotOccupancyCount_offset( BUCKET )]
 
+#if HLSL_ENCODE_DATA == 1
+
 #define trace_cellGroupCountX_offset						0
 #define trace_cellGroupCountY_offset						1
 #define trace_cellGroupCountZ_offset						2
@@ -399,6 +401,23 @@ struct PixelBlendDebugBuffer
 #define trace_cellGroupCountY								traceIndirectArgs[trace_cellGroupCountY_offset]
 #define trace_cellGroupCountZ								traceIndirectArgs[trace_cellGroupCountZ_offset]
 #define trace_cellCount										traceIndirectArgs[trace_cellCount_offset]
+
+#else
+
+#define trace_cellGroupCountX_offset( BUCKET )				(BUCKET * 3 + 0)
+#define trace_cellGroupCountY_offset( BUCKET )				(BUCKET * 3 + 1)
+#define trace_cellGroupCountZ_offset( BUCKET )				(BUCKET * 3 + 2)
+#define trace_blockOffset_offset( BUCKET )					(trace_cellGroupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define trace_blockCount_offset( BUCKET )					(trace_blockOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
+#define trace_all_offset									trace_blockCount_offset( HLSL_BUCKET_COUNT )
+
+#define trace_cellGroupCountX( BUCKET )						traceIndirectArgs[trace_cellGroupCountX_offset( BUCKET )]
+#define trace_cellGroupCountY( BUCKET )						traceIndirectArgs[trace_cellGroupCountY_offset( BUCKET )]
+#define trace_cellGroupCountZ( BUCKET )						traceIndirectArgs[trace_cellGroupCountZ_offset( BUCKET )]
+#define trace_blockOffset( BUCKET )							traceIndirectArgs[trace_blockOffset_offset( BUCKET )]
+#define trace_blockCount( BUCKET )							traceIndirectArgs[trace_blockCount_offset( BUCKET )]
+
+#endif
 
 END_V6_HLSL_NAMESPACE
 

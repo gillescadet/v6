@@ -19,6 +19,12 @@ RWStructuredBuffer< BlockCullStats > blockCullStats		: register( HLSL_CULL_STATS
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
+#if HLSL_ENCODE_DATA == 0
+	const uint blockOffset = trace_blockOffset( GRID_CELL_BUCKET-1 ) + trace_blockCount( GRID_CELL_BUCKET-1 );
+	if ( DTid.x == 0 )
+		trace_blockOffset( GRID_CELL_BUCKET ) = blockOffset;
+#endif // #if HLSL_ENCODE_DATA == 0
+
 	const uint blockID = DTid.x;
 
 #if BLOCK_GET_STATS == 1
@@ -133,37 +139,24 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					}
 				}
 			}
-#else // #if HLSL_ENCODE_DATA == 1
-			const uint firstDataOffset = block_dataOffset( GRID_CELL_BUCKET );	
-			const uint blockDataID = firstDataOffset + blockID * GRID_CELL_COUNT;
-
-			uint rgb_pos[GRID_CELL_COUNT];
-			uint cellCount;
-			for ( cellCount = 0; cellCount < GRID_CELL_COUNT; ++cellCount )
-			{
-				rgb_pos[cellCount] = blockData[blockDataID + cellCount];
-				if ( rgb_pos[cellCount] == HLSL_GRID_BLOCK_EMPTY )
-				//if ( blockData[blockDataID + cellCount] == HLSL_GRID_BLOCK_EMPTY )
-					break;
-			}
-
-			uint cellBaseID = 0;  
-			InterlockedAdd( trace_cellCount, cellCount, cellBaseID );
-			cellBaseID *= 2;
-
-			for ( uint cellRank = 0; cellRank < cellCount; ++cellRank )
-			{
-				// optimization: find a way to write the block pos only once
-				traceCells[cellBaseID + cellRank*2 + 0] = packedBlockPos;
-				traceCells[cellBaseID + cellRank*2 + 1] = rgb_pos[cellRank];
-				//traceCells[cellBaseID + cellRank*2 + 1] = blockData[blockDataID + cellCount];
-			}	
-#endif // #if HLSL_ENCODE_DATA == 0
 
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
 			InterlockedAdd( blockCullStats[0].cellOutputCount, cellCount );
 #endif // #if BLOCK_GET_STATS == 1
+
+#else // #if HLSL_ENCODE_DATA == 1
+			uint blockRank = 0;  
+			InterlockedAdd( trace_blockCount( GRID_CELL_BUCKET ), 1, blockRank );
+				
+			traceCells[blockOffset + blockRank] = blockID;
+
+#if BLOCK_GET_STATS == 1
+			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
+			InterlockedAdd( blockCullStats[0].cellOutputCount, GRID_CELL_COUNT );
+#endif // #if BLOCK_GET_STATS == 1
+
+#endif // #if HLSL_ENCODE_DATA == 0
 		}
 	}
 }

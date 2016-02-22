@@ -168,7 +168,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		blockData[dataBaseID+3+colorOffset] = encodedBlock.cellColorIndices[colorOffset];
 #else
 	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
-		blockData[dataBaseID+cellID] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_EMPTY;
+		blockData[dataBaseID+cellID] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_CELL_EMPTY;
 #endif
 
 	const uint blockCount = blockID + 1;

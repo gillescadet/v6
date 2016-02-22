@@ -149,8 +149,21 @@ enum
 	COMPUTE_BLOCK_CULL_STATS32,
 	COMPUTE_BLOCK_CULL_STATS64,
 	COMPUTE_BLOCK_TRACE_INIT,
+#if HLSL_ENCODE_DATA == 1
 	COMPUTE_BLOCK_TRACE,
 	COMPUTE_BLOCK_TRACE_STATS,
+#else
+	COMPUTE_BLOCK_TRACE4,
+	COMPUTE_BLOCK_TRACE8,
+	COMPUTE_BLOCK_TRACE16,
+	COMPUTE_BLOCK_TRACE32,
+	COMPUTE_BLOCK_TRACE64,
+	COMPUTE_BLOCK_TRACE_STATS4,
+	COMPUTE_BLOCK_TRACE_STATS8,
+	COMPUTE_BLOCK_TRACE_STATS16,
+	COMPUTE_BLOCK_TRACE_STATS32,
+	COMPUTE_BLOCK_TRACE_STATS64,
+#endif
 	COMPUTE_BLENDPIXEL,
 
 	COMPUTE_COUNT
@@ -1505,8 +1518,21 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
+#if HLSL_ENCODE_DATA == 1
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE], "block_trace_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS], "block_trace_stats_cs.cso", fileSystem, stack );
+#else
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS4], "block_trace_stats_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS8], "block_trace_stats_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS16], "block_trace_stats_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS32], "block_trace_stats_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
+#endif
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
 
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
@@ -3791,7 +3817,12 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 
 	// set
 
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );	
+	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
+#if HLSL_ENCODE_DATA == 0
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_block.blockPos.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_block.blockData.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_block.blockIndirectArgs.srv );
+#endif // #if HLSL_ENCODE_DATA == 0
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_block.traceCell.srv );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.uav, nullptr );
@@ -3815,6 +3846,7 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 		gpuContext.userDefinedAnnotation->EndEvent();
 	}
 
+#if HLSL_ENCODE_DATA == 1
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Trace");
 		
@@ -3827,15 +3859,42 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_STATS].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->DispatchIndirect( m_block.traceIndirectArgs.buf, trace_cellGroupCountX_offset );
+		gpuContext.deviceContext->DispatchIndirect( m_block.traceIndirectArgs.buf, 0 );
 
 		// unset		
 		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 
 		gpuContext.userDefinedAnnotation->EndEvent();
 	}
+#else
+	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+	{
+		gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Bucket");
+
+		// set
+
+		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_block.traceIndirectArgs.srv );
+
+		// dispach
+		if ( s_logReadBack )
+			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_STATS4+bucket].m_computeShader, nullptr, 0 );
+		else
+			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
+		gpuContext.deviceContext->DispatchIndirect( m_block.traceIndirectArgs.buf, trace_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
+
+		// unset		
+		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+
+		gpuContext.userDefinedAnnotation->EndEvent();
+	}
+#endif
 
 	// Unset
+#if HLSL_ENCODE_DATA == 0
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+#endif // #if HLSL_ENCODE_DATA == 0
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -4238,7 +4297,7 @@ int main()
 		float dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
 		dts[frameId & (tMaxCount-1)] = dt;
 
-		while ( dt < 0.004f )
+		while ( dt < 0.002f )
 		{
 			Sleep( 1 );
 			dt += 0.001f;

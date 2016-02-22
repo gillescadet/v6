@@ -3,6 +3,16 @@
 #include "common_shared.h"
 #include "block_encoding.hlsli"
 
+#define GRID_CELL_SHIFT		(GRID_CELL_BUCKET+2)
+#define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
+#define GRID_CELL_MASK		(GRID_CELL_COUNT-1)
+
+#if HLSL_ENCODE_DATA == 0
+Buffer< uint > blockPositions								: register( HLSL_BLOCK_POS_SRV );
+Buffer< uint > blockData									: register( HLSL_BLOCK_DATA_SRV );
+Buffer< uint > blockIndirectArgs							: register( HLSL_BLOCK_INDIRECT_ARGS_SRV );
+#endif  // #if HLSL_ENCODE_DATA == 0
+
 Buffer< uint > traceCells									: register( HLSL_TRACE_CELLS_SRV );
 Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV );
 
@@ -39,21 +49,43 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );	
 #endif // #if BLOCK_GET_STATS == 1
 
+#if HLSL_ENCODE_DATA == 1
 	if ( cellID < trace_cellCount )
+#else
+	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
+#endif
 	{
 #if BLOCK_GET_STATS == 1
 		InterlockedAdd( blockTraceStats[0].cellProcessedCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
+		bool valid;
 		uint rgb_none;
 		float3 boxMinRS;
 		float3 boxMaxRS;
 		uint pixelDepth21;
-		int2 pixelCoords;	
+		int2 pixelCoords;		
 
 		{
+#if HLSL_ENCODE_DATA == 1
 			const uint packedPos = traceCells[cellID*2+0];
 			const uint packedColor = traceCells[cellID*2+1];
+			valid = true;
+#else // #if HLSL_ENCODE_DATA == 1
+			const uint blockRank = cellID >> GRID_CELL_SHIFT;
+			const uint cellRank = cellID & GRID_CELL_MASK;
+
+			const uint blockRankOffset = trace_blockOffset( GRID_CELL_BUCKET );	
+			const uint blockID = traceCells[blockRankOffset + blockRank];
+
+			const uint blockPosOffset = block_posOffset( GRID_CELL_BUCKET );	
+			const uint packedPos = blockPositions[blockPosOffset + blockID];
+
+			const uint firstDataOffset = block_dataOffset( GRID_CELL_BUCKET );	
+			const uint packedColor = blockData[firstDataOffset + blockID * GRID_CELL_COUNT + cellRank];
+
+			valid = packedColor != HLSL_GRID_BLOCK_CELL_EMPTY;
+#endif // #if HLSL_ENCODE_DATA == 0
 			const uint mip = packedPos >> 28;
 			const uint blockPos = packedPos & 0x0FFFFFFF;
 			rgb_none = packedColor & ~0xFF;
@@ -83,7 +115,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			pixelCoords = int2( pixelPos );
 		}
 
-		if ( TraceCell( pixelCoords, 0, 0, boxMinRS, boxMaxRS ) )
+		if ( valid && TraceCell( pixelCoords, 0, 0, boxMinRS, boxMaxRS ) )
 		{
 			uint hitMask8 = 0;
 			// 0.35 ms
