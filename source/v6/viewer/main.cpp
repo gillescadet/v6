@@ -50,6 +50,11 @@ static const core::u32 ZOOM					= 1;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
+#if HLSL_STEREO == 1
+static const core::u32 STEREO				= 2;
+#else
+static const core::u32 STEREO				= 1;
+#endif
 static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
 static const float ZFAR						= 10000.0f;
 #if V6_SIMPLE_SCENE == 1
@@ -127,6 +132,7 @@ enum
 	CONSTANT_BUFFER_OCTREE		=	hlsl::CBOctreeSlot,
 	CONSTANT_BUFFER_BLOCK		=	hlsl::CBBlockSlot,
 	CONSTANT_BUFFER_PIXEL		=	hlsl::CBPixelSlot,
+	CONSTANT_BUFFER_COMPOSE		=	hlsl::CBComposeSlot,
 
 	CONSTANT_BUFFER_COUNT
 };
@@ -166,6 +172,7 @@ enum
 #endif
 	COMPUTE_BLENDPIXEL,
 	COMPUTE_BLENDPIXEL_OVERDRAW,
+	COMPUTE_COMPOSESURFACE,
 
 	COMPUTE_COUNT
 };
@@ -335,16 +342,15 @@ struct GPUContext_s
 	D3D_FEATURE_LEVEL			featureLevel;
 	ID3D11DeviceContext*		deviceContext;
 	ID3DUserDefinedAnnotation*	userDefinedAnnotation;
+	ID3D11Texture2D*			surfaceBuffer;	
+	ID3D11RenderTargetView*		surfaceView;
+	ID3D11UnorderedAccessView*	surfaceUAV;
 	ID3D11Texture2D*			colorBuffer;	
 	ID3D11RenderTargetView*		colorView;
 	ID3D11ShaderResourceView*	colorSRV;
 	ID3D11UnorderedAccessView*	colorUAV;
-	ID3D11Texture2D*			uvBuffer;
-	ID3D11RenderTargetView*		uvView;
-	ID3D11ShaderResourceView*	uvSRV;
 	ID3D11Texture2D*			depthStencilBuffer;	
 	ID3D11DepthStencilView*		depthStencilView;
-	ID3D11ShaderResourceView*	depthStencilSRV;
 	ID3D11Texture2D*			colorBufferMSAA;
 	ID3D11RenderTargetView*		colorViewMSAA;
 	ID3D11Texture2D*			depthStencilBufferMSAA;	
@@ -1535,6 +1541,7 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 #endif
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", fileSystem, stack );
 
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
@@ -1558,7 +1565,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	DXGI_SWAP_CHAIN_DESC oSwapChainDesc = {};
 
 	DXGI_MODE_DESC & oModeDesc = oSwapChainDesc.BufferDesc;
-	oModeDesc.Width = width;
+	oModeDesc.Width = width * STEREO;
 	oModeDesc.Height = height;
 	oModeDesc.RefreshRate.Numerator = 60;
 	oModeDesc.RefreshRate.Denominator = 1;
@@ -1570,7 +1577,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	oSampleDesc.Count = 1;
 	oSampleDesc.Quality = 0;
 
-	oSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT | DXGI_USAGE_UNORDERED_ACCESS;
+	oSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
 	oSwapChainDesc.BufferCount = 2;
 	oSwapChainDesc.OutputWindow = hWnd;
 	oSwapChainDesc.Windowed = true;
@@ -1619,32 +1626,32 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	
 	V6_ASSERT_D3D11( deviceContext->QueryInterface( IID_PPV_ARGS( &context->userDefinedAnnotation ) ) );
 
-	V6_ASSERT_D3D11( context->swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&context->colorBuffer ) );
+	V6_ASSERT_D3D11( context->swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&context->surfaceBuffer ) );
 
-	V6_ASSERT_D3D11( device->CreateShaderResourceView( context->colorBuffer, 0, &context->colorSRV ) );	
-	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->colorBuffer, 0, &context->colorUAV ) );	
-	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->colorBuffer, 0, &context->colorView ) );
-		
+	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->surfaceBuffer, 0, &context->surfaceView ) );
+	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->surfaceBuffer, 0, &context->surfaceUAV ) );
+	
 	{
-		D3D11_TEXTURE2D_DESC texDesc;
+		D3D11_TEXTURE2D_DESC texDesc = {};
 		texDesc.Width = width;
 		texDesc.Height = height;
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_R8G8_SNORM;	
+		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 		texDesc.CPUAccessFlags = 0;
 		texDesc.MiscFlags = 0;
 
-		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, 0, &context->uvBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainUVs" );
+		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &context->colorBuffer ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainColor" );
 	}
 
-	V6_ASSERT_D3D11( device->CreateShaderResourceView( context->uvBuffer, 0, &context->uvSRV ) );	
-	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->uvBuffer, 0, &context->uvView ) );
+	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->colorBuffer, 0, &context->colorView ) );
+	V6_ASSERT_D3D11( device->CreateShaderResourceView( context->colorBuffer, 0, &context->colorSRV ) );	
+	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->colorBuffer, 0, &context->colorUAV ) );	
 
 	{
 		D3D11_TEXTURE2D_DESC texDesc;
@@ -1652,37 +1659,19 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 		texDesc.Height = height;
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;	
+		texDesc.Format = DXGI_FORMAT_D32_FLOAT;	
 		texDesc.SampleDesc.Count = 1;
 		texDesc.SampleDesc.Quality = 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 		texDesc.CPUAccessFlags = 0;
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, 0, &context->depthStencilBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainDepths" );
-	}
-	
-	{
-		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		viewDesc.Texture2D.MipLevels = 1;
-		viewDesc.Texture2D.MostDetailedMip = 0;
-
-		V6_ASSERT_D3D11( device->CreateShaderResourceView( context->depthStencilBuffer, &viewDesc, &context->depthStencilSRV ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainDepth" );
 	}
 
-	{
-		D3D11_DEPTH_STENCIL_VIEW_DESC oDepthStencilViewDesc = {};
-		oDepthStencilViewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		oDepthStencilViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-		oDepthStencilViewDesc.Flags = 0;
-		oDepthStencilViewDesc.Texture2D.MipSlice = 0;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilView( context->depthStencilBuffer, &oDepthStencilViewDesc, &context->depthStencilView ) );
-	}
+	V6_ASSERT_D3D11( device->CreateDepthStencilView( context->depthStencilBuffer, 0, &context->depthStencilView ) );
 
 	{
 		D3D11_TEXTURE2D_DESC texDesc = {};
@@ -1851,6 +1840,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_OCTREE], sizeof( v6::hlsl::CBOctree ), "octree" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "block" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
+	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
 
 	GPUContext_CreateShaders( context, fileSystem, stack );	
 
@@ -1884,13 +1874,16 @@ void GPUContext_Release( GPUContext_s* context )
 			GPUQuery_Release( &context->queries[bufferID][queryID] );
 	}
 		
+	context->surfaceBuffer->Release();
+	context->surfaceView->Release();
+	context->surfaceUAV->Release();
+
 	context->colorBuffer->Release();
-	context->colorSRV->Release();
-	context->colorUAV->Release();
 	context->colorView->Release();
+	context->colorSRV->Release();
+	context->colorUAV->Release();	
 	
 	context->depthStencilBuffer->Release();
-	context->depthStencilSRV->Release();
 	context->depthStencilView->Release();
 
 	context->colorBufferMSAA->Release();
@@ -3089,7 +3082,7 @@ public:
 	~CRenderingDevice();
 
 public:
-	void BlendPixel();
+	void BlendPixel();	
 	core::u32 BuildNode();	
 	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
 	void ClearNode();
@@ -3101,6 +3094,7 @@ public:
 	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
 	void DrawWorld( const core::Mat4x4* viewMatrix );	
 	void FillLeaf();
+	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
 	void PackColor();	
 	void Present();
 	void Release();
@@ -3318,7 +3312,7 @@ void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
 	DrawScene( m_debugScene, &view, &settings );
 
 	// un RT
-	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );	
+	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
 void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
@@ -3409,7 +3403,7 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_sample.indirectArgs.uav, values );
 		
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE].buf );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &m_cube.colorSRV );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &m_cube.colorSRV );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &m_sample.samples.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sample.indirectArgs.uav, nullptr );
@@ -3419,7 +3413,7 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID
 	gpuContext.deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset		
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -3936,7 +3930,7 @@ void CRenderingDevice::BlendPixel()
 
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.srv );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_block.cellItemCounters.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &gpuContext.colorUAV, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &gpuContext.colorUAV, nullptr );
 #if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, &m_pixel.debugBlendBuffer.uav, nullptr );
 #endif // #if HLSL_DEBUG_PIXEL == 1
@@ -3994,7 +3988,7 @@ void CRenderingDevice::BlendPixel()
 	static const void* nulls[8] = {};
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 #if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 #endif // #if HLSL_DEBUG_PIXEL == 1
@@ -4022,6 +4016,51 @@ void CRenderingDevice::BlendPixel()
 #endif // #if HLSL_DEBUG_PIXEL == 1
 		
 	gpuContext.userDefinedAnnotation->EndEvent();	
+}
+
+void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight )
+{
+#if HLSL_STEREO == 1
+	// Render
+
+	gpuContext.userDefinedAnnotation->BeginEvent( L"Compose Surface" );
+
+	// set
+
+	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBComposeSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &srvLeft );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &srvRight );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &gpuContext.surfaceUAV, nullptr );
+		
+	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
+
+	{
+		v6::hlsl::CBCompose* cbCompose = ConstantBuffer_MapWrite< v6::hlsl::CBCompose >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE] );
+		
+		cbCompose->c_composeFrameWidth = m_config.screenWidth;
+
+		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE]  );
+	}		
+
+	V6_ASSERT( (m_width & 0x7) == 0 );
+	V6_ASSERT( (m_height & 0x7) == 0 );
+	const core::u32 pixelGroupWidth = (m_width >> 3) * STEREO;
+	const core::u32 pixelGroupHeight = m_height >> 3;
+	gpuContext.deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+	// unset
+	static const void* nulls[8] = {};
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+	gpuContext.userDefinedAnnotation->EndEvent();	
+#else	
+	ID3D11Resource* colorBuffer;
+	srvLeft->GetResource( &colorBuffer );
+	gpuContext.deviceContext->CopyResource( gpuContext.surfaceBuffer, colorBuffer );
+#endif
 }
 
 void CRenderingDevice::Draw( float dt )
@@ -4193,6 +4232,8 @@ void CRenderingDevice::Draw( float dt )
 	}	
 	
 	DrawDebug( &viewMatrix );
+
+	Output( gpuContext.colorSRV, gpuContext.colorSRV );
 }
 
 void CRenderingDevice::Present()
@@ -4236,11 +4277,11 @@ int main()
 #endif
 
 	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
-	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;	
+	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
 
 	const char* const title = "V6";
 
-	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth, nHeight );
+	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth * v6::viewer::STEREO, nHeight );
 	if (!hWnd)
 	{
 		V6_ERROR("Call to CreateWindow failed!");

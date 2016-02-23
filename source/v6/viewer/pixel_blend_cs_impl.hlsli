@@ -6,7 +6,7 @@
 StructuredBuffer< BlockCellItem > blockCellItems				: register( HLSL_BLOCK_CELL_ITEM_SRV );
 Buffer< uint > cellItemCounters									: register( HLSL_BLOCK_CELL_ITEM_COUNT_SRV );
 
-RWTexture2D< float4 > outputColors								: register( HLSL_COLOR_UAV );
+RWTexture2D< float4 > outputColors								: register( HLSL_LCOLOR_UAV );
 
 uint3 UnpackRGB_NONE( uint rgb_none )
 {

@@ -17,6 +17,7 @@ Optmization done:
 - reduce sampling count: 5x using 3 samples
 - encode BlockCellItem.nextID on 10 bits: 2 bits for a page and 8 bits for an index, this sould will keep write speed while increasing read speed
 - encode BlockCellItem on 64 bits: depth 21bits, next 11bits, rgb 24bits, hitMask 8 bits
+- 8 buffers of 4 cellItems: improve locality and remove interlocked exchange
 
 Optmization aborted:
 - precompute inverse of ray direction
@@ -31,7 +32,6 @@ Optmization plan:
 - isolate each stage timings
 - sort cells by distance
 - appendconsume instead of interlockedadd
-- 8 buffers of 4 cellItems: improve locality and remove interlocked exchange
 - sort by mip and precompute grid/cell scales/sizes
 
 Bench #01:
@@ -83,7 +83,7 @@ Bench #03:
 - stats.cellItemCount       :     694141
 
 Bench #04:
-- config.context            : cell bucket
+- config.context            :cell bucket
 - config.model              :     Sponza
 - config.resolution         :    512x512
 - time.frame                :       2850

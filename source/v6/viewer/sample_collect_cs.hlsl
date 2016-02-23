@@ -22,7 +22,7 @@ static const float3 ups[6] =
 	float3( 0.0f,  1.0f,  0.0f )
 };
 
-Texture2D< float4 > colors						: register( HLSL_COLOR_SRV );
+Texture2D< float4 > colors						: register( HLSL_LCOLOR_SRV );
 Texture2D< float > depths						: register( HLSL_DEPTH_SRV );
 
 RWStructuredBuffer< Sample > collectedSamples	: register( HLSL_SAMPLE_UAV );
