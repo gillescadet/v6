@@ -165,6 +165,7 @@ enum
 	COMPUTE_BLOCK_TRACE_STATS64,
 #endif
 	COMPUTE_BLENDPIXEL,
+	COMPUTE_BLENDPIXEL_OVERDRAW,
 
 	COMPUTE_COUNT
 };
@@ -475,7 +476,6 @@ struct Block_s
 	GPUBuffer_s					traceIndirectArgs;
 	
 	GPUBuffer_s					cellItems;
-	GPUBuffer_s					firstCellItemIDs;	
 	GPUBuffer_s					cellItemCounters;	
 
 	GPUBuffer_s					cullStats;
@@ -1534,6 +1534,7 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
 #endif
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
 
 	Shader_Create( device, &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
 	Shader_Create( device, &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
@@ -2078,8 +2079,7 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateIndirectArgs( device, &block->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
-	GPUBuffer_CreateTyped( device, &block->firstCellItemIDs, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );	
-	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->cellItemCount / HLSL_CELL_ITEM_PER_BUCKET_MAX_COUNT, 0, "blockCellItemCounters" );
+	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );	
 	
 	GPUBuffer_CreateStructured( device, &block->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( device, &block->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
@@ -2095,7 +2095,6 @@ static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocato
 	GPUBuffer_Release( device, &block->traceIndirectArgs );
 
 	GPUBuffer_Release( device, &block->cellItems );
-	GPUBuffer_Release( device, &block->firstCellItemIDs );	
 	GPUBuffer_Release( device, &block->cellItemCounters );
 
 	GPUBuffer_Release( device, &block->cullStats );
@@ -3755,7 +3754,6 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Blocks");
 
 	core::u32 values[4] = {};
-	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.firstCellItemIDs.uav, values );
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.cellItemCounters.uav, values );
 	if ( s_logReadBack )
 		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_block.traceStats.uav, values );
@@ -3825,7 +3823,6 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 #endif // #if HLSL_ENCODE_DATA == 0
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_block.traceCell.srv );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.uav, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_block.cellItemCounters.uav, nullptr );
 	if ( s_logReadBack )
 		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_block.traceStats.uav, nullptr );
@@ -3897,7 +3894,6 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 #endif // #if HLSL_ENCODE_DATA == 0
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( s_logReadBack )
 		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -3915,7 +3911,7 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 			ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCount, "cellProcessedCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->cellItemCount, "cellItemCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerBucket, "cellItemMaxCountPerBucket" );
+			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
 			V6_ASSERT( blockTraceStats->cellItemCount < m_config.cellItemCount );
 
 			GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.traceStats );
@@ -3939,12 +3935,15 @@ void CRenderingDevice::BlendPixel()
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
 
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, &m_block.firstCellItemIDs.srv );	
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_block.cellItemCounters.srv );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &gpuContext.colorUAV, nullptr );
 #if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, &m_pixel.debugBlendBuffer.uav, nullptr );
 #endif // #if HLSL_DEBUG_PIXEL == 1
-	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
+	if ( g_showOverdraw	)
+		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
+	else
+		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
 
 	{
 		v6::hlsl::CBPixel* cbPixel = ConstantBuffer_MapWrite< v6::hlsl::CBPixel >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL] );
@@ -3994,7 +3993,7 @@ void CRenderingDevice::BlendPixel()
 	// unset
 	static const void* nulls[8] = {};
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_FIRST_CELL_ITEM_ID_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 #if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );

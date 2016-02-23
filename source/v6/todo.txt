@@ -138,3 +138,15 @@ Bench #07:
 - stats.cellProcessedCount  :     797728
 - stats.pixelSampleCount    :    1131880
 - stats.cellItemCount       :     615352
+
+Bench #08:
+- config.context            :cell buffer
+- time.frame                :       1155
+- time.culling              :        180
+- time.trace                :        555
+- time.blend                :        420
+- stats.blockInputCount     :     449280
+- stats.blockPassedCount    :      46595
+- stats.cellProcessedCount  :     797728
+- stats.pixelSampleCount    :    1131880
+- stats.cellItemCount       :     615352
