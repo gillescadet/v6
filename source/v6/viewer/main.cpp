@@ -50,17 +50,23 @@ static const core::u32 ZOOM					= 1;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
+
+static const core::u32 ANY_EYE				= 0;
 #if HLSL_STEREO == 1
-static const core::u32 STEREO				= 2;
+static const core::u32 LEFT_EYE				= 0;
+static const core::u32 RIGHT_EYE			= 1;
+static const float IPD						= 6.5f;
 #else
-static const core::u32 STEREO				= 1;
+static const core::u32 LEFT_EYE				= 0;
+static const core::u32 RIGHT_EYE			= 0;
+static const float IPD						= 0.0f;
 #endif
 static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
 static const float ZFAR						= 10000.0f;
 #if V6_SIMPLE_SCENE == 1
 static const float FOV						= core::DegToRad( 90.0f );
 #else
-static const float FOV						= core::DegToRad( 70.0f );
+static const float FOV						= core::DegToRad( 90.0f );
 #endif
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
 static const int SAMPLE_MAX_COUNT			= 8;
@@ -130,6 +136,7 @@ enum
 	CONSTANT_BUFFER_GENERIC		=	hlsl::CBGenericSlot,
 	CONSTANT_BUFFER_SAMPLE		=	hlsl::CBSampleSlot,
 	CONSTANT_BUFFER_OCTREE		=	hlsl::CBOctreeSlot,
+	CONSTANT_BUFFER_CULL		=	hlsl::CBCullSlot,
 	CONSTANT_BUFFER_BLOCK		=	hlsl::CBBlockSlot,
 	CONSTANT_BUFFER_PIXEL		=	hlsl::CBPixelSlot,
 	CONSTANT_BUFFER_COMPOSE		=	hlsl::CBComposeSlot,
@@ -345,10 +352,10 @@ struct GPUContext_s
 	ID3D11Texture2D*			surfaceBuffer;	
 	ID3D11RenderTargetView*		surfaceView;
 	ID3D11UnorderedAccessView*	surfaceUAV;
-	ID3D11Texture2D*			colorBuffer;	
-	ID3D11RenderTargetView*		colorView;
-	ID3D11ShaderResourceView*	colorSRV;
-	ID3D11UnorderedAccessView*	colorUAV;
+	ID3D11Texture2D*			colorBuffers[HLSL_EYE_COUNT];	
+	ID3D11RenderTargetView*		colorViews[HLSL_EYE_COUNT];
+	ID3D11ShaderResourceView*	colorSRVs[HLSL_EYE_COUNT];
+	ID3D11UnorderedAccessView*	colorUAVs[HLSL_EYE_COUNT];
 	ID3D11Texture2D*			depthStencilBuffer;	
 	ID3D11DepthStencilView*		depthStencilView;
 	ID3D11Texture2D*			colorBufferMSAA;
@@ -374,8 +381,14 @@ struct GPUContext_s
 
 struct RenderingView_s
 {
+	core::Vec3		org;
+	core::Vec3		forward;
+	core::Vec3		right;
+	core::Vec3		up;
 	core::Mat4x4	viewMatrix;
 	core::Mat4x4	projMatrix;
+	core::u32		eye;
+	float			tanHalfFOV;
 };
 
 struct RenderingSettings_s
@@ -535,7 +548,6 @@ static bool g_useMSAA						= true;
 #endif
 static bool g_debugBlocks					= false;
 static bool g_transparentDebug				= false;
-static core::u32 g_profileTrace				= 0;
 static bool g_reloadShaders					= false;
 
 static float s_yaw							= 0.0f;
@@ -584,7 +596,6 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			case 'G': if ( pressed ) { g_debugBlocks = true; } break;
 			case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
 			case 'I': if ( pressed ) { s_logReadBack = true; } break;
-			case 'J': g_profileTrace = pressed ? !g_profileTrace : g_profileTrace; break;
 			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
 			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
 			case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
@@ -1565,7 +1576,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	DXGI_SWAP_CHAIN_DESC oSwapChainDesc = {};
 
 	DXGI_MODE_DESC & oModeDesc = oSwapChainDesc.BufferDesc;
-	oModeDesc.Width = width * STEREO;
+	oModeDesc.Width = width * HLSL_EYE_COUNT;
 	oModeDesc.Height = height;
 	oModeDesc.RefreshRate.Numerator = 60;
 	oModeDesc.RefreshRate.Denominator = 1;
@@ -1631,27 +1642,30 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->surfaceBuffer, 0, &context->surfaceView ) );
 	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->surfaceBuffer, 0, &context->surfaceUAV ) );
 	
+	for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 	{
-		D3D11_TEXTURE2D_DESC texDesc = {};
-		texDesc.Width = width;
-		texDesc.Height = height;
-		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		texDesc.SampleDesc.Count = 1;
-		texDesc.SampleDesc.Quality = 0;
-		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-		texDesc.CPUAccessFlags = 0;
-		texDesc.MiscFlags = 0;
+		{
+			D3D11_TEXTURE2D_DESC texDesc = {};
+			texDesc.Width = width;
+			texDesc.Height = height;
+			texDesc.MipLevels = 1;
+			texDesc.ArraySize = 1;
+			texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			texDesc.SampleDesc.Count = 1;
+			texDesc.SampleDesc.Quality = 0;
+			texDesc.Usage = D3D11_USAGE_DEFAULT;
+			texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+			texDesc.CPUAccessFlags = 0;
+			texDesc.MiscFlags = 0;
 
-		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &context->colorBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainColor" );
+			V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &context->colorBuffers[eye] ) );
+			GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "mainColor" );
+		}
+
+		V6_ASSERT_D3D11( device->CreateRenderTargetView( context->colorBuffers[eye], 0, &context->colorViews[eye] ) );
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( context->colorBuffers[eye], 0, &context->colorSRVs[eye] ) );	
+		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->colorBuffers[eye], 0, &context->colorUAVs[eye] ) );
 	}
-
-	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->colorBuffer, 0, &context->colorView ) );
-	V6_ASSERT_D3D11( device->CreateShaderResourceView( context->colorBuffer, 0, &context->colorSRV ) );	
-	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->colorBuffer, 0, &context->colorUAV ) );	
 
 	{
 		D3D11_TEXTURE2D_DESC texDesc;
@@ -1838,6 +1852,7 @@ static void GPUContext_Create( GPUContext_s* context, core::u32 width, core::u32
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_SAMPLE], sizeof( v6::hlsl::CBSample ), "sample" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_OCTREE], sizeof( v6::hlsl::CBOctree ), "octree" );
+	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_CULL], sizeof( v6::hlsl::CBCull ), "cull" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "block" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
 	ConstantBuffer_Create( device, &context->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
@@ -1878,10 +1893,13 @@ void GPUContext_Release( GPUContext_s* context )
 	context->surfaceView->Release();
 	context->surfaceUAV->Release();
 
-	context->colorBuffer->Release();
-	context->colorView->Release();
-	context->colorSRV->Release();
-	context->colorUAV->Release();	
+	for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+	{
+		context->colorBuffers[eye]->Release();
+		context->colorViews[eye]->Release();
+		context->colorSRVs[eye]->Release();
+		context->colorUAVs[eye]->Release();
+	}
 	
 	context->depthStencilBuffer->Release();
 	context->depthStencilView->Release();
@@ -2000,7 +2018,7 @@ static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 scre
 	config->blockCount = config->cellCount / 8;
 	config->culledBlockCount = config->blockCount / 6;
 	config->culledCellCount = config->culledBlockCount * 16;
-	config->cellItemCount = (screenWidth * screenHeight) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT;
+	config->cellItemCount = (screenWidth * HLSL_EYE_COUNT * screenHeight) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT;
 }
 
 static void Config_Log( const Config_s* config )
@@ -2072,7 +2090,7 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateIndirectArgs( device, &block->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
-	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->screenWidth * config->screenHeight, 0, "blockFirstCellItemIDs" );	
+	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->screenWidth * HLSL_EYE_COUNT * config->screenHeight, 0, "blockFirstCellItemIDs" );	
 	
 	GPUBuffer_CreateStructured( device, &block->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( device, &block->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
@@ -3082,23 +3100,24 @@ public:
 	~CRenderingDevice();
 
 public:
-	void BlendPixel();	
+	void BlendPixel( const RenderingView_s* view );	
 	core::u32 BuildNode();	
+	void MakeRenderingView( RenderingView_s* view, const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right, core::u32 eye );
 	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
 	void ClearNode();
 	void Collect( const core::Vec3* sampleOffset, core::u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
-	void CullBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
+	void CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
 	void Draw( float dt );
-	void DrawDebug( const core::Mat4x4* viewMatrix );
+	void DrawDebug( const RenderingView_s* view );
 	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
-	void DrawWorld( const core::Mat4x4* viewMatrix );	
+	void DrawWorld( const RenderingView_s* view );	
 	void FillLeaf();
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
 	void PackColor();	
 	void Present();
 	void Release();
-	void TraceBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter );
+	void TraceBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
 
 	GPUContext_s		gpuContext;
 		
@@ -3121,9 +3140,6 @@ public:
 	uint				m_width;
 	uint				m_height;
 	float				m_aspectRatio;
-	core::Mat4x4		m_defaultProjMatrix;
-	core::Mat4x4		m_projMatrix;
-	core::Mat4x4		m_cubeProjMatrix;
 };
 
 CRenderingDevice::CRenderingDevice()
@@ -3143,10 +3159,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 	m_width = nWidth;
 	m_height = nHeight;
-	m_aspectRatio = (float)nWidth / nHeight;
-	m_defaultProjMatrix = core::Mat4x4_Projection( ZNEAR * 0.05f, ZFAR, FOV, m_aspectRatio );
-	m_projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, FOV, m_aspectRatio );
-	m_cubeProjMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
+	m_aspectRatio = (float)nWidth / nHeight;	
 
 	GPUContext_Create( &gpuContext, nWidth, nHeight, hWnd, fileSystem, heap, stack );
 
@@ -3190,6 +3203,19 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	return true;
 }
 
+void CRenderingDevice::MakeRenderingView( RenderingView_s* view, const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right, const core::u32 eye )
+{
+	const core::Vec3 eyeOffset = *right * 0.5f * IPD;
+	view->org = *org + (eye == 0 ? -eyeOffset : eyeOffset);	
+	view->forward = *forward;
+	view->right = *right;
+	view->up = *up;
+	view->viewMatrix = core::Mat4x4_View( &view->org, forward, up, right );
+	view->projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, FOV, m_aspectRatio );
+	view->eye = eye;
+	view->tanHalfFOV = core::Tan( FOV * 0.5f );
+}
+
 void CRenderingDevice::DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings )
 {
 	for ( uint entityRank = 0; entityRank < scene->entityCount; ++entityRank )
@@ -3199,7 +3225,7 @@ void CRenderingDevice::DrawScene( Scene_s* scene, const RenderingView_s* view, c
 	}
 }
 
-void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
+void CRenderingDevice::DrawWorld( const RenderingView_s* view )
 {	
 	// Rasterization state
 	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
@@ -3227,7 +3253,7 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	if ( g_useMSAA )
 		gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorViewMSAA, gpuContext.depthStencilViewMSAA );
 	else
-		gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorView, gpuContext.depthStencilView );
+		gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorViews[view->eye], gpuContext.depthStencilView );
 
 	// Clear
 	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -3238,15 +3264,10 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 	}
 	else
 	{
-		gpuContext.deviceContext->ClearRenderTargetView( gpuContext.colorView, pRGBA );
+		gpuContext.deviceContext->ClearRenderTargetView( gpuContext.colorViews[view->eye], pRGBA );
 		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 	}
 		
-	// View
-	RenderingView_s view;
-	view.viewMatrix = *viewMatrix;
-	view.projMatrix = m_defaultProjMatrix;	
-
 	// Settings
 	RenderingSettings_s settings;
 #if V6_USE_ALPHA_COVERAGE == 1
@@ -3256,16 +3277,16 @@ void CRenderingDevice::DrawWorld( const core::Mat4x4* viewMatrix )
 #endif
 	settings.isCapturing = false;
 
-	DrawScene( s_activeScene, &view, &settings );
+	DrawScene( s_activeScene, view, &settings );
 
 	// un RT
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 
 	if ( g_useMSAA )
-		gpuContext.deviceContext->ResolveSubresource( gpuContext.colorBuffer, 0, gpuContext.colorBufferMSAA, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
+		gpuContext.deviceContext->ResolveSubresource( gpuContext.colorBuffers[view->eye], 0, gpuContext.colorBufferMSAA, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
 }
 
-void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
+void CRenderingDevice::DrawDebug( const RenderingView_s* view )
 {	
 	if ( g_traceGrid )
 	{		
@@ -3293,23 +3314,18 @@ void CRenderingDevice::DrawDebug( const core::Mat4x4* viewMatrix )
 	}
 	
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorView, g_transparentDebug ? nullptr : gpuContext.depthStencilView );
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorViews[view->eye], g_transparentDebug ? nullptr : gpuContext.depthStencilView );
 
 	// Clear
 	if ( !g_transparentDebug )
 		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 				
-	// View
-	RenderingView_s view;
-	view.viewMatrix = *viewMatrix;
-	view.projMatrix = m_defaultProjMatrix;	
-
 	// Settings
 	RenderingSettings_s settings;
 	settings.useAlphaCoverage = false;
 	settings.isCapturing = false;
 
-	DrawScene( m_debugScene, &view, &settings );
+	DrawScene( m_debugScene, view, &settings );
 
 	// un RT
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
@@ -3348,7 +3364,7 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 	// View
 	RenderingView_s view;
 	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
-	view.projMatrix = m_cubeProjMatrix;
+	view.projMatrix = core::Mat4x4_Projection( ZNEAR, ZFAR, core::DegToRad( 90.0f ), 1.0f );
 		
 	// Settings
 	RenderingSettings_s settings;
@@ -3649,7 +3665,7 @@ void CRenderingDevice::PackColor()
 	}
 }
 
-void CRenderingDevice::CullBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter )
+void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter )
 {		
 	static const void* nulls[8] = {};
 
@@ -3663,32 +3679,36 @@ void CRenderingDevice::CullBlock( const core::Mat4x4* viewMatrix, const core::Ve
 	float gridScale = GRID_MIN_SCALE;
 
 	{
-		v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
-
-		core::Mat4x4 viewToObject = *viewMatrix;
-		core::Mat4x4_AffineInverse( &viewToObject );
-
-		cbBlock->c_blockObjectToView = *viewMatrix;
-		cbBlock->c_blockViewToObject = viewToObject;
-		cbBlock->c_blockViewToProj = m_projMatrix;
+		v6::hlsl::CBCull* cbCull = ConstantBuffer_MapWrite< v6::hlsl::CBCull >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
 
 		float gridScale = GRID_MIN_SCALE;
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
 		{
 			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
-			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
+			cbCull->c_cullGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
 			if ( gridID < GRID_COUNT)
 				gridScale *= 2;
 		}
 
-		cbBlock->c_blockCenter = *sampleCenter;
+		cbCull->c_cullCenter = *sampleCenter;
+
+		core::Vec3 basePlane = views[ANY_EYE].forward * views[ANY_EYE].tanHalfFOV;
+		core::Vec3 rightPlane = (basePlane - views[RIGHT_EYE].right).Normalized();
+		core::Vec3 leftPlane = (basePlane + views[LEFT_EYE].right).Normalized();
+		core::Vec3 upPlane = (basePlane - views[ANY_EYE].up).Normalized();
+		core::Vec3 bottomPlane = (basePlane + views[ANY_EYE].up).Normalized();
 		
-		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
+		cbCull->c_cullFrustumPlanes[0] = core::Vec4_Make( &rightPlane, -core::Dot( rightPlane, views[RIGHT_EYE].org ) );
+		cbCull->c_cullFrustumPlanes[1] = core::Vec4_Make( &leftPlane, -core::Dot( leftPlane, views[LEFT_EYE].org ) );
+		cbCull->c_cullFrustumPlanes[2] = core::Vec4_Make( &upPlane, -core::Dot( upPlane, views[ANY_EYE].org ) );
+		cbCull->c_cullFrustumPlanes[3] = core::Vec4_Make( &bottomPlane, -core::Dot( bottomPlane, views[ANY_EYE].org ) );
+
+		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
 	}
 
 	// set
 
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );	
+	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBCullSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL].buf );	
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_block.blockPos.srv );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_block.blockData.srv );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_block.blockIndirectArgs.srv );
@@ -3741,7 +3761,7 @@ void CRenderingDevice::CullBlock( const core::Mat4x4* viewMatrix, const core::Ve
 	}
 }
 
-void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::Vec3* sampleCenter )
+void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec3* sampleCenter )
 {		
 	static const void* nulls[8] = {};
 	
@@ -3757,13 +3777,6 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 	{
 		v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
 
-		core::Mat4x4 viewToObject = *viewMatrix;
-		core::Mat4x4_AffineInverse( &viewToObject );
-
-		cbBlock->c_blockObjectToView = *viewMatrix;
-		cbBlock->c_blockViewToObject = viewToObject;
-		cbBlock->c_blockViewToProj = m_projMatrix;
-
 		float gridScale = GRID_MIN_SCALE;
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
 		{
@@ -3772,37 +3785,35 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 			if ( gridID < GRID_COUNT)
 				gridScale *= 2;
 		}
-		
-		cbBlock->c_blockCenter = *sampleCenter;
-		cbBlock->c_blockShowMip = false;
-		cbBlock->c_blockShowOverdraw = false;
+
+		cbBlock->c_blockCenter = *sampleCenter;		
 
 		const core::Vec2 frameSize = core::Vec2_Make( (float)m_width, (float)m_height );
 		cbBlock->c_blockFrameSize = frameSize;
-
-		const core::Vec2 multiSampledFrameSize = core::Vec2_Make( (float)(m_width * HLSL_CELL_SUPER_SAMPLING_WIDTH), (float)(m_height * HLSL_CELL_SUPER_SAMPLING_WIDTH) );
-		cbBlock->c_blockMultiSampledFrameSize = multiSampledFrameSize;
-
-		const core::Vec2 screenToClipOffset = core::Vec2_Make( ZNEAR / m_projMatrix.m_row0.x, ZNEAR / m_projMatrix.m_row1.y );		
-		cbBlock->c_blockScreenToClipScale = screenToClipOffset / (frameSize * 0.5f);
-		cbBlock->c_blockMultiSampledScreenToClipScale = screenToClipOffset / (multiSampledFrameSize * 0.5f);
-		cbBlock->c_blockScreenToClipOffset = -screenToClipOffset;
-		cbBlock->c_blockZNear = ZNEAR;
-
-		const float tanHalf = core::Tan( FOV * 0.5f );
-		const float scale = tanHalf / (0.5f * m_config.screenHeight);
-
-		const core::Vec3 forward = -viewMatrix->GetZAxis()->Normalized();
-		const core::Vec3 right = viewMatrix->GetXAxis()->Normalized() * scale;
-		const core::Vec3 up = viewMatrix->GetYAxis()->Normalized() * scale;
-
-		cbBlock->c_blockRayDirBase = forward + up * (-0.5f * m_config.screenHeight + 0.5f) + right * (-0.5f * m_config.screenWidth + 0.5f);
-		cbBlock->c_blockRayDirUp = up;
-		cbBlock->c_blockRayDirRight = right;
+				
 		cbBlock->c_blockFrameSize.x = (float)m_config.screenWidth;
 		cbBlock->c_blockFrameSize.y = (float)m_config.screenHeight;
 
-		cbBlock->c_blockProfileTrace = g_profileTrace;
+		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		{	
+			hlsl::BlockPerEye blockPerEye;
+			blockPerEye.objectToView = views[eye].viewMatrix;
+			blockPerEye.viewToProj = views[eye].projMatrix;
+
+			const float scale = views[eye].tanHalfFOV / (0.5f * m_config.screenHeight);
+
+			const core::Vec3 forward = views[eye].forward;
+			const core::Vec3 right = views[eye].right * scale;
+			const core::Vec3 up = views[eye].up * scale;
+				
+			blockPerEye.org = views[eye].org;
+
+			blockPerEye.rayDirBase = forward + up * (-0.5f * m_config.screenHeight + 0.5f) + right * (-0.5f * m_config.screenWidth + 0.5f);
+			blockPerEye.rayDirUp = up;
+			blockPerEye.rayDirRight = right;
+
+			cbBlock->c_blockEyes[eye] = blockPerEye;
+		}
 
 		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
 	}
@@ -3913,7 +3924,7 @@ void CRenderingDevice::TraceBlock( const core::Mat4x4* viewMatrix, const core::V
 	}
 }
 
-void CRenderingDevice::BlendPixel()
+void CRenderingDevice::BlendPixel( const RenderingView_s* view )
 {
 	// Render
 
@@ -3930,7 +3941,7 @@ void CRenderingDevice::BlendPixel()
 
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_block.cellItems.srv );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_block.cellItemCounters.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &gpuContext.colorUAV, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &gpuContext.colorUAVs[view->eye], nullptr );
 #if HLSL_DEBUG_PIXEL == 1
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_PIXEL_DEBUG_SLOT, 1, &m_pixel.debugBlendBuffer.uav, nullptr );
 #endif // #if HLSL_DEBUG_PIXEL == 1
@@ -3958,6 +3969,8 @@ void CRenderingDevice::BlendPixel()
 			cbPixel->c_pixelBackColor.y = 0.0f; 
 			cbPixel->c_pixelBackColor.z = 0.0f; 
 		}
+
+		cbPixel->c_eye = view->eye;
 
 #if HLSL_DEBUG_PIXEL == 1
 		cbPixel->c_pixelMode = g_pixelMode;
@@ -4045,7 +4058,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 	V6_ASSERT( (m_width & 0x7) == 0 );
 	V6_ASSERT( (m_height & 0x7) == 0 );
-	const core::u32 pixelGroupWidth = (m_width >> 3) * STEREO;
+	const core::u32 pixelGroupWidth = (m_width >> 3) * HLSL_EYE_COUNT;
 	const core::u32 pixelGroupHeight = m_height >> 3;
 	gpuContext.deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
@@ -4107,10 +4120,14 @@ void CRenderingDevice::Draw( float dt )
 	core::Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );	
 	core::Mat4x4_Transpose( &orientationMatrix );
 
+	const core::Vec3 forward = -orientationMatrix.GetZAxis()->Normalized();
+	const core::Vec3 right = orientationMatrix.GetXAxis()->Normalized();
+	const core::Vec3 up = orientationMatrix.GetYAxis()->Normalized();
+
 	if ( keyDeltaX || keyDeltaZ )
 	{
-		s_headOffset += *orientationMatrix.GetXAxis() * (float)keyDeltaX * g_translation_speed * dt;
-		s_headOffset += -*orientationMatrix.GetZAxis() * (float)keyDeltaZ * g_translation_speed * dt;
+		s_headOffset += right * (float)keyDeltaX * g_translation_speed * dt;
+		s_headOffset += forward * (float)keyDeltaZ * g_translation_speed * dt;
 	}
 	
 	if ( g_limit )
@@ -4122,16 +4139,16 @@ void CRenderingDevice::Draw( float dt )
 		s_headOffset = s_sampleCenter + distanceToCenter;
 	}
 
-	core::Mat4x4 viewMatrix;
-	core::Mat4x4_Mul( &viewMatrix, yawMatrix, pitchMatrix );
-	core::Mat4x4_SetTranslation( &viewMatrix, s_headOffset );
-	core::Mat4x4_AffineInverse( &viewMatrix );
-	
+	RenderingView_s views[HLSL_EYE_COUNT];
+	for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		MakeRenderingView( &views[eye], &s_headOffset, &forward, &up, &right, eye );
+
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 
-		DrawWorld( &viewMatrix );
+		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+			DrawWorld( &views[eye] );
 		
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
@@ -4213,16 +4230,17 @@ void CRenderingDevice::Draw( float dt )
 		else
 		{
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );			
-
-			CullBlock( &viewMatrix, &s_sampleCenter );
+			
+			CullBlock( views, &s_sampleCenter );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 
-			TraceBlock( &viewMatrix, &s_sampleCenter );
+			TraceBlock( &views[LEFT_EYE], &s_sampleCenter );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 
-			BlendPixel();
+			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+				BlendPixel( &views[eye] );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 
@@ -4231,9 +4249,10 @@ void CRenderingDevice::Draw( float dt )
 		}		
 	}	
 	
-	DrawDebug( &viewMatrix );
+	for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		DrawDebug( &views[eye] );
 
-	Output( gpuContext.colorSRV, gpuContext.colorSRV );
+	Output( gpuContext.colorSRVs[LEFT_EYE], gpuContext.colorSRVs[RIGHT_EYE] );
 }
 
 void CRenderingDevice::Present()
@@ -4281,7 +4300,7 @@ int main()
 
 	const char* const title = "V6";
 
-	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth * v6::viewer::STEREO, nHeight );
+	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth * HLSL_EYE_COUNT, nHeight );
 	if (!hWnd)
 	{
 		V6_ERROR("Call to CreateWindow failed!");

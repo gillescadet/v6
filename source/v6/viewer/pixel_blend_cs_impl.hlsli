@@ -60,10 +60,11 @@ void SamplePixel( int2 bufferBasePos, uint2 groupID )
 	}
 
 	const int2 bufferPos = bufferBasePos + groupID;
-	if ( bufferPos.x >= 0 && bufferPos.x < (int)c_pixelFrameSize.x && bufferPos.y >= 0 && bufferPos.y < (int)c_pixelFrameSize.y )
+	const int2 pixelCoords = int2( bufferPos.x - c_eye * c_pixelFrameSize.x, bufferPos.y );
+	if ( pixelCoords.x >= 0 && pixelCoords.x < (int)c_pixelFrameSize.x && pixelCoords.y >= 0 && pixelCoords.y < (int)c_pixelFrameSize.y )
 	{		
-		const int cellItemCountPerPage = c_pixelFrameSize.x * c_pixelFrameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
-		const uint pixelID = (mad( bufferPos.y >> 3, c_pixelFrameSize.x >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
+		const int cellItemCountPerPage = c_pixelFrameSize.x * HLSL_EYE_COUNT * c_pixelFrameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
+		const uint pixelID = (mad( bufferPos.y >> 3, (c_pixelFrameSize.x * HLSL_EYE_COUNT) >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
 		const uint blockCellItemCount = min( cellItemCounters[pixelID], HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
 		for ( uint blockCellItemRank = 0; blockCellItemRank < blockCellItemCount; ++blockCellItemRank )
 		{
@@ -88,10 +89,9 @@ void SamplePixel( int2 bufferBasePos, uint2 groupID )
 	g_pixelBuffers[groupID.y][groupID.x].pixels = pixels;
 }
 
-float3 Blend( uint3 DTid, uint3 GTid )
+float3 Blend( uint2 bufferPos, uint3 GTid )
 {
 	const uint2 groupID = GTid.xy + 1;
-	const int2 bufferPos = DTid.xy;
 	const int2 bufferBasePos = bufferPos - groupID;	
 	
 	// Sample this pixel
@@ -152,11 +152,10 @@ float3 Blend( uint3 DTid, uint3 GTid )
 	return color;
 }
 
-float3 ComputeOverdrawColor( uint3 DTid )
+float3 ComputeOverdrawColor( uint2 bufferPos )
 {
-	const int2 bufferPos = DTid.xy;
 	const int cellItemCountPerPage = c_pixelFrameSize.x * c_pixelFrameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
-	const uint pixelID = (mad( bufferPos.y >> 3, c_pixelFrameSize.x >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
+	const uint pixelID = (mad( bufferPos.y >> 3, (c_pixelFrameSize.x * HLSL_EYE_COUNT) >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
 	const uint step = cellItemCounters[pixelID];
 	
 #if 1
@@ -192,11 +191,11 @@ float3 ComputeOverdrawColor( uint3 DTid )
 	return color;
 }
 
-float3 WarmGPU( uint3 DTid )
+float3 WarmGPU( uint2 bufferPos )
 {
 	float3 color = float3( 0.0f, 0.0f, 0.0f );
-	for ( uint x = 0; x < DTid.x; x += 8 )
-		for ( uint y = 0; y < DTid.y; y += 8 )
+	for ( uint x = 0; x < bufferPos.x; x += 8 )
+		for ( uint y = 0; y < bufferPos.y; y += 8 )
 			color += x * x + y * y;
 	return color;
 }
@@ -205,12 +204,13 @@ float3 WarmGPU( uint3 DTid )
 void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 {
 	const uint2 screenPos = uint2( DTid.x, c_pixelFrameSize.y - DTid.y - 1 );
+	const uint2 bufferPos = uint2( DTid.x + c_eye * c_pixelFrameSize.x, DTid.y );
 #if PIXE_OVERDRAW == 1
-	const float3 color = ComputeOverdrawColor( DTid );
+	const float3 color = ComputeOverdrawColor( bufferPos );
 #elif 1
-	const float3 color = Blend( DTid, GTid );	
+	const float3 color = Blend( bufferPos, GTid );	
 #else
-	const float3 color = WarmGPU( DTid );
+	const float3 color = WarmGPU( bufferPos );
 #endif
 	outputColors[screenPos] = float4( color, 1.0f );
 }

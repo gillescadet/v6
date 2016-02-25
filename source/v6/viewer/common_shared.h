@@ -11,8 +11,12 @@ BEGIN_V6_HLSL_NAMESPACE
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
 #define HLSL_ENCODE_DATA							0
-#define HLSL_STEREO									0
-
+#define HLSL_STEREO									1
+#if HLSL_STEREO == 1
+#define HLSL_EYE_COUNT								2
+#else
+#define HLSL_EYE_COUNT								1
+#endif
 #define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
 #define HLSL_DEBUG_PIXEL							0
@@ -201,46 +205,51 @@ CBUFFER( CBOctree, 3 )
 	float				c_octreePad1;
 };
 
-CBUFFER( CBBlock, 4 )
+CBUFFER( CBCull, 4 )
 {
-	row_major	matrix	c_blockObjectToView;
-	row_major	matrix	c_blockViewToObject;
-	row_major	matrix	c_blockViewToProj;
-	
-	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
-	
-	float3				c_blockCenter;
-	uint				c_blockShowVoxel;
-	
-	float2				c_blockFrameSize;
-	float2				c_blockMultiSampledFrameSize;
-	
-	float2				c_blockScreenToClipScale;
-	float2				c_blockMultiSampledScreenToClipScale;
-	
-	float2				c_blockScreenToClipOffset;	
-	float				c_blockZNear;
-	float				c_blockUnused;
-
-	float3				c_blockRayDirBase;
-	float				c_blockPad0;
-	float3				c_blockRayDirUp;
-	float				c_blockPad1;
-	float3				c_blockRayDirRight;
-	float				c_blockPad2;
-
-	uint				c_blockShowMip;
-	uint				c_blockShowOverdraw;	
-	uint				c_blockUseOccupancy;
-	uint				c_blockProfileTrace;
+	float4				c_cullGridScales[HLSL_MIP_MAX_COUNT];
+	float4				c_cullFrustumPlanes[4];
+	float3				c_cullCenter;
+	float				c_cullUnused;
 };
 
-CBUFFER( CBPixel, 5 )
+struct BlockPerEye
+{
+	row_major matrix	objectToView;
+	row_major matrix	viewToProj;
+	
+	float3				org;
+	float				pad;
+
+	float3				rayDirBase;
+	float				pad1;
+	
+	float3				rayDirUp;
+	float				pad2;
+	
+	float3				rayDirRight;
+	float				pad3;
+};
+
+CBUFFER( CBBlock, 5 )
+{	
+	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
+
+	float3				c_blockCenter;
+	float				c_blockPad5;
+
+	float2				c_blockFrameSize;
+	float2				c_blockPad4;	
+
+	BlockPerEye			c_blockEyes[HLSL_EYE_COUNT];	
+};
+
+CBUFFER( CBPixel, 6 )
 {
 	uint2				c_pixelFrameSize;
 	float2				c_pixelPad3;
 	float3				c_pixelBackColor;
-	float				c_pixelPad4;
+	uint				c_eye;
 #if HLSL_DEBUG_PIXEL == 1	
 	uint				c_pixelMode;
 	uint				c_pixelDebug;
@@ -248,7 +257,7 @@ CBUFFER( CBPixel, 5 )
 #endif // #if HLSL_DEBUG_PIXEL == 1
 };
 
-CBUFFER( CBCompose, 6 )
+CBUFFER( CBCompose, 7 )
 {
 	uint				c_composeFrameWidth;
 	uint3				c_unused;

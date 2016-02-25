@@ -150,3 +150,27 @@ Bench #08:
 - stats.cellProcessedCount  :     797728
 - stats.pixelSampleCount    :    1131880
 - stats.cellItemCount       :     615352
+
+Bench #09:
+- config.context            :     FOV 90
+- time.frame                :       1720
+- time.culling              :        220
+- time.trace                :        915
+- time.blend                :        560
+- stats.blockInputCount     :     449280
+- stats.blockPassedCount    :      87833
+- stats.cellProcessedCount  :    1524436
+- stats.pixelSampleCount    :    1152564
+- stats.cellItemCount       :     944340
+
+Bench #19:
+- config.context            :     STEREO
+- time.frame                :       3170
+- time.culling              :        240
+- time.trace                :       1780
+- time.blend                :       1105
+- stats.blockInputCount     :     449280
+- stats.blockPassedCount    :      88185
+- stats.cellProcessedCount  :    1531148
+- stats.pixelSampleCount    :    2306571
+- stats.cellItemCount       :    1889257

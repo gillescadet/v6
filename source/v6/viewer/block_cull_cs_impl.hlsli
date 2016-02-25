@@ -44,9 +44,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const uint yMin = ((blockPos >> HLSL_GRID_MACRO_SHIFT)		& HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT;
 		const uint zMin = ((blockPos >> HLSL_GRID_MACRO_2XSHIFT)	& HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT;
 		const int3 cellMinCoords = int3( xMin, yMin, zMin );	
-		const float gridScale = c_blockGridScales[mip].x;
+		const float gridScale = c_cullGridScales[mip].x;
 		const float cellSize = gridScale * 2.0f * HLSL_GRID_INV_WIDTH;
-		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_blockCenter;
+		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_cullCenter;
 		const float deltaWS = cellSize * HLSL_GRID_BLOCK_WIDTH;
 
 		const float3 vertices[8] =
@@ -61,17 +61,21 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			float3( 1.0f, 1.0f, 1.0f ),
 		};
 
-		const matrix worldToProjMatrix = mul( c_blockViewToProj, c_blockObjectToView );
-
-		uint clippedCount = 0;
+		bool inside = false;
 		for ( uint vertexID = 0; vertexID < 8; ++vertexID )
 		{
-			const float3 posWS = posMinWS + deltaWS * vertices[vertexID];
-			const float4 posCS = mul( worldToProjMatrix, float4( posWS, 1.0f ) );
-			clippedCount += (abs( posCS.x ) > posCS.w || abs( posCS.y ) > posCS.w || posCS.w < 0) ? 1 : 0;
+			const float4 posWS = float4( posMinWS + deltaWS * vertices[vertexID], 1.0f );
+			uint insidePlaneCount = 0; 
+			for ( uint plane = 0; plane < 4; ++plane )
+				insidePlaneCount += dot( posWS, c_cullFrustumPlanes[plane] ) > 0.0f;
+			if ( insidePlaneCount == 4 )
+			{
+				inside = true;
+				break;
+			}
 		}
 
-		if ( clippedCount < 8 )
+		if ( inside )
 #endif
 		{
 #if HLSL_ENCODE_DATA == 1

@@ -42,6 +42,13 @@ V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
 	r->z = m.m_rows[2].x * v.x + m.m_rows[2].y * v.y + m.m_rows[2].z * v.z;
 }
 
+V6_INLINE void Mat4x4_InverseTransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
+{
+	r->x = m.m_rows[0].x * v.x + m.m_rows[1].x * v.y + m.m_rows[2].x * v.z;
+	r->y = m.m_rows[0].y * v.x + m.m_rows[1].y * v.y + m.m_rows[2].y * v.z;
+	r->z = m.m_rows[0].z * v.x + m.m_rows[1].z * v.y + m.m_rows[2].z * v.z;
+}
+
 V6_INLINE void Mat4x4_Mul( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 {
 	const auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
@@ -112,7 +119,7 @@ V6_INLINE void Mat4x4_AffineInverse( Mat4x4* r )
 	__Swap( 1, 2 );
 
 	Vec3 invT;
-	Mat4x4_TransformDir( &invT, *r, Vec3_Make( -r->m_row0.w, -r->m_row1.w, -r->m_row2.w ) );;
+	Mat4x4_TransformDir( &invT, *r, Vec3_Make( -r->m_row0.w, -r->m_row1.w, -r->m_row2.w ) );
 	Mat4x4_SetTranslation( r, invT);
 }
 
@@ -179,6 +186,21 @@ V6_INLINE Mat4x4 Mat4x4_RotationZ( float a )
 	m.m_row1 = Vec4_Make(  s,  c,  0,  0 );
 	m.m_row2 = Vec4_Make(  0,  0,  1,  0 );
 	m.m_row3 = Vec4_Make(  0,  0,  0,  1 );
+
+	return m;
+}
+
+V6_INLINE Mat4x4 Mat4x4_View( const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right )
+{	
+	Mat4x4 m;
+	m.m_row0 = Vec4_Make( right->x, right->y, right->z, 0 );
+	m.m_row1 = Vec4_Make( up->x, up->y, up->z, 0 );
+	m.m_row2 = Vec4_Make( -forward->x, -forward->y, -forward->z, 0 );
+	m.m_row3 = Vec4_Make( 0, 0, 0, 1 );
+
+	Vec3 invT;
+	Mat4x4_TransformDir( &invT, m, -*org );
+	Mat4x4_SetTranslation( &m, invT);
 
 	return m;
 }
