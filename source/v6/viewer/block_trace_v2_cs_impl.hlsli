@@ -99,7 +99,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
 			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockCenter;			
 
-			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+#if HLSL_EYE_COUNT == 1
+			const uint eye = 0;
+#else
+			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )			
+#endif
 			{
 				const float3 cellPosRS = cellPosWS - c_blockEyes[eye].org; // optimization: do everything in camera relative space
 				
@@ -119,7 +123,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 		if ( valid )
 		{
+#if HLSL_EYE_COUNT == 1
+			const uint eye = 0;			
+#else
 			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+#endif
 			{
 				if ( TraceCell( pixelCoords[eye], 0, 0, boxMinRS[eye], boxMaxRS[eye], eye ) )
 				{

@@ -24,7 +24,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
 #else // #if HLSL_ENCODE_DATA == 1
 	const uint blockDataSize[] =	buckets;
-	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket] * 2;
+	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
 #endif // #if HLSL_ENCODE_DATA == 0
 
 	const uint posOffset = block_posOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 );

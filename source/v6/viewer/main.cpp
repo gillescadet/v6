@@ -27,6 +27,7 @@
 
 #pragma comment(lib, "d3d11.lib")
 
+#define V6_GPU_PROFILING		1
 #define V6_D3D_DEBUG			0
 #define V6_LOAD_EXTERNAL		1
 #define V6_SIMPLE_SCENE			0
@@ -46,7 +47,6 @@ static const float AVERAGE_SAMPLE_PER_PIXEL	= 0.25f * HLSL_CELL_SUPER_SAMPLING_W
 #else
 static const float AVERAGE_SAMPLE_PER_PIXEL	= 1.0f;
 #endif
-static const core::u32 ZOOM					= 1;
 static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE			= 2000.0f;
 static const float GRID_MIN_SCALE			= 50.0f;
@@ -69,7 +69,7 @@ static const float FOV						= core::DegToRad( 90.0f );
 static const float FOV						= core::DegToRad( 90.0f );
 #endif
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 8;
+static const int SAMPLE_MAX_COUNT			= 9;
 static const float FREE_SCALE				= 50.0f;
 //static const float FREE_SCALE				= 400.0f;
 static const core::u32 RANDOM_CUBE_COUNT	= 100;
@@ -338,7 +338,9 @@ struct GPUMesh_s
 
 struct GPUQuery_s 
 {
+#if V6_GPU_PROFILING == 1
 	ID3D11Query*	query;
+#endif
 	core::u64		data;
 };
 
@@ -519,8 +521,8 @@ struct TraceData_s
 
 static float g_translation_speed			= 200.0f;
 static bool g_mousePressed					= false;
-static int g_mousePosX						= 0;
-static int g_mousePosY						= 0;
+static int g_mouseDeltaX					= 0;
+static int g_mouseDeltaY					= 0;
 static int g_mousePickPosX					= 0;
 static int g_mousePickPosY					= 0;
 static bool g_mousePicked					= false;
@@ -571,23 +573,72 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 {
 	switch (message)
 	{
-	case WM_CHAR:
-		switch (wParam)
-		{
-		case 0x1B:
-			DestroyWindow(hWnd);
-			break;
-		};
-		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
 	case WM_KEYDOWN:
 	case WM_KEYUP:
 		{
-			const bool pressed = message == WM_KEYDOWN;
-			switch( wParam )
+			
+		}
+		break;
+#if 0
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+		{
+			g_mousePressed = message == WM_LBUTTONDOWN;
+			g_mousePosX = GET_X_LPARAM( lParam ); 
+			g_mousePosY = GET_Y_LPARAM( lParam );
+
+			if ( g_mousePressed )
+			{				
+				SetCapture( hWnd ) ;
+				ShowCursor( false );
+			}
+			else
+			{
+				ShowCursor( true );
+				ReleaseCapture();				
+			}
+		}
+		break;
+	case WM_RBUTTONDOWN:
+		{
+			g_mousePickPosX = GET_X_LPARAM( lParam ); 
+			g_mousePickPosY = GET_Y_LPARAM( lParam );
+			g_mousePicked = true;
+			V6_MSG( "Pick %d, %d\n", g_mousePickPosX, g_mousePickPosY );
+		}
+		break;
+	case WM_MOUSEMOVE:
+		{
+			if ( g_mousePressed )
+			{
+				g_mousePosX = GET_X_LPARAM( lParam ); 
+				g_mousePosY = GET_Y_LPARAM( lParam );
+			}
+		}
+		break;
+#endif
+	case WM_INPUT: 
+	{		
+		UINT dwSize;
+		GetRawInputData( (HRAWINPUT)lParam, RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER));
+		
+		LPBYTE lpb[4096];
+		V6_ASSERT( dwSize <= sizeof( lpb ) );
+		GetRawInputData((HRAWINPUT)lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER) );
+
+		RAWINPUT* raw = (RAWINPUT*)lpb;
+
+		if ( raw->header.dwType == RIM_TYPEKEYBOARD ) 
+		{
+			const bool pressed = raw->data.keyboard.Message == 0x100;
+			switch( raw->data.keyboard.VKey )
 			{			
+			case 0x1B:
+				DestroyWindow(hWnd);
+				break;
 			case 'A': g_keyLeftPressed = pressed; break;
 			case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
 			case 'C': g_useOccupancy = pressed ? ((g_useOccupancy+1)%3): g_useOccupancy; break;
@@ -639,50 +690,81 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				}
 				break;
 			}
+#if 0
+			V6_MSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
+				raw->data.keyboard.MakeCode, 
+				raw->data.keyboard.Flags, 
+				raw->data.keyboard.Reserved, 
+				raw->data.keyboard.ExtraInformation, 
+				raw->data.keyboard.Message, 
+				raw->data.keyboard.VKey );
+#endif
 		}
-		break;
-	case WM_LBUTTONDOWN:
-	case WM_LBUTTONUP:
+		else if ( raw->header.dwType == RIM_TYPEMOUSE ) 
 		{
-			g_mousePressed = message == WM_LBUTTONDOWN;
-			g_mousePosX = GET_X_LPARAM( lParam ); 
-			g_mousePosY = GET_Y_LPARAM( lParam );
-
-			if ( g_mousePressed )
-			{				
+			if ( raw->data.mouse.ulButtons & 1 )
+			{
 				SetCapture( hWnd ) ;
-				ShowCursor( false );
+				ShowCursor( false );				
+				g_mousePressed = true;
 			}
-			else
+			
+			if ( raw->data.mouse.ulButtons & 2 )
 			{
 				ShowCursor( true );
 				ReleaseCapture();				
+				g_mousePressed = false;
 			}
-		}
-		break;
-	case WM_RBUTTONDOWN:
-		{
-			g_mousePickPosX = GET_X_LPARAM( lParam ); 
-			g_mousePickPosY = GET_Y_LPARAM( lParam );
-			g_mousePicked = true;
-			V6_MSG( "Pick %d, %d\n", g_mousePickPosX, g_mousePickPosY );
-		}
-		break;
-	case WM_MOUSEMOVE:
-		{
+
 			if ( g_mousePressed )
 			{
-				g_mousePosX = GET_X_LPARAM( lParam ); 
-				g_mousePosY = GET_Y_LPARAM( lParam );
+				g_mouseDeltaX += raw->data.mouse.lLastX; 
+				g_mouseDeltaY += raw->data.mouse.lLastY;
 			}
-		}
+
+#if 0
+			V6_MSG( "Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\n",
+				raw->data.mouse.usFlags, 
+				raw->data.mouse.ulButtons, 
+				raw->data.mouse.usButtonFlags, 
+				raw->data.mouse.usButtonData, 
+				raw->data.mouse.ulRawButtons, 
+				raw->data.mouse.lLastX, 
+				raw->data.mouse.lLastY, 
+				raw->data.mouse.ulExtraInformation );
+#endif
+		} 
 		break;
+	} 
 	default:
 		return DefWindowProcA(hWnd, message, wParam, lParam);
 		break;
 	}
 
 	return 0;
+}
+
+static bool CaptureInputs()
+{
+	RAWINPUTDEVICE Rid[2];
+
+	Rid[0].usUsagePage = 0x01; 
+	Rid[0].usUsage = 0x02; 
+	Rid[0].dwFlags = RIDEV_NOLEGACY;   // adds HID mouse and also ignores legacy mouse messages
+	Rid[0].hwndTarget = 0;
+
+	Rid[1].usUsagePage = 0x01; 
+	Rid[1].usUsage = 0x06; 
+	Rid[1].dwFlags = RIDEV_NOLEGACY;   // adds HID keyboard and also ignores legacy keyboard messages
+	Rid[1].hwndTarget = 0;
+
+	if ( RegisterRawInputDevices(Rid, 2, sizeof(Rid[0])) == FALSE )
+	{
+		V6_ERROR("Call to RegisterRawInputDevices failed!");\
+		return false;
+	}
+
+	return true;
 }
 
 static HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
@@ -728,12 +810,26 @@ static HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
 	return hWnd;
 }
 
+static const bool IsBakingMode( DrawMode_e drawMode )
+{
+	return drawMode == DRAW_MODE_BLOCK && g_sample < SAMPLE_MAX_COUNT;
+}
+
 static const char* ModeToString( DrawMode_e drawMode )
 {
 	switch ( drawMode )
 	{
 		case DRAW_MODE_DEFAULT: return "default";
-		case DRAW_MODE_BLOCK: return "block";
+		case DRAW_MODE_BLOCK: 
+		{
+			if ( g_sample < SAMPLE_MAX_COUNT )
+			{
+				static char buffer[256];
+				sprintf_s( buffer, sizeof( buffer ), "baking #%d", g_sample );
+				return buffer;
+			}
+			return "block";
+		}
 	}
 	return "unknown";
 }
@@ -1448,39 +1544,48 @@ static void GPUQuery_CreateTimeStamp( ID3D11Device* device, GPUQuery_s* query )
 {
 	query->data = 0;
 
+#if V6_GPU_PROFILING == 1
 	D3D11_QUERY_DESC queryDesc = {};
 	queryDesc.Query = D3D11_QUERY_TIMESTAMP;
     queryDesc.MiscFlags = 0;
 	V6_ASSERT_D3D11( device->CreateQuery( &queryDesc, &query->query ) );
+#endif
 }
 
 static void GPUQuery_CreateTimeStampDisjoint( ID3D11Device* device, GPUQuery_s* query )
 {
 	query->data = 0;
 
+#if V6_GPU_PROFILING == 1
 	D3D11_QUERY_DESC queryDesc = {};
 	queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
     queryDesc.MiscFlags = 0;
 	V6_ASSERT_D3D11( device->CreateQuery( &queryDesc, &query->query ) );
+#endif
 }
 
 static void GPUQuery_BeginTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
 {
 	V6_ASSERT( query->data != (core::u64)-1 );
 	query->data = (core::u64)-1;
+#if V6_GPU_PROFILING == 1
 	context->Begin( query->query );
+#endif
 }
 
 static void GPUQuery_EndTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
 {
 	V6_ASSERT( query->data == (core::u64)-1 );
 	query->data = 0;
+#if V6_GPU_PROFILING == 1
 	context->End( query->query );
+#endif
 }
 
 static bool GPUQuery_ReadTimeStampDisjoint( ID3D11DeviceContext* context, GPUQuery_s* query )
 {
 	V6_ASSERT( query->data != (core::u64)-1 );
+#if V6_GPU_PROFILING == 1
 	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timestampDisjoint = {};
 	if ( context->GetData( query->query, &timestampDisjoint, sizeof( timestampDisjoint ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) != S_OK )
 		return false;
@@ -1488,17 +1593,28 @@ static bool GPUQuery_ReadTimeStampDisjoint( ID3D11DeviceContext* context, GPUQue
 		return false;
 	query->data = timestampDisjoint.Frequency;
 	return true;
+#else
+	query->data = 0;
+	return false;
+#endif
+	
 }
 
 static void GPUQuery_WriteTimeStamp( ID3D11DeviceContext* context, GPUQuery_s* query )
 {
 	query->data = 0;
+#if V6_GPU_PROFILING == 1
 	context->End( query->query );
+#endif
 }
 
 static bool GPUQuery_ReadTimeStamp( ID3D11DeviceContext* context, GPUQuery_s* query )
 {
+#if V6_GPU_PROFILING == 1
 	return context->GetData( query->query, &query->data, sizeof( query->data ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) == S_OK;
+#else
+	return false;
+#endif
 }
 
 static float GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* queryEnd, const GPUQuery_s* queryDisjoint )
@@ -1512,7 +1628,9 @@ static float GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQue
 
 static void GPUQuery_Release( GPUQuery_s* query )
 {
+#if V6_GPU_PROFILING == 1
 	query->query->Release();
+#endif
 }
 
 static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* fileSystem, core::IStack* stack )
@@ -2076,6 +2194,59 @@ static void Octree_Release( ID3D11Device* device, Octree_s* octree )
 	GPUBuffer_Release( device, &octree->indirectArgs );
 }
 
+static void Block_Compact( ID3D11DeviceContext* context, Block_s* block, core::u32 blockCount, core::u32 cellCount )
+{
+#if 1
+	blockCount = core::Max( blockCount, 1u );
+	cellCount = core::Max( cellCount, 1u );
+
+	ID3D11Device* device;
+	context->GetDevice( &device );
+
+	{
+		GPUBuffer_s newBlockPos;	
+		GPUBuffer_CreateTyped( device, &newBlockPos, DXGI_FORMAT_R32_UINT, blockCount, 0, "blockPositions" );
+
+		D3D11_BOX box;
+		box.left = 0;
+		box.right = blockCount * DXGIFormat_Size( DXGI_FORMAT_R32_UINT );
+		box.front = 0;
+		box.back = 1;
+		box.top = 0;
+		box.bottom = 1;		
+		context->CopySubresourceRegion( newBlockPos.buf, 0, 0, 0, 0, block->blockPos.buf, 0, &box );
+
+		GPUBuffer_Release( device, &block->blockPos );
+
+		block->blockPos = newBlockPos;
+	}
+
+	{
+		GPUBuffer_s newBlockData;
+#if HLSL_ENCODE_DATA == 1
+		const core::u32 elementCount = blockCount * 5;
+		GPUBuffer_CreateTyped( device, &newBlockData, DXGI_FORMAT_R32_UINT, blockCount * 5, 0, "blockData" );
+#else
+		const core::u32 elementCount = cellCount;
+		GPUBuffer_CreateTyped( device, &newBlockData, DXGI_FORMAT_R32_UINT, elementCount, 0, "blockData" );
+#endif
+
+		D3D11_BOX box;
+		box.left = 0;
+		box.right = elementCount * DXGIFormat_Size( DXGI_FORMAT_R32_UINT );
+		box.front = 0;
+		box.back = 1;
+		box.top = 0;
+		box.bottom = 1;		
+		context->CopySubresourceRegion( newBlockData.buf, 0, 0, 0, 0, block->blockData.buf, 0, &box );
+
+		GPUBuffer_Release( device, &block->blockData );
+
+		block->blockData = newBlockData;
+	}
+#endif
+}
+
 static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* config, core::IAllocator* heap )
 {
 	GPUBuffer_CreateTyped( device, &block->blockPos, DXGI_FORMAT_R32_UINT, config->blockCount, 0, "blockPositions" );
@@ -2090,13 +2261,13 @@ static void Block_Create( ID3D11Device* device, Block_s* block, const Config_s* 
 	GPUBuffer_CreateIndirectArgs( device, &block->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
 
 	GPUBuffer_CreateStructured( device, &block->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
-	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->screenWidth * HLSL_EYE_COUNT * config->screenHeight, 0, "blockFirstCellItemIDs" );	
+	GPUBuffer_CreateTyped( device, &block->cellItemCounters, DXGI_FORMAT_R32_UINT, config->screenWidth * HLSL_EYE_COUNT * config->screenHeight, 0, "blockCellItemCounters" );	
 	
 	GPUBuffer_CreateStructured( device, &block->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( device, &block->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
 }
 
-static void Block_Release( ID3D11Device* device, Block_s* block, core::IAllocator* heap )
+static void Block_Release( ID3D11Device* device, Block_s* block )
 {
 	GPUBuffer_Release( device, &block->blockPos );
 	GPUBuffer_Release( device, &block->blockData );
@@ -3114,7 +3285,7 @@ public:
 	void DrawWorld( const RenderingView_s* view );	
 	void FillLeaf();
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
-	void PackColor();	
+	void PackColor( core::u32* allBlockCount, core::u32* allMaxCellCount );
 	void Present();
 	void Release();
 	void TraceBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
@@ -3128,8 +3299,9 @@ public:
 	Cube_s				m_cube;
 	Sample_s			m_sample;
 	Octree_s			m_octree;
-	Block_s				m_block;
+	Block_s				m_block;	
 	Pixel_s				m_pixel;
+	bool				m_blockModeInitialized;
 
 	Scene_s*			m_defaultScene;	
 	SceneDebug_s*		m_debugScene;
@@ -3176,8 +3348,13 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	Sample_Create( gpuContext.device, &m_sample, &m_config, heap );
 	Octree_Create( gpuContext.device, &m_octree, &m_config, heap );
 #endif
+#if 0
 	Block_Create( gpuContext.device, &m_block, &m_config, heap );
 	Pixel_Create( gpuContext.device, &m_pixel, &m_config, heap );
+#else
+	m_blockModeInitialized  = false;
+#endif
+	
 
 	g_sample = 0;
 	m_sampleOffsets[0] = core::Vec3_Make( 0.0f, 0.0f, 0.0f );
@@ -3575,7 +3752,7 @@ void CRenderingDevice::FillLeaf()
 	gpuContext.userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::PackColor()
+void CRenderingDevice::PackColor( core::u32* allBlockCount, core::u32* allMaxCellCount )
 {
 	static const void* nulls[8] = {};
 	
@@ -3618,21 +3795,22 @@ void CRenderingDevice::PackColor()
 				
 	gpuContext.userDefinedAnnotation->EndEvent();
 
-	if ( s_logReadBack )
+	const core::u32* blockIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &m_block.blockIndirectArgs );
+
+	*allBlockCount = 0;
+	core::u32 allRealCellCount = 0;
+	*allMaxCellCount = 0; 
+
+	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		const core::u32* blockIndirectArgs = GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &m_block.blockIndirectArgs );
+		if ( block_count( bucket ) == 0 )
+			continue;
 
-		core::u32 allRealCellCount = 0;
-		core::u32 allMaxCellCount = 0; 
+		static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
+		const core::u32 maxCellCount = block_count( bucket ) * cellPerBucketCounts[bucket];
 
-		for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
+		if ( s_logReadBack )
 		{
-			if ( block_count( bucket ) == 0 )
-				continue;
-
-			static const core::u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
-			const core::u32 maxCellCount = block_count( bucket ) * cellPerBucketCounts[bucket];
-
 			V6_MSG( "\n" );
 			ReadBack_Log( "block", bucket, "bucket" );
 			ReadBack_Log( "block", block_groupCountX( bucket ), "groupCountX" );
@@ -3648,21 +3826,20 @@ void CRenderingDevice::PackColor()
 			ReadBack_Log( "block", block_uniqueOccupancyMax( bucket ), "maxOccupancyCount" );
 			ReadBack_Log( "block", block_slotOccupancyCount( bucket ) / (float)block_cellCount( bucket ), "avgOccupancySlot" );
 #endif // #if HLSL_DEBUG_OCCUPANCY == 1
-
-			allRealCellCount += block_cellCount( bucket );
-			allMaxCellCount += maxCellCount;
-		}		
-
-		if ( allMaxCellCount )
-		{
-			V6_MSG( "\n" );
-			ReadBack_Log( "packed_all", allRealCellCount, "realCellCount" );
-			ReadBack_Log( "packed_all", allMaxCellCount, "maxCellCount" );
-			V6_ASSERT( allMaxCellCount <= m_config.cellCount );
 		}
 
-		GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.blockIndirectArgs );
-	}
+		*allBlockCount += block_count( bucket );
+		allRealCellCount += block_cellCount( bucket );
+		*allMaxCellCount += maxCellCount;
+	}		
+
+	V6_MSG( "\n" );
+	ReadBack_Log( "packed", *allBlockCount, "blockCount" );
+	ReadBack_Log( "packed", allRealCellCount, "realCellCount" );
+	ReadBack_Log( "packed", *allMaxCellCount, "maxCellCount" );
+	V6_ASSERT( *allMaxCellCount <= m_config.cellCount );
+
+	GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.blockIndirectArgs );	
 }
 
 void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter )
@@ -4078,8 +4255,6 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 void CRenderingDevice::Draw( float dt )
 {
-	static int lastMousePosX = -1;
-	static int lastMousePosY = -1;
 	static int lastKeyPosX = -1;
 	static int lastKeyPosZ = -1;
 	
@@ -4090,17 +4265,15 @@ void CRenderingDevice::Draw( float dt )
 
 	if ( g_mousePressed )
 	{		
-		mouseDeltaX = lastMousePosX < 0 ? 0 : g_mousePosX - lastMousePosX;
-		mouseDeltaY = lastMousePosY < 0 ? 0 : g_mousePosY - lastMousePosY;
-		lastMousePosX = g_mousePosX;
-		lastMousePosY = g_mousePosY;
+		mouseDeltaX = g_mouseDeltaX;
+		mouseDeltaY = g_mouseDeltaY;
+		g_mouseDeltaX = 0;
+		g_mouseDeltaY = 0;
 	}
 	else
 	{
 		mouseDeltaX = 0;
 		mouseDeltaY = 0;
-		lastMousePosX = -1;
-		lastMousePosY = -1;
 	}
 
 	if ( g_keyLeftPressed != g_keyRightPressed )
@@ -4174,6 +4347,11 @@ void CRenderingDevice::Draw( float dt )
 			if ( g_sample == 0 )
 			{
 #if 1
+				if ( m_blockModeInitialized )
+				{
+					Block_Release( gpuContext.device, &m_block );
+					Pixel_Release( gpuContext.device, &m_pixel );
+				}
 				Cube_Create( gpuContext.device, &m_cube, CUBE_SIZE );
 				Sample_Create( gpuContext.device, &m_sample, &m_config, m_heap );
 				Octree_Create( gpuContext.device, &m_octree, &m_config, m_heap );
@@ -4209,11 +4387,21 @@ void CRenderingDevice::Draw( float dt )
 			if ( g_sample == SAMPLE_MAX_COUNT )
 			{
 				V6_MSG( "Packing all samples..." );
-				PackColor();
+#if 1
+				Block_Create( gpuContext.device, &m_block, &m_config, m_heap );				
+				m_blockModeInitialized = true;
+#endif
+				core::u32 allBlockCount = 0;
+				core::u32 allMaxCellCount = 0;
+				PackColor( &allBlockCount, &allMaxCellCount );
 #if 1
 				Cube_Release( &m_cube );
 				Sample_Release( gpuContext.device, &m_sample );
 				Octree_Release( gpuContext.device, &m_octree );
+#endif
+#if 1
+				Block_Compact( gpuContext.deviceContext, &m_block, allBlockCount, allMaxCellCount );
+				Pixel_Create( gpuContext.device, &m_pixel, &m_config, m_heap );
 #endif
 				V6_MSG( "\r" );
 				V6_MSG( "Packed  all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
@@ -4267,8 +4455,11 @@ void CRenderingDevice::Release()
 	Sample_Release( gpuContext.device, &m_sample );
 	Octree_Release( gpuContext.device, &m_octree );
 #endif
-	Block_Release( gpuContext.device, &m_block, m_heap );
-	Pixel_Release( gpuContext.device, &m_pixel );
+	if ( m_blockModeInitialized )
+	{
+		Block_Release( gpuContext.device, &m_block );
+		Pixel_Release( gpuContext.device, &m_pixel );
+	}
 
 	Scene_Release( m_defaultScene );
 	m_heap->deleteInstance( m_defaultScene );
@@ -4295,10 +4486,16 @@ int main()
 	v6::core::Job_Launch( v6::viewer::SceneContext_Load, &sceneContext );
 #endif
 
-	const int nWidth = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
-	const int nHeight = (HLSL_GRID_WIDTH >> 1) * v6::viewer::ZOOM;
+	const int nWidth = HLSL_GRID_WIDTH >> 1;
+	const int nHeight = HLSL_GRID_WIDTH >> 1;
 
 	const char* const title = "V6";
+
+	if ( !v6::viewer::CaptureInputs() )
+	{
+		V6_ERROR("Call to CaptureInputs failed!");
+		return -1;
+	}
 
 	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth * HLSL_EYE_COUNT, nHeight );
 	if (!hWnd)
@@ -4362,7 +4559,7 @@ int main()
 			dt += 0.001f;
 		}
 
-		if ( (frameId % 30) == 0 )
+		if ( (frameId % 30) == 0 || v6::viewer::IsBakingMode( v6::viewer::g_drawMode ) ) 
 		{
 			float ifps = 0;
 			float tfTime = 0;
@@ -4386,7 +4583,7 @@ int main()
 			t2Time *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s mode", 
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s", 
 				title, 
 				(int)(1.0f / ifps), 
 				(int)(tfTime * 1000000.0f),
