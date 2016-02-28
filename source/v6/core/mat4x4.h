@@ -33,6 +33,7 @@ public:
 	const Vec3* GetXAxis() const { return (Vec3*)&m_row0; }
 	const Vec3* GetYAxis() const { return (Vec3*)&m_row1; }
 	const Vec3* GetZAxis() const { return (Vec3*)&m_row2; }
+	const Vec3 GetTranslation() const { return Vec3_Make( m_row0.w, m_row1.w, m_row2.w ); }
 };
 
 V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
@@ -95,6 +96,28 @@ V6_INLINE void Mat4x4_PreScale( Mat4x4* r, float scale )
 	r->m_row2.x *= scale;
 	r->m_row2.y *= scale;
 	r->m_row2.z *= scale;
+}
+
+V6_INLINE void Mat4x4_ClearRotation( Mat4x4* r )
+{
+	r->m_row0.x = 0.0f;
+	r->m_row0.y = 0.0f;
+	r->m_row0.z = 0.0f;
+
+	r->m_row1.x = 0.0f;
+	r->m_row1.y = 0.0f;
+	r->m_row1.z = 0.0f;
+
+	r->m_row2.x = 0.0f;
+	r->m_row2.y = 0.0f;
+	r->m_row2.z = 0.0f;
+}
+
+V6_INLINE void Mat4x4_ClearTranslation( Mat4x4* r )
+{
+	r->m_row0.w = 0.0f;
+	r->m_row1.w = 0.0f;
+	r->m_row2.w = 0.0f;
 }
 
 V6_INLINE void Mat4x4_SetTranslation( Mat4x4* r, const Vec3& v )

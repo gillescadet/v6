@@ -23,13 +23,14 @@
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
+#include <v6/viewer/hmd.h>
 #include <v6/viewer/obj_reader.h>
 
 #pragma comment(lib, "d3d11.lib")
 
 #define V6_GPU_PROFILING		1
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		1
+#define V6_LOAD_EXTERNAL		0
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 
@@ -85,6 +86,9 @@ static const uint ENTITY_TEXTURE_INVALID	= (core::u32)-1;
 
 static const uint DEBUG_BLOCK_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
 static const uint DEBUG_TRACE_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
+
+v6::core::u32		s_hmdState				= v6::viewer::HMD_TRACKING_STATE_OFF;
+v6::core::Mat4x4	s_hmdViewMatrix;
 
 enum DrawMode_e
 {
@@ -555,6 +559,7 @@ static bool g_reloadShaders					= false;
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
 static core::Vec3 s_headOffset				= core::Vec3_Zero();
+static core::Vec3 s_eyeOffset				= core::Vec3_Zero();
 static core::Vec3 s_sampleCenter			= core::Vec3_Zero();
 
 static core::u32 gpuMemory					= 0;
@@ -4287,11 +4292,21 @@ void CRenderingDevice::Draw( float dt )
 	s_yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
 	s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
 
-	const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
-	const core::Mat4x4 pitchMatrix = core::Mat4x4_RotationX( s_pitch );
 	core::Mat4x4 orientationMatrix;
-	core::Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );	
-	core::Mat4x4_Transpose( &orientationMatrix );
+	s_hmdState = v6::viewer::Hmd_Track( &s_hmdViewMatrix );
+	if ( s_hmdState & HMD_TRACKING_STATE_ORIENTATION )
+	{
+		orientationMatrix = s_hmdViewMatrix;
+		core::Mat4x4_ClearTranslation( &orientationMatrix );
+		core::Mat4x4_Transpose( &orientationMatrix );
+	}
+	else
+	{
+		const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
+		const core::Mat4x4 pitchMatrix = core::Mat4x4_RotationX( s_pitch );
+		core::Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
+		core::Mat4x4_Transpose( &orientationMatrix );
+	}
 
 	const core::Vec3 forward = -orientationMatrix.GetZAxis()->Normalized();
 	const core::Vec3 right = orientationMatrix.GetXAxis()->Normalized();
@@ -4301,6 +4316,11 @@ void CRenderingDevice::Draw( float dt )
 	{
 		s_headOffset += right * (float)keyDeltaX * g_translation_speed * dt;
 		s_headOffset += forward * (float)keyDeltaZ * g_translation_speed * dt;
+	}
+	
+	if ( s_hmdState & HMD_TRACKING_STATE_POS )
+	{
+		s_eyeOffset = s_hmdViewMatrix.GetTranslation() * core::M_TO_CM;
 	}
 	
 	if ( g_limit )
@@ -4313,8 +4333,9 @@ void CRenderingDevice::Draw( float dt )
 	}
 
 	RenderingView_s views[HLSL_EYE_COUNT];
+	const core::Vec3 viewPos = s_headOffset + s_eyeOffset;
 	for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-		MakeRenderingView( &views[eye], &s_headOffset, &forward, &up, &right, eye );
+		MakeRenderingView( &views[eye], &viewPos, &forward, &up, &right, eye );
 
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
@@ -4328,13 +4349,6 @@ void CRenderingDevice::Draw( float dt )
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
-#if 0
-	{
-		for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
-			Capture( &s_headOffset, faceID );
-	}
-	else
-#endif
 	{		
 		if ( g_sample < SAMPLE_MAX_COUNT )
 		{
@@ -4491,16 +4505,21 @@ int main()
 
 	const char* const title = "V6";
 
+	if ( !v6::viewer::Hmd_Init() )
+	{
+		V6_ERROR( "Call to v failed!" );
+		return -1;
+	}
 	if ( !v6::viewer::CaptureInputs() )
 	{
-		V6_ERROR("Call to CaptureInputs failed!");
+		V6_ERROR( "Call to CaptureInputs failed!" );
 		return -1;
 	}
 
 	HWND hWnd = v6::viewer::CreateMainWindow( title, nWidth * HLSL_EYE_COUNT, nHeight );
 	if (!hWnd)
 	{
-		V6_ERROR("Call to CreateWindow failed!");
+		V6_ERROR( "Call to CreateWindow failed!" );
 		return -1;
 	}
 
@@ -4583,14 +4602,15 @@ int main()
 			t2Time *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s", 
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s | Hmd %d", 
 				title, 
 				(int)(1.0f / ifps), 
 				(int)(tfTime * 1000000.0f),
 				(int)(t0Time * 1000000.0f),
 				(int)(t1Time * 1000000.0f),
 				(int)(t2Time * 1000000.0f),
-				v6::viewer::ModeToString( v6::viewer::g_drawMode ) );
+				v6::viewer::ModeToString( v6::viewer::g_drawMode ),
+				v6::viewer::s_hmdState );
 			SetWindowTextA( hWnd, text );				
 		}
 		
@@ -4620,12 +4640,14 @@ int main()
 				
 		v6::viewer::GPUQuery_BeginTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
 		v6::viewer::GPUQuery_WriteTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FRAME_BEGIN] );
-		
-		oRenderingDevice.Draw( dt );		
+
+		oRenderingDevice.Draw( dt );
 
 		v6::viewer::GPUQuery_WriteTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FRAME_END] );
 		v6::viewer::GPUQuery_EndTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
 
 		oRenderingDevice.Present();
 	}
+
+	v6::viewer::Hmd_Shutdown();
 }
