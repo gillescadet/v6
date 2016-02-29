@@ -1,12 +1,13 @@
 /*V6*/
 
-#include <OVR.h>
+#include <OVR_CAPI_D3D.h>
 #include <Extras/OVR_Math.h>
 
 #include <v6/viewer/common.h>
 
 #include <v6/core/math.h>
 #include <v6/core/mat4x4.h>
+#include <v6/core/vec2i.h>
 #include <v6/core/vec3.h>
 
 #include <v6/viewer/hmd.h>
@@ -14,8 +15,15 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static ovrSession   s_session;
-static ovrHmdDesc	s_hmdDesc;
+static ovrSession					s_session = nullptr;
+static ovrHmdDesc					s_hmdDesc;
+static const core::u32				s_textureCount = 2;
+static core::Vec2i					s_eyeRenderTargetSize;
+static ovrSwapTextureSet*			s_textureSets[2] = { nullptr, nullptr };
+static ID3D11RenderTargetView*		s_textureRTVs[2][s_textureCount] = {};
+static ID3D11UnorderedAccessView*	s_textureUAVs[2][s_textureCount] = {};
+static ovrTexture*					s_mirrorTexture = nullptr;
+static ovrLayerEyeFov				s_layer = {};
 
 static const core::u32 s_ovrHmdTypeCount = 9;
 static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] = 
@@ -31,15 +39,50 @@ static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] =
 	"ovrHmd_ES09",
 };
 
+static void ReleaseResources()
+{
+	for ( core::u32 eye = 0; eye < 2; ++eye )
+	{
+		if ( s_textureSets[eye] )
+		{
+			ovr_DestroySwapTextureSet( s_session, s_textureSets[eye] );
+			s_textureSets[eye] = nullptr;
+		}
+
+		for ( int i = 0; i < s_textureSets[eye]->TextureCount; ++i )
+		{
+			if ( s_textureRTVs[eye][i] )
+			{
+				s_textureRTVs[eye][i]->Release();
+				s_textureRTVs[eye][i] = nullptr;
+			}
+
+			if ( s_textureUAVs[eye][i] )
+			{
+				s_textureUAVs[eye][i]->Release();
+				s_textureUAVs[eye][i] = nullptr;
+			}
+		}
+	}
+
+	if ( s_mirrorTexture )
+	{
+		ovr_DestroyMirrorTexture( s_session, s_mirrorTexture );
+		s_mirrorTexture = nullptr;
+	}
+}
+
 bool Hmd_Init()
 {
+	V6_ASSERT( s_session == nullptr );
+
 	{
 		const ovrResult result = ovr_Initialize( NULL );
 		if( OVR_FAILURE(result) )
 		{
 			ovrErrorInfo errorInfo;
 			ovr_GetLastErrorInfo( &errorInfo );
-			V6_ERROR( "ovr_Initialize failed: %s", errorInfo.ErrorString );
+			V6_ERROR( "ovr_Initialize failed: %s\n", errorInfo.ErrorString );
 			return false;
 		}
 	}
@@ -49,7 +92,11 @@ bool Hmd_Init()
 		ovrResult result = ovr_Create( &s_session, &luid );
 		if ( OVR_FAILURE( result ) )
 		{
+			ovrErrorInfo errorInfo;
+			ovr_GetLastErrorInfo( &errorInfo );
+			V6_ERROR( "ovr_Create failed: %s\n", errorInfo.ErrorString )
 			ovr_Shutdown();
+			s_session = nullptr;
 			return false;
 		}
 	}
@@ -89,29 +136,221 @@ bool Hmd_Init()
 	return true;
 }
 
-core::u32 Hmd_Track( core::Mat4x4* view )
+core::Vec2i Hmd_GetRecommendedRenderTargetSize()
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
+	V6_ASSERT( s_mirrorTexture == nullptr );
+
+	OVR::Sizei recommendedTex0Size = ovr_GetFovTextureSize( s_session, ovrEye_Left, s_hmdDesc.DefaultEyeFov[0], 1.0f );
+	OVR::Sizei recommendedTex1Size = ovr_GetFovTextureSize( s_session, ovrEye_Right, s_hmdDesc.DefaultEyeFov[1], 1.0f );
+	V6_ASSERT( recommendedTex0Size.w == recommendedTex1Size.w );
+	return core::Vec2i_Make( recommendedTex0Size.w, core::Max( recommendedTex0Size.h, recommendedTex1Size.h ) );
+}
+
+bool Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize )
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
+	V6_ASSERT( s_mirrorTexture == nullptr );
+
+	s_eyeRenderTargetSize = *eyeRenderTargetSize;
+
+	V6_MSG( "hmd.renderTarget              : %dx%d\n", s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
+
+	ID3D11Device* d3d11Device = (ID3D11Device*)device;
+
+	{
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = s_eyeRenderTargetSize.x;
+		td.Height = s_eyeRenderTargetSize.y;
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		td.SampleDesc.Count = 1;
+		td.SampleDesc.Quality = 0;
+		td.Usage = D3D11_USAGE_DEFAULT;
+		td.CPUAccessFlags = 0;
+		td.MiscFlags = 0;
+		td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS;
+
+		for ( core::u32 eye = 0; eye < 2; ++eye )
+		{
+			const ovrResult result = ovr_CreateSwapTextureSetD3D11( s_session, d3d11Device, &td, ovrSwapTextureSetD3D11_Typeless, &s_textureSets[eye] );
+
+			if ( OVR_FAILURE( result ) )
+			{
+				ovrErrorInfo errorInfo;
+				ovr_GetLastErrorInfo( &errorInfo );
+				V6_ERROR( "ovr_CreateSwapTextureSetD3D11 failed: %s\n", errorInfo.ErrorString );
+				ReleaseResources();
+				return false;
+			}
+
+			V6_ASSERT( s_textureCount == s_textureSets[eye]->TextureCount );
+			for ( int i = 0; i < s_textureSets[eye]->TextureCount; ++i )
+			{
+				ovrD3D11Texture* tex = (ovrD3D11Texture*)&s_textureSets[eye]->Textures[i];
+
+				{
+					D3D11_RENDER_TARGET_VIEW_DESC rtvd = {};
+					rtvd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+					rtvd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+					if ( d3d11Device->CreateRenderTargetView( tex->D3D11.pTexture, &rtvd, &s_textureRTVs[eye][i] ) != S_OK )
+					{
+						V6_ERROR( "CreateRenderTargetView failed\n" );
+						ReleaseResources();
+						return false;
+					}
+				}
+
+				{
+					D3D11_UNORDERED_ACCESS_VIEW_DESC uavd = {};
+					uavd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+					uavd.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+					if ( d3d11Device->CreateUnorderedAccessView( tex->D3D11.pTexture, &uavd, &s_textureUAVs[eye][i] ) != S_OK )
+					{
+						V6_ERROR( "CreateUnorderedAccessView failed\n" );
+						ReleaseResources();
+						return false;
+					}
+				}
+			}
+		}
+	}
+
+	{
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = s_eyeRenderTargetSize.x * 2;
+		td.Height = s_eyeRenderTargetSize.y;
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		td.SampleDesc.Count = 1;
+		td.SampleDesc.Quality = 0;
+		td.Usage = D3D11_USAGE_DEFAULT;
+		td.CPUAccessFlags = 0;
+		td.MiscFlags = 0;
+		td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+		const ovrResult result = ovr_CreateMirrorTextureD3D11( s_session, d3d11Device, &td, 0, &s_mirrorTexture );
+		if ( OVR_FAILURE( result ) )
+		{
+			ovrErrorInfo errorInfo;
+			ovr_GetLastErrorInfo( &errorInfo );
+			V6_ERROR( "ovr_CreateMirrorTextureD3D11 failed: %s\n", errorInfo.ErrorString );
+			ReleaseResources();
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void Hmd_ReleaseResources()
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+
+	ReleaseResources();
+}
+
+core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar )
 {	
-	const ovrTrackingState ts = ovr_GetTrackingState( s_session, ovr_GetTimeInSeconds(), false );
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+
+	const double displayMidpointSeconds = ovr_GetPredictedDisplayTime( s_session, 0 );
+	const ovrTrackingState ts = ovr_GetTrackingState( s_session, displayMidpointSeconds, ovrTrue );
 
 	if ( (ts.StatusFlags & ovrStatus_HmdConnected) == 0 )
 		return HMD_TRACKING_STATE_OFF;
 
 	core::u32 state = HMD_TRACKING_STATE_ON;
 
-	const OVR::Matrix4f mx( ts.HeadPose.ThePose );
-	memcpy( view, &mx, sizeof( mx ) );
-
 	state |= (ts.StatusFlags & ovrStatus_OrientationTracked) != 0 ? HMD_TRACKING_STATE_ORIENTATION : 0;
 	state |= (ts.StatusFlags & ovrStatus_PositionTracked) != 0 ? HMD_TRACKING_STATE_POS: 0;
+
+	ovrEyeRenderDesc eyeRenderDesc[2];
+	eyeRenderDesc[0] = ovr_GetRenderDesc( s_session, ovrEye_Left, s_hmdDesc.DefaultEyeFov[0] );
+	eyeRenderDesc[1] = ovr_GetRenderDesc( s_session, ovrEye_Right, s_hmdDesc.DefaultEyeFov[1] );
+	
+	ovrVector3f hmdToEyeViewOffset[2];
+	hmdToEyeViewOffset[0] = eyeRenderDesc[0].HmdToEyeViewOffset;
+	hmdToEyeViewOffset[1] = eyeRenderDesc[1].HmdToEyeViewOffset;
+
+	s_layer.Header.Type = ovrLayerType_EyeFov;
+	s_layer.Header.Flags = 0;
+	s_layer.ColorTexture[0] = s_textureSets[0];
+	s_layer.ColorTexture[1] = s_textureSets[1];
+	s_layer.Fov[0] = eyeRenderDesc[0].Fov;
+	s_layer.Fov[1] = eyeRenderDesc[1].Fov;
+	s_layer.Viewport[0] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
+	s_layer.Viewport[1] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
+	s_layer.SensorSampleTime = ovr_GetTimeInSeconds();
+	ovr_CalcEyePoses( ts.HeadPose.ThePose, hmdToEyeViewOffset, s_layer.RenderPose );
+
+	for ( core::u32 eye = 0; eye < 2; ++eye )
+	{
+		renderTargets[eye].texture2D = ((ovrD3D11Texture*)&s_textureSets[eye]->Textures[s_textureSets[eye]->CurrentIndex])->D3D11.pTexture;
+		renderTargets[eye].rtv = s_textureRTVs[eye];
+		renderTargets[eye].uav = s_textureUAVs[eye];
+
+		const OVR::Matrix4f mxLookAt( s_layer.RenderPose[eye] );
+		memcpy( &poses[eye].lookAt, &mxLookAt, sizeof( mxLookAt ) );
+
+		poses[eye].lookAt.m_row0.w *= core::M_TO_CM;
+		poses[eye].lookAt.m_row1.w *= core::M_TO_CM;
+		poses[eye].lookAt.m_row2.w *= core::M_TO_CM;
+
+		const OVR::Matrix4f mxProj = ovrMatrix4f_Projection( s_layer.Fov[eye], zNear, zFar, ovrProjection_RightHanded );
+		memcpy( &poses[eye].projection, &mxProj, sizeof( mxProj ) );
+
+		poses[eye].tanHalfFOVLeft = eyeRenderDesc[eye].Fov.LeftTan;
+		poses[eye].tanHalfFOVRight = eyeRenderDesc[eye].Fov.RightTan;
+		poses[eye].tanHalfFOVUp = eyeRenderDesc[eye].Fov.UpTan;
+		poses[eye].tanHalfFOVDown = eyeRenderDesc[eye].Fov.DownTan;
+	}
 
 	return state;
 }
 
+bool Hmd_EndRendering( HmdOuput_s* output )
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type != 0 );
+
+	ovrLayerHeader* layers = &s_layer.Header;
+	const ovrResult result = ovr_SubmitFrame( s_session, 0, nullptr, &layers, 1 );
+
+	for ( core::u32 eye = 0; eye < 2; ++eye )
+		s_textureSets[eye]->CurrentIndex = (s_textureSets[eye]->CurrentIndex + 1) % s_textureSets[eye]->TextureCount;
+
+	s_layer.Header.Type = ovrLayerType_Disabled;
+
+	if ( result == ovrSuccess )
+	{
+		output->texture2D = reinterpret_cast< ovrD3D11Texture* >( s_mirrorTexture )->D3D11.pTexture;
+		return true;
+	}
+
+	output->texture2D = nullptr;
+	return true;
+}
+
 void Hmd_Shutdown()
 {
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+
 	ovr_Destroy( s_session );
 
 	ovr_Shutdown();
+	s_session = nullptr;
 }
 
 END_V6_VIEWER_NAMESPACE

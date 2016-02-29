@@ -138,7 +138,7 @@ V6_INLINE void Mat4x4_AffineInverse( Mat4x4* r )
 	};
 
 	__Swap( 0, 1 );
-	__Swap( 0, 2 );	
+	__Swap( 0, 2 );
 	__Swap( 1, 2 );
 
 	Vec3 invT;
