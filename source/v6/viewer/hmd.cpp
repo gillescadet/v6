@@ -23,7 +23,7 @@ static ovrSwapTextureSet*			s_textureSets[2] = { nullptr, nullptr };
 static ID3D11RenderTargetView*		s_textureRTVs[2][s_textureCount] = {};
 static ID3D11UnorderedAccessView*	s_textureUAVs[2][s_textureCount] = {};
 static ovrTexture*					s_mirrorTexture = nullptr;
-static ovrLayerEyeFov				s_layer = {};
+static ovrLayer_Union				s_layer = {};
 
 static const core::u32 s_ovrHmdTypeCount = 9;
 static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] = 
@@ -38,6 +38,20 @@ static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] =
 	"ovrHmd_ES06",
 	"ovrHmd_ES09",
 };
+
+static ovrFovPort GetFovPort( core::u32 eye )
+{
+#if 1
+	return s_hmdDesc.DefaultEyeFov[eye];
+#else
+	ovrFovPort fov;
+	fov.UpTan = 1.0f;
+	fov.DownTan = 1.0f;
+	fov.LeftTan = 1.0f;
+	fov.RightTan = 1.0f;
+	return fov;
+#endif
+}
 
 static void ReleaseResources()
 {
@@ -142,8 +156,9 @@ core::Vec2i Hmd_GetRecommendedRenderTargetSize()
 	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
 	V6_ASSERT( s_mirrorTexture == nullptr );
 
-	OVR::Sizei recommendedTex0Size = ovr_GetFovTextureSize( s_session, ovrEye_Left, s_hmdDesc.DefaultEyeFov[0], 1.0f );
-	OVR::Sizei recommendedTex1Size = ovr_GetFovTextureSize( s_session, ovrEye_Right, s_hmdDesc.DefaultEyeFov[1], 1.0f );
+	const OVR::Sizei recommendedTex0Size = ovr_GetFovTextureSize( s_session, ovrEye_Left, GetFovPort( 0 ), 1.0f );
+	const OVR::Sizei recommendedTex1Size = ovr_GetFovTextureSize( s_session, ovrEye_Right, GetFovPort( 1 ), 1.0f );
+
 	V6_ASSERT( recommendedTex0Size.w == recommendedTex1Size.w );
 	return core::Vec2i_Make( recommendedTex0Size.w, core::Max( recommendedTex0Size.h, recommendedTex1Size.h ) );
 }
@@ -274,38 +289,43 @@ core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s p
 	state |= (ts.StatusFlags & ovrStatus_PositionTracked) != 0 ? HMD_TRACKING_STATE_POS: 0;
 
 	ovrEyeRenderDesc eyeRenderDesc[2];
-	eyeRenderDesc[0] = ovr_GetRenderDesc( s_session, ovrEye_Left, s_hmdDesc.DefaultEyeFov[0] );
-	eyeRenderDesc[1] = ovr_GetRenderDesc( s_session, ovrEye_Right, s_hmdDesc.DefaultEyeFov[1] );
+	eyeRenderDesc[0] = ovr_GetRenderDesc( s_session, ovrEye_Left, GetFovPort( 0 ) );
+	eyeRenderDesc[1] = ovr_GetRenderDesc( s_session, ovrEye_Right, GetFovPort( 1 ) );
 	
 	ovrVector3f hmdToEyeViewOffset[2];
 	hmdToEyeViewOffset[0] = eyeRenderDesc[0].HmdToEyeViewOffset;
 	hmdToEyeViewOffset[1] = eyeRenderDesc[1].HmdToEyeViewOffset;
 
+#if 1
 	s_layer.Header.Type = ovrLayerType_EyeFov;
+#else
+	s_layer.Header.Type = ovrLayerType_Direct;
+#endif
 	s_layer.Header.Flags = 0;
-	s_layer.ColorTexture[0] = s_textureSets[0];
-	s_layer.ColorTexture[1] = s_textureSets[1];
-	s_layer.Fov[0] = eyeRenderDesc[0].Fov;
-	s_layer.Fov[1] = eyeRenderDesc[1].Fov;
-	s_layer.Viewport[0] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
-	s_layer.Viewport[1] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
-	s_layer.SensorSampleTime = ovr_GetTimeInSeconds();
-	ovr_CalcEyePoses( ts.HeadPose.ThePose, hmdToEyeViewOffset, s_layer.RenderPose );
-
+	s_layer.EyeFov.ColorTexture[0] = s_textureSets[0];
+	s_layer.EyeFov.ColorTexture[1] = s_textureSets[1];
+	s_layer.EyeFov.Fov[0] = eyeRenderDesc[0].Fov;
+	s_layer.EyeFov.Fov[1] = eyeRenderDesc[1].Fov;
+	s_layer.EyeFov.Viewport[0] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
+	s_layer.EyeFov.Viewport[1] = OVR::Recti( 0, 0, s_eyeRenderTargetSize.x, s_eyeRenderTargetSize.y );
+	s_layer.EyeFov.SensorSampleTime = ovr_GetTimeInSeconds();
+	ovr_CalcEyePoses( ts.HeadPose.ThePose, hmdToEyeViewOffset, s_layer.EyeFov.RenderPose );
+	
 	for ( core::u32 eye = 0; eye < 2; ++eye )
 	{
-		renderTargets[eye].texture2D = ((ovrD3D11Texture*)&s_textureSets[eye]->Textures[s_textureSets[eye]->CurrentIndex])->D3D11.pTexture;
-		renderTargets[eye].rtv = s_textureRTVs[eye];
-		renderTargets[eye].uav = s_textureUAVs[eye];
+		const core::u32 textureIndex = s_textureSets[eye]->CurrentIndex;
+		renderTargets[eye].texture2D = ((ovrD3D11Texture*)&s_textureSets[eye]->Textures[textureIndex])->D3D11.pTexture;
+		renderTargets[eye].rtv = s_textureRTVs[eye][textureIndex];
+		renderTargets[eye].uav = s_textureUAVs[eye][textureIndex];
 
-		const OVR::Matrix4f mxLookAt( s_layer.RenderPose[eye] );
+		const OVR::Matrix4f mxLookAt( s_layer.EyeFov.RenderPose[eye] );
 		memcpy( &poses[eye].lookAt, &mxLookAt, sizeof( mxLookAt ) );
 
 		poses[eye].lookAt.m_row0.w *= core::M_TO_CM;
 		poses[eye].lookAt.m_row1.w *= core::M_TO_CM;
 		poses[eye].lookAt.m_row2.w *= core::M_TO_CM;
 
-		const OVR::Matrix4f mxProj = ovrMatrix4f_Projection( s_layer.Fov[eye], zNear, zFar, ovrProjection_RightHanded );
+		const OVR::Matrix4f mxProj = ovrMatrix4f_Projection( s_layer.EyeFov.Fov[eye], zNear, zFar, ovrProjection_RightHanded );
 		memcpy( &poses[eye].projection, &mxProj, sizeof( mxProj ) );
 
 		poses[eye].tanHalfFOVLeft = eyeRenderDesc[eye].Fov.LeftTan;

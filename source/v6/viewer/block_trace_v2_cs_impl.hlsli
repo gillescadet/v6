@@ -34,7 +34,7 @@ bool TraceCell( int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS
 	const float3 tMin = min( t0, t1 );
 	const float3 tMax = max( t0, t1 );
 	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
-	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );	
+	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );
 	const bool hit = (tIn <= tOut) && (otherPixelCoords.x >= 0 && otherPixelCoords.x < frameSize.x && otherPixelCoords.y >= 0 && otherPixelCoords.y < frameSize.y);
 	return hit;
 }
@@ -45,7 +45,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint cellID = DTid.x;
 
 #if BLOCK_GET_STATS == 1
-	InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );	
+	InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
 #if HLSL_ENCODE_DATA == 1
@@ -74,13 +74,13 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const uint blockRank = cellID >> GRID_CELL_SHIFT;
 			const uint cellRank = cellID & GRID_CELL_MASK;
 
-			const uint blockRankOffset = trace_blockOffset( GRID_CELL_BUCKET );	
+			const uint blockRankOffset = trace_blockOffset( GRID_CELL_BUCKET );
 			const uint blockID = traceCells[blockRankOffset + blockRank];
 
-			const uint blockPosOffset = block_posOffset( GRID_CELL_BUCKET );	
+			const uint blockPosOffset = block_posOffset( GRID_CELL_BUCKET );
 			const uint packedPos = blockPositions[blockPosOffset + blockID];
 
-			const uint firstDataOffset = block_dataOffset( GRID_CELL_BUCKET );	
+			const uint firstDataOffset = block_dataOffset( GRID_CELL_BUCKET );
 			const uint packedColor = blockData[firstDataOffset + blockID * GRID_CELL_COUNT + cellRank];
 
 			valid = packedColor != HLSL_GRID_BLOCK_CELL_EMPTY;
@@ -92,17 +92,17 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const uint x = (((blockPos >> 0						 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> 0						) & HLSL_GRID_BLOCK_MASK);
 			const uint y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);
 			const uint z = (((blockPos >> HLSL_GRID_MACRO_2XSHIFT) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_2XSHIFT	) & HLSL_GRID_BLOCK_MASK);
-			const uint3 cellCoords = uint3( x, y, z );	
+			const uint3 cellCoords = uint3( x, y, z );
 			
 			const float gridScale = c_blockGridScales[mip].x;
 			const float cellScale = c_blockGridScales[mip].y;
 			const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
-			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockCenter;			
+			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockCenter;
 
 #if HLSL_EYE_COUNT == 1
 			const uint eye = 0;
 #else
-			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )			
+			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 #endif
 			{
 				const float3 cellPosRS = cellPosWS - c_blockEyes[eye].org; // optimization: do everything in camera relative space
@@ -112,7 +112,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 				const matrix worldToProjMatrix = mul( c_blockEyes[eye].viewToProj, c_blockEyes[eye].objectToView );
 				const float4 cellPosCS = mul( worldToProjMatrix, float4( cellPosWS, 1.0f ) );
-				const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );			
+				const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
 			
 				pixelDepth[eye] = cellPosCS.w;
 
@@ -124,7 +124,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		if ( valid )
 		{
 #if HLSL_EYE_COUNT == 1
-			const uint eye = 0;			
+			const uint eye = 0;
 #else
 			for ( uint eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 #endif
@@ -136,7 +136,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					// if ( boxMinRS.x == 66666.66666f ) 
 					{
 						hitMask8 |= TraceCell( pixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
-						hitMask8 |= TraceCell( pixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;			
+						hitMask8 |= TraceCell( pixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
 						hitMask8 |= TraceCell( pixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
 						hitMask8 |= TraceCell( pixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
 						hitMask8 |= TraceCell( pixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;

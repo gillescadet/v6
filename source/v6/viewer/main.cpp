@@ -24,7 +24,6 @@
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
-#include <v6/viewer/hmd.h>
 #include <v6/viewer/obj_reader.h>
 
 #pragma comment(lib, "d3d11.lib")
@@ -34,6 +33,12 @@
 #define V6_LOAD_EXTERNAL		1
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
+#define V6_ENABLE_HMD			1
+#define V6_USE_HMD				(V6_ENABLE_HMD == 1 && HLSL_STEREO == 1)
+
+#if V6_USE_HMD == 1
+#include <v6/viewer/hmd.h>
+#endif // #if HLSL_STEREO == 1
 
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 
@@ -88,7 +93,11 @@ static const uint ENTITY_TEXTURE_INVALID	= (core::u32)-1;
 static const uint DEBUG_BLOCK_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
 static const uint DEBUG_TRACE_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
 
+#if V6_USE_HMD
 v6::core::u32		s_hmdState				= v6::viewer::HMD_TRACKING_STATE_OFF;
+#else
+v6::core::u32		s_hmdState				= 0;
+#endif // #if V6_USE_HMD
 
 enum DrawMode_e
 {
@@ -902,6 +911,8 @@ static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const c
 	renderingView->tanHalfFOVDown = renderingView->tanHalfFOVLeft;
 }
 
+#if V6_USE_HMD
+
 static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdEyePose_s* eyePose, const core::Vec3* org, core::u32 eye )
 {
 	renderingView->texture2D = nullptr;
@@ -911,9 +922,9 @@ static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdE
 	renderingView->viewMatrix = eyePose->lookAt;
 	core::Mat4x4_SetTranslation( &renderingView->viewMatrix, renderingView->org );
 	core::Mat4x4_AffineInverse( &renderingView->viewMatrix );
-	renderingView->forward = -*renderingView->viewMatrix.GetZAxis();
-	renderingView->right = *renderingView->viewMatrix.GetXAxis();
-	renderingView->up = *renderingView->viewMatrix.GetYAxis();
+	renderingView->forward = -renderingView->viewMatrix.GetZAxis()->Normalized();
+	renderingView->right = renderingView->viewMatrix.GetXAxis()->Normalized();
+	renderingView->up = renderingView->viewMatrix.GetYAxis()->Normalized();
 	renderingView->projMatrix = eyePose->projection;
 	renderingView->eye = eye;
 	renderingView->tanHalfFOVLeft = eyePose->tanHalfFOVLeft;
@@ -921,6 +932,8 @@ static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdE
 	renderingView->tanHalfFOVUp = eyePose->tanHalfFOVUp;
 	renderingView->tanHalfFOVDown = eyePose->tanHalfFOVDown;
 }
+
+#endif // #if V6_USE_HMD
 
 static void Cube_GetLookAt( core::Vec3& lookAt, core::Vec3& up, CubeAxis_e axis )
 {
@@ -3905,10 +3918,19 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 
 		cbCull->c_cullCenter = *sampleCenter;
 
-		core::Vec3 leftPlane = (views[ANY_EYE].forward * views[ANY_EYE].tanHalfFOVLeft + views[LEFT_EYE].right).Normalized();
-		core::Vec3 rightPlane = (views[ANY_EYE].forward * views[ANY_EYE].tanHalfFOVRight - views[RIGHT_EYE].right).Normalized();
-		core::Vec3 upPlane = (views[ANY_EYE].forward * views[ANY_EYE].tanHalfFOVUp - views[ANY_EYE].up).Normalized();
-		core::Vec3 bottomPlane = (views[ANY_EYE].forward * views[ANY_EYE].tanHalfFOVDown + views[ANY_EYE].up).Normalized();
+		V6_ASSERT( views[LEFT_EYE].forward == views[RIGHT_EYE].forward );
+		V6_ASSERT( views[LEFT_EYE].right == views[RIGHT_EYE].right );
+		V6_ASSERT( views[LEFT_EYE].up == views[RIGHT_EYE].up );
+
+		const float tanHalfFOVLeft = core::Max( views[LEFT_EYE].tanHalfFOVLeft, views[RIGHT_EYE].tanHalfFOVLeft );
+		const float tanHalfFOVRight = core::Max( views[LEFT_EYE].tanHalfFOVRight, views[RIGHT_EYE].tanHalfFOVRight );
+		const float tanHalfFOVUp = core::Max( views[LEFT_EYE].tanHalfFOVUp, views[RIGHT_EYE].tanHalfFOVUp );
+		const float tanHalfFOVDown = core::Max( views[LEFT_EYE].tanHalfFOVDown, views[RIGHT_EYE].tanHalfFOVDown );
+
+		core::Vec3 leftPlane = (views[ANY_EYE].forward * tanHalfFOVLeft + views[ANY_EYE].right).Normalized();
+		core::Vec3 rightPlane = (views[ANY_EYE].forward * tanHalfFOVRight - views[ANY_EYE].right).Normalized();
+		core::Vec3 upPlane = (views[ANY_EYE].forward * tanHalfFOVUp - views[ANY_EYE].up).Normalized();
+		core::Vec3 bottomPlane = (views[ANY_EYE].forward * tanHalfFOVDown + views[ANY_EYE].up).Normalized();
 		
 		cbCull->c_cullFrustumPlanes[0] = core::Vec4_Make( &leftPlane, -core::Dot( leftPlane, views[LEFT_EYE].org ) );
 		cbCull->c_cullFrustumPlanes[1] = core::Vec4_Make( &rightPlane, -core::Dot( rightPlane, views[RIGHT_EYE].org ) );
@@ -4021,7 +4043,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 				
 			blockPerEye.org = views[eye].org;
 
-			blockPerEye.rayDirBase = forward - views[eye].up * views[eye].tanHalfFOVDown - views[eye].right * views[eye].tanHalfFOVLeft;
+			blockPerEye.rayDirBase = forward - views[eye].up * views[eye].tanHalfFOVDown + 0.5f * up - views[eye].right * views[eye].tanHalfFOVLeft + 0.5f * right;
 			blockPerEye.rayDirUp = up;
 			blockPerEye.rayDirRight = right;
 
@@ -4324,6 +4346,7 @@ void CRenderingDevice::Draw( float dt )
 	s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
 
 	core::Mat4x4 orientationMatrix;
+#if V6_USE_HMD
 	HmdRenderTarget_s renderTargets[2];
 	HmdEyePose_s eyePoses[2];
 	s_hmdState = v6::viewer::Hmd_BeginRendering( renderTargets, eyePoses, ZNEAR, ZFAR );
@@ -4334,6 +4357,7 @@ void CRenderingDevice::Draw( float dt )
 		core::Mat4x4_Transpose( &orientationMatrix );
 	}
 	else
+#endif // #if V6_USE_HMD
 	{
 		const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
 		const core::Mat4x4 pitchMatrix = core::Mat4x4_RotationX( s_pitch );
@@ -4361,6 +4385,7 @@ void CRenderingDevice::Draw( float dt )
 	}
 
 	RenderingView_s views[HLSL_EYE_COUNT];
+#if V6_USE_HMD
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
@@ -4372,6 +4397,7 @@ void CRenderingDevice::Draw( float dt )
 		}
 	}
 	else
+#endif // #if V6_USE_HMD
 	{
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 		{
@@ -4482,7 +4508,7 @@ void CRenderingDevice::Draw( float dt )
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 
-			TraceBlock( &views[LEFT_EYE], &s_sampleCenter );
+			TraceBlock( views, &s_sampleCenter );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 
@@ -4496,6 +4522,7 @@ void CRenderingDevice::Draw( float dt )
 		}		
 	}	
 	
+#if V6_USE_HMD
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		HmdOuput_s output;
@@ -4503,6 +4530,7 @@ void CRenderingDevice::Draw( float dt )
 			gpuContext.deviceContext->CopyResource( gpuContext.surfaceBuffer, (ID3D11Texture2D*)output.texture2D );
 	}
 	else
+#endif // #if V6_USE_HMD
 	{
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 			DrawDebug( &views[eye] );
@@ -4556,27 +4584,31 @@ int main()
 
 	const char* const title = "V6";
 
+#if V6_USE_HMD
 	if ( !v6::viewer::Hmd_Init() )
 	{
 		V6_ERROR( "Call to Hmd_Init failed!\n" );
 		return -1;
 	}
 
-	v6::core::Vec2i eyeRenderTargetSize = v6::viewer::Hmd_GetRecommendedRenderTargetSize();
+	v6::core::Vec2i renterTargerSize = v6::viewer::Hmd_GetRecommendedRenderTargetSize();
 	v6::core::u32 maxRenderTargetSize = HLSL_GRID_WIDTH >> 1;
-	if ( eyeRenderTargetSize.x > (int)maxRenderTargetSize )
+	if ( renterTargerSize.x > (int)maxRenderTargetSize )
 	{
-		eyeRenderTargetSize.y = (eyeRenderTargetSize.y * maxRenderTargetSize) / eyeRenderTargetSize.x;
-		eyeRenderTargetSize.x = maxRenderTargetSize;
+		renterTargerSize.y = (renterTargerSize.y * maxRenderTargetSize) / renterTargerSize.x;
+		renterTargerSize.x = maxRenderTargetSize;
 		
 	}
-	if ( eyeRenderTargetSize.y > (int)maxRenderTargetSize)
+	if ( renterTargerSize.y > (int)maxRenderTargetSize)
 	{
-		eyeRenderTargetSize.x = (eyeRenderTargetSize.x  * maxRenderTargetSize) / eyeRenderTargetSize.y;
-		eyeRenderTargetSize.y = maxRenderTargetSize;
+		renterTargerSize.x = (renterTargerSize.x  * maxRenderTargetSize) / renterTargerSize.y;
+		renterTargerSize.y = maxRenderTargetSize;
 	}
-	eyeRenderTargetSize.x = (eyeRenderTargetSize.x + 7) & ~7;
-	eyeRenderTargetSize.y = (eyeRenderTargetSize.y + 7) & ~7;
+	renterTargerSize.x = (renterTargerSize.x + 7) & ~7;
+	renterTargerSize.y = (renterTargerSize.y + 7) & ~7;
+#else
+	v6::core::Vec2i renterTargerSize = v6::core::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
+#endif // #if V6_USE_HMD
 
 	if ( !v6::viewer::CaptureInputs() )
 	{
@@ -4584,7 +4616,7 @@ int main()
 		return -1;
 	}
 
-	HWND hWnd = v6::viewer::CreateMainWindow( title, eyeRenderTargetSize.x * HLSL_EYE_COUNT, eyeRenderTargetSize.y );
+	HWND hWnd = v6::viewer::CreateMainWindow( title, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y );
 	if (!hWnd)
 	{
 		V6_ERROR( "Call to CreateWindow failed!\n" );
@@ -4592,17 +4624,19 @@ int main()
 	}
 
 	v6::viewer::CRenderingDevice oRenderingDevice;
-	if ( !oRenderingDevice.Create( eyeRenderTargetSize.x, eyeRenderTargetSize.y, hWnd, &filesystem, &heap, &stack ) )
+	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, hWnd, &filesystem, &heap, &stack ) )
 	{
 		V6_ERROR( "Call to CRenderingDevice::Create failed!\n" );
 		return -1;
 	}
 
-	if ( !v6::viewer::Hmd_CreateResources( oRenderingDevice.gpuContext.device, &eyeRenderTargetSize ) )
+#if V6_USE_HMD
+	if ( !v6::viewer::Hmd_CreateResources( oRenderingDevice.gpuContext.device, &renterTargerSize ) )
 	{
 		V6_ERROR( "Call to Hmd_CreateResources failed!\n" );
 		return -1;
 	}
+#endif // #if V6_USE_HMD
 
 #if V6_LOAD_EXTERNAL == 1
 	SceneContext_SetDevice( &sceneContext, oRenderingDevice.gpuContext.device );
@@ -4723,7 +4757,9 @@ int main()
 		oRenderingDevice.Present();
 	}
 
+#if V6_USE_HMD
 	v6::viewer::Hmd_ReleaseResources();
 
 	v6::viewer::Hmd_Shutdown();
+#endif // #if V6_USE_HMD
 }
