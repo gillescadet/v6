@@ -22,6 +22,16 @@ u64 Atomic_Add( u64* v, u64 inc )
 	return InterlockedExchangeAdd( v, inc );
 }
 
+u32 Atomic_Dec( u32* v )
+{
+	return InterlockedDecrement( v )+1;
+}
+
+u64 Atomic_Dec( u64* v )
+{
+	return InterlockedDecrement( v )+1;
+}
+
 u32 Atomic_Inc( u32* v )
 {
 	return InterlockedIncrement( v )-1;
@@ -34,7 +44,7 @@ u64 Atomic_Inc( u64* v )
 
 void Signal_Create( Signal_s* signal )
 {
-	signal->handle = CreateEvent( nullptr, false, false, nullptr );
+	signal->handle = CreateEvent( nullptr, true, false, nullptr );
 }
 
 void Signal_Emit( Signal_s* signal )

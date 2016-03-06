@@ -11,6 +11,37 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
+void FilePath_ChangeExtension( char* filePathWithNewExtension, u32 maxSize, const char* filePath, const char* extension )
+{
+	FilePath_TrimExtension( filePathWithNewExtension, maxSize, filePath );
+	sprintf_s( filePathWithNewExtension, maxSize - strlen( filePathWithNewExtension ), "%s.%s", filePathWithNewExtension, extension );
+}
+
+void FilePath_TrimExtension( char* filePathWithoutExtension, u32 maxSize, const char* filePath )
+{
+	V6_ASSERT( filePathWithoutExtension ) ;
+	V6_ASSERT( maxSize > 0 ) ;
+	V6_ASSERT( filePath ) ;
+
+	const char *c = filePath;
+	const char* lastDot = nullptr; 
+	while ( *c )
+	{
+		if ( *c == '.' )
+			lastDot = c;
+		++c;
+	}
+
+	if ( !lastDot )
+	{
+		strcpy_s( filePathWithoutExtension, maxSize, filePath );
+		return;
+	}
+
+	const u32 count = lastDot - filePath;
+	strncpy_s( filePathWithoutExtension, maxSize, filePath, count );
+}
+
 void FilePath_ExtractExtension( char* extension, u32 maxSize, const char* filePath )
 {
 	V6_ASSERT( extension ) ;
@@ -60,7 +91,7 @@ void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath )
 	if ( !lastSeparator )
 	{
 		path[0] = 0;
-		return;	
+		return;
 	}
 
 	while ( *lastSeparator == '/' || *lastSeparator == '\\' )

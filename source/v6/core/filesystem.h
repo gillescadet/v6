@@ -9,11 +9,13 @@ BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
 
+void FilePath_ChangeExtension( char* filePathWithNewExtension, u32 maxSize, const char* filePath, const char* extension );
 void FilePath_ExtractExtension( char* extension, u32 maxSize, const char* filePath );
 void FilePath_ExtractFilename( char* filename, u32 maxSize, const char* filePath );
 void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath );
 bool FilePath_HasExtension( const char* filePath, const char* extension );
 void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename );
+void FilePath_TrimExtension( char* filePathWithoutExtension, u32 maxSize, const char* filePath );
 
 class CFileSystem
 {

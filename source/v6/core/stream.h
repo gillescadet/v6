@@ -21,7 +21,7 @@ class IStreamReader
 {
 public:
 	virtual int GetPos() const = 0;
-	virtual int GetRamaining() const { return GetSize() - GetPos(); }
+	virtual int GetRemaining() const { return GetSize() - GetPos(); }
 	virtual int GetSize() const = 0;
 	virtual void Read( int nSize, void * pData ) = 0;
 	virtual void Skip( int nSize ) = 0;

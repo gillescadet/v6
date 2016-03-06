@@ -21,18 +21,6 @@ enum
 	HMD_TRACKING_STATE_POS			= 1 << 2,
 };
 
-struct HmdRenderTarget_s
-{
-	void*	texture2D;
-	void*	rtv;
-	void*	uav;
-};
-
-struct HmdOuput_s
-{
-	void*	texture2D;
-};
-
 struct HmdEyePose_s
 {	
 	core::Mat4x4	lookAt;
@@ -43,13 +31,25 @@ struct HmdEyePose_s
 	float			tanHalfFOVDown;
 };
 
-core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar );
-bool Hmd_EndRendering( HmdOuput_s* output );
-bool Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize );
-core::Vec2i Hmd_GetRecommendedRenderTargetSize();
-void Hmd_ReleaseResources();
-bool Hmd_Init();
-void Hmd_Shutdown();
+struct HmdOuput_s
+{
+	void*	texture2D;
+};
+
+struct HmdRenderTarget_s
+{
+	void*	texture2D;
+	void*	rtv;
+	void*	uav;
+};
+
+core::u32		Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar );
+bool			Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize );
+bool			Hmd_EndRendering( HmdOuput_s* output );
+core::Vec2i		Hmd_GetRecommendedRenderTargetSize();
+bool			Hmd_Init();
+void			Hmd_ReleaseResources();
+void			Hmd_Shutdown();
 
 END_V6_VIEWER_NAMESPACE
 

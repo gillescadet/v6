@@ -88,6 +88,15 @@ public:
 	}
 };
 
+V6_INLINE Vec2 Vec2_Zero()
+{
+	Vec2 v;
+	v.x = 0.0f;
+	v.y = 0.0f;
+
+	return v;
+}
+
 V6_INLINE Vec2 Vec2_Make( float x, float y )
 {
 	Vec2 v;

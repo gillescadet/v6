@@ -2,8 +2,6 @@
 
 #pragma comment(lib, "core.lib")
 
-#include <math.h>
-
 #include <v6/core/common.h>
 #include <v6/core/color.h>
 #include <v6/core/image.h>

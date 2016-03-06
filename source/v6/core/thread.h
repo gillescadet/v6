@@ -31,6 +31,8 @@ struct Signal_s
 
 u32 Atomic_Add( u32* v, u32 inc );
 u64 Atomic_Add( u64* v, u64 inc );
+u32 Atomic_Dec( u32* v );
+u64 Atomic_Dec( u64* v );
 u32 Atomic_Inc( u32* v );
 u64 Atomic_Inc( u64* v );
 
@@ -49,14 +51,14 @@ extern u64				g_jobID;
 extern JobBackend_s		g_jobBackends[JOB_BUFFER_SIZE];
 
 template  < typename T >
-DWORD __stdcall __Job_Execute( void* jobPointer )
+unsigned long __stdcall __Job_Execute( void* jobPointer )
 {
 	Job_s< T >* job = (Job_s< T >*)jobPointer;
 	Job_s< T >::Process_f process = job->process;
 	T* context = job->context;
 	memset( job, 0, sizeof( Job_s< T > ) );
 	
-	process( context );	
+	process( context );
 	
 	return 0; 
 }

@@ -1,3 +1,6 @@
+Features:
+- store baked data on disk
+
 On spare time:
 - magnifier tool
 - save geo on disk
@@ -33,6 +36,7 @@ Optmization plan:
 - sort cells by distance
 - appendconsume instead of interlockedadd
 - sort by mip and precompute grid/cell scales/sizes
+- remove AllMemoryBarrierWithGroupSync() when <= 64 threads
 
 Bench #01:
 - config.context            :  occupancy
@@ -174,3 +178,27 @@ Bench #19:
 - stats.cellProcessedCount  :    1531148
 - stats.pixelSampleCount    :    2306571
 - stats.cellItemCount       :    1889257
+
+Bench #20:
+- config.context            :   MONO REF
+- time.frame                :       1805
+- time.culling              :        245
+- time.trace                :        990
+- time.blend                :        555
+- stats.blockInputCount     :     453248
+- stats.blockPassedCount    :      88344
+- stats.cellProcessedCount  :    1535224
+- stats.pixelSampleCount    :    1167858
+- stats.cellItemCount       :     957117
+
+Bench #21:
+- config.context            :     SORTED
+- time.frame                :       1730
+- time.culling              :        220
+- time.trace                :        940
+- time.blend                :        555
+- stats.blockInputCount     :     453248
+- stats.blockPassedCount    :      88344
+- stats.cellProcessedCount  :    1535224
+- stats.pixelSampleCount    :    1167593
+- stats.cellItemCount       :     957117

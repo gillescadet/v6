@@ -81,6 +81,11 @@ public:
 		return x == o.x && y == o.y && z == o.z;
 	}
 
+	bool operator!=( const Vec3& o ) const
+	{
+		return x != o.x || y != o.y || z != o.z;
+	}
+
 	Vec3 operator-() const
 	{
 		Vec3 v;

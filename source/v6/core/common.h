@@ -13,8 +13,14 @@
 #define BEGIN_V6_CORE_NAMESPACE		namespace v6 { namespace core {
 #define END_V6_CORE_NAMESPACE		} }
 
-#define V6_ASSERT( EXP )			assert( EXP )
-#define V6_ASSERT_ALWAYS( EXP )		assert( false && (EXP) )
+#if 0
+#define __ASSERT( EXP )				assert( EXP )
+#else
+#define __ASSERT( EXP )				{ if ( !(EXP) ) __debugbreak(); }
+#endif
+
+#define V6_ASSERT( EXP )			__ASSERT( EXP )
+#define V6_ASSERT_ALWAYS( EXP )		__ASSERT( false && (EXP) )
 #define V6_ASSERT_NOT_SUPPORTED()	V6_ASSERT_ALWAYS( "Not supported" )
 
 #define V6_PRINT( ... )				{ printf( __VA_ARGS__ ); }
@@ -33,6 +39,7 @@
 #endif  /* _CRTBLD */
 #include <crtdefs.h>
 #include <float.h>
+#include <intrin.h>
 #include <malloc.h>
 #include <math.h>
 #include <memory.h>
