@@ -15,6 +15,7 @@ struct SceneInfo_s
 	static const core::u32	MAX_CAMERA_POSITION_COUNT = 128;
 	core::Vec3				cameraPositions[MAX_CAMERA_POSITION_COUNT];
 	core::u32				cameraPositionCount;
+	float					cameraYaw;
 	float					worldUnitToCM;
 	bool					dirty;
 };

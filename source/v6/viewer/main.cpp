@@ -292,6 +292,7 @@ struct CameraPath_s
 	core::Vec3				positions[MAX_POINT_COUNT];
 	float					times[MAX_POINT_COUNT];
 	int						keyCount;
+	float					duration;
 	int						activeKey;
 	bool					dirty;
 };
@@ -602,6 +603,8 @@ static int g_sample							= 0;
 
 static bool g_cameraKey						= false;
 static bool g_showCameraPath				= false;
+static bool g_playCameraPath				= false;
+static float g_playCameraPathTime			= 0.0f;
 static float g_cameraSpeed					= 100.0f;
 static int g_limit							= false; 
 static bool g_showMip						= false;
@@ -687,13 +690,34 @@ void CameraPath_Compute( CameraPath_s* cameraPath, float speed )
 {
 	V6_ASSERT( speed > 0.0f );
 	const float invSpeed = 1.0f / speed;
+	cameraPath->times[0] = 0.0f;
+	cameraPath->duration = 0.0f;
 	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
 	{
 		const core::Vec3 delta = cameraPath->positions[key] - cameraPath->positions[key-1];
-		cameraPath->times[key] = delta.Length() * invSpeed;
+		const float interval = delta.Length() * invSpeed;
+		V6_ASSERT( interval > 0.00001f );
+		cameraPath->times[key] = cameraPath->times[key-1] + interval;
+		cameraPath->duration += interval;
 	}
 
 	cameraPath->dirty = false;
+}
+
+core::Vec3 CameraPath_GetPosition( CameraPath_s* cameraPath, float time )
+{
+	V6_ASSERT( !cameraPath->dirty );
+	V6_ASSERT( cameraPath->keyCount > 0 );
+	V6_ASSERT( time >= 0.0f );
+	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	{
+		if ( cameraPath->times[key] >= time )
+		{
+			const float alpha = (time - cameraPath->times[key-1]) / (cameraPath->times[key] - cameraPath->times[key-1]);
+			return (1.0f - alpha) * cameraPath->positions[key-1] + alpha * cameraPath->positions[key];
+		}
+	}
+	return cameraPath->positions[cameraPath->keyCount-1];
 }
 
 void CameraPath_Load( CameraPath_s* cameraPath, const SceneInfo_s* sceneInfo )
@@ -786,6 +810,11 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 					{
 					case 'C':
 						break;
+					case 'P':
+						g_playCameraPath = g_playCameraPath ? false : s_cameraPath.keyCount > 0;
+						g_playCameraPathTime = 0.0f;
+						V6_MSG( "Camera path: %s\n", g_playCameraPath ? "play" : "stop" );
+						break;
 					case 'S':
 						g_showCameraPath = true;
 						V6_MSG( "Camera path: %s\n", g_showCameraPath ? "show" : "hide" );
@@ -866,7 +895,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				case ' ':
 					if ( pressed ) 
 					{
-						s_yaw = 0.0f;
+						s_yaw = core::DegToRad( s_activeScene->info.cameraYaw );
 						s_pitch = 0.0f;
 					}
 					break;
@@ -1122,13 +1151,14 @@ static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const c
 
 #if V6_USE_HMD
 
-static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdEyePose_s* eyePose, const core::Vec3* org, core::u32 eye )
+static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdEyePose_s* eyePose, const core::Vec3* orgOffset, float yawOffset, core::u32 eye )
 {
 	renderingView->texture2D = nullptr;
 	renderingView->rtv = nullptr;
 	renderingView->uav = nullptr;
-	renderingView->org = *org + eyePose->lookAt.GetTranslation();
-	renderingView->viewMatrix = eyePose->lookAt;
+	const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
+	core::Mat4x4_Mul( &renderingView->viewMatrix, yawMatrix, eyePose->lookAt );
+	renderingView->org = *orgOffset + renderingView->viewMatrix.GetTranslation();
 	core::Mat4x4_SetTranslation( &renderingView->viewMatrix, renderingView->org );
 	core::Mat4x4_AffineInverse( &renderingView->viewMatrix );
 	renderingView->forward = -renderingView->viewMatrix.GetZAxis()->Normalized();
@@ -3367,6 +3397,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	s_activeScene = scene;
 
 	CameraPath_Load( &s_cameraPath, &info );
+	s_yaw = core::DegToRad( info.cameraYaw );
 	if ( s_cameraPath.keyCount )
 		s_headOffset = s_cameraPath.positions[0];
 
@@ -5061,9 +5092,6 @@ void CRenderingDevice::Draw( float dt )
 		
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
 	
-	s_yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
-	s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
-
 	core::Mat4x4 orientationMatrix;
 #if V6_USE_HMD
 	HmdRenderTarget_s renderTargets[2];
@@ -5071,13 +5099,16 @@ void CRenderingDevice::Draw( float dt )
 	s_hmdState = v6::viewer::Hmd_BeginRendering( renderTargets, eyePoses, ZNEAR, ZFAR );
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
-		orientationMatrix = eyePoses[0].lookAt;
-		core::Mat4x4_ClearTranslation( &orientationMatrix );
+		const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
+		core::Mat4x4_Mul3x3( &orientationMatrix, yawMatrix, eyePoses[0].lookAt );
 		core::Mat4x4_Transpose( &orientationMatrix );
 	}
 	else
 #endif // #if V6_USE_HMD
 	{
+		s_yaw += -mouseDeltaX * MOUSE_ROTATION_SPEED * dt;
+		s_pitch += -mouseDeltaY * MOUSE_ROTATION_SPEED * dt;
+
 		const core::Mat4x4 yawMatrix = core::Mat4x4_RotationY( s_yaw );
 		const core::Mat4x4 pitchMatrix = core::Mat4x4_RotationX( s_pitch );
 		core::Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
@@ -5103,13 +5134,27 @@ void CRenderingDevice::Draw( float dt )
 		s_headOffset = s_sampleCenter + distanceToCenter;
 	}
 
+	if ( s_cameraPath.dirty && (g_showCameraPath || g_playCameraPath) )
+	{
+		CameraPath_Compute( &s_cameraPath, g_cameraSpeed );
+		Scene_UpdateCameraPath( m_cameraPathScene, &s_cameraPath, gpuContext.deviceContext );
+	}
+
+	if ( g_playCameraPath )
+	{
+		s_headOffset = CameraPath_GetPosition( &s_cameraPath, g_playCameraPathTime );
+		g_playCameraPathTime += dt;
+		if ( g_playCameraPathTime >= s_cameraPath.duration )
+			g_playCameraPath = false;
+	}
+
 	RenderingView_s views[HLSL_EYE_COUNT];
 #if V6_USE_HMD
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 		{
-			RenderingView_MakeForHMD( &views[eye], &eyePoses[eye], &s_headOffset, eye );
+			RenderingView_MakeForHMD( &views[eye], &eyePoses[eye], &s_headOffset, s_yaw, eye );
 			views[eye].texture2D = (ID3D11Texture2D*)renderTargets[eye].texture2D;
 			views[eye].rtv = (ID3D11RenderTargetView*)renderTargets[eye].rtv;
 			views[eye].uav = (ID3D11UnorderedAccessView*)renderTargets[eye].uav;
@@ -5183,11 +5228,6 @@ void CRenderingDevice::Draw( float dt )
 	{
 		if ( g_showCameraPath )
 		{
-			if ( s_cameraPath.dirty )
-			{
-				CameraPath_Compute( &s_cameraPath, g_cameraSpeed );
-				Scene_UpdateCameraPath( m_cameraPathScene, &s_cameraPath, gpuContext.deviceContext );
-			}
 			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 				DrawCameraPath( &views[eye] );
 		}
@@ -5239,14 +5279,14 @@ int main()
 #if V6_LOAD_EXTERNAL == 1
 	v6::core::Stack stackScene( &heap, 400 * 1024 * 1024 );
 
-	//const char* filename = "D:/media/obj/crytek-sponza/sponza.obj";
+	const char* filename = "D:/media/obj/crytek-sponza/sponza.obj";
 	//const char* filename = "D:/media/obj/dragon/dragon.obj";
 	//const char* filename = "D:/media/obj/buddha/buddha.obj";
 	//const char* filename = "D:/media/obj/head/head.obj";
 	//const char* filename = "D:/media/obj/hairball/hairball.obj"; // 100.0f
 	//const char* filename = "D:/media/obj/hairball/hairball_simple.obj"; // 100.0f
 	//const char* filename = "D:/media/obj/hairball/hairball_simple2.obj"; // 100.0f
-	const char* filename = "D:/media/obj/sibenik/sibenik.obj"; // 100.0f
+	//const char* filename = "D:/media/obj/sibenik/sibenik.obj"; // 100.0f
 	//const char* filename = "D:/media/obj/conference/conference.obj";
 
 	v6::viewer::SceneContext_s sceneContext;
@@ -5394,7 +5434,7 @@ int main()
 				v6::viewer::ModeToString( v6::viewer::g_drawMode ),
 				v6::viewer::s_hmdState,
 				v6::viewer::s_activeScene->info.dirty ? "| *" : "" );
-			SetWindowTextA( hWnd, text );				
+			SetWindowTextA( hWnd, text );
 		}
 		
 		MSG msg;

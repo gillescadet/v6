@@ -67,6 +67,22 @@ V6_INLINE void Mat4x4_Mul( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 	r->m_row3 = Vec4_Make( __Dot( 3, 0 ), __Dot( 3, 1 ), __Dot( 3, 2 ), __Dot( 3, 3 ) );
 }
 
+V6_INLINE void Mat4x4_Mul3x3( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
+{
+	const auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
+	{
+		return
+			a.m_rows[raw].x * b.m_row0.m_fValues[col] +
+			a.m_rows[raw].y * b.m_row1.m_fValues[col] +
+			a.m_rows[raw].z * b.m_row2.m_fValues[col];
+	};
+
+	r->m_row0 = Vec4_Make( __Dot( 0, 0 ), __Dot( 0, 1 ), __Dot( 0, 2 ), 0.0f );
+	r->m_row1 = Vec4_Make( __Dot( 1, 0 ), __Dot( 1, 1 ), __Dot( 1, 2 ), 0.0f );
+	r->m_row2 = Vec4_Make( __Dot( 2, 0 ), __Dot( 2, 1 ), __Dot( 2, 2 ), 0.0f );
+	r->m_row3 = Vec4_Make(          0.0f,          0.0f,          0.0f, 1.0f );
+}
+
 V6_INLINE void Mat4x4_Transpose( Mat4x4* r )
 {
 	auto __Swap = [ r ]( uint raw, uint col)
@@ -118,6 +134,13 @@ V6_INLINE void Mat4x4_ClearTranslation( Mat4x4* r )
 	r->m_row0.w = 0.0f;
 	r->m_row1.w = 0.0f;
 	r->m_row2.w = 0.0f;
+}
+
+V6_INLINE void Mat4x4_AddTranslation( Mat4x4* r, const Vec3& v )
+{
+	r->m_row0.w += v.x;
+	r->m_row1.w += v.y;
+	r->m_row2.w += v.z;
 }
 
 V6_INLINE void Mat4x4_SetTranslation( Mat4x4* r, const Vec3& v )

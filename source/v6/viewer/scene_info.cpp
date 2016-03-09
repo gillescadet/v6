@@ -106,6 +106,10 @@ bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename )
 			sceneInfo->cameraPositions[index] = pos;
 			sceneInfo->cameraPositionCount = core::Max( sceneInfo->cameraPositionCount, (core::u32)index + 1 );
 		}
+		else if ( _stricmp( strBegin, "cameraYaw" ) == 0 )
+		{
+			sceneInfo->cameraYaw = (float)atof( strValue );
+		}
 		else if ( _stricmp( strBegin, "worldUnitToCM" ) == 0 )
 		{
 			sceneInfo->worldUnitToCM = (float)atof( strValue );
@@ -148,6 +152,7 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 		const core::Vec3* pos = &sceneInfo->cameraPositions[positionID];
 		str += sprintf_s( str, sizeof( info ) - (str-info), "cameraPosition#%d: %g %g %g\n", positionID, pos->x, pos->y, pos->z );
 	}
+	str += sprintf_s( str, sizeof( info ) - (str-info), "cameraYaw: %g\n", sceneInfo->cameraYaw );
 	str += sprintf_s( str, sizeof( info ) - (str-info), "worldUnitToCM: %g\n", sceneInfo->worldUnitToCM );
 
 	fileWriter.Write( info, str-info );
