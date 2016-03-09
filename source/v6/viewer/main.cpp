@@ -26,6 +26,7 @@
 
 #include <v6/viewer/codec.h>
 #include <v6/viewer/obj_reader.h>
+#include <v6/viewer/scene_info.h>
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -285,6 +286,16 @@ enum CubeAxis_e
 	CUBE_AXIS_COUNT
 };
 
+struct CameraPath_s
+{
+	static const core::u32	MAX_POINT_COUNT = 128;
+	core::Vec3				positions[MAX_POINT_COUNT];
+	float					times[MAX_POINT_COUNT];
+	int						keyCount;
+	int						activeKey;
+	bool					dirty;
+};
+
 struct BasicVertex_s
 {
 	core::Vec3 position;
@@ -454,16 +465,9 @@ struct Entity_s
 	bool			visible;
 };
 
-struct SceneInfo_s
-{
-	char				filename[256];
-	core::Vec3			cameraPos;
-	core::Vec2			cameraOrientation;
-	float				worldUnitToCM;
-};
-
 struct Scene_s
 {
+	char			filename[256];
 	SceneInfo_s		info;
 	GPUMesh_s		meshes[MESH_MAX_COUNT];	
 	GPUTexture2D_s	textures[TEXTURE_MAX_COUNT];
@@ -486,6 +490,16 @@ struct SceneDebug_s : Scene_s
 	core::u32 entityCellIDs[HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE][2];	
 	core::u32 entityBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
 	core::u32 entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
+};
+
+struct SceneCameraPath_s : Scene_s
+{
+	core::u32 meshLineIDs[CameraPath_s::MAX_POINT_COUNT-1];
+	core::u32 meshBoxID;
+	core::u32 meshSelectedBoxID;
+	core::u32 entityLineIDs[CameraPath_s::MAX_POINT_COUNT];
+	core::u32 entityBoxIDs[CameraPath_s::MAX_POINT_COUNT];
+	core::u32 entitySelectedBoxID;
 };
 
 struct Cube_s
@@ -586,11 +600,13 @@ static DrawMode_e g_drawMode				= DRAW_MODE_DEFAULT;
 
 static int g_sample							= 0;
 
+static bool g_cameraKey						= false;
+static bool g_showCameraPath				= false;
+static float g_cameraSpeed					= 100.0f;
 static int g_limit							= false; 
 static bool g_showMip						= false;
 static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
-static int g_useOccupancy					= 1;
 static bool g_randomBackground				= false;
 static bool g_traceGrid						= false;
 #if V6_SIMPLE_SCENE == 1
@@ -618,6 +634,83 @@ static float s_gridScale = 0;
 static core::u32 s_gridOccupancy = 0;
 static core::Vec3 s_rayOrg = {};
 static core::Vec3 s_rayEnd = {};
+
+static CameraPath_s s_cameraPath;
+
+void CameraPath_Init( CameraPath_s* cameraPath )
+{
+	memset( cameraPath, 0, sizeof( *cameraPath ) );
+	cameraPath->dirty = true;
+}
+
+void CameraPath_Release( CameraPath_s* cameraPath )
+{
+}
+
+void CameraPath_SelectKey( CameraPath_s* cameraPath, int key )
+{
+	cameraPath->activeKey = core::Clamp( key, 0, cameraPath->keyCount-1 );
+	cameraPath->dirty = true;
+}
+
+void CameraPath_DeleteKey( CameraPath_s* cameraPath, core::u32 key )
+{
+	V6_ASSERT( cameraPath->keyCount > 0 );
+	V6_ASSERT( key < (core::u32)cameraPath->keyCount );
+	for ( core::u32 keyNext = key+1; keyNext < (core::u32)cameraPath->keyCount; ++keyNext )
+		cameraPath->positions[keyNext-1] = cameraPath->positions[keyNext];
+	--cameraPath->keyCount;
+
+	cameraPath->activeKey = core::Min( (int)key, cameraPath->keyCount );
+	cameraPath->dirty = true;
+}
+
+void CameraPath_InsertKey( CameraPath_s* cameraPath, const core::Vec3* position, core::u32 key )
+{
+	V6_ASSERT( cameraPath->keyCount < CameraPath_s::MAX_POINT_COUNT );
+	if ( key != 0 || cameraPath->keyCount != 0 )
+	{
+		++key;
+		for ( core::u32 keyNext = cameraPath->keyCount; keyNext > key; --keyNext )
+			cameraPath->positions[keyNext] = cameraPath->positions[keyNext-1];
+	}
+	V6_ASSERT( key <= (core::u32)cameraPath->keyCount );
+	cameraPath->positions[key] = *position;
+	cameraPath->times[key] = -1.0f;
+	++cameraPath->keyCount;
+
+	cameraPath->activeKey = key;
+	cameraPath->dirty = true;
+}
+
+void CameraPath_Compute( CameraPath_s* cameraPath, float speed )
+{
+	V6_ASSERT( speed > 0.0f );
+	const float invSpeed = 1.0f / speed;
+	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	{
+		const core::Vec3 delta = cameraPath->positions[key] - cameraPath->positions[key-1];
+		cameraPath->times[key] = delta.Length() * invSpeed;
+	}
+
+	cameraPath->dirty = false;
+}
+
+void CameraPath_Load( CameraPath_s* cameraPath, const SceneInfo_s* sceneInfo )
+{
+	for ( core::u32 cameraPositionID = 0; cameraPositionID < sceneInfo->cameraPositionCount; ++cameraPositionID )
+		cameraPath->positions[cameraPositionID] = sceneInfo->cameraPositions[cameraPositionID];
+	cameraPath->keyCount = sceneInfo->cameraPositionCount;
+	cameraPath->dirty = true;
+}
+
+void CameraPath_Save( const CameraPath_s* cameraPath, SceneInfo_s* sceneInfo )
+{
+	for ( core::u32 key = 0; key < (core::u32)cameraPath->keyCount; ++key )
+		sceneInfo->cameraPositions[key] = cameraPath->positions[key];
+	sceneInfo->cameraPositionCount = cameraPath->keyCount;
+	sceneInfo->dirty = true;
+}
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
@@ -684,61 +777,141 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 		if ( raw->header.dwType == RIM_TYPEKEYBOARD ) 
 		{
 			const bool pressed = raw->data.keyboard.Message == 0x100;
-			switch( raw->data.keyboard.VKey )
-			{			
-			case 0x1B:
-				DestroyWindow(hWnd);
-				break;
-			case 'A': g_keyLeftPressed = pressed; break;
-			case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
-			case 'C': g_useOccupancy = pressed ? ((g_useOccupancy+1)%3): g_useOccupancy; break;
-			case 'D': g_keyRightPressed = pressed; break;
-			case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
-			case 'G': if ( pressed ) { g_debugBlocks = true; } break;
-			case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
-			case 'I': if ( pressed ) { s_logReadBack = true; } break;
-			case 'L': g_limit = pressed ? !g_limit : g_limit; break;
-			case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
-			case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
-			case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
-			case 'Q': if ( pressed ) { g_traceGrid = true; } break;
-			case 'R': if ( pressed ) { g_sample = 0; } break;
-			case 'S': g_keyDownPressed = pressed; break;
-			case 'W': g_keyUpPressed = pressed; break;			
-			case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
-			case 'Z': if ( pressed ) { g_reloadShaders = true; }; break;
-			case ' ':
-				if ( pressed ) 
-				{
-					s_yaw = 0.0f;
-					s_pitch = 0.0f;
-					s_headOffset = core::Vec3_Zero();
-				}
-				break;
-			case '0':
+
+			if ( g_cameraKey )
 			{
-				if ( pressed ) 
-				{					
-					s_yaw = core::DegToRad( -90.0f );
-					s_pitch = 0.0f;
-					s_headOffset = core::Vec3_Make( 0.0f, 500.0f, 0.0f );
+				if ( pressed )
+				{
+					switch( raw->data.keyboard.VKey )
+					{
+					case 'C':
+						break;
+					case 'S':
+						g_showCameraPath = true;
+						V6_MSG( "Camera path: %s\n", g_showCameraPath ? "show" : "hide" );
+						break;
+					case 0x21:
+						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.activeKey + 1 );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+					case 0x22:
+						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.activeKey - 1 );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+					case 0x23:
+						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.keyCount-1 );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+					case 0x24:
+						CameraPath_SelectKey( &s_cameraPath, 0 );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+					case 0x6A:
+						CameraPath_Save( &s_cameraPath, &s_activeScene->info );
+						V6_MSG( "Camera path: saved.\n" );
+						break;
+					case 0x6B:
+						CameraPath_InsertKey( &s_cameraPath, &s_headOffset, s_cameraPath.activeKey );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+					case 0x6D:
+						if ( s_cameraPath.keyCount )
+						{
+							CameraPath_DeleteKey( &s_cameraPath, s_cameraPath.activeKey );
+							V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						}
+						break;
+#if 0
+					case 0x6F:
+						CameraPath_Release( &s_cameraPath );
+						CameraPath_Init( &s_cameraPath );
+						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						break;
+#endif
+					default:
+						V6_MSG( "Unknow camera path key: %04x\n", raw->data.keyboard.VKey );
+					}
 				}
-				break;
+				else if ( raw->data.keyboard.VKey == 'C' )
+				{
+					g_cameraKey = false;
+				}
 			}
-			case 109:
-				if ( pressed ) 
+			else
+			{
+				switch( raw->data.keyboard.VKey )
+				{			
+				case 0x1B:
+					DestroyWindow( hWnd );
+					break;
+				case 'A': g_keyLeftPressed = pressed; break;
+				case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
+				case 'C': g_cameraKey = pressed; break;
+				case 'D': g_keyRightPressed = pressed; break;
+				case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
+				case 'G': if ( pressed ) { g_debugBlocks = true; } break;
+				case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
+				case 'I': if ( pressed ) { s_logReadBack = true; } break;
+				case 'L': g_limit = pressed ? !g_limit : g_limit; break;
+				case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
+				case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
+				case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
+				case 'Q': if ( pressed ) { g_traceGrid = true; } break;
+				case 'R': if ( pressed ) { g_sample = 0; } break;
+				case 'S': g_keyDownPressed = pressed; break;
+				case 'U': if ( pressed ) { s_activeScene->info.dirty = false; }; break;
+				case 'W': g_keyUpPressed = pressed; break;
+				case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
+				case 'Z': if ( pressed ) { g_reloadShaders = true; }; break;
+				case ' ':
+					if ( pressed ) 
+					{
+						s_yaw = 0.0f;
+						s_pitch = 0.0f;
+					}
+					break;
+				case '0':
+				case '1':
+				case '2':
+				case '3':
+				case '4':
+				case '5':
+				case '6':
+				case '7':
+				case '8':
+				case '9':
 				{
-					g_translation_speed *= 0.5f;
-					V6_MSG( "Translation speed: %g\n", g_translation_speed );
+					if ( pressed ) 
+					{
+#if 0
+						s_yaw = core::DegToRad( -90.0f );
+						s_pitch = 0.0f;
+						s_headOffset = core::Vec3_Make( 0.0f, 500.0f, 0.0f );
+#else
+						const int key = core::Min( raw->data.keyboard.VKey - '0', s_cameraPath.keyCount-1 );
+						if ( s_cameraPath.keyCount == 0 )
+							s_headOffset = core::Vec3_Zero();
+						else
+							s_headOffset = s_cameraPath.positions[key];
+#endif
+					}
+					break;
 				}
-				break;
-			case 107:
-				if ( pressed ) 
-				{
-					g_translation_speed *= 2.0f;
-					V6_MSG( "Translation speed: %g\n", g_translation_speed );
+				case 109:
+					if ( pressed ) 
+					{
+						g_translation_speed *= 0.5f;
+						V6_MSG( "Translation speed: %g\n", g_translation_speed );
+					}
+					break;
+				case 107:
+					if ( pressed ) 
+					{
+						g_translation_speed *= 2.0f;
+						V6_MSG( "Translation speed: %g\n", g_translation_speed );
+					}
+					break;
 				}
-				break;
 			}
 #if 0
 			V6_MSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
@@ -752,17 +925,20 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 		}
 		else if ( raw->header.dwType == RIM_TYPEMOUSE ) 
 		{
+			static POINT cursorPos = {};
 			if ( raw->data.mouse.ulButtons & 1 )
-			{
+			{				
+				GetCursorPos( &cursorPos );
 				SetCapture( hWnd ) ;
-				ShowCursor( false );				
+				ShowCursor( false );
 				g_mousePressed = true;
 			}
 			
 			if ( raw->data.mouse.ulButtons & 2 )
 			{
+				SetCursorPos( cursorPos.x, cursorPos.y );
 				ShowCursor( true );
-				ReleaseCapture();				
+				ReleaseCapture();
 				g_mousePressed = false;
 			}
 
@@ -794,25 +970,27 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 	return 0;
 }
 
-static bool CaptureInputs()
+static bool CaptureInputs( HWND hWnd )
 {
 	RAWINPUTDEVICE Rid[2];
 
 	Rid[0].usUsagePage = 0x01; 
 	Rid[0].usUsage = 0x02; 
 	Rid[0].dwFlags = RIDEV_NOLEGACY;   // adds HID mouse and also ignores legacy mouse messages
-	Rid[0].hwndTarget = 0;
+	Rid[0].hwndTarget = hWnd;
 
 	Rid[1].usUsagePage = 0x01; 
 	Rid[1].usUsage = 0x06; 
 	Rid[1].dwFlags = RIDEV_NOLEGACY;   // adds HID keyboard and also ignores legacy keyboard messages
-	Rid[1].hwndTarget = 0;
+	Rid[1].hwndTarget = hWnd;
 
-	if ( RegisterRawInputDevices(Rid, 2, sizeof(Rid[0])) == FALSE )
+	if ( RegisterRawInputDevices( Rid, 2, sizeof( Rid[0] ) ) == FALSE )
 	{
 		V6_ERROR( "Call to RegisterRawInputDevices failed!\n" );
 		return false;
 	}
+
+	SetCursor( LoadCursor(NULL, IDC_ARROW) );
 
 	return true;
 }
@@ -2502,7 +2680,7 @@ static void Mesh_UpdateVertices( ID3D11DeviceContext* context, GPUMesh_s* mesh, 
 	box.front = 0;
 	box.back = 1;
 	box.top = 0;
-	box.bottom = 1;		
+	box.bottom = 1;
 		
 	context->UpdateSubresource( mesh->m_vertexBuffer, 0, &box, vertices, box.right, box.right );
 }
@@ -2916,13 +3094,31 @@ static void Entity_SetScale( Entity_s* entity, float scale )
 	entity->scale = scale;
 }
 
-void Scene_Create( Scene_s* scene, const SceneInfo_s* sceneInfo )
+void Scene_Create( Scene_s* scene )
+{
+	memset( scene, 0, sizeof( *scene) );
+}
+
+void Scene_SetFilename( Scene_s* scene, const char* filename )
+{
+	strcpy_s( scene->filename, sizeof( scene->filename ), filename );
+}
+
+void Scene_SetInfo( Scene_s* scene, const SceneInfo_s* sceneInfo )
 {
 	memcpy( &scene->info, sceneInfo, sizeof( scene->info ) );
-	scene->meshCount = 0;
-	scene->textureCount = 0;
-	scene->materialCount = 0;
-	scene->entityCount = 0;
+}
+
+void Scene_SaveInfo( Scene_s* scene )
+{
+	if ( !scene->filename[0] )
+		return;
+
+	V6_ASSERT( !core::FilePath_HasExtension( scene->filename, "info" ) );
+	char fileinfo[256];
+	core::FilePath_ChangeExtension( fileinfo, sizeof( fileinfo ), scene->filename, "info" );
+
+	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
 void Scene_Release( Scene_s* scene )
@@ -2940,6 +3136,7 @@ void Scene_Release( Scene_s* scene )
 
 struct SceneContext_s
 {
+	char				filename[256];
 	v6::core::IStack*	allocator;
 	ObjScene_s			objScene;
 	Scene_s*			scene;
@@ -2956,6 +3153,11 @@ static void SceneContext_Create( SceneContext_s* sceneContext, v6::core::IStack*
 	sceneContext->allocator = allocator;
 	core::Signal_Create( &sceneContext->deviceReady );
 	core::Signal_Create( &sceneContext->loadDone );
+}
+
+static void SceneContext_SetFilename( SceneContext_s* sceneContext, const char* filename )
+{
+	strcpy_s( sceneContext->filename, sizeof( sceneContext->filename ), filename );
 }
 
 static void SceneContext_Release( SceneContext_s* sceneContext )
@@ -2978,25 +3180,18 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 {
 	V6_MSG( "Load scene\n" );
 
-	static const SceneInfo_s s_sceneInfos[] =
-	{
-		/*0*/ { "D:/media/obj/crytek-sponza/sponza.obj", core::Vec3_Zero(), core::Vec2_Zero(), 1.0f },
-		/*1*/ { "D:/media/obj/dragon/dragon.obj", core::Vec3_Zero(), core::Vec2_Zero(), 1.0f },
-		/*2*/ { "D:/media/obj/buddha/buddha.obj", core::Vec3_Zero(), core::Vec2_Zero(), 1.0f },
-		/*3*/ { "D:/media/obj/head/head.obj", core::Vec3_Zero(), core::Vec2_Zero(), 1.0f },
-		/*4*/ { "D:/media/obj/hairball/hairball.obj", core::Vec3_Zero(), core::Vec2_Zero(), 100.0f },
-		/*5*/ { "D:/media/obj/hairball/hairball_simple.obj", core::Vec3_Zero(), core::Vec2_Zero(), 100.0f },
-		/*6*/ { "D:/media/obj/hairball/hairball_simple2.obj", core::Vec3_Zero(), core::Vec2_Zero(), 100.0f },
-		/*7*/ { "D:/media/obj/sibenik/sibenik.obj", core::Vec3_Zero(), core::Vec2_Zero(), 100.0f },
-		/*8*/ { "D:/media/obj/conference/conference.obj", core::Vec3_Zero(), core::Vec2_Zero(), 1.0f },
-	};
-
-	const SceneInfo_s* info = &s_sceneInfos[0];
+	V6_ASSERT( !core::FilePath_HasExtension( sceneContext->filename, "info" ) );
+	char fileinfo[256];
+	core::FilePath_ChangeExtension( fileinfo, sizeof( fileinfo ), sceneContext->filename, "info" );
 	
-	if ( !Obj_ReadObjectFile( &sceneContext->objScene, info->filename, sceneContext->allocator ) )
+	SceneInfo_s info;
+	if ( !SceneInfo_ReadFromFile( &info, fileinfo ) )
+		V6_WARNING( "Unable to read info file\n" );
+	
+	if ( !Obj_ReadObjectFile( &sceneContext->objScene, sceneContext->filename, sceneContext->allocator ) )
 	{
 		sceneContext->objScene.meshCount = 0;
-		V6_ERROR( "Unable to load %s\n", info->filename );
+		V6_ERROR( "Unable to load %s\n", sceneContext->filename );
 		core::Signal_Emit( &sceneContext->loadDone );
 		return;
 	}
@@ -3009,7 +3204,9 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 
 	ObjScene_s* objScene = &sceneContext->objScene;
 	Scene_s* scene = sceneContext->allocator->newInstance< Scene_s >();
-	Scene_Create( scene, info );
+	Scene_Create( scene );
+	Scene_SetFilename( scene, sceneContext->filename );
+	Scene_SetInfo( scene, &info );
 
 	for ( core::u32 materialID = 0; materialID < objScene->materialCount; ++materialID )
 	{
@@ -3069,9 +3266,9 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 		GenericVertex_s* vertex = vertices;
 		for ( core::u32 triangleID = 0; triangleID < mesh->triangleCount; ++triangleID, ++triangle, vertex += 3 )
 		{
-			vertex[0].position = objScene->positions[triangle->vertices[0].posID] * info->worldUnitToCM;
-			vertex[1].position = objScene->positions[triangle->vertices[1].posID] * info->worldUnitToCM;
-			vertex[2].position = objScene->positions[triangle->vertices[2].posID] * info->worldUnitToCM;
+			vertex[0].position = objScene->positions[triangle->vertices[0].posID] * info.worldUnitToCM;
+			vertex[1].position = objScene->positions[triangle->vertices[1].posID] * info.worldUnitToCM;
+			vertex[2].position = objScene->positions[triangle->vertices[2].posID] * info.worldUnitToCM;
 
 			for ( core::u32 vertexID = 0; vertexID < 3; ++vertexID )
 			{
@@ -3169,13 +3366,16 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	sceneContext->scene = scene;
 	s_activeScene = scene;
 
+	CameraPath_Load( &s_cameraPath, &info );
+	if ( s_cameraPath.keyCount )
+		s_headOffset = s_cameraPath.positions[0];
+
 	core::Signal_Emit( &sceneContext->loadDone );
 }
 
 void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 {
-	SceneInfo_s info = {};
-	Scene_Create( scene, &info );
+	Scene_Create( scene );
 
 	scene->meshLineID = scene->meshCount;
 	Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], core::Color_Make( 255, 255, 255, 255 ) );
@@ -3240,6 +3440,49 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 	}
 }
 
+void Scene_CreateCameraPath( SceneCameraPath_s* scene, ID3D11Device* device )
+{
+	Scene_Create( scene );
+
+	for ( core::u32 lineRank = 0; lineRank < CameraPath_s::MAX_POINT_COUNT-1; ++lineRank )
+	{
+		scene->meshLineIDs[lineRank] = scene->meshCount;
+		Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], core::Color_Make( 128, 128, 128, 255 ) );
+	}
+
+	scene->meshBoxID = scene->meshCount;
+	Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], core::Color_Make( 255, 255, 255, 255 ), true );
+
+	scene->meshSelectedBoxID = scene->meshCount;
+	Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], core::Color_Make( 255, 0, 0, 255 ), true );
+
+	Material_Create( &scene->materials[scene->materialCount++], Material_DrawBasic );
+}
+
+void Scene_UpdateCameraPath( SceneCameraPath_s* scene, const CameraPath_s* cameraPath, ID3D11DeviceContext* context )
+{
+	scene->entityCount = 0;
+	
+	for ( core::u32 key = 0; key < (core::u32)cameraPath->keyCount; ++key )
+	{
+		const bool isSelected = key == s_cameraPath.activeKey;
+		Entity_Create( &scene->entities[scene->entityCount++], 0, isSelected ? scene->meshSelectedBoxID : scene->meshBoxID, cameraPath->positions[key], 5.0f );
+	}
+
+	int lineRank;
+	for ( lineRank = 0; lineRank < cameraPath->keyCount-1; ++lineRank )
+	{		
+		const core::u32 meshLineID = scene->meshLineIDs[lineRank];
+		const BasicVertex_s vertices[2] = 
+		{
+			{ cameraPath->positions[lineRank], core::Color_Make( 128, 128, 128, 255 ) },
+			{ cameraPath->positions[lineRank+1], core::Color_Make( 128, 128, 128, 255 ) },
+		};
+		Mesh_UpdateVertices( context, &scene->meshes[meshLineID], vertices );
+		Entity_Create( &scene->entities[scene->entityCount++], 0, meshLineID, core::Vec3_Zero(), 1.0f );
+	}
+}
+
 #if V6_SIMPLE_SCENE == 1
 
 void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
@@ -3271,8 +3514,7 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 
 void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 {
-	SceneInfo_s info = {};
-	Scene_Create( scene, &info );
+	Scene_Create( scene );
 
 	Mesh_CreateTriangle( device, &scene->meshes[MESH_TRIANGLE] );	
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_WIREFRAME], core::Color_Make( 255, 255, 255, 255 ), true );
@@ -3465,6 +3707,7 @@ public:
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
 	void CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
 	void Draw( float dt );
+	void DrawCameraPath( const RenderingView_s* view );
 	void DrawDebug( const RenderingView_s* view );
 	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
 	void DrawWorld( const RenderingView_s* view );	
@@ -3492,6 +3735,7 @@ public:
 
 	Scene_s*			m_defaultScene;
 	SceneDebug_s*		m_debugScene;
+	SceneCameraPath_s*	m_cameraPathScene;
 
 	core::IAllocator*	m_heap;
 	core::IStack*		m_stack;
@@ -3528,6 +3772,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 	m_debugScene = heap->newInstance< SceneDebug_s >();
 	Scene_CreateDebug( m_debugScene, gpuContext.device );
+
+	m_cameraPathScene = heap->newInstance< SceneCameraPath_s >();
+	Scene_CreateCameraPath( m_cameraPathScene, gpuContext.device );
+
+	CameraPath_Init( &s_cameraPath );
 
 	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );
 	m_blockModeInitialized = false;
@@ -3624,6 +3873,40 @@ void CRenderingDevice::DrawWorld( const RenderingView_s* view )
 
 	if ( g_useMSAA )
 		gpuContext.deviceContext->ResolveSubresource( view->texture2D, 0, gpuContext.colorBufferMSAA, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
+}
+
+void CRenderingDevice::DrawCameraPath( const RenderingView_s* view )
+{
+	// Rasterization state
+	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
+	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
+
+	// Viewport
+	{
+		D3D11_VIEWPORT viewport = {};
+		viewport.TopLeftX = 0;
+		viewport.TopLeftY = 0;
+		viewport.Width = (float)m_width;
+		viewport.Height = (float)m_height;
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		gpuContext.deviceContext->RSSetViewports( 1, &viewport );
+		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
+	}
+
+	// RT
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &view->rtv, gpuContext.depthStencilView );
+
+	// Settings
+	RenderingSettings_s settings;
+	settings.useAlphaCoverage = false;
+	settings.isCapturing = false;
+
+	DrawScene( m_cameraPathScene, view, &settings );
+
+	// un RT
+	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
 void CRenderingDevice::DrawDebug( const RenderingView_s* view )
@@ -4379,7 +4662,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 bool CRenderingDevice::ReadStream()
 {
-	if ( s_activeScene->info.filename[0] == 0 )
+	if ( s_activeScene->filename[0] == 0 )
 	{
 		V6_ERROR( "Null scene file.\n" );
 		return false;
@@ -4387,9 +4670,9 @@ bool CRenderingDevice::ReadStream()
 
 	bool hasError = false;
 
-	V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->info.filename, "v6f" ) );
+	V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->filename, "v6f" ) );
 	char path[256];
-	core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->info.filename, "v6f" );
+	core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->filename, "v6f" );
 
 	core::CFileReader fileReader;
 	if ( fileReader.Open( path ) )
@@ -4461,7 +4744,7 @@ bool CRenderingDevice::ReadStream()
 
 bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUNT] )
 {
-	if ( s_activeScene->info.filename[0] == 0 )
+	if ( s_activeScene->filename[0] == 0 )
 	{
 		V6_ERROR( "Null scene file.\n" );
 		return false;
@@ -4620,9 +4903,9 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 	gpuContext.userDefinedAnnotation->EndEvent();
 
 	{
-		V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->info.filename, "v6f" ) );
+		V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->filename, "v6f" ) );
 		char path[256];
-		core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->info.filename, "v6f" );
+		core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->filename, "v6f" );
 
 		core::CFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
@@ -4898,6 +5181,17 @@ void CRenderingDevice::Draw( float dt )
 	else
 #endif // #if V6_USE_HMD
 	{
+		if ( g_showCameraPath )
+		{
+			if ( s_cameraPath.dirty )
+			{
+				CameraPath_Compute( &s_cameraPath, g_cameraSpeed );
+				Scene_UpdateCameraPath( m_cameraPathScene, &s_cameraPath, gpuContext.deviceContext );
+			}
+			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+				DrawCameraPath( &views[eye] );
+		}
+
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 			DrawDebug( &views[eye] );
 
@@ -4921,6 +5215,14 @@ void CRenderingDevice::Release()
 	Scene_Release( m_defaultScene );
 	m_heap->deleteInstance( m_defaultScene );
 
+	Scene_Release( m_debugScene );
+	m_heap->deleteInstance( m_debugScene );
+
+	Scene_Release( m_cameraPathScene );
+	m_heap->deleteInstance( m_cameraPathScene );
+
+	CameraPath_Release( &s_cameraPath );
+
 	GPUContext_Release( &gpuContext );
 }
 
@@ -4937,8 +5239,19 @@ int main()
 #if V6_LOAD_EXTERNAL == 1
 	v6::core::Stack stackScene( &heap, 400 * 1024 * 1024 );
 
+	//const char* filename = "D:/media/obj/crytek-sponza/sponza.obj";
+	//const char* filename = "D:/media/obj/dragon/dragon.obj";
+	//const char* filename = "D:/media/obj/buddha/buddha.obj";
+	//const char* filename = "D:/media/obj/head/head.obj";
+	//const char* filename = "D:/media/obj/hairball/hairball.obj"; // 100.0f
+	//const char* filename = "D:/media/obj/hairball/hairball_simple.obj"; // 100.0f
+	//const char* filename = "D:/media/obj/hairball/hairball_simple2.obj"; // 100.0f
+	const char* filename = "D:/media/obj/sibenik/sibenik.obj"; // 100.0f
+	//const char* filename = "D:/media/obj/conference/conference.obj";
+
 	v6::viewer::SceneContext_s sceneContext;
 	SceneContext_Create( &sceneContext, &stackScene );
+	SceneContext_SetFilename( &sceneContext, filename );
 
 	v6::core::Job_Launch( v6::viewer::SceneContext_Load, &sceneContext );
 #endif	
@@ -4971,16 +5284,16 @@ int main()
 	v6::core::Vec2i renterTargerSize = v6::core::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	if ( !v6::viewer::CaptureInputs() )
-	{
-		V6_ERROR( "Call to CaptureInputs failed!\n" );
-		return -1;
-	}
-
 	HWND hWnd = v6::viewer::CreateMainWindow( title, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y );
 	if (!hWnd)
 	{
 		V6_ERROR( "Call to CreateWindow failed!\n" );
+		return -1;
+	}
+
+	if ( !v6::viewer::CaptureInputs( hWnd ) )
+	{
+		V6_ERROR( "Call to CaptureInputs failed!\n" );
 		return -1;
 	}
 
@@ -5071,7 +5384,7 @@ int main()
 			t2Time *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s | Hmd %d", 
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s | Hmd %d %s", 
 				title, 
 				(int)(1.0f / ifps), 
 				(int)(tfTime * 1000000.0f),
@@ -5079,7 +5392,8 @@ int main()
 				(int)(t1Time * 1000000.0f),
 				(int)(t2Time * 1000000.0f),
 				v6::viewer::ModeToString( v6::viewer::g_drawMode ),
-				v6::viewer::s_hmdState );
+				v6::viewer::s_hmdState,
+				v6::viewer::s_activeScene->info.dirty ? "| *" : "" );
 			SetWindowTextA( hWnd, text );				
 		}
 		
@@ -5094,6 +5408,7 @@ int main()
 				oRenderingDevice.Release();
 #if V6_LOAD_EXTERNAL == 1
 				v6::core::Signal_Wait( &sceneContext.loadDone );
+				Scene_SaveInfo( v6::viewer::s_activeScene );
 				SceneContext_Release( &sceneContext );
 #endif
 				return 0;

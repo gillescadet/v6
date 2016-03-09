@@ -108,7 +108,7 @@ bool Hmd_Init()
 		{
 			ovrErrorInfo errorInfo;
 			ovr_GetLastErrorInfo( &errorInfo );
-			V6_ERROR( "ovr_Create failed: %s\n", errorInfo.ErrorString )
+			V6_ERROR( "ovr_Create failed: %s\n", errorInfo.ErrorString );
 			ovr_Shutdown();
 			s_session = nullptr;
 			return false;
