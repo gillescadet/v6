@@ -97,7 +97,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const float gridScale = c_blockGridScales[mip].x;
 			const float cellScale = c_blockGridScales[mip].y;
 			const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
-			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockCenter;
+			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockGridCenters[mip].xyz;
 
 #if HLSL_EYE_COUNT == 1
 			const uint eye = 0;

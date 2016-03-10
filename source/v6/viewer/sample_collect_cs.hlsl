@@ -28,29 +28,24 @@ Texture2D< float > depths						: register( HLSL_DEPTH_SRV );
 RWStructuredBuffer< Sample > collectedSamples	: register( HLSL_SAMPLE_UAV );
 RWBuffer< uint > sampleIndirectArgs				: register( HLSL_SAMPLE_INDIRECT_ARGS_UAV );
 
-uint GetMip( float p )
+uint GetMip( float3 p )
 {
-#if HLSL_MIP_MAX_COUNT == 8
-	return 
-		dot( step( c_sampleMipBoundariesA, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) + 
-		dot( step( c_sampleMipBoundariesB, p ), float4( 1.0, 1.0, 1.0, 1.0 ) );
-#endif
+	for ( uint mip = 0; mip < HLSL_MIP_MAX_COUNT; ++mip )
+	{
+		const float3 delta = p - c_sampleMipBoundaries[mip].xyz;
+		const float distanceSq = dot( delta, delta );
+		if ( distanceSq < c_sampleMipBoundaries[mip].w )
+			return mip;
+	}
 
-#if HLSL_MIP_MAX_COUNT == 16
-	return 
-		dot( step( c_sampleMipBoundariesA, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) + 
-		dot( step( c_sampleMipBoundariesB, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) +
-		dot( step( c_sampleMipBoundariesC, p ), float4( 1.0, 1.0, 1.0, 1.0 ) ) +
-		dot( step( c_sampleMipBoundariesD, p ), float4( 1.0, 1.0, 1.0, 1.0 ) );
-#endif
+	return HLSL_MIP_MAX_COUNT;
 }
-
 
 struct PixelSample
 {
 	int3 coords;
 	uint mip;
-	float3 color;	
+	float3 color;
 	uint occupancy;
 	uint count;
 };
@@ -76,54 +71,55 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	
 			const float2 scale = (pixelCoords.xy + 0.5f) * c_sampleInvCubeSize * 2.0f - 1.0f;
 			const float3 dir = lookAt + right * scale.x - up * scale.y;
-			const float3 pos = mad( dir, cubeDepth, c_sampleOffset );
-			const uint mip = max( GetMip( abs( pos.x ) ), max( GetMip( abs( pos.y ) ), GetMip( abs( pos.z ) ) ) );
+			const float3 pos = mad( dir, cubeDepth, c_samplePos );
+			const uint mip = GetMip( pos );
 
-			if ( mip >= HLSL_MIP_MAX_COUNT )
-				continue;
+			if ( mip < HLSL_MIP_MAX_COUNT )
+			{
 
 #if HLSL_DEBUG_COLLECT == 1
-			uint sample_pixelSampleID;
-			InterlockedAdd( sample_pixelSampleCount, 1, sample_pixelSampleID );
+				uint sample_pixelSampleID;
+				InterlockedAdd( sample_pixelSampleCount, 1, sample_pixelSampleID );
 #endif // #if HLSL_DEBUG_COLLECT == 1
 
-			const float3 cellCoords = mad( pos, c_sampleInvGridScales[mip].x * HLSL_GRID_HALF_WIDTH, HLSL_GRID_HALF_WIDTH );
-			const int3 sampleCoords = int3( cellCoords );
-			const int3 subCellCoords = min( int3( frac( cellCoords ) * HLSL_CELL_SUPER_SAMPLING_WIDTH ), 2 );
-			const uint subCellID = subCellCoords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + subCellCoords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
-			const uint occupancy = 1 << subCellID;
+				const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
+				const float3 cellCoords = mad( posInMip, c_sampleInvGridScales[mip].x * HLSL_GRID_HALF_WIDTH, HLSL_GRID_HALF_WIDTH );
+				const int3 sampleCoords = int3( cellCoords );
+				const int3 subCellCoords = min( int3( frac( cellCoords ) * HLSL_CELL_SUPER_SAMPLING_WIDTH ), 2 );
+				const uint subCellID = subCellCoords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + subCellCoords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
+				const uint occupancy = 1 << subCellID;
 
 #if HLSL_DEBUG_COLLECT == 1
-			if ( any( sampleCoords < 0 ) || any( sampleCoords >= HLSL_GRID_WIDTH ) )
-				InterlockedAdd( sample_error, 1 );
+				if ( any( sampleCoords < 0 ) || any( sampleCoords >= HLSL_GRID_WIDTH ) )
+					InterlockedAdd( sample_error, 1 );
 #if 0
-			InterlockedOr( sample_occupancy, occupancy );
-			sample_cellCoords( sample_pixelSampleID ) = asuint( cellCoords.x );
+				InterlockedOr( sample_occupancy, occupancy );
+				sample_cellCoords( sample_pixelSampleID ) = asuint( cellCoords.x );
 #endif
 #endif // #if HLSL_DEBUG_COLLECT == 1
 
-			uint uniquePixelSampleID;
-			for ( uniquePixelSampleID = 0; uniquePixelSampleID < uniquePixelSampleCount; ++uniquePixelSampleID )
-			{
-				if ( pixelSamples[uniquePixelSampleID].mip == mip && all( pixelSamples[uniquePixelSampleID].coords == sampleCoords ) )
-					break;
-			}
+				uint uniquePixelSampleID;
+				for ( uniquePixelSampleID = 0; uniquePixelSampleID < uniquePixelSampleCount; ++uniquePixelSampleID )
+				{
+					if ( pixelSamples[uniquePixelSampleID].mip == mip && all( pixelSamples[uniquePixelSampleID].coords == sampleCoords ) )
+					{
+						pixelSamples[uniquePixelSampleID].color += cubeColor.rgb;
+						pixelSamples[uniquePixelSampleID].occupancy |= occupancy;
+						pixelSamples[uniquePixelSampleID].count += 1;
+						break;
+					}
+				}
 
-			if ( uniquePixelSampleID < uniquePixelSampleCount )
-			{
-				pixelSamples[uniquePixelSampleID].color += cubeColor.rgb;
-				pixelSamples[uniquePixelSampleID].occupancy |= occupancy;
-				pixelSamples[uniquePixelSampleID].count += 1;
-			}
-			else
-			{
-				pixelSamples[uniquePixelSampleID].coords = sampleCoords;
-				pixelSamples[uniquePixelSampleID].mip = mip;
-				pixelSamples[uniquePixelSampleID].color = cubeColor.rgb;
-				pixelSamples[uniquePixelSampleID].occupancy = occupancy;
-				pixelSamples[uniquePixelSampleID].count = 1;
+				if ( uniquePixelSampleID == uniquePixelSampleCount )
+				{
+					pixelSamples[uniquePixelSampleID].coords = sampleCoords;
+					pixelSamples[uniquePixelSampleID].mip = mip;
+					pixelSamples[uniquePixelSampleID].color = cubeColor.rgb;
+					pixelSamples[uniquePixelSampleID].occupancy = occupancy;
+					pixelSamples[uniquePixelSampleID].count = 1;
 
-				++uniquePixelSampleCount;
+					++uniquePixelSampleCount;
+				}
 			}
 		}
 	}
@@ -147,7 +143,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 //		InterlockedAdd( sample_pixelSampleCount, uniquePixelSample.count );
 //#endif // #if HLSL_DEBUG_COLLECT == 1
 
-		uint sampleCount = sampleID+1;
+		const uint sampleCount = sampleID+1;
 		InterlockedMax( sample_groupCountX, GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 	}
 	

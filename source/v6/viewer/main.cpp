@@ -79,10 +79,12 @@ static const float FOV						= core::DegToRad( 90.0f );
 static const float FOV						= core::DegToRad( 90.0f );
 #endif
 static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 9;
+static const int SAMPLE_MAX_COUNT			= 1;
 static const float FREE_SCALE				= 50.0f;
-//static const float FREE_SCALE				= 400.0f;
 static const core::u32 RANDOM_CUBE_COUNT	= 100;
+
+static const core::u32 HMD_FPS				= 75;
+static const core::u32 VIDEO_FRAME_MAX_COUNT= 3 * HMD_FPS;
 
 static const uint VERTEX_INPUT_MAX_COUNT	= 6;
 static const uint MESH_MAX_COUNT			= 16384;
@@ -605,6 +607,7 @@ static bool g_cameraKey						= false;
 static bool g_showCameraPath				= false;
 static bool g_playCameraPath				= false;
 static float g_playCameraPathTime			= 0.0f;
+static core::u32 g_playCameraPathFrame		= 0;
 static float g_cameraSpeed					= 100.0f;
 static int g_limit							= false; 
 static bool g_showMip						= false;
@@ -624,7 +627,7 @@ static bool g_reloadShaders					= false;
 static float s_yaw							= 0.0f;
 static float s_pitch						= 0.0f;
 static core::Vec3 s_headOffset				= core::Vec3_Zero();
-static core::Vec3 s_sampleCenter			= core::Vec3_Zero();
+static core::Vec3 s_buildOrigin				= core::Vec3_Zero();
 
 static core::u32 gpuMemory					= 0;
 
@@ -813,10 +816,22 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 					case 'P':
 						g_playCameraPath = g_playCameraPath ? false : s_cameraPath.keyCount > 0;
 						g_playCameraPathTime = 0.0f;
+						g_playCameraPathFrame = 0;
 						V6_MSG( "Camera path: %s\n", g_playCameraPath ? "play" : "stop" );
 						break;
+					case 'R':
+						if ( s_cameraPath.keyCount > 0 )
+						{
+							g_playCameraPath = true;
+							g_playCameraPathTime = 0.0f;
+							g_playCameraPathFrame = 0;
+							g_drawMode = DRAW_MODE_BLOCK;
+							g_sample = 0;
+							V6_MSG( "Camera path: record\n" );
+						}
+						break;
 					case 'S':
-						g_showCameraPath = true;
+						g_showCameraPath = !g_showCameraPath;
 						V6_MSG( "Camera path: %s\n", g_showCameraPath ? "show" : "hide" );
 						break;
 					case 0x21:
@@ -3151,6 +3166,23 @@ void Scene_SaveInfo( Scene_s* scene )
 	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
+void Scene_MakeStreamFilename( const Scene_s* scene, char* path, core::u32 maxPathSize, core::u32 frame  )
+{
+	V6_ASSERT( scene->filename[0] );
+
+	char filepath[256];
+	core::FilePath_ExtractPath( filepath, sizeof( filepath ), scene->filename );
+
+	char filename[256];
+	core::FilePath_ExtractFilename( filename, sizeof( filename ), scene->filename );
+
+	char filenameWithoutExtension[256];
+	core::FilePath_TrimExtension( filenameWithoutExtension, sizeof( filenameWithoutExtension ), filename );
+
+	core::FilePath_Make( path, maxPathSize, filepath, filenameWithoutExtension );
+	sprintf_s( path, maxPathSize, "%s_%06u.v6f", path, frame );
+}
+
 void Scene_Release( Scene_s* scene )
 {
 	for ( core::u32 meshID = 0; meshID < scene->meshCount; ++meshID )
@@ -3721,6 +3753,13 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 		Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], (hitFound & (1 << cellID)) != 0 );
 }
 
+static core::Vec3 Block_ComputeGridCenter( const core::Vec3* pos, float gridScale )
+{
+	const float cellSize = gridScale / HLSL_GRID_HALF_WIDTH;
+	const core::Vec3 normalizedPos = *pos * (1.0f / cellSize);
+	return core::Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * cellSize;
+}
+
 class CRenderingDevice
 {
 public:
@@ -3729,27 +3768,27 @@ public:
 
 public:
 	void BlendPixel( const RenderingView_s* view );
-	void BuildBlock();
+	void BuildBlock( core::u32 frame );
 	core::u32 BuildNode();
-	void MakeRenderingView( RenderingView_s* view, const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right, core::u32 eye );
 	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
 	void ClearNode();
 	void Collect( const core::Vec3* sampleOffset, core::u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
-	void CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
+	void CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin );
 	void Draw( float dt );
 	void DrawCameraPath( const RenderingView_s* view );
 	void DrawDebug( const RenderingView_s* view );
 	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
 	void DrawWorld( const RenderingView_s* view );	
 	void FillLeaf();
+	void MakeRenderingView( RenderingView_s* view, const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right, core::u32 eye );
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
 	void PackColor( core::u32 blockCounts[HLSL_BUCKET_COUNT] );
 	void Present();
+	bool ReadStream( core::u32 frame);
 	void Release();
-	void TraceBlock( const RenderingView_s* views, const core::Vec3* sampleCenter );
-	bool ReadStream();
-	bool WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUNT] );
+	void TraceBlock( const RenderingView_s* views, const core::Vec3* buildOrigin );
+	bool WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUNT], core::u32 frame );
 
 	GPUContext_s		gpuContext;
 		
@@ -4033,7 +4072,7 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 	gpuContext.userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID )
+void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
 {
 	static const void* nulls[8] = {};
 
@@ -4044,12 +4083,19 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID
 	{			
 		V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
-		float gridScales[16];
+		float gridScales[HLSL_MIP_MAX_COUNT];
+		float3 gridCenters[HLSL_MIP_MAX_COUNT];
 		float gridScale = GRID_MIN_SCALE;
 		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
+		{
 			gridScales[gridID] = gridScale;
+			gridCenters[gridID] = Block_ComputeGridCenter( samplePos, gridScale );
+		}
 		for ( core::u32 gridID = GRID_COUNT; gridID < 16; ++gridID )
+		{
 			gridScales[gridID] = gridScales[GRID_COUNT-1];
+			gridCenters[gridID] = gridCenters[GRID_COUNT-1];
+		}
 
 		v6::hlsl::CBSample* cbSample = ConstantBuffer_MapWrite< v6::hlsl::CBSample >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE] );
 
@@ -4057,12 +4103,10 @@ void CRenderingDevice::Collect( const core::Vec3* sampleOffset, core::u32 faceID
 		cbSample->c_sampleDepthLinearBias = 1.0f / ZNEAR;
 		cbSample->c_sampleInvCubeSize.x = 1.0f / CUBE_SIZE;
 		cbSample->c_sampleInvCubeSize.y = 1.0f / CUBE_SIZE;
-		cbSample->c_sampleOffset = *sampleOffset;
+		cbSample->c_samplePos = *samplePos;
 		cbSample->c_sampleFaceID = faceID;
-		cbSample->c_sampleMipBoundariesA = core::Vec4_Make( gridScales[0], gridScales[1], gridScales[2], gridScales[3] );
-		cbSample->c_sampleMipBoundariesB = core::Vec4_Make( gridScales[4], gridScales[5], gridScales[6], gridScales[7] );
-		cbSample->c_sampleMipBoundariesC = core::Vec4_Make( gridScales[8], gridScales[9], gridScales[10], gridScales[11] );
-		cbSample->c_sampleMipBoundariesD = core::Vec4_Make( gridScales[12], gridScales[13], gridScales[14], gridScales[15] );
+		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+			cbSample->c_sampleMipBoundaries[gridID] = core::Vec4_Make( &gridCenters[gridID], gridScales[gridID] * gridScales[gridID] );
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
 			cbSample->c_sampleInvGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
 
@@ -4320,7 +4364,7 @@ void CRenderingDevice::PackColor( core::u32 blockCounts[HLSL_BUCKET_COUNT] )
 	GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &m_block.blockIndirectArgs );
 }
 
-void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* sampleCenter )
+void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin )
 {		
 	static const void* nulls[8] = {};
 
@@ -4341,11 +4385,11 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 		{
 			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
 			cbCull->c_cullGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
+			const core::Vec3 center = Block_ComputeGridCenter( buildOrigin, gridScale );
+			cbCull->c_cullCenters[gridID] = core::Vec4_Make( &center, 0.0f );
 			if ( gridID < GRID_COUNT)
 				gridScale *= 2;
 		}
-
-		cbCull->c_cullCenter = *sampleCenter;
 
 		V6_ASSERT( views[LEFT_EYE].forward == views[RIGHT_EYE].forward );
 		V6_ASSERT( views[LEFT_EYE].right == views[RIGHT_EYE].right );
@@ -4424,7 +4468,7 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 	}
 }
 
-void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec3* sampleCenter )
+void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec3* buildOrigin )
 {		
 	static const void* nulls[8] = {};
 	
@@ -4445,11 +4489,11 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		{
 			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
 			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( gridScale, cellScale, ((1 << 21) - 1) / gridScale, 0.0f );
+			const core::Vec3 center = Block_ComputeGridCenter( buildOrigin, gridScale );
+			cbBlock->c_blockGridCenters[gridID] = core::Vec4_Make( &center, 0.0f );
 			if ( gridID < GRID_COUNT)
 				gridScale *= 2;
 		}
-
-		cbBlock->c_blockCenter = *sampleCenter;		
 
 		const core::Vec2 frameSize = core::Vec2_Make( (float)m_width, (float)m_height );
 		cbBlock->c_blockFrameSize = frameSize;
@@ -4691,7 +4735,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 #endif
 }
 
-bool CRenderingDevice::ReadStream()
+bool CRenderingDevice::ReadStream( core::u32 frame )
 {
 	if ( s_activeScene->filename[0] == 0 )
 	{
@@ -4701,9 +4745,8 @@ bool CRenderingDevice::ReadStream()
 
 	bool hasError = false;
 
-	V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->filename, "v6f" ) );
 	char path[256];
-	core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->filename, "v6f" );
+	Scene_MakeStreamFilename( s_activeScene, path, sizeof( path ), frame );
 
 	core::CFileReader fileReader;
 	if ( fileReader.Open( path ) )
@@ -4715,12 +4758,12 @@ bool CRenderingDevice::ReadStream()
 
 		if ( viewer::Codec_ReadFrame( &fileReader, &frameDesc, &frameData, m_stack ) )
 		{
-			if ( frameDesc.origin != s_sampleCenter )
+			if ( frameDesc.origin != s_buildOrigin )
 			{
 				V6_ERROR( "Stream origin is not compatible.\n" );
 				hasError = true;
 			}
-			else if ( frameDesc.frame != 0 )
+			else if ( frameDesc.frame != frame )
 			{
 				V6_ERROR( "Stream frame is not compatible.\n" );
 				hasError = true;
@@ -4773,7 +4816,7 @@ bool CRenderingDevice::ReadStream()
 	return !hasError;
 }
 
-bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUNT] )
+bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUNT], core::u32 frame )
 {
 	if ( s_activeScene->filename[0] == 0 )
 	{
@@ -4934,16 +4977,15 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 	gpuContext.userDefinedAnnotation->EndEvent();
 
 	{
-		V6_ASSERT( !core::FilePath_HasExtension( s_activeScene->filename, "v6f" ) );
 		char path[256];
-		core::FilePath_ChangeExtension( path, sizeof( path ), s_activeScene->filename, "v6f" );
+		Scene_MakeStreamFilename( s_activeScene, path, sizeof( path ), frame );
 
 		core::CFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
 		{
 			viewer::CodecFrameDesc_s frameDesc = {};
-			frameDesc.origin = s_sampleCenter;
-			frameDesc.frame = 0;
+			frameDesc.origin = s_buildOrigin;
+			frameDesc.frame = frame;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
 			frameDesc.gridResolution = HLSL_GRID_WIDTH;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
@@ -4973,13 +5015,13 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 	return !hasError;
 }
 
-void CRenderingDevice::BuildBlock()
+void CRenderingDevice::BuildBlock( core::u32 frame )
 {
 	static core::u32 lastSumLeafCount = 0;
 
 	if ( g_sample == 0 )
 	{
-		s_sampleCenter = s_headOffset;
+		s_buildOrigin = s_headOffset;
 
 		if ( m_blockModeInitialized )
 		{
@@ -4989,7 +5031,7 @@ void CRenderingDevice::BuildBlock()
 		}
 
 #if 1
-		if ( ReadStream() )
+		if ( ReadStream( frame ) )
 		{
 			Trace_Create( gpuContext.device, &m_trace, &m_config, m_heap );
 
@@ -5009,14 +5051,14 @@ void CRenderingDevice::BuildBlock()
 	V6_MSG( "Capturing sample #%03d...", g_sample );
 
 	const core::Vec3 sampleOffset = m_sampleOffsets[g_sample];
-	const core::Vec3 samplePos = s_sampleCenter + sampleOffset;
+	const core::Vec3 samplePos = s_buildOrigin + sampleOffset;
 
 	core::u32 sumLeafCount = 0;
 
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		Capture( &samplePos, faceID );
-		Collect( &sampleOffset, faceID );					
+		Collect( &samplePos, faceID );					
 		sumLeafCount = BuildNode();
 		FillLeaf();
 	}
@@ -5046,13 +5088,13 @@ void CRenderingDevice::BuildBlock()
 
 		Octree_Release( gpuContext.device, &m_octree );
 
-		if ( WriteStream( blockCounts ) )
-			ReadStream();
+		if ( WriteStream( blockCounts, frame ) )
+			ReadStream( frame );
 
 		Trace_Create( gpuContext.device, &m_trace, &m_config, m_heap );
 
 		V6_MSG( "\r" );
-		V6_MSG( "Packed  all samples: %13s cells added\n", FormatInteger_Unsafe( sumLeafCount ) );
+		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", FormatInteger_Unsafe( sumLeafCount ), frame );
 		s_logReadBack = false;
 #if 0
 		// bake always
@@ -5127,11 +5169,11 @@ void CRenderingDevice::Draw( float dt )
 	
 	if ( g_limit )
 	{
-		core::Vec3 distanceToCenter = s_headOffset - s_sampleCenter;
+		core::Vec3 distanceToCenter = s_headOffset - s_buildOrigin;
 		distanceToCenter.x = core::Clamp( distanceToCenter.x, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.y = core::Clamp( distanceToCenter.y, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.z = core::Clamp( distanceToCenter.z, -FREE_SCALE, FREE_SCALE );
-		s_headOffset = s_sampleCenter + distanceToCenter;
+		s_headOffset = s_buildOrigin + distanceToCenter;
 	}
 
 	if ( s_cameraPath.dirty && (g_showCameraPath || g_playCameraPath) )
@@ -5141,12 +5183,7 @@ void CRenderingDevice::Draw( float dt )
 	}
 
 	if ( g_playCameraPath )
-	{
 		s_headOffset = CameraPath_GetPosition( &s_cameraPath, g_playCameraPathTime );
-		g_playCameraPathTime += dt;
-		if ( g_playCameraPathTime >= s_cameraPath.duration )
-			g_playCameraPath = false;
-	}
 
 	RenderingView_s views[HLSL_EYE_COUNT];
 #if V6_USE_HMD
@@ -5182,6 +5219,12 @@ void CRenderingDevice::Draw( float dt )
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+
+		if ( g_playCameraPath )
+		{
+			g_playCameraPathTime += dt;
+			++g_playCameraPathFrame;
+		}
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
 	{		
@@ -5189,20 +5232,27 @@ void CRenderingDevice::Draw( float dt )
 		{
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 
-			BuildBlock();
+			BuildBlock( g_playCameraPath ? g_playCameraPathFrame : 0 );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+
+			if ( g_playCameraPath && g_sample == SAMPLE_MAX_COUNT )
+			{
+				g_sample = 0;
+				g_playCameraPathTime += 1.0f / HMD_FPS;
+				++g_playCameraPathFrame;
+			}
 		}
 		else
 		{
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 			
-			CullBlock( views, &s_sampleCenter );
+			CullBlock( views, &s_buildOrigin );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 
-			TraceBlock( views, &s_sampleCenter );
+			TraceBlock( views, &s_buildOrigin );
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 
@@ -5213,7 +5263,13 @@ void CRenderingDevice::Draw( float dt )
 
 			s_logReadBack = false;
 			g_mousePicked = false;
-		}		
+
+			if ( g_playCameraPath )
+			{
+				g_playCameraPathTime += 1.0f / HMD_FPS;
+				++g_playCameraPathFrame;
+			}
+		}
 	}	
 	
 #if V6_USE_HMD
@@ -5237,6 +5293,13 @@ void CRenderingDevice::Draw( float dt )
 
 		Output( gpuContext.colorSRVs[LEFT_EYE], gpuContext.colorSRVs[RIGHT_EYE] );
 	}
+
+	if ( g_playCameraPath && g_playCameraPathTime >= s_cameraPath.duration || g_playCameraPathFrame >= VIDEO_FRAME_MAX_COUNT )
+	{
+		g_sample = SAMPLE_MAX_COUNT;
+		g_playCameraPath = false;
+	}
+
 }
 
 void CRenderingDevice::Present()
@@ -5387,18 +5450,24 @@ int main()
 		
 		oRenderingDevice.gpuContext.pendingQueries = pendingQueries;
 		
-		__int64 frameTick = v6::core::GetTickCount(); 
-		__int64 frameDelta = frameTick - frameTickLast;
-		frameTickLast = frameTick;
-
-		float dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
+		const __int64 frameTick = v6::core::GetTickCount();
+		
+		__int64 frameUpdatedTick = frameTick;
+		float dt = 0.0f;
+		for (;;)
+		{
+			const __int64 frameDelta = frameUpdatedTick - frameTickLast;
+			dt = v6::core::Min( v6::core::ConvertTicksToSeconds( frameDelta ), 0.1f );
+#if !V6_USE_HMD
+			if ( dt + 0.0001f >= 1.0f / v6::viewer::HMD_FPS )
+				break;
+			SwitchToThread();
+			frameUpdatedTick = v6::core::GetTickCount();
+#endif // #if !V6_USE_HMD
+		}
 		dts[frameId & (tMaxCount-1)] = dt;
 
-		while ( dt < 0.002f )
-		{
-			Sleep( 1 );
-			dt += 0.001f;
-		}
+		frameTickLast = frameTick;
 
 		if ( (frameId % 30) == 0 || v6::viewer::IsBakingMode( v6::viewer::g_drawMode ) ) 
 		{

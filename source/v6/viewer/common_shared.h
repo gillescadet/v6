@@ -11,7 +11,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
 #define HLSL_ENCODE_DATA							0
-#define HLSL_STEREO									1
+#define HLSL_STEREO									0
 #if HLSL_STEREO == 1
 #define HLSL_EYE_COUNT								2
 #else
@@ -135,7 +135,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_TRACE_STATS_UAV						CONCAT( u, HLSL_TRACE_STATS_SLOT )
 #define HLSL_TRACE_DEBUG_UAV						CONCAT( u, HLSL_TRACE_DEBUG_SLOT )
 
-#define HLSL_GRID_MACRO_SHIFT						9
+#define HLSL_GRID_MACRO_SHIFT						8
 #define HLSL_GRID_MACRO_2XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_3XSHIFT						(HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT + HLSL_GRID_MACRO_SHIFT)
 #define HLSL_GRID_MACRO_WIDTH						(1 << HLSL_GRID_MACRO_SHIFT)
@@ -213,13 +213,10 @@ CBUFFER( CBSample, 2 )
 	float				c_sampleDepthLinearScale;
 	float				c_sampleDepthLinearBias;
 	float2				c_sampleInvCubeSize;
-	float3				c_sampleOffset;
+	float3				c_samplePos;
 	uint				c_sampleFaceID;
-	float4				c_sampleMipBoundariesA;
-	float4				c_sampleMipBoundariesB;
-	float4				c_sampleMipBoundariesC;
-	float4				c_sampleMipBoundariesD;
-	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];	
+	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
+	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };
 
 CBUFFER( CBOctree, 3 )
@@ -234,8 +231,7 @@ CBUFFER( CBCull, 4 )
 {
 	float4				c_cullGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4];
-	float3				c_cullCenter;
-	float				c_cullUnused;
+	float4				c_cullCenters[HLSL_MIP_MAX_COUNT];
 };
 
 struct BlockPerEye
@@ -259,9 +255,7 @@ struct BlockPerEye
 CBUFFER( CBBlock, 5 )
 {	
 	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
-
-	float3				c_blockCenter;
-	float				c_blockPad5;
+	float4				c_blockGridCenters[HLSL_MIP_MAX_COUNT];
 
 	float2				c_blockFrameSize;
 	float2				c_blockPad4;	

@@ -46,7 +46,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		const int3 cellMinCoords = int3( xMin, yMin, zMin );	
 		const float gridScale = c_cullGridScales[mip].x;
 		const float cellSize = gridScale * 2.0f * HLSL_GRID_INV_WIDTH;
-		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_cullCenter;
+		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_cullCenters[mip].xyz;
 		const float deltaWS = cellSize * HLSL_GRID_BLOCK_WIDTH;
 
 		const float3 vertices[8] =
