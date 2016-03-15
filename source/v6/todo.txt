@@ -37,6 +37,7 @@ Optmization plan:
 - appendconsume instead of interlockedadd
 - sort by mip and precompute grid/cell scales/sizes
 - remove AllMemoryBarrierWithGroupSync() when <= 64 threads
+- take advantage of the silhouette of the box
 
 Bench #01:
 - config.context            :  occupancy

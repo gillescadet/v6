@@ -9,8 +9,6 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-BEGIN_ANONYMOUS_NAMESPACE
-
 #ifndef __LITTLE_ENDIAN__
 #	ifndef __BIG_ENDIAN__
 #		define __LITTLE_ENDIAN__
@@ -74,8 +72,6 @@ struct TgaHeader_s
 };
 
 #pragma pack(pop)
-
-END_ANONYMOUS_NAMESPACE
 
 void Image_Create( Image_s* image, IAllocator* heap, u32 width, u32 height )
 {

@@ -22,7 +22,7 @@ static char* SkipSpace( char* token )
 static core::u32 Count( const char* str, char token )
 {
 	core::u32 count = 0;
-	
+
 	while ( *str )
 	{
 		count += *str == token ? 1 : 0;
@@ -230,7 +230,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			}
 			continue;
 		}
-						
+
 		if ( _strnicmp( token, "v ", 2 ) == 0 )
 			++positionCount;
 		else if ( _strnicmp( token, "vn ", 3 ) == 0 )
@@ -301,7 +301,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	}
 
 	V6_MSG( "Loading...\n" );
-	
+
 	fseek( fileOBJ, 0, SEEK_SET );
 	while ( fgets( line, sizeof( line ), fileOBJ ) )
 	{
@@ -399,7 +399,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 						triangle->vertices[vertexID].normalID = indices[indexRanks[vertexID*3+2]]-1;
 				}
 			};
-			
+
 			static const core::u32 NA = (core::u32)-1;
 			int ids[12];
 
@@ -407,7 +407,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			{				
 				const core::u32 vertexCount = sscanf_s( f, "%d %d %d %d", ids+0, ids+1, ids+2, ids+3 );
 				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
+
 				{
 					V6_ASSERT( triangleID < triangleCount );		
 					const core::u32 indexRanks[] = { 0, NA, NA,  1, NA, NA, 2, NA, NA };
@@ -415,7 +415,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					++triangleID;
 					++mesh->triangleCount;
 				}
-						
+
 				if ( vertexCount == 4 )
 				{
 					V6_ASSERT( triangleID < triangleCount );			
@@ -431,7 +431,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				V6_ASSERT( n % 2 == 0 );
 				const core::u32 vertexCount = n / 2;
 				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
+
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
@@ -440,7 +440,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					++triangleID;
 					++mesh->triangleCount;
 				}
-						
+
 				if ( vertexCount == 4 )
 				{
 					V6_ASSERT( triangleID < triangleCount );			
@@ -460,7 +460,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					V6_ASSERT( n % 2 == 0 );
 					const core::u32 vertexCount = n / 2;
 					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
+
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
@@ -469,7 +469,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 						++triangleID;
 						++mesh->triangleCount;
 					}
-						
+
 					if ( vertexCount == 4 )
 					{
 						V6_ASSERT( triangleID < triangleCount );			
@@ -485,7 +485,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					V6_ASSERT( n % 3 == 0 );
 					const core::u32 vertexCount = n / 3;
 					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
-			
+
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
@@ -494,7 +494,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 						++triangleID;
 						++mesh->triangleCount;
 					}
-						
+
 					if ( vertexCount == 4 )
 					{
 						V6_ASSERT( triangleID < triangleCount );			
@@ -526,7 +526,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			V6_WARNING( "Unknown token %s\n", token );
 		}
 	}
-	
+
 	fclose( fileOBJ );
 
 	printf( "\r" );

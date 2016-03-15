@@ -7,9 +7,6 @@
 #ifndef __V6_CORE_COMMON_H__
 #define __V6_CORE_COMMON_H__
 
-#define BEGIN_ANONYMOUS_NAMESPACE	namespace {
-#define END_ANONYMOUS_NAMESPACE		}
-
 #define BEGIN_V6_CORE_NAMESPACE		namespace v6 { namespace core {
 #define END_V6_CORE_NAMESPACE		} }
 
@@ -22,6 +19,8 @@
 #define V6_ASSERT( EXP )			__ASSERT( EXP )
 #define V6_ASSERT_ALWAYS( EXP )		__ASSERT( false && (EXP) )
 #define V6_ASSERT_NOT_SUPPORTED()	V6_ASSERT_ALWAYS( "Not supported" )
+
+#define V6_STATIC_ASSERT( EXP )		static_assert( EXP, "static assert: "#EXP )
 
 #define V6_PRINT( ... )				printf( __VA_ARGS__ );
 #define V6_MSG( ... )				do { V6_PRINT( "[MSG] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )

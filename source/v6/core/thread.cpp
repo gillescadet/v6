@@ -9,7 +9,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-u64				g_jobID							= 0;
+u64				g_jobCount						= 0;
 JobBackend_s	g_jobBackends[JOB_BUFFER_SIZE]	= {};
 
 u32 Atomic_Add( u32* v, u32 inc )
@@ -40,6 +40,17 @@ u32 Atomic_Inc( u32* v )
 u64 Atomic_Inc( u64* v )
 {
 	return InterlockedIncrement( v )-1;
+}
+
+u32 Atomic_Or( u32* v, u32 inc )
+{
+	V6_STATIC_ASSERT( sizeof( u32 ) == sizeof( long ) );
+	return InterlockedOr( (long*)v, (long)inc );
+}
+
+u64 Atomic_Or( u64* v, u64 inc )
+{
+	return InterlockedOr( v, inc );
 }
 
 void Signal_Create( Signal_s* signal )

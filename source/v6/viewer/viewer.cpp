@@ -9,6 +9,7 @@
 #include <v6/viewer/common.h>
 #include <v6/viewer/common_shared.h>
 
+#include <v6/core/codec.h>
 #include <v6/core/color.h>
 #include <v6/core/filesystem.h>
 #include <v6/core/image.h>
@@ -24,7 +25,6 @@
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
-#include <v6/viewer/codec.h>
 #include <v6/viewer/obj_reader.h>
 #include <v6/viewer/scene_info.h>
 
@@ -51,52 +51,52 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static const float AVERAGE_LAYER_COUNT		= 2.0f;
+static const float AVERAGE_LAYER_COUNT			= 2.0f;
 #if HLSL_CELL_SUPER_SAMPLING_WIDTH > 1
-static const float AVERAGE_SAMPLE_PER_PIXEL	= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+static const float AVERAGE_SAMPLE_PER_PIXEL		= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 #else
-static const float AVERAGE_SAMPLE_PER_PIXEL	= 1.0f;
+static const float AVERAGE_SAMPLE_PER_PIXEL		= 1.0f;
 #endif
-static const core::u32 CUBE_SIZE			= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
-static const float GRID_MAX_SCALE			= 2000.0f;
-static const float GRID_MIN_SCALE			= 50.0f;
+static const core::u32 CUBE_SIZE				= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+static const float GRID_MAX_SCALE				= 2000.0f;
+static const float GRID_MIN_SCALE				= 50.0f;
 
-static const core::u32 ANY_EYE				= 0;
+static const core::u32 ANY_EYE					= 0;
 #if HLSL_STEREO == 1
-static const core::u32 LEFT_EYE				= 0;
-static const core::u32 RIGHT_EYE			= 1;
-static const float IPD						= 6.5f;
+static const core::u32 LEFT_EYE					= 0;
+static const core::u32 RIGHT_EYE				= 1;
+static const float IPD							= 6.5f;
 #else
-static const core::u32 LEFT_EYE				= 0;
-static const core::u32 RIGHT_EYE			= 0;
-static const float IPD						= 0.0f;
+static const core::u32 LEFT_EYE					= 0;
+static const core::u32 RIGHT_EYE				= 0;
+static const float IPD							= 0.0f;
 #endif
-static const float ZNEAR					= GRID_MIN_SCALE * 0.5f;
-static const float ZFAR						= 10000.0f;
+static const float ZNEAR						= GRID_MIN_SCALE * 0.5f;
+static const float ZFAR							= 10000.0f;
 #if V6_SIMPLE_SCENE == 1
-static const float FOV						= core::DegToRad( 90.0f );
+static const float FOV							= core::DegToRad( 90.0f );
 #else
-static const float FOV						= core::DegToRad( 90.0f );
+static const float FOV							= core::DegToRad( 90.0f );
 #endif
-static const core::u32 GRID_COUNT			= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT			= 1;
-static const float FREE_SCALE				= 50.0f;
-static const core::u32 RANDOM_CUBE_COUNT	= 100;
+static const core::u32 GRID_COUNT				= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
+static const int SAMPLE_MAX_COUNT				= 1;
+static const float FREE_SCALE					= 50.0f;
+static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
-static const core::u32 HMD_FPS				= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT= 3 * HMD_FPS;
+static const core::u32 HMD_FPS					= 75;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 2;
 
-static const uint VERTEX_INPUT_MAX_COUNT	= 6;
-static const uint MESH_MAX_COUNT			= 16384;
-static const uint TEXTURE_MAX_COUNT			= 1024;
-static const uint MATERIAL_MAX_COUNT		= 256;
-static const uint ENTITY_MAX_COUNT			= 16384;
+static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
+static const core::u32 MESH_MAX_COUNT			= 16384;
+static const core::u32 TEXTURE_MAX_COUNT		= 1024;
+static const core::u32 MATERIAL_MAX_COUNT		= 256;
+static const core::u32 ENTITY_MAX_COUNT			= 16384;
 
-static const uint ENTITY_TEXTURE_MAX_COUNT	= 4;
-static const uint ENTITY_TEXTURE_INVALID	= (core::u32)-1;
+static const core::u32 ENTITY_TEXTURE_MAX_COUNT	= 4;
+static const core::u32 ENTITY_TEXTURE_INVALID	= (core::u32)-1;
 
-static const uint DEBUG_BLOCK_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
-static const uint DEBUG_TRACE_MAX_COUNT		= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
+static const core::u32 DEBUG_BLOCK_MAX_COUNT	= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
+static const core::u32 DEBUG_TRACE_MAX_COUNT	= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
 
 #if V6_USE_HMD
 v6::core::u32		s_hmdState				= v6::viewer::HMD_TRACKING_STATE_OFF;
@@ -359,22 +359,22 @@ struct GPUCompute_s
 struct GPUShader_s
 {
 	ID3D11VertexShader* m_vertexShader;
-	ID3D11PixelShader* m_pixelShader;
+	ID3D11PixelShader*	m_pixelShader;
 
-	ID3D11InputLayout* m_inputLayout;
+	ID3D11InputLayout*	m_inputLayout;
 
-	uint m_vertexFormat;
+	core::u32			m_vertexFormat;
 };
 
 struct GPUMesh_s
 {
-	ID3D11Buffer* m_vertexBuffer;
-	ID3D11Buffer* m_indexBuffer;	
-	uint m_vertexCount;
-	uint m_vertexSize;
-	uint m_vertexFormat;
-	uint m_indexCount;
-	uint m_indexSize;
+	ID3D11Buffer*		m_vertexBuffer;
+	ID3D11Buffer*		m_indexBuffer;	
+	core::u32			m_vertexCount;
+	core::u32			m_vertexSize;
+	core::u32			m_vertexFormat;
+	core::u32			m_indexCount;
+	core::u32			m_indexSize;
 	D3D11_PRIMITIVE_TOPOLOGY m_topology;	
 };
 
@@ -1298,7 +1298,7 @@ static void Compute_Release( GPUCompute_s* compute )
 	V6_RELEASE_D3D11( compute->m_computeShader );
 }
 
-static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char* vs, const char* ps, uint vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
+static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char* vs, const char* ps, core::u32 vertexFormat, core::CFileSystem* fileSystem, core::IStack* stack )
 {
 	core::ScopedStack scopedStack( stack );
 
@@ -1482,42 +1482,42 @@ static void ReadBack_Log( const char* res, float value, const char* name )
 	V6_MSG( "%-16s %-30s: %g\n", res, name, value );
 }
 
-static void ReadBack_Log( const char* res, float2 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec2 value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%g, %g)\n", res, name, value.x, value.y );
 }
 
-static void ReadBack_Log( const char* res, float3 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec3 value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%g, %g, %g)\n", res, name, value.x, value.y, value.z );
 }
 
-static void ReadBack_Log( const char* res, float4 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec4 value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%g, %g, %g, %g)\n", res, name, value.x, value.y, value.z, value.w );
 }
 
-static void ReadBack_Log( const char* res, uint2 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec2u value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%4u, %4u)\n", res, name, value.x, value.y );
 }
 
-static void ReadBack_Log( const char* res, uint3 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec3u value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u)\n", res, name, value.x, value.y, value.z );
 }
 
-static void ReadBack_Log( const char* res, int2 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec2i value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%4d, %4d)\n", res, name, value.x, value.y );
 }
 
-static void ReadBack_Log( const char* res, int3 value, const char* name )
+static void ReadBack_Log( const char* res, core::Vec3i value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%4d, %4d, %4d)\n", res, name, value.x, value.y, value.z );
 }
 
-static void ReadBack_Log( const char* res, matrix value, const char* name )
+static void ReadBack_Log( const char* res, core::Mat4x4 value, const char* name )
 {
 	V6_MSG( "%-16s %-30s:\n", res, name );
 	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row0.x, value.m_row0.y, value.m_row0.z, value.m_row0.w );
@@ -2081,10 +2081,10 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 
 static void GPUContext_ReleaseShaders( GPUContext_s* context )
 {
-	for ( uint computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
+	for ( core::u32 computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
 		Compute_Release( &context->computes[computeID] );
 
-	for ( uint shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
+	for ( core::u32 shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
 		Shader_Release( &context->shaders[shaderID] );
 }
 
@@ -2730,7 +2730,7 @@ static void Mesh_UpdateVertices( ID3D11DeviceContext* context, GPUMesh_s* mesh, 
 	context->UpdateSubresource( mesh->m_vertexBuffer, 0, &box, vertices, box.right, box.right );
 }
 
-static void Mesh_Create( ID3D11Device* device, GPUMesh_s* mesh, const void* vertices, uint vertexCount, uint vertexSize, uint vertexFormat, const void* indices, uint indexCount, uint indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
+static void Mesh_Create( ID3D11Device* device, GPUMesh_s* mesh, const void* vertices, core::u32 vertexCount, core::u32 vertexSize, core::u32 vertexFormat, const void* indices, core::u32 indexCount, core::u32 indexSize, D3D11_PRIMITIVE_TOPOLOGY topology )
 {
 	mesh->m_vertexBuffer = nullptr;
 	mesh->m_vertexCount = vertexCount;
@@ -2940,8 +2940,8 @@ static void Mesh_Draw( GPUMesh_s* mesh, core::u32 instanceCount, GPUShader_s* sh
 	ctx->VSSetShader( shader->m_vertexShader, nullptr, 0 );
 	ctx->PSSetShader( shader->m_pixelShader, nullptr, 0 );
 		
-	const uint stride = mesh->m_vertexSize; 
-	const uint offset = 0;
+	const core::u32 stride = mesh->m_vertexSize; 
+	const core::u32 offset = 0;
 			
 	ctx->IASetVertexBuffers( 0, mesh->m_vertexBuffer != nullptr ? 1 : 0, &mesh->m_vertexBuffer, &stride, &offset );	
 	ctx->IASetPrimitiveTopology( mesh->m_topology );
@@ -3755,9 +3755,9 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 
 static core::Vec3 Block_ComputeGridCenter( const core::Vec3* pos, float gridScale )
 {
-	const float cellSize = gridScale / HLSL_GRID_HALF_WIDTH;
-	const core::Vec3 normalizedPos = *pos * (1.0f / cellSize);
-	return core::Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * cellSize;
+	const float blockSize = gridScale / HLSL_GRID_BLOCK_HALF_WIDTH;
+	const core::Vec3 normalizedPos = *pos * (1.0f / blockSize);
+	return core::Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * blockSize;
 }
 
 class CRenderingDevice
@@ -3810,8 +3810,8 @@ public:
 	core::IAllocator*	m_heap;
 	core::IStack*		m_stack;
 
-	uint				m_width;
-	uint				m_height;
+	core::u32			m_width;
+	core::u32			m_height;
 	float				m_aspectRatio;
 };
 
@@ -3877,7 +3877,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 void CRenderingDevice::DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings )
 {
-	for ( uint entityRank = 0; entityRank < scene->entityCount; ++entityRank )
+	for ( core::u32 entityRank = 0; entityRank < scene->entityCount; ++entityRank )
 	{
 		Entity_s* entity = &scene->entities[entityRank];
 		Entity_Draw( entity, scene, &gpuContext, view, settings );		
@@ -4084,7 +4084,7 @@ void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
 		V6_ASSERT( GRID_COUNT <= HLSL_MIP_MAX_COUNT );
 
 		float gridScales[HLSL_MIP_MAX_COUNT];
-		float3 gridCenters[HLSL_MIP_MAX_COUNT];
+		core::Vec3 gridCenters[HLSL_MIP_MAX_COUNT];
 		float gridScale = GRID_MIN_SCALE;
 		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
 		{
@@ -4753,10 +4753,10 @@ bool CRenderingDevice::ReadStream( core::u32 frame )
 	{
 		m_stack->push();
 
-		viewer::CodecFrameDesc_s frameDesc;
-		viewer::CodecFrameData_s frameData;
+		core::CodecFrameDesc_s frameDesc;
+		core::CodecFrameData_s frameData;
 
-		if ( viewer::Codec_ReadFrame( &fileReader, &frameDesc, &frameData, m_stack ) )
+		if ( core::Codec_ReadFrame( &fileReader, &frameDesc, &frameData, m_stack ) )
 		{
 			if ( frameDesc.origin != s_buildOrigin )
 			{
@@ -4773,9 +4773,9 @@ bool CRenderingDevice::ReadStream( core::u32 frame )
 				V6_ERROR( "Stream sampleCount is not compatible.\n" );
 				hasError = true;
 			}
-			else if ( frameDesc.gridResolution != HLSL_GRID_WIDTH )
+			else if ( frameDesc.gridMacroShift != HLSL_GRID_MACRO_SHIFT )
 			{
-				V6_ERROR( "Stream gridResolution is not compatible.\n" );
+				V6_ERROR( "Stream gridMacroShift is not compatible.\n" );
 				hasError = true;
 			}
 			else if ( frameDesc.gridScaleMin != GRID_MIN_SCALE )
@@ -4884,7 +4884,7 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 			core::u32 elementCount = HLSL_STREAM_SIZE;
 			core::u32 streamCurrentOffset = 0;
 			core::u32 streamLowerOffset = 0;
-			for ( uint layer = 0; layer < HLSL_STREAM_LAYER_COUNT; ++layer, elementCount >>= HLSL_STREAM_THREAD_GROUP_SHIFT )
+			for ( core::u32 layer = 0; layer < HLSL_STREAM_LAYER_COUNT; ++layer, elementCount >>= HLSL_STREAM_THREAD_GROUP_SHIFT )
 			{
 				V6_ASSERT( elementCount > 0 );
 
@@ -4983,20 +4983,20 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 		core::CFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
 		{
-			viewer::CodecFrameDesc_s frameDesc = {};
+			core::CodecFrameDesc_s frameDesc = {};
 			frameDesc.origin = s_buildOrigin;
 			frameDesc.frame = frame;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
-			frameDesc.gridResolution = HLSL_GRID_WIDTH;
+			frameDesc.gridMacroShift = HLSL_GRID_MACRO_SHIFT;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
 			memcpy( frameDesc.blockCounts, blockCounts, sizeof( frameDesc.blockCounts ) );
 			
-			viewer::CodecFrameData_s frameData = {};
+			core::CodecFrameData_s frameData = {};
 			frameData.blockPos = (void*)GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &stream.blockPos );
 			frameData.blockData = (void*)GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &stream.blockData );
 
-			viewer::Codec_WriteFrame( &fileWriter, &frameDesc, &frameData );
+			core::Codec_WriteFrame( &fileWriter, &frameDesc, &frameData );
 	
 			GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &stream.blockPos );
 			GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &stream.blockData );

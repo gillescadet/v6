@@ -32,8 +32,6 @@ public:
 	int				m_nYOffset;
 };
 
-BEGIN_ANONYMOUS_NAMESPACE
-
 V6_INLINE void ConvertPoint2Coords(int * vCoords, Vec3 const & vPoint, CGrid::CBuildState const & oBuildState)
 {
 	Vec3 const vDiscretPoint = (vPoint + oBuildState.m_vPoint2CoordsOffset) * oBuildState.m_vPoint2CoordsScale;
@@ -41,8 +39,6 @@ V6_INLINE void ConvertPoint2Coords(int * vCoords, Vec3 const & vPoint, CGrid::CB
 	vCoords[1] = Clamp((int)vDiscretPoint.y, 0, oBuildState.m_vCellCount[1] - 1);
 	vCoords[2] = Clamp((int)vDiscretPoint.z, 0, oBuildState.m_vCellCount[2] - 1);
 }
-
-END_ANONYMOUS_NAMESPACE
 
 CGrid::CGrid(IAllocator & oHeap)
 : m_oHeap(oHeap)

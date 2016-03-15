@@ -7,7 +7,7 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-#define JOB_BUFFER_SIZE		32
+#define JOB_BUFFER_SIZE		1024
 
 template  < typename T >
 struct Job_s
@@ -35,6 +35,8 @@ u32 Atomic_Dec( u32* v );
 u64 Atomic_Dec( u64* v );
 u32 Atomic_Inc( u32* v );
 u64 Atomic_Inc( u64* v );
+u32 Atomic_Or( u32* v, u32 mask );
+u64 Atomic_Or( u64* v, u64 mask );
 
 template  < typename T >
 void Job_Launch( typename Job_s< T >::Process_f process,  T* context );
@@ -47,7 +49,7 @@ void Signal_Wait( Signal_s* signal );
 
 void Thread_Create( unsigned long (__stdcall *process)( void* ), void* ctx );
 
-extern u64				g_jobID;
+extern u64				g_jobCount;
 extern JobBackend_s		g_jobBackends[JOB_BUFFER_SIZE];
 
 template  < typename T >
@@ -59,14 +61,15 @@ unsigned long __stdcall __Job_Execute( void* jobPointer )
 	memset( job, 0, sizeof( Job_s< T > ) );
 	
 	process( context );
-	
+
 	return 0; 
 }
 
 template  < typename T >
 void Job_Launch( typename Job_s< T >::Process_f process,  T* context )
 {
-	const u32 jobID = Atomic_Inc( &g_jobID ) & (JOB_BUFFER_SIZE - 1);
+	const u32 jobID = Atomic_Inc( &g_jobCount ) & (JOB_BUFFER_SIZE - 1);
+	V6_ASSERT( jobID < JOB_BUFFER_SIZE );
 	V6_ASSERT( g_jobBackends[jobID].process == nullptr );
 	V6_ASSERT( sizeof(  JobBackend_s ) == sizeof( Job_s< T > ) );
 	Job_s< T >* job = (Job_s< T >*)&g_jobBackends[jobID];
