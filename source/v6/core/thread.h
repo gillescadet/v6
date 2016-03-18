@@ -31,6 +31,8 @@ struct Signal_s
 
 u32 Atomic_Add( u32* v, u32 inc );
 u64 Atomic_Add( u64* v, u64 inc );
+u32 Atomic_And( u32* v, u32 mask );
+u64 Atomic_And( u64* v, u64 mask );
 u32 Atomic_Dec( u32* v );
 u64 Atomic_Dec( u64* v );
 u32 Atomic_Inc( u32* v );

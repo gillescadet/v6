@@ -42,6 +42,17 @@ u64 Atomic_Inc( u64* v )
 	return InterlockedIncrement( v )-1;
 }
 
+u32 Atomic_And( u32* v, u32 inc )
+{
+	V6_STATIC_ASSERT( sizeof( u32 ) == sizeof( long ) );
+	return InterlockedAnd( (long*)v, (long)inc );
+}
+
+u64 Atomic_And( u64* v, u64 inc )
+{
+	return InterlockedAnd( v, inc );
+}
+
 u32 Atomic_Or( u32* v, u32 inc )
 {
 	V6_STATIC_ASSERT( sizeof( u32 ) == sizeof( long ) );

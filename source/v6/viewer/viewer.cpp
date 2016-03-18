@@ -37,6 +37,7 @@
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_ENABLE_HMD			1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && HLSL_STEREO == 1)
+#define V6_SORTED_STREAM		0
 
 #if V6_USE_HMD == 1
 #include <v6/viewer/hmd.h>
@@ -84,7 +85,7 @@ static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 2;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 75;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -549,12 +550,17 @@ struct Octree_s
 
 struct Stream_s
 {
+#if V6_SORTED_STREAM == 1
 	GPUBuffer_s					groupBits;
 	GPUBuffer_s					bits;
 	GPUBuffer_s					counts;
 	GPUBuffer_s					addresses;
+#endif // #if V6_SORTED_STREAM == 1
 	GPUBuffer_s					blockPos;
 	GPUBuffer_s					blockData;
+
+	core::u32					blockCount;
+	core::u32					cellCount;
 };
 
 struct Block_s
@@ -2598,33 +2604,34 @@ static void Octree_Release( ID3D11Device* device, Octree_s* octree )
 
 static void Stream_Create( ID3D11Device* device, Stream_s* stream, const Config_s* config, core::IAllocator* heap, const core::u32 blockCounts[HLSL_BUCKET_COUNT] )
 {
-	core::u32 blockCount = 0;
-	core::u32 cellCount = 0;
+	stream->blockCount = 0;
+	stream->cellCount = 0;
 
 	core::u32 cellPerBucketCount = 4;
 	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
 	{
-		blockCount += blockCounts[bucket];
-		cellCount += blockCounts[bucket] * cellPerBucketCount;
+		stream->blockCount += blockCounts[bucket];
+		stream->cellCount += blockCounts[bucket] * cellPerBucketCount;
 	}
 
-	blockCount = core::Max( blockCount, 1u );
-	cellCount = core::Max( cellCount, 1u );
-
+#if V6_SORTED_STREAM == 1
 	GPUBuffer_CreateTyped( device, &stream->groupBits, DXGI_FORMAT_R32_UINT, HLSL_STREAM_GROUP_SIZE, 0, "streamGroupBits" );
 	GPUBuffer_CreateTyped( device, &stream->bits, DXGI_FORMAT_R32_UINT, HLSL_STREAM_SIZE, 0, "streamBits" );
 	GPUBuffer_CreateTyped( device, &stream->counts, DXGI_FORMAT_R32_UINT, HLSL_STREAM_SIZE * 2, 0, "streamCounts" );
 	GPUBuffer_CreateTyped( device, &stream->addresses, DXGI_FORMAT_R32_UINT, HLSL_STREAM_SIZE, 0, "streamAddresses" );
-	GPUBuffer_CreateTyped( device, &stream->blockPos, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "streamBlockPositions" );
-	GPUBuffer_CreateTyped( device, &stream->blockData, DXGI_FORMAT_R32_UINT, cellCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "streamBockData" );
+#endif // #if V6_SORTED_STREAM == 1
+	GPUBuffer_CreateTyped( device, &stream->blockPos, DXGI_FORMAT_R32_UINT, core::Max( stream->blockCount, 1u ), GPUBUFFER_CREATION_FLAG_READ_BACK, "streamBlockPositions" );
+	GPUBuffer_CreateTyped( device, &stream->blockData, DXGI_FORMAT_R32_UINT, core::Max( stream->cellCount, 1u ), GPUBUFFER_CREATION_FLAG_READ_BACK, "streamBockData" );
 }
 
 static void Stream_Release( ID3D11Device* device, Stream_s* stream )
 {
+#if V6_SORTED_STREAM == 1
 	GPUBuffer_Release( device, &stream->groupBits );
 	GPUBuffer_Release( device, &stream->bits );
 	GPUBuffer_Release( device, &stream->counts );
 	GPUBuffer_Release( device, &stream->addresses );
+#endif
 	GPUBuffer_Release( device, &stream->blockPos );
 	GPUBuffer_Release( device, &stream->blockData );
 }
@@ -4832,6 +4839,8 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 	static const void* nulls[8] = {};
 
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Stream");
+
+#if V6_SORTED_STREAM == 1
 		
 	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
@@ -4973,6 +4982,32 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 
 		gpuContext.userDefinedAnnotation->EndEvent();
 	}
+
+#else // #if V6_SORTED_STREAM == 1
+
+	{		
+		D3D11_BOX box = {};
+		box.left = 0;
+		box.top = 0;
+		box.front = 0;
+		box.right = stream.blockCount * sizeof( core::u32 );
+		box.bottom = 1;
+		box.back = 1;
+		gpuContext.deviceContext->CopySubresourceRegion( stream.blockPos.buf, 0, 0, 0, 0, m_block.blockPos.buf , 0, &box );
+	}
+
+	{		
+		D3D11_BOX box = {};
+		box.left = 0;
+		box.top = 0;
+		box.front = 0;
+		box.right = stream.cellCount * sizeof( core::u32 );
+		box.bottom = 1;
+		box.back = 1;
+		gpuContext.deviceContext->CopySubresourceRegion( stream.blockData.buf, 0, 0, 0, 0, m_block.blockData.buf , 0, &box );
+	}
+
+#endif
 
 	gpuContext.userDefinedAnnotation->EndEvent();
 

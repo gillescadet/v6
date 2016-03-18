@@ -59,9 +59,29 @@ void InterlockedAdd( uint& value, uint add )
 	core::Atomic_Add( &value, add );
 }
 
+void InterlockedAdd( uint& value, uint add, uint& prevValue )
+{
+	prevValue = core::Atomic_Add( &value, add );
+}
+
+void InterlockedAnd( uint& value, uint mask )
+{
+	core::Atomic_And( &value, mask );
+}
+
+void InterlockedAnd( uint& value, uint mask, uint& prevValue )
+{
+	prevValue = core::Atomic_And( &value, mask );
+}
+
 void InterlockedOr( uint& value, uint mask )
 {
 	core::Atomic_Or( &value, mask );
+}
+
+void InterlockedOr( uint& value, uint mask, uint& prevValue )
+{
+	prevValue = core::Atomic_Or( &value, mask );
 }
 
 void AllMemoryBarrierWithGroupSync()
@@ -116,7 +136,7 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 	s_threadGroupSize = groupSize;
 
 	u32 threadID = 0;
-	V6_PRINT( "Dispatch %s( %d/%d )", name, threadID, elementCount );
+	// V6_PRINT( "Dispatch %s( %d/%d )", name, threadID, elementCount );
 
 	for ( u32 groupID = 0; threadID < elementCount; ++groupID )
 	{
@@ -142,8 +162,7 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 		V6_ASSERT( s_threadDoneCount == groupSize );
 	}
 
-	
-	V6_PRINT( "\rDispatch %s( %d/%d )\n", name, threadID, elementCount );
+	// V6_PRINT( "\rDispatch %s( %d/%d )\n", name, threadID, elementCount );
 }
 
 END_V6_CORE_NAMESPACE

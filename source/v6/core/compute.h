@@ -17,7 +17,11 @@ void		AllMemoryBarrierWithGroupSync();
 uint		countbits( uint n );
 uint		firstbithigh( uint value );
 void		InterlockedAdd( uint& value, uint inc );
+void		InterlockedAdd( uint& value, uint inc, uint& prevValue );
+void		InterlockedAnd( uint& value, uint mask );
+void		InterlockedAnd( uint& value, uint mask, uint& prevValue );
 void		InterlockedOr( uint& value, uint mask );
+void		InterlockedOr( uint& value, uint mask, uint& prevValue );
 
 END_V6_HLSL_NAMESPACE
 

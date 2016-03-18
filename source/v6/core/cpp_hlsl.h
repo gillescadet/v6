@@ -38,13 +38,11 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define row_major
 
-#define DEFINE( NAME )						template < uint NAME >
 #define OUTPUT( TYPE )						TYPE&
 
 typedef unsigned int uint;
 
 typedef v6::core::Vec2i		int2;
-typedef v6::core::Vec3i		int3;
 typedef v6::core::Vec4i		int4;
 
 typedef v6::core::Vec2u		uint2;
@@ -55,6 +53,23 @@ typedef v6::core::Vec2		float2;
 typedef v6::core::Vec3		float3;
 typedef v6::core::Vec4		float4;
 typedef v6::core::Mat4x4	matrix;
+
+struct int3 : core::Vec3i
+{
+	int3() {}
+	int3( const core::Vec3i& v )
+	{
+		x = v.x;
+		y = v.y;
+		z = v.z;
+	}
+	int3( int vx, int vy, int vz )
+	{
+		x = vx;
+		y = vy;
+		z = vz;
+	}
+};
 
 END_V6_HLSL_NAMESPACE
 
