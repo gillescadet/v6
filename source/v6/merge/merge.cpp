@@ -22,7 +22,6 @@ struct MergeContext
 {
 	uint blockPosOffset;
 	uint blockDataOffset;
-	uint blockID;
 };
 
 uint* blockPositions = nullptr;
@@ -43,7 +42,9 @@ MergeContext* mergeContext = nullptr;
 uint c_mergeBlockCount;
 uint c_mergeBlockPosOffset;
 uint c_mergeBlockDataOffset;
-uint c_mergeBlockCellCount;
+uint c_mergeOutBlockPosOffset;
+uint c_mergeOutBlockDataOffset;
+uint c_mergeCellPerBucketCount;
 int3 c_mergeRefBlockPosTranslation;
 int3 c_mergeBlockPosTranslation;
 
@@ -54,7 +55,7 @@ uint c_mergeCurrentOffset;
 uint c_mergeLowerOffset;
 
 uint c_mergeMip;
-uint c_mergeMinCounter;
+uint c_mergeCounter;
 
 #define INTERLEAVE_S( S, SHIFT, OFFSET )				(((S >> SHIFT) & 1) << (SHIFT * 3 + OFFSET))
 #define INTERLEAVE_X( X, SHIFT )						INTERLEAVE_S( X, SHIFT, 0 )
@@ -88,16 +89,27 @@ uint ComputeKeyFromPackedBlockPos( uint packedBlockPos )
 	return key;
 }
 
+uint Sort_GetKey( uint blockPosID, uint packedBlockPos )
+{	
+	const uint mip = packedBlockPos >> 28;
+
+	if ( blockCounters[blockPosID] == c_mergeCounter )
+	{
+		const uint key = ComputeKeyFromPackedBlockPos( packedBlockPos );
+		return key;
+	}
+
+	return (uint)-1;
+}
+
 void Sort_ScatterBlock( uint packedBlockPos, uint prevBlockID, uint newBlockID )
 {
-	const uint blockPosID = c_mergeBlockPosOffset + newBlockID;
+	const uint blockPosID = c_mergeOutBlockPosOffset + newBlockID;
 	outBlockPositions[blockPosID] = packedBlockPos;
 
-	const uint dataOffset = c_mergeBlockDataOffset;
-	const uint dataSize = c_mergeBlockCellCount;
-
-	const uint srcDataBaseID = dataOffset + prevBlockID * dataSize;
-	const uint dstDataBaseID = dataOffset + newBlockID * dataSize;
+	const uint dataSize = c_mergeCellPerBucketCount;
+	const uint srcDataBaseID = c_mergeBlockDataOffset + prevBlockID * dataSize;
+	const uint dstDataBaseID = c_mergeOutBlockDataOffset + newBlockID * dataSize;
 
 	for ( uint cellID = 0; cellID < dataSize; ++cellID )
 		outBlockData[dstDataBaseID + cellID] = blockData[srcDataBaseID + cellID];
@@ -272,7 +284,7 @@ uint Compare_GetKey( uint blockPosID, uint packedBlockPos )
 {	
 	const uint mip = packedBlockPos >> 28;
 
-	if ( mip == c_mergeMip && blockCounters[blockPosID] >= c_mergeMinCounter )
+	if ( mip == c_mergeMip && blockCounters[blockPosID] >= c_mergeCounter )
 	{
 		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
 		const uint key = ComputeKeyFromBlockPos( blockPos, c_mergeBlockPosTranslation );
@@ -301,7 +313,7 @@ void Compare_ScatterBlock( uint packedBlockPos, uint prevBlockID, uint newBlockI
 	outBlockPositions[newBlockID] = packedBlockPos;
 
 	const uint dataOffset = c_mergeBlockDataOffset;
-	const uint dataSize = c_mergeBlockCellCount;
+	const uint dataSize = c_mergeCellPerBucketCount;
 
 	const uint srcDataBaseID = dataOffset + prevBlockID * dataSize;
 	const uint dstDataBaseID = newBlockID * dataSize;
@@ -316,7 +328,7 @@ void Compare_UnsetBit( uint groupID, uint threadGroupID, uint threadID )
 	if ( blockID < c_mergeBlockCount )
 	{
 		const uint blockPosID = blockID;
-		const uint blockDataOffset = blockID * c_mergeBlockCellCount;
+		const uint blockDataOffset = blockID * c_mergeCellPerBucketCount;
 
 		const uint refPackedBlockPos = refBlockPositions[blockPosID];
 		const uint refBlockPos = refPackedBlockPos & 0x0FFFFFFF;
@@ -329,7 +341,7 @@ void Compare_UnsetBit( uint groupID, uint threadGroupID, uint threadID )
 		V6_ASSERT( refKey == key );
 
 		bool different = false;
-		for ( uint cellID = 0; cellID < c_mergeBlockCellCount; ++cellID )
+		for ( uint cellID = 0; cellID < c_mergeCellPerBucketCount; ++cellID )
 		{
 			const uint blockDataID = blockDataOffset + cellID;
 			if ( refBlockData[blockDataID] != blockData[blockDataID] )
@@ -382,16 +394,16 @@ void TrimShared( uint groupID, uint threadGroupID, uint threadID )
 		
 		if ( blockCounters[srcBlockPosID] == 0 )
 		{
-			const uint srcBlockDataID = c_mergeBlockDataOffset + blockID * c_mergeBlockCellCount;
+			const uint srcBlockDataID = c_mergeBlockDataOffset + blockID * c_mergeCellPerBucketCount;
 
-			uint newBlockID;
-			InterlockedAdd( mergeContext[0].blockID, 1, newBlockID );
+			uint dstBlockPosID;
+			uint dstBlockDataID;
+			InterlockedAdd( mergeContext[0].blockPosOffset, 1, dstBlockPosID );
+			InterlockedAdd( mergeContext[0].blockDataOffset, c_mergeCellPerBucketCount, dstBlockDataID );
 		
-			const uint dstBlockPosID = mergeContext[0].blockPosOffset + newBlockID;
-			const uint dstBlockDataID = mergeContext[0].blockDataOffset + newBlockID * c_mergeBlockCellCount;
-
-			outBlockPositions[dstBlockPosID] = blockPositions[srcBlockDataID];
-			for ( uint cellID = 0; cellID < c_mergeBlockCellCount; ++cellID )
+			const uint packedBlockPos = blockPositions[srcBlockPosID];
+			outBlockPositions[dstBlockPosID] = packedBlockPos;
+			for ( uint cellID = 0; cellID < c_mergeCellPerBucketCount; ++cellID )
 				outBlockData[dstBlockDataID + cellID] = blockData[srcBlockDataID + cellID];
 		}
 	}
@@ -408,6 +420,7 @@ struct Context_s
 	core::u32 gridMacroHalfWidth;
 	float gridScaleMin;
 	float gridScaleMax;
+	core::u32 frameCount;
 	core::u32 mipCount;
 };
 
@@ -422,7 +435,7 @@ struct Frame_s
 	core::u32*				blockCounters;
 	core::Vec3i				gridMin[CODEC_MIP_MAX_COUNT];
 	core::Vec3i				gridMax[CODEC_MIP_MAX_COUNT];
-
+	core::u32				finalBlockCounts[CODEC_BUCKET_COUNT][V6_MERGE_SHARED_FRAME_MAX_COUNT];
 };
 
 bool Frame_LoadFromFile( Frame_s* frame, const char* filename, core::IAllocator* allocator )
@@ -459,9 +472,7 @@ bool Frame_LoadFromFile( Frame_s* frame, const char* filename, core::IAllocator*
 	return true;
 }
 
-#if 0
-
-void Frame_Sort( Frame_s* frame, core::IStack* allocator )
+void Frame_Sort( Frame_s* frame, core::u32 frameID, const Context_s* context, core::IStack* allocator )
 {
 	allocator->push();
 
@@ -472,71 +483,65 @@ void Frame_Sort( Frame_s* frame, core::IStack* allocator )
 	hlsl::counts = allocator->newArray< core::u32 >( HLSL_STREAM_SIZE * 2 );
 	hlsl::addresses = allocator->newArray< core::u32 >( HLSL_STREAM_SIZE );
 
-#if V6_MERGE_VERBOSE == 1
-	{
-		core::u32 offset = 0;
-		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		{
-			for ( core::u32 blockRank = 0; blockRank < frameDescRef.blockCounts[bucket]; ++blockRank )
-			{
-				const core::u32 blockID = blockRank + offset;
-				printf( "Block %d: %d\n", blockID, hlsl::blockPositions[blockID] );
-			}
-			offset += frameDescRef.blockCounts[bucket];
-		}
-	}
-#endif // #if V6_MERGE_VERBOSE == 1
+	hlsl::outBlockPositions = allocator->newArray< core::u32 >( frame->blockPosCount );
+	hlsl::outBlockData = allocator->newArray< core::u32 >( frame->blockDataCount );
+
+	hlsl::c_mergeOutBlockDataOffset = 0;
+	hlsl::c_mergeOutBlockPosOffset = 0;
 
 	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
-		memset( hlsl::bits, 0, HLSL_STREAM_SIZE * sizeof( core::u32 ) );
-		memset( hlsl::groupBits, 0, HLSL_STREAM_GROUP_SIZE * sizeof( core::u32 ) );
-		memset( hlsl::counts, 0, HLSL_STREAM_SIZE * 2 * sizeof( core::u32 ) );
+		const core::u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		hlsl::c_mergeBlockCount = frame->desc.blockCounts[bucket];
 		hlsl::c_mergeBlockPosOffset = frame->blockPosOffsets[bucket];
 		hlsl::c_mergeBlockDataOffset = frame->blockDataOffsets[bucket];
-		hlsl::c_mergeBlockCellCount = 1 << (bucket + 2);
+		hlsl::c_mergeCellPerBucketCount = cellPerBucketCount;
 
-		core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::SetBitForSort, "SetBitForSort" );
-
-		core::u32 elementCount = HLSL_STREAM_SIZE;
-		hlsl::c_mergeLowerOffset = 0;
-		for ( core::u32 layer = 0; layer < HLSL_STREAM_LAYER_COUNT; ++layer, elementCount >>= HLSL_STREAM_THREAD_GROUP_SHIFT )
+		for ( core::u32 counter = 0; counter < context->frameCount; ++counter )
 		{
-			V6_ASSERT( elementCount > 0 );
-			hlsl::c_mergeCurrentOffset = hlsl::c_mergeLowerOffset;
-			hlsl::c_mergeLowerOffset += elementCount;
-			core::Compute_Dispatch( elementCount, HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::PrefixSum, "PrefixSum" );
+			memset( hlsl::bits, 0, HLSL_STREAM_SIZE * sizeof( core::u32 ) );
+			memset( hlsl::groupBits, 0, HLSL_STREAM_GROUP_SIZE * sizeof( core::u32 ) );
+			memset( hlsl::counts, 0, HLSL_STREAM_SIZE * 2 * sizeof( core::u32 ) );			
+
+			hlsl::c_mergeCounter = counter;
+			hlsl::s_Compaction_GetKey = hlsl::Sort_GetKey;
+			core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_STREAM_THREAD_GROUP_SIZE, hlsl::Compaction_SetBit< true >, "Compaction_SetBit" );
+
+			core::u32 elementCount = HLSL_STREAM_SIZE;
+			hlsl::c_mergeLowerOffset = 0;
+			for ( core::u32 layer = 0; layer < HLSL_STREAM_LAYER_COUNT; ++layer, elementCount >>= HLSL_STREAM_THREAD_GROUP_SHIFT )
+			{
+				V6_ASSERT( elementCount > 0 );
+				hlsl::c_mergeCurrentOffset = hlsl::c_mergeLowerOffset;
+				hlsl::c_mergeLowerOffset += elementCount;
+				core::Compute_Dispatch( elementCount, HLSL_STREAM_THREAD_GROUP_SIZE, hlsl::Compaction_PrefixSum< HLSL_STREAM_THREAD_GROUP_SIZE >, "Compaction_PrefixSum" );
+			}
+			V6_ASSERT( elementCount <= 1 );
+
+			core::Compute_Dispatch( HLSL_STREAM_SIZE, HLSL_STREAM_THREAD_GROUP_SIZE, hlsl::Compaction_Summarize< HLSL_STREAM_SIZE, HLSL_STREAM_LAYER_COUNT, HLSL_STREAM_THREAD_GROUP_SIZE >, "Compaction_Summarize" );
+
+			core::u32 sortedBlockCount = hlsl::counts[hlsl::c_mergeLowerOffset];
+			frame->finalBlockCounts[bucket][counter] = sortedBlockCount;
+
+			hlsl::s_ScatterBlock = hlsl::Sort_ScatterBlock;
+			core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_STREAM_THREAD_GROUP_SIZE, hlsl::Compaction_Scatter, "Compaction_Scatter" );
+
+			hlsl::c_mergeOutBlockPosOffset += sortedBlockCount;
+			hlsl::c_mergeOutBlockDataOffset += sortedBlockCount * cellPerBucketCount;
 		}
-		V6_ASSERT( elementCount <= 1 );
 
-		core::Compute_Dispatch( HLSL_STREAM_SIZE, HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Summarize, "Summarize" );
-
-		hlsl::sortedBlockPositions = frame->blockPositions;
-		hlsl::sortedBlockData = frame->blockData;
-		core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Scatter, "Scatter" );
+		V6_ASSERT( hlsl::c_mergeOutBlockPosOffset == frame->desc.blockCounts[bucket] );
 	}
+
+	V6_ASSERT( hlsl::c_mergeOutBlockPosOffset == frame->blockPosCount );
+
+	memcpy( frame->data.blockPos, hlsl::outBlockPositions, frame->blockPosCount * sizeof( core::u32 ) );
+	memcpy( frame->data.blockData, hlsl::outBlockData, frame->blockDataCount * sizeof( core::u32 ) );
+	frame->blockCounters = nullptr;
 
 	allocator->pop();
-
-	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		int prevKey = -1;
-		for ( core::u32 blockRank = 0; blockRank < frame->desc.blockCounts[bucket]; ++blockRank )
-		{
-			const core::u32 blockID = blockRank + frame->blockPosOffsets[bucket];
-#if V6_MERGE_VERBOSE == 1
-			printf( "Block %d: %d, %d\n", blockID, allBlockIDs[frame][blockID], allBlockPositions[frame][blockID] );
-#endif // #if V6_MERGE_VERBOSE == 1
-			const core::u32 key = hlsl::ComputeKeyFromPackedBlockPos( frame->blockPositions[blockID] );
-			V6_ASSERT( prevKey < (int)key );
-			prevKey = (int)key;
-		}
-	}
 }
-
-#endif
 
 void Frame_DumpCounters( const Frame_s* frame, core::u32 frameID )
 {
@@ -544,6 +549,7 @@ void Frame_DumpCounters( const Frame_s* frame, core::u32 frameID )
 	for ( core::u32 blockID = 0; blockID < frame->blockPosCount; ++blockID )
 	{
 		V6_ASSERT( frame->blockCounters[blockID] < V6_MERGE_SHARED_FRAME_MAX_COUNT );
+		// V6_MSG( "Frame %d: blockID %d, blockPackedPos 0x%08X, shared %d\n", frameID, blockID, ((int*)(frame->data.blockPos))[blockID], frame->blockCounters[blockID] );
 		++counters[frame->blockCounters[blockID]];
 	}
 
@@ -559,14 +565,14 @@ void Frame_DumpCounters( const Frame_s* frame, core::u32 frameID )
 void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID, const Context_s* context, core::IStack* allocator )
 {
 	V6_ASSERT( refFrameID < newFrameID );
-	hlsl::c_mergeMinCounter = newFrameID - refFrameID - 1;
+	core::u32 mergeMinCounters[2] = { newFrameID - refFrameID - 1, 0 };
 
 	for ( core::u32 mip = 0; mip < context->mipCount; ++mip )
 	{
 		bool overlap = true; 
 		for ( core::u32 axis = 0; axis < 3; ++axis )
 		{
-			if ( frames[refFrameID].gridMin[mip][axis] > frames[newFrameID].gridMax[mip][axis] || frames[newFrameID].gridMin[mip][axis] > frames[refFrameID].gridMax[mip][axis] )
+			if ( frames[refFrameID].gridMin[mip][axis] >= frames[newFrameID].gridMax[mip][axis] || frames[newFrameID].gridMin[mip][axis] >= frames[refFrameID].gridMax[mip][axis] )
 			{
 				overlap = false;
 				break;
@@ -587,8 +593,8 @@ void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID,
 			const core::u32 gridMacroDoubleWidth = context->gridMacroWidth << 4;
 			V6_ASSERT( boxDim.x <= (int)gridMacroDoubleWidth && boxDim.y <= (int)gridMacroDoubleWidth && boxDim.z <= (int)gridMacroDoubleWidth );
 	
-			const core::u32 cellCount = 1 << (bucket + 2);
-			hlsl::c_mergeBlockCellCount = cellCount;
+			const core::u32 cellPerBucketCount = 1 << (bucket + 2);
+			hlsl::c_mergeCellPerBucketCount = cellPerBucketCount;
 
 			allocator->push();
 
@@ -609,6 +615,7 @@ void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID,
 				hlsl::c_mergeBlockCount = frame->desc.blockCounts[bucket];
 				hlsl::c_mergeBlockPosOffset = frame->blockPosOffsets[bucket];
 
+				hlsl::c_mergeCounter = mergeMinCounters[frameRank];
 				hlsl::s_Compaction_GetKey = hlsl::Compare_GetKey;
 				core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compaction_SetBit< false >, "Compare_SetBit" );
 			}
@@ -650,7 +657,7 @@ void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID,
 				}
 				V6_ASSERT( elementCount <= 1 );
 
-				core::Compute_Dispatch( HLSL_MERGE_SIZE, HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compaction_Summarize< HLSL_MERGE_SIZE, HLSL_STREAM_LAYER_COUNT, HLSL_MERGE_THREAD_GROUP_SIZE >, "Compaction_Summarize" );
+				core::Compute_Dispatch( HLSL_MERGE_SIZE, HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compaction_Summarize< HLSL_MERGE_SIZE, HLSL_MERGE_LAYER_COUNT, HLSL_MERGE_THREAD_GROUP_SIZE >, "Compaction_Summarize" );
 
 				sameBlockCounts[frameRank] = hlsl::counts[hlsl::c_mergeLowerOffset];
 		
@@ -660,17 +667,21 @@ void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID,
 					hlsl::c_mergeBlockDataOffset = frame->blockDataOffsets[bucket];
 
 					blockPositionBuffers[frameRank] = allocator->newArray< core::u32 >( sameBlockCounts[frameRank] );
-					blockDataBuffers[frameRank] = allocator->newArray< core::u32 >( sameBlockCounts[frameRank] * cellCount );
+					blockDataBuffers[frameRank] = allocator->newArray< core::u32 >( sameBlockCounts[frameRank] * cellPerBucketCount );
 					hlsl::outBlockPositions = blockPositionBuffers[frameRank];
 					hlsl::outBlockData = blockDataBuffers[frameRank];
+					
+					hlsl::c_mergeCounter = mergeMinCounters[frameRank];
 					hlsl::s_ScatterBlock = hlsl::Compare_ScatterBlock;
 					core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compaction_Scatter, "Compaction_Scatter" );
 				}
 			}
 
 			V6_ASSERT( sameBlockCounts[0] == sameBlockCounts[1] );
+#if 0
 			if ( sameBlockCounts[1] != 0 )
-				V6_MSG( "Sharing %5u blocks at mip %d, bucket %d\n", sameBlockCounts[1], bucket, mip );
+				V6_MSG( "Sharing %5u blocks at mip %d, bucket %d\n", sameBlockCounts[1], mip, bucket );
+#endif
 
 			hlsl::bits = bitBuffers[1];
 
@@ -719,22 +730,20 @@ void Frame_TrimShared( Frame_s* frame, core::IStack* allocator )
 	hlsl::outBlockPositions = allocator->newArray< core::u32 >( frame->blockPosCount );
 	hlsl::outBlockData = allocator->newArray< core::u32 >( frame->blockDataCount );
 
+	core::u32 prevBlockCount = 0;
 	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
-		const core::u32 cellCount = 1 << (bucket + 2);
+		const core::u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		hlsl::c_mergeBlockCount = frame->desc.blockCounts[bucket];
 		hlsl::c_mergeBlockPosOffset = frame->blockPosOffsets[bucket];
 		hlsl::c_mergeBlockDataOffset  = frame->blockDataOffsets[bucket];
-		hlsl::c_mergeBlockCellCount = cellCount;
+		hlsl::c_mergeCellPerBucketCount = cellPerBucketCount;
 
 		core::Compute_Dispatch( frame->desc.blockCounts[bucket], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::TrimShared, "TrimShared" );
 
-		frame->desc.blockCounts[bucket] = mergeContext.blockID;
-
-		mergeContext.blockPosOffset += mergeContext.blockID;
-		mergeContext.blockDataOffset += mergeContext.blockID * cellCount;
-		mergeContext.blockID = 0;
+		frame->desc.blockCounts[bucket] = mergeContext.blockPosOffset - prevBlockCount;
+		prevBlockCount = mergeContext.blockPosOffset;
 	}
 
 	memcpy( frame->data.blockPos, hlsl::outBlockPositions, mergeContext.blockPosOffset * sizeof( core::u32 ) );
@@ -764,23 +773,25 @@ int main()
 	core::CHeap heap;
 	core::Stack stack( &heap, 100 * 1024 * 1024 );
 
-	const core::u32 frameCount = 3;
+	Context_s context = {};
+
+	context.frameCount = 3;
 	const char* filenameTemplate = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 
-	if ( frameCount < 1 )
+	if ( context.frameCount < 1 )
 		return 0;
 
 	core::Compute_Init();
 
-	Context_s context = {};
-	Frame_s frames[frameCount];
+	Frame_s* frames = stack.newArray< Frame_s >( context.frameCount );
+	memset( frames, 0, context.frameCount * sizeof( Frame_s ) );
 
-	for ( core::u32 frameID = 0; frameID < frameCount; ++frameID )
+	for ( core::u32 frameID = 0; frameID < context.frameCount; ++frameID )
 	{
 		Frame_s* frame = &frames[frameID];
 
 		char filename[256];
-		sprintf_s( filename, sizeof( filename ), filenameTemplate, frameID );
+		sprintf_s( filename, sizeof( filename ), filenameTemplate, frameID /*== 0 ? 0 : 2*/ );
 
 		if ( !Frame_LoadFromFile( frame, filename, &stack ) )
 			return 1;
@@ -809,8 +820,6 @@ int main()
 			}
 		}
 
-		// Frame_Sort( frame, &stack );
-
 		float gridScale = context.gridScaleMin;
 		for ( core::u32 mip = 0; mip < context.mipCount; ++mip, gridScale *= 2.0f )
 		{
@@ -824,23 +833,28 @@ int main()
 		V6_MSG( "Frame %d: loaded %d blocks from %s.\n", frameID, frame->blockPosCount, filename );
 	}
 
-	for ( core::u32 newFrameID = 1; newFrameID < frameCount; ++newFrameID )
+	for ( core::u32 newFrameID = 1; newFrameID < context.frameCount; ++newFrameID )
 	{
 		Frame_s* newFrame = &frames[newFrameID];
 		
 		for ( core::u32 refFrameID = 0; refFrameID < newFrameID; ++refFrameID )
+		{
 			Frame_Compare( frames, refFrameID, newFrameID, &context, &stack );
 
-		const core::u32 prevBlockCount = newFrame->blockPosCount;
-		Frame_TrimShared( newFrame, &stack );
+			const core::u32 prevBlockCount = newFrame->blockPosCount;
+			Frame_TrimShared( newFrame, &stack );
 
-		V6_MSG( "Frame %d: %d/%d blocks trimmed.\n", newFrameID, prevBlockCount-newFrame->blockPosCount, prevBlockCount );
+			V6_MSG( "Frame %02d.%02d: %d/%d blocks trimmed.\n", newFrameID, refFrameID, prevBlockCount-newFrame->blockPosCount, prevBlockCount );
+		}
 	}
 
-#if 0
-	for ( core::u32 frameID = 0; frameID < frameCount; ++frameID )
+#if 1
+	for ( core::u32 frameID = 0; frameID < context.frameCount; ++frameID )
 		Frame_DumpCounters( &frames[frameID], frameID );
 #endif
+
+	for ( core::u32 frameID = 0; frameID < context.frameCount; ++frameID )
+		Frame_Sort( &frames[frameID], frameID, &context, &stack );
 
 	core::Compute_Release();
 

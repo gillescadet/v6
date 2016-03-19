@@ -9,13 +9,14 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-static bool		s_initialized = false;
-static u32		s_threadDoneCount = 0;
-static u32		s_threadGroupSize = 0;
-static u32		s_barrier = 0;
-static u32		s_concurrentBarrierCounts[2];
-static Signal_s	s_threadGroupDone;
-static Signal_s	s_threadGroupBarriers[2];
+static bool				s_initialized = false;
+static u32				s_threadDoneCount = 0;
+static u32				s_threadGroupSize = 0;
+static u32				s_barrier = 0;
+static u32				s_concurrentBarrierCounts[2];
+static Signal_s			s_threadGroupDone;
+static Signal_s			s_threadGroupBarriers[2];
+static WorkerThread_s	s_workerThreads[GROUP_MAX_SIZE];
 
 struct ThreadContext_s
 {
@@ -27,8 +28,9 @@ struct ThreadContext_s
 
 // Local
 
-static void KernelWrapper( ThreadContext_s* threadContext )
+static void KernelWrapper( void* threadContextPointer )
 {
+	ThreadContext_s* threadContext = (ThreadContext_s*)threadContextPointer;
 	threadContext->kernel( threadContext->groupID, threadContext->threadGroupID, threadContext->threadID );
 
 	if ( Atomic_Inc( &s_threadDoneCount ) + 1 == s_threadGroupSize )
@@ -135,6 +137,9 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 	V6_ASSERT( groupSize < GROUP_MAX_SIZE  );
 	s_threadGroupSize = groupSize;
 
+	for ( u32 threadGroupID = 0; threadGroupID < groupSize; ++threadGroupID )
+		WorkerThread_Create( &s_workerThreads[threadGroupID] );
+
 	u32 threadID = 0;
 	// V6_PRINT( "Dispatch %s( %d/%d )", name, threadID, elementCount );
 
@@ -154,12 +159,18 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 			threadContexts[threadGroupID].groupID = groupID;
 			threadContexts[threadGroupID].threadGroupID = threadGroupID;
 			threadContexts[threadGroupID].threadID = threadID;
-			Job_Launch( KernelWrapper, &threadContexts[threadGroupID] );
+			WorkerThread_AddJob( &s_workerThreads[threadGroupID], KernelWrapper, &threadContexts[threadGroupID] );
 		}
 
 		Signal_Wait( &s_threadGroupDone );
 		
 		V6_ASSERT( s_threadDoneCount == groupSize );
+	}
+
+	for ( u32 threadGroupID = 0; threadGroupID < groupSize; ++threadGroupID )
+	{
+		WorkerThread_WaitAllJobs( &s_workerThreads[threadGroupID] );
+		WorkerThread_Release( &s_workerThreads[threadGroupID] );
 	}
 
 	// V6_PRINT( "\rDispatch %s( %d/%d )\n", name, threadID, elementCount );
