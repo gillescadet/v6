@@ -52,7 +52,8 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static const float AVERAGE_LAYER_COUNT			= 2.0f;
+static const float AVERAGE_LAYER_COUNT			= 4.0f; // temp for low res
+//static const float AVERAGE_LAYER_COUNT			= 2.0f;
 #if HLSL_CELL_SUPER_SAMPLING_WIDTH > 1
 static const float AVERAGE_SAMPLE_PER_PIXEL		= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 #else
@@ -80,7 +81,7 @@ static const float FOV							= core::DegToRad( 90.0f );
 static const float FOV							= core::DegToRad( 90.0f );
 #endif
 static const core::u32 GRID_COUNT				= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT				= 1;
+static const int SAMPLE_MAX_COUNT				= 9;
 static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 

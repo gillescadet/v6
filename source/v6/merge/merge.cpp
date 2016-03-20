@@ -694,7 +694,7 @@ void Frame_Compare( Frame_s* frames, core::u32 refFrameID, core::u32 newFrameID,
 				hlsl::c_mergeRefBlockPosTranslation = frames[refFrameID].gridMin[mip] - boxMin;
 				hlsl::c_mergeBlockPosTranslation = frames[newFrameID].gridMin[mip] - boxMin;
 
-				core::Compute_Dispatch( sameBlockCounts[1], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compare_AndBit, "Compare_AndBit" );
+				core::Compute_Dispatch( sameBlockCounts[1], HLSL_MERGE_THREAD_GROUP_SIZE, hlsl::Compare_UnsetBit, "Compare_UnsetBit" );
 			}
 
 			for ( core::u32 frameRank = 0; frameRank < 2; ++frameRank )
@@ -775,7 +775,7 @@ int main()
 
 	Context_s context = {};
 
-	context.frameCount = 3;
+	context.frameCount = 2;
 	const char* filenameTemplate = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 
 	if ( context.frameCount < 1 )
@@ -853,8 +853,10 @@ int main()
 		Frame_DumpCounters( &frames[frameID], frameID );
 #endif
 
+#if 0
 	for ( core::u32 frameID = 0; frameID < context.frameCount; ++frameID )
 		Frame_Sort( &frames[frameID], frameID, &context, &stack );
+#endif
 
 	core::Compute_Release();
 

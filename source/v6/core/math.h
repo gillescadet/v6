@@ -11,8 +11,8 @@ static const float PI = 3.1415926f;
 
 static const float M_TO_CM = 100.0f;
 
-template<typename T>
-V6_INLINE T Abs( T x ) { return fabs( x ); }
+template< typename T >
+V6_INLINE T Abs( T x ) { return abs( x ); }
 
 template<typename T>
 V6_INLINE T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }

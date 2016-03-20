@@ -16,6 +16,7 @@ BEGIN_V6_CORE_NAMESPACE
 #define CODEC_FRAME_VERSION			3
 
 #define CODEC_BUCKET_COUNT			5
+#define CODEC_CELL_MAX_COUNT		64
 #define CODEC_MIP_MAX_COUNT			16
 
 class IAllocator;
@@ -45,4 +46,4 @@ void	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 
 END_V6_CORE_NAMESPACE
 
-#endif // __V6_VIEWER_CODEC_H__
+#endif // __V6_CORE_CODEC_H__

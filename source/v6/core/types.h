@@ -16,7 +16,6 @@ struct hex16 { u16 n; };
 
 typedef signed int			s32;
 typedef unsigned int		u32;
-typedef unsigned int		uint;
 struct hex32 { u32 n; };
 
 typedef signed long long	s64;

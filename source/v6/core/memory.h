@@ -73,7 +73,7 @@ public:
 class Stack : public IStack
 {
 public:
-					Stack( IAllocator* heap, uint capacity = 1024 * 1024 );
+					Stack( IAllocator* heap, u32 capacity = 1024 * 1024 );
 	virtual			~Stack();
 
 public:
@@ -82,12 +82,12 @@ public:
 	virtual void	pop() override;
 
 private:
-	IAllocator*			m_heap;
-	uint*			m_stack;
-	void*			m_buffer;
-	uint			m_size;
-	uint			m_capacity;	
-	uint			m_stackSize;
+	IAllocator*	m_heap;
+	u32*		m_stack;
+	void*		m_buffer;
+	u32			m_size;
+	u32			m_capacity;	
+	u32			m_stackSize;
 };
 
 class ScopedStack

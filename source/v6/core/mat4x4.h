@@ -52,7 +52,7 @@ V6_INLINE void Mat4x4_InverseTransformDir( Vec3* r, const Mat4x4& m, const Vec3&
 
 V6_INLINE void Mat4x4_Mul( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 {
-	const auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
+	const auto __Dot = [ r, a, b ]( u32 raw, u32 col ) -> float
 	{
 		return
 			a.m_rows[raw].x * b.m_row0.m_fValues[col] +
@@ -69,7 +69,7 @@ V6_INLINE void Mat4x4_Mul( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 
 V6_INLINE void Mat4x4_Mul3x3( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 {
-	const auto __Dot = [ r, a, b ]( uint raw, uint col ) -> float
+	const auto __Dot = [ r, a, b ]( u32 raw, u32 col ) -> float
 	{
 		return
 			a.m_rows[raw].x * b.m_row0.m_fValues[col] +
@@ -85,7 +85,7 @@ V6_INLINE void Mat4x4_Mul3x3( Mat4x4* r, const Mat4x4& a, const Mat4x4& b )
 
 V6_INLINE void Mat4x4_Transpose( Mat4x4* r )
 {
-	auto __Swap = [ r ]( uint raw, uint col)
+	auto __Swap = [ r ]( u32 raw, u32 col)
 	{
 		float tmp;
 		tmp = r->m_rows[raw].m_fValues[col];
@@ -152,7 +152,7 @@ V6_INLINE void Mat4x4_SetTranslation( Mat4x4* r, const Vec3& v )
 
 V6_INLINE void Mat4x4_AffineInverse( Mat4x4* r )
 {
-	auto __Swap = [ r ]( uint raw, uint col)
+	auto __Swap = [ r ]( u32 raw, u32 col)
 	{
 		float tmp;
 		tmp = r->m_rows[raw].m_fValues[col];

@@ -90,15 +90,15 @@ void CBlockAllocator::clear()
 	BlockAllocator_Clear( &allocator );
 }
 
-static const uint STACK_CAPACITY = 32;
+static const u32 STACK_CAPACITY = 32;
 
-Stack::Stack( IAllocator* heap, uint capacity )
+Stack::Stack( IAllocator* heap, u32 capacity )
 	: m_heap( heap )
 {
 	m_buffer = m_heap->alloc( (int)capacity );
 	m_capacity = capacity;
 	m_size = 0;
-	m_stack = (uint*)Stack::alloc( STACK_CAPACITY * sizeof(uint) );
+	m_stack = (u32*)Stack::alloc( STACK_CAPACITY * sizeof(u32) );
 	m_stackSize = 0;
 }
 
