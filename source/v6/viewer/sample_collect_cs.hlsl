@@ -33,8 +33,7 @@ uint GetMip( float3 p )
 	for ( uint mip = 0; mip < HLSL_MIP_MAX_COUNT; ++mip )
 	{
 		const float3 delta = p - c_sampleMipBoundaries[mip].xyz;
-		const float distanceSq = dot( delta, delta );
-		if ( distanceSq < c_sampleMipBoundaries[mip].w )
+		if ( all( abs( delta ) < c_sampleMipBoundaries[mip].w ) )
 			return mip;
 	}
 

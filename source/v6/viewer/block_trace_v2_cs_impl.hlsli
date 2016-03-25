@@ -18,9 +18,9 @@ Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV 
 
 RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
 RWBuffer< uint > blockCellItemCounters						: register( HLSL_BLOCK_CELL_ITEM_COUNT_UAV );
-#if BLOCK_GET_STATS == 1
+#if BLOCK_DEBUG == 1
 RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_TRACE_STATS_UAV );
-#endif // #if BLOCK_GET_STATS == 1
+#endif // #if BLOCK_DEBUG == 1
 
 bool TraceCell( int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS, uint eye )
 {
@@ -44,9 +44,10 @@ void main( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint cellID = DTid.x;
 
-#if BLOCK_GET_STATS == 1
-	InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );
-#endif // #if BLOCK_GET_STATS == 1
+#if BLOCK_DEBUG == 1
+	if ( c_blockGetStats )
+		InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );
+#endif // #if BLOCK_DEBUG == 1
 
 #if HLSL_ENCODE_DATA == 1
 	if ( cellID < trace_cellCount )
@@ -54,9 +55,10 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
 #endif
 	{
-#if BLOCK_GET_STATS == 1
-		InterlockedAdd( blockTraceStats[0].cellProcessedCount, 1 );
-#endif // #if BLOCK_GET_STATS == 1
+#if BLOCK_DEBUG == 1
+		if ( c_blockGetStats )
+			InterlockedAdd( blockTraceStats[0].cellProcessedCount, 1 );
+#endif // #if BLOCK_DEBUG == 1
 
 		bool valid;
 		uint rgb_none;
@@ -93,7 +95,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const uint y = (((blockPos >> HLSL_GRID_MACRO_SHIFT	 ) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_SHIFT	) & HLSL_GRID_BLOCK_MASK);
 			const uint z = (((blockPos >> HLSL_GRID_MACRO_2XSHIFT) & HLSL_GRID_MACRO_MASK) << HLSL_GRID_BLOCK_SHIFT) | ((cellPos >> HLSL_GRID_BLOCK_2XSHIFT	) & HLSL_GRID_BLOCK_MASK);
 			const uint3 cellCoords = uint3( x, y, z );
-			
+
+#if BLOCK_DEBUG == 1
+			if ( c_blockShowMips )
+			{
+				const uint mipColors[6] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0x7F000000, 0x007F0000, 0x00007F00 };
+				rgb_none = mipColors[mip % 6];
+			}
+#endif // #if BLOCK_DEBUG == 1
+
 			const float gridScale = c_blockGridScales[mip].x;
 			const float cellScale = c_blockGridScales[mip].y;
 			const float halfCellSize = gridScale * HLSL_GRID_INV_WIDTH;
@@ -165,15 +175,19 @@ void main( uint3 DTid : SV_DispatchThreadID )
 							blockCellItems[blockCellItemID].depth = pixelDepth[eye];
 							blockCellItems[blockCellItemID].r8g8b8_hitMask8 = rgb_none | hitMask8;
 
-#if BLOCK_GET_STATS	== 1
-							InterlockedAdd( blockTraceStats[0].pixelSampleCount, 1 + countbits( hitMask8 ) );
-							InterlockedAdd( blockTraceStats[0].cellItemCount, 1 );
-#endif // #if BLOCK_GET_STATS == 1
+#if BLOCK_DEBUG == 1
+							if ( c_blockGetStats )
+							{
+								InterlockedAdd( blockTraceStats[0].pixelSampleCount, 1 + countbits( hitMask8 ) );
+								InterlockedAdd( blockTraceStats[0].cellItemCount, 1 );
+							}
+#endif // #if BLOCK_DEBUG == 1
 						}
 
-#if BLOCK_GET_STATS	== 1
-						InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, blockCellItemRank );
-#endif // #if BLOCK_GET_STATS == 1
+#if BLOCK_DEBUG == 1
+						if ( c_blockGetStats )
+							InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, blockCellItemRank );
+#endif // #if BLOCK_DEBUG == 1
 					}
 				}
 			}

@@ -46,10 +46,6 @@
 #define V6_ASSERT_D3D11( EXP )  { HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 #define V6_RELEASE_D3D11( EXP )  { V6_ASSERT( EXP ); EXP->Release(); EXP = nullptr; }
 
-#define KB( X )					((X) >> 10)
-#define MB( X )					((X) >> 20)
-#define GB( X )					((X) >> 30)
-
 BEGIN_V6_VIEWER_NAMESPACE
 
 static const float AVERAGE_LAYER_COUNT			= 4.0f; // temp for low res
@@ -80,13 +76,13 @@ static const float FOV							= core::DegToRad( 90.0f );
 #else
 static const float FOV							= core::DegToRad( 90.0f );
 #endif
-static const core::u32 GRID_COUNT				= 1 + core::u32( ceil( log2f( (float)GRID_MAX_SCALE / GRID_MIN_SCALE ) ) );
-static const int SAMPLE_MAX_COUNT				= 9;
+static const core::u32 GRID_COUNT				= core::Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
+static const int SAMPLE_MAX_COUNT				= 1;
 static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 75;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 10;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -204,11 +200,11 @@ enum
 	COMPUTE_BLOCK_TRACE16,
 	COMPUTE_BLOCK_TRACE32,
 	COMPUTE_BLOCK_TRACE64,
-	COMPUTE_BLOCK_TRACE_STATS4,
-	COMPUTE_BLOCK_TRACE_STATS8,
-	COMPUTE_BLOCK_TRACE_STATS16,
-	COMPUTE_BLOCK_TRACE_STATS32,
-	COMPUTE_BLOCK_TRACE_STATS64,
+	COMPUTE_BLOCK_TRACE_DEBUG4,
+	COMPUTE_BLOCK_TRACE_DEBUG8,
+	COMPUTE_BLOCK_TRACE_DEBUG16,
+	COMPUTE_BLOCK_TRACE_DEBUG32,
+	COMPUTE_BLOCK_TRACE_DEBUG64,
 #endif
 	COMPUTE_BLENDPIXEL,
 	COMPUTE_BLENDPIXEL_OVERDRAW,
@@ -1242,14 +1238,14 @@ static void Cube_MakeViewMatrix( core::Mat4x4* matrix, const core::Vec3& center,
 
 static void GPUResource_LogMemory( const char* res, core::u32 size, const char* name )
 {
-	if ( MB( size ) >= 1 )
-		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, FormatInteger_Unsafe( MB( size ) ) );
+	if ( core::DivMB( size ) >= 1 )
+		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, FormatInteger_Unsafe( core::DivMB( size ) ) );
 	core::Atomic_Add( &gpuMemory, size );
 }
 
 static void GPUResource_LogMemoryUsage()
 {
-	V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", FormatInteger_Unsafe( MB( gpuMemory ) ) );
+	V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", FormatInteger_Unsafe( core::DivMB( gpuMemory ) ) );
 }
 
 static core::u32 DXGIFormat_Size( DXGI_FORMAT format )
@@ -2070,11 +2066,11 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS4], "block_trace_stats_x4_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS8], "block_trace_stats_x8_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS16], "block_trace_stats_x16_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS32], "block_trace_stats_x32_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS64], "block_trace_stats_x64_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", fileSystem, stack );
+	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", fileSystem, stack );
 #endif
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
@@ -3763,7 +3759,7 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const co
 
 static core::Vec3 Block_ComputeGridCenter( const core::Vec3* pos, float gridScale )
 {
-	const float blockSize = gridScale / HLSL_GRID_BLOCK_HALF_WIDTH;
+	const float blockSize = gridScale / HLSL_GRID_MACRO_HALF_WIDTH;
 	const core::Vec3 normalizedPos = *pos * (1.0f / blockSize);
 	return core::Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * blockSize;
 }
@@ -4114,7 +4110,7 @@ void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
 		cbSample->c_samplePos = *samplePos;
 		cbSample->c_sampleFaceID = faceID;
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
-			cbSample->c_sampleMipBoundaries[gridID] = core::Vec4_Make( &gridCenters[gridID], gridScales[gridID] * gridScales[gridID] );
+			cbSample->c_sampleMipBoundaries[gridID] = core::Vec4_Make( &gridCenters[gridID], gridScales[gridID] );
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
 			cbSample->c_sampleInvGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
 
@@ -4529,6 +4525,9 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 			blockPerEye.rayDirRight = right;
 
 			cbBlock->c_blockEyes[eye] = blockPerEye;
+
+			cbBlock->c_blockGetStats = s_logReadBack;
+			cbBlock->c_blockShowMips = g_showMip;
 		}
 
 		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
@@ -4594,8 +4593,8 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_trace.traceIndirectArgs.srv );
 
 		// dispach
-		if ( s_logReadBack )
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_STATS4+bucket].m_computeShader, nullptr, 0 );
+		if ( s_logReadBack | g_showMip )
+			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
 		gpuContext.deviceContext->DispatchIndirect( m_trace.traceIndirectArgs.buf, trace_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
@@ -4761,10 +4760,10 @@ bool CRenderingDevice::ReadStream( core::u32 frame )
 	{
 		m_stack->push();
 
-		core::CodecFrameDesc_s frameDesc;
-		core::CodecFrameData_s frameData;
+		core::CodecRawFrameDesc_s frameDesc;
+		core::CodecRawFrameData_s frameData;
 
-		if ( core::Codec_ReadFrame( &fileReader, &frameDesc, &frameData, m_stack ) )
+		if ( core::Codec_ReadRawFrame( &fileReader, &frameDesc, &frameData, m_stack ) )
 		{
 			if ( frameDesc.origin != s_buildOrigin )
 			{
@@ -5019,7 +5018,7 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 		core::CFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
 		{
-			core::CodecFrameDesc_s frameDesc = {};
+			core::CodecRawFrameDesc_s frameDesc = {};
 			frameDesc.origin = s_buildOrigin;
 			frameDesc.frame = frame;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
@@ -5028,11 +5027,11 @@ bool CRenderingDevice::WriteStream( const core::u32 blockCounts[HLSL_BUCKET_COUN
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
 			memcpy( frameDesc.blockCounts, blockCounts, sizeof( frameDesc.blockCounts ) );
 			
-			core::CodecFrameData_s frameData = {};
+			core::CodecRawFrameData_s frameData = {};
 			frameData.blockPos = (void*)GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &stream.blockPos );
 			frameData.blockData = (void*)GPUBUffer_MapReadBack< core::u32 >( gpuContext.deviceContext, &stream.blockData );
 
-			core::Codec_WriteFrame( &fileWriter, &frameDesc, &frameData );
+			core::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
 	
 			GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &stream.blockPos );
 			GPUBUffer_UnmapReadBack( gpuContext.deviceContext, &stream.blockData );

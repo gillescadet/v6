@@ -56,7 +56,6 @@ class IStack : public IAllocator
 {
 public:
 	virtual void	free( void* ) override {}
-	virtual void *	realloc( void*, int nSize) override { return alloc( nSize ); }
 
 	virtual void	push() = 0;
 	virtual void	pop() = 0;
@@ -78,6 +77,7 @@ public:
 
 public:
 	virtual void *	alloc( int size ) override;
+	virtual void *	realloc( void*, int nSize) override;
 	virtual void	push() override;
 	virtual void	pop() override;
 
@@ -86,7 +86,7 @@ private:
 	u32*		m_stack;
 	void*		m_buffer;
 	u32			m_size;
-	u32			m_capacity;	
+	u32			m_capacity;
 	u32			m_stackSize;
 };
 

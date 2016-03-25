@@ -803,7 +803,7 @@ int main()
 			context.gridScaleMin = frames[0].desc.gridScaleMin;
 			context.gridScaleMax = frames[0].desc.gridScaleMax;
 			context.gridMacroHalfWidth = context.gridMacroWidth >> 1;
-			context.mipCount = core::Codec_GetMipCount( &frames[0].desc );
+			context.mipCount = core::Codec_GetMipCount( context.gridScaleMin, context.gridScaleMax );
 		}
 		else
 		{

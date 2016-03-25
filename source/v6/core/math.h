@@ -52,6 +52,24 @@ V6_INLINE void Swap( T& x, T& y )
 	y = tmp;
 }
 
+template<typename T>
+V6_INLINE T MulKB( T x ) { return x << 10; }
+
+template<typename T>
+V6_INLINE T MulMB( T x ) { return x << 20; }
+
+template<typename T>
+V6_INLINE T MulGB( T x ) { return x << 30; }
+
+template<typename T>
+V6_INLINE T DivKB( T x ) { return x >> 10; }
+
+template<typename T>
+V6_INLINE T DivMB( T x ) { return x >> 20; }
+
+template<typename T>
+V6_INLINE T DivGB( T x ) { return x >> 30; }
+
 END_V6_CORE_NAMESPACE
 
 #endif // __V6_CORE_MATH_H__

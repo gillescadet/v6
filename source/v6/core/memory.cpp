@@ -115,6 +115,16 @@ void * Stack::alloc( int size )
 	return p;
 }
 
+void * Stack::realloc( void* p, int size )
+{
+	V6_ASSERT( p > m_buffer );
+	const u32 prevSize = (u8*)p - (u8*)m_buffer;
+	V6_ASSERT( prevSize <= m_capacity );
+	V6_ASSERT( m_stackSize ? (prevSize >= m_stack[m_stackSize-1]) : true );
+	m_size = prevSize; 
+	return alloc( size );
+}
+
 void Stack::push()
 {
 	V6_ASSERT( m_stackSize < STACK_CAPACITY );

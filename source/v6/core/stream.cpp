@@ -127,11 +127,10 @@ void CFileWriter::Write( const void * pData, int nSize )
 
 /// CMemoryWriter
 
-CMemoryWriter::CMemoryWriter(IAllocator* oHeap)
-: m_oHeap(oHeap)
-, m_pBuffer(nullptr)
-, m_nPos(0)
-, m_nSize(0)
+CMemoryWriter::CMemoryWriter( void* buffer, u32 capacity )
+: m_pBuffer( buffer )
+, m_nPos( 0 )
+, m_nCapacity( capacity )
 {
 }
 
@@ -142,37 +141,14 @@ CMemoryWriter::~CMemoryWriter()
 
 void CMemoryWriter::Clear()
 {
-	m_oHeap->free(m_pBuffer);
 	m_pBuffer = nullptr;
 	m_nPos = 0;
-	m_nSize = 0;
 }
 
-void CMemoryWriter::Resize(int nSize)
+void CMemoryWriter::Write( const void * pData, int nSize )
 {
-	if (nSize != m_nSize)
-	{
-		if (nSize == 0)
-		{
-			Clear();
-		}
-		else
-		{
-			m_nSize = nSize;
-			m_pBuffer = m_oHeap->realloc(m_pBuffer, m_nSize);
-			m_nPos = Min(m_nPos, m_nSize);
-		}
-	}
-}
-
-void CMemoryWriter::Write( const void * pData, int nSize)
-{
-	if (m_nPos + nSize > m_nSize)
-	{
-		m_nSize += Max(m_nSize, nSize);
-		m_pBuffer = m_oHeap->realloc(m_pBuffer, m_nSize);
-	}
-	memcpy((char *)m_pBuffer + m_nPos, pData, (size_t)nSize);
+	V6_ASSERT( m_nPos + nSize <= m_nCapacity );
+	memcpy( (u8*)m_pBuffer + m_nPos, pData, (size_t)nSize );
 	m_nPos += nSize;
 }
 

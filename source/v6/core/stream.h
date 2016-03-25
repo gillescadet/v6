@@ -71,22 +71,20 @@ private:
 class CMemoryWriter : public IStreamWriter
 {
 public:
-	CMemoryWriter(IAllocator* oHeap);
+	CMemoryWriter( void* buffer, u32 capacity );
 	virtual ~CMemoryWriter();
 
 public:
 	void Clear();
 	void * GetBuffer() { return m_pBuffer; }
 	virtual int GetPos() const { return m_nPos; }
-	virtual int GetSize() const { return m_nSize; }
-	virtual void Resize(int nSize);
+	virtual int GetSize() const { return m_nPos; }
 	virtual void Write( const void * pData, int nSize);
 
 private:
-	IAllocator* m_oHeap;
 	void * m_pBuffer;
 	int m_nPos;
-	int m_nSize;
+	int m_nCapacity;
 };
 
 class CBufferReader : public IStreamReader
