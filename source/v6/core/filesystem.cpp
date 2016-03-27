@@ -38,7 +38,7 @@ void FilePath_TrimExtension( char* filePathWithoutExtension, u32 maxSize, const 
 		return;
 	}
 
-	const u32 count = lastDot - filePath;
+	const u32 count = (u32)(lastDot - filePath);
 	strncpy_s( filePathWithoutExtension, maxSize, filePath, count );
 }
 
@@ -97,7 +97,7 @@ void FilePath_ExtractPath( char* path, u32 maxSize, const char* filePath )
 	while ( *lastSeparator == '/' || *lastSeparator == '\\' )
 		--lastSeparator;
 
-	const u32 count = lastSeparator - filePath + 1;
+	const u32 count = (u32)(lastSeparator - filePath + 1);
 	strncpy_s( path, maxSize, filePath, count );
 }
 
@@ -134,7 +134,7 @@ void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename )
 
 	strcpy_s( filePath, maxSize, path );
 
-	u32 pathLen = strlen( filePath );
+	u32 pathLen = (u32)strlen( filePath );
 	if ( pathLen )
 	{
 		char *c = filePath + pathLen - 1;

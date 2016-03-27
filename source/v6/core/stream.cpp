@@ -65,7 +65,7 @@ int CFileReader::GetSize() const
 void CFileReader::Read( int nSize, void * pData )
 {
 	V6_ASSERT( m_file != nullptr );
-	const int elementCount = fread( pData, nSize, 1, (FILE*)m_file );
+	const u32 elementCount = (u32)fread( pData, nSize, 1, (FILE*)m_file );
 	V6_ASSERT( elementCount == 1 );
 }
 

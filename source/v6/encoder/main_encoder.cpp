@@ -1,7 +1,5 @@
 /*V6*/
 
-#pragma comment( lib, "core.lib" )
-
 #include <v6/core/common.h>
 #include <v6/core/encoder.h>
 #include <v6/core/memory.h>
@@ -15,5 +13,5 @@ int main()
 	const char* templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 	const char* streamFilename = "D:/media/obj/crytek-sponza/sponza.v6s";
 
-	return v6::core::Encoder_EncodeFrames( templateFilename, 10, streamFilename, &heap ) ? 0 : 1;
+	return v6::core::Encoder_EncodeFrames( templateFilename, 75, streamFilename, &heap ) ? 0 : 1;
 }

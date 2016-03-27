@@ -1,7 +1,5 @@
 /*V6*/
 
-#pragma comment( lib, "core.lib" )
-
 #include <v6/core/common.h>
 #include <v6/core/compute.h>
 #include <v6/core/memory.h>

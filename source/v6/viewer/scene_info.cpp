@@ -155,7 +155,7 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 	str += sprintf_s( str, sizeof( info ) - (str-info), "cameraYaw: %g\n", sceneInfo->cameraYaw );
 	str += sprintf_s( str, sizeof( info ) - (str-info), "worldUnitToCM: %g\n", sceneInfo->worldUnitToCM );
 
-	fileWriter.Write( info, str-info );
+	fileWriter.Write( info, (core::u32)(str-info) );
 
 	return false;
 }
