@@ -6,6 +6,10 @@ On spare time:
 - save geo on disk
 - save build on disk
 
+Code organization:
+- move GPU features in its own files
+- remove core/viewer namespaces and core.lib
+
 Bugs:
 - driver crash while exploring after baking
 - camera motion latency/inertia. This is particularly obvious when rendering in 1024x1024 at 30 fps.
@@ -38,6 +42,7 @@ Optmization plan:
 - sort by mip and precompute grid/cell scales/sizes
 - remove AllMemoryBarrierWithGroupSync() when <= 64 threads
 - take advantage of the silhouette of the box
+- alligned align of sequence/frame buffers
 
 Bench #01:
 - config.context            :  occupancy

@@ -64,9 +64,16 @@ public:
 class CHeap : public IAllocator
 {
 public:
+					CHeap();
+	virtual			~CHeap();
+
+public:
 	virtual void *	alloc(int nSize) override;
 	virtual void	free(void * p) override;
 	virtual void *	realloc(void * p, int nSize) override;
+
+private:
+	int				m_notFreeCount;
 };
 
 class Stack : public IStack

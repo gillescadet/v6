@@ -9,7 +9,7 @@ BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
 
-bool Encoder_EncodeFrames( const char* templateFilename, u32 fileCount, const char* streamFilename, IAllocator* heap );
+bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* sequenceFilename, IAllocator* heap );
 
 END_V6_CORE_NAMESPACE
 

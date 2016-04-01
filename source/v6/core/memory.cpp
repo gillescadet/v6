@@ -14,18 +14,30 @@ struct Block_s
 	Block_s*	next;
 };
 
+CHeap::CHeap() : m_notFreeCount( 0 )
+{
+}
+
+CHeap::~CHeap()
+{
+	V6_ASSERT( m_notFreeCount == 0 );
+}
+
 void * CHeap::alloc(int nSize)
 {
+	++m_notFreeCount;
 	return ::malloc( (u32)nSize );
 }
 
 void CHeap::free(void * p)
 {
+	--m_notFreeCount;
 	return ::free(p);
 }
 
 void * CHeap::realloc(void * p, int nSize)
 {
+	++m_notFreeCount;
 	return ::realloc(p, (u32)nSize);
 }
 
@@ -104,6 +116,7 @@ Stack::Stack( IAllocator* heap, u32 capacity )
 
 Stack::~Stack()
 {
+	V6_ASSERT( m_stackSize == 0 );
 	m_heap->free( m_buffer );
 }
 

@@ -76,12 +76,13 @@ TEMPLATE projectItemDefinitionGroup			= TEXT(			<ItemDefinitionGroup>\n
 															</ItemDefinitionGroup>\n );
 
 TEMPLATE projectSourcesBegin				= TEXT(			<ItemGroup>\n );
-TEMPLATE projectSourceCPP					= TEXT(				<ClCompile Include="../../source/v6/%s" />\n );
-TEMPLATE projectSourceHLSL					= TEXT(				<FxCompile Include="../../source/v6/%s" >\n
+TEMPLATE projectSourceCPP					= TEXT(				<ClCompile Include="%s/%s" />\n );
+TEMPLATE projectSourceH						= TEXT(				<ClInclude Include="%s/%s" />\n );
+TEMPLATE projectSourceHLSL					= TEXT(				<FxCompile Include="%s/%s" >\n
 																	<ShaderType>%s</ShaderType>\n
 																	%s
 																</FxCompile>\n );
-TEMPLATE projectSourceTXT					= TEXT(				<ClInclude Include="../../source/v6/%s" />\n );																
+TEMPLATE projectSourceTXT					= TEXT(				<ClInclude Include="%s/%s" />\n );
 TEMPLATE projectSourcesEnd					= TEXT(			</ItemGroup>\n );
 
 TEMPLATE commonDebug						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
@@ -233,10 +234,9 @@ enum
 	PROJECT_ENCODER			= 1 << 3,
 	PROJECT_LIBOVR			= 1 << 4,
 	PROJECT_LIBOVRKERNEL	= 1 << 5,
-	PROJECT_SORT			= 1 << 6,
-	PROJECT_VIEWER			= 1 << 7,
+	PROJECT_VIEWER			= 1 << 6,
 
-	PROJECT_COUNT			= 8 
+	PROJECT_COUNT			= 7 
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -255,43 +255,66 @@ static const Project_s s_projects[PROJECT_COUNT] =
 	{ PROJECT_ENCODER,		"8B3F2A6F-97DD-4089-82FC-70E0CC3BCC27", "encoder"		, PROJECT_CORE },
 	{ PROJECT_LIBOVR,		"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"		, 0, true, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
 	{ PROJECT_LIBOVRKERNEL,	"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"	, 0, true, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
-	{ PROJECT_SORT,			"243F021E-5EA3-44C8-A995-715B12463643", "sort"			, PROJECT_CORE },
 	{ PROJECT_VIEWER,		"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_CORE | PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
 };
 
 static ProjectFile_s s_projectFiles[] =
 {
+	// compressor
 	{ "compressor/main_compressor.cpp",			PROJECT_COMPRESSOR },
 
+	// core
+	{ "core/algo.h",							PROJECT_CORE },
+	{ "core/bit.h",								PROJECT_CORE },
+	{ "core/box.h",								PROJECT_CORE },
 	{ "core/codec.cpp",							PROJECT_CORE },
+	{ "core/color.h",							PROJECT_CORE },
+	{ "core/common.h",							PROJECT_CORE },
 	{ "core/compute.cpp",						PROJECT_CORE },
+	{ "core/cpp_hlsl.h",						PROJECT_CORE },
 	{ "core/encoder.cpp",						PROJECT_CORE },
+	{ "core/decoder.cpp",						PROJECT_CORE },
 	{ "core/filesystem.cpp",					PROJECT_CORE },
 	{ "core/grid.cpp",							PROJECT_CORE },
 	{ "core/image.cpp",							PROJECT_CORE },
 	{ "core/kdtree_sphere.cpp",					PROJECT_CORE },
+	{ "core/mat4x4.h",							PROJECT_CORE },
+	{ "core/math.h",							PROJECT_CORE },
 	{ "core/memory.cpp",						PROJECT_CORE },
 	{ "core/octree.cpp",						PROJECT_CORE },
+	{ "core/random.h",							PROJECT_CORE },
 	{ "core/stream.cpp",						PROJECT_CORE },
 	{ "core/thread.cpp",						PROJECT_CORE },
 	{ "core/time.cpp",							PROJECT_CORE },
+	{ "core/types.h",							PROJECT_CORE },
 	{ "core/vec3.cpp",							PROJECT_CORE },
+	{ "core/vec2.h",							PROJECT_CORE },
+	{ "core/vec2i.h",							PROJECT_CORE },
+	{ "core/vec3.h",							PROJECT_CORE },
+	{ "core/vec3i.h",							PROJECT_CORE },
+	{ "core/vec4.h",							PROJECT_CORE },
+	{ "core/vec4i.h",							PROJECT_CORE },
 
+	// doc
 	{ "doc/make_project.cpp",					PROJECT_DOC },
 	{ "doc/survey.txt",							PROJECT_DOC },
 	{ "doc/todo.txt",							PROJECT_DOC },
 	
+	// encoder
 	{ "encoder/main_encoder.cpp",				PROJECT_ENCODER },
 
-	{ "sort/main_sort.cpp",						PROJECT_SORT },
-
+	// viewer
 	{ "viewer/hmd.cpp",							PROJECT_VIEWER },
 	{ "viewer/main_viewer.cpp",					PROJECT_VIEWER },
 	{ "viewer/obj_reader.cpp",					PROJECT_VIEWER },
 	{ "viewer/scene_info.cpp",					PROJECT_VIEWER },
 
+	// viewer - HLSL
+	{ "viewer/basic.hlsli",						PROJECT_VIEWER },
 	{ "viewer/basic_ps.hlsl",					PROJECT_VIEWER },
 	{ "viewer/basic_vs.hlsl",					PROJECT_VIEWER },
+	{ "viewer/block_cell.hlsli",				PROJECT_VIEWER },
+	{ "viewer/block_cull_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "viewer/block_cull_stats_x16_cs.hlsl",	PROJECT_VIEWER },
 	{ "viewer/block_cull_stats_x32_cs.hlsl",	PROJECT_VIEWER },
 	{ "viewer/block_cull_stats_x4_cs.hlsl",		PROJECT_VIEWER },
@@ -302,8 +325,8 @@ static ProjectFile_s s_projectFiles[] =
 	{ "viewer/block_cull_x4_cs.hlsl",			PROJECT_VIEWER },
 	{ "viewer/block_cull_x64_cs.hlsl",			PROJECT_VIEWER },
 	{ "viewer/block_cull_x8_cs.hlsl",			PROJECT_VIEWER },
-	{ "viewer/block_trace_cs.hlsl",				PROJECT_VIEWER },
-	{ "viewer/block_trace_debug_cs.hlsl",		PROJECT_VIEWER },
+	{ "viewer/block_encoding.hlsli",			PROJECT_VIEWER },
+	{ "viewer/block_trace_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "viewer/block_trace_debug_x16_cs.hlsl",	PROJECT_VIEWER },
 	{ "viewer/block_trace_debug_x32_cs.hlsl",	PROJECT_VIEWER },
 	{ "viewer/block_trace_debug_x4_cs.hlsl",	PROJECT_VIEWER },
@@ -315,35 +338,44 @@ static ProjectFile_s s_projectFiles[] =
 	{ "viewer/block_trace_x4_cs.hlsl",			PROJECT_VIEWER },
 	{ "viewer/block_trace_x64_cs.hlsl",			PROJECT_VIEWER },
 	{ "viewer/block_trace_x8_cs.hlsl",			PROJECT_VIEWER },
-	{ "viewer/fake_cube_ps.hlsl",				PROJECT_VIEWER },
-	{ "viewer/fake_cube_vs.hlsl",				PROJECT_VIEWER },
+	{ "viewer/common.h",						PROJECT_VIEWER },
+	{ "viewer/common_shared.h",					PROJECT_VIEWER },
+	{ "viewer/generic.hlsli",					PROJECT_VIEWER },
 	{ "viewer/generic_alpha_test_ps.hlsl",		PROJECT_VIEWER },
 	{ "viewer/generic_ps.hlsl",					PROJECT_VIEWER },
+	{ "viewer/generic_ps.hlsli",				PROJECT_VIEWER },
 	{ "viewer/generic_vs.hlsl",					PROJECT_VIEWER },
 	{ "viewer/octree_build_inner_cs.hlsl",		PROJECT_VIEWER },
 	{ "viewer/octree_build_leaf_cs.hlsl",		PROJECT_VIEWER },
+	{ "viewer/octree_build_node.hlsli",			PROJECT_VIEWER },
+	{ "viewer/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
+	{ "viewer/octree_fill_leaf.hlsli",			PROJECT_VIEWER },
 	{ "viewer/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER },
+	{ "viewer/octree_pack.hlsli",				PROJECT_VIEWER },
 	{ "viewer/octree_pack_cs.hlsl",				PROJECT_VIEWER },
 	{ "viewer/pixel_blend_cs.hlsl",				PROJECT_VIEWER },
+	{ "viewer/pixel_blend_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },
+	{ "viewer/sample_collect.hlsli",			PROJECT_VIEWER },
 	{ "viewer/sample_collect_cs.hlsl",			PROJECT_VIEWER, HLSL_DisableTreatWarningAsError },
-	{ "viewer/stream_prefix_sum_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_scatter_x16_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_scatter_x32_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_scatter_x4_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_scatter_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_scatter_x8_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_setbit_x16_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_setbit_x32_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_setbit_x4_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_setbit_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_setbit_x8_cs.hlsl",		PROJECT_VIEWER },
-	{ "viewer/stream_summarize_cs.hlsl",		PROJECT_VIEWER },
+	{ "viewer/sample_pack.hlsli",				PROJECT_VIEWER },
 	{ "viewer/surface_compose_cs.hlsl",			PROJECT_VIEWER },
+
 };
 
-char* s_solutionName	= nullptr;
-char* s_solutionVersion = nullptr;
+char*	s_solutionName		= nullptr;
+char*	s_solutionVersion	= nullptr;
+char	s_solutionPath[256] = "";
+char	s_sourcePath[256]	= "../../source/v6";
+
+static bool FilePath_Exist( const char* filename )
+{
+	FILE* f = fopen( filename, "rt" );
+	if ( !f )
+		return false;
+	fclose( f );
+	return true;
+}
 
 static void FilePath_SplitFilenameAndExtension( char* filePathWithoutExtension, u32 maxFileSize, char* extension, u32 maxExtensionsSize, const char* filePath )
 {
@@ -447,12 +479,41 @@ static void Project_Write( FILE* f, const Project_s* project )
 	{
 		if ( s_projectFiles[projectFileID].projects & project->id )
 		{
+			char filename[256];
+			sprintf( filename, "%s/%s/%s", s_solutionPath, s_sourcePath, s_projectFiles[projectFileID].name );
+			if ( !FilePath_Exist( filename ) )
+				printf( "Warning: source file %s not found.\n", s_projectFiles[projectFileID].name );
+
 			char filenameWithoutExtension[256];
 			char extension[16];
 			FilePath_SplitFilenameAndExtension( filenameWithoutExtension, sizeof( filenameWithoutExtension ), extension, sizeof( extension ), s_projectFiles[projectFileID].name );
 			if ( stricmp( extension, "c" ) == 0 || stricmp( extension, "cpp" ) == 0 )
 			{
-				fprintf( f, projectSourceCPP, s_projectFiles[projectFileID].name );
+				fprintf( f, projectSourceCPP, s_sourcePath, s_projectFiles[projectFileID].name );
+				
+				char headerFile[256];
+				sprintf( headerFile, "%s.h", filenameWithoutExtension );
+				
+				sprintf( filename, "%s/%s/%s", s_solutionPath, s_sourcePath, headerFile );
+				if ( FilePath_Exist( filename ) )
+				{
+					bool isListed = false;
+					for ( u32 headerFileID = 0; headerFileID < projectFileCount; ++headerFileID )
+					{
+						if ( (s_projectFiles[headerFileID].projects & project->id) && stricmp( s_projectFiles[headerFileID].name, headerFile ) == 0 )
+						{
+							isListed = true;
+							break;
+						}
+					}
+
+					if ( !isListed )
+						fprintf( f, projectSourceH, s_sourcePath, headerFile );
+				}
+			}
+			else if ( stricmp( extension, "h" ) == 0 || stricmp( extension, "hlsli" ) == 0 )
+			{
+				fprintf( f, projectSourceH, s_sourcePath, s_projectFiles[projectFileID].name );
 			}
 			else if ( stricmp( extension, "hlsl" ) == 0 )
 			{
@@ -479,13 +540,13 @@ static void Project_Write( FILE* f, const Project_s* project )
 					}
 					else
 					{
-						fprintf( f, projectSourceHLSL, s_projectFiles[projectFileID].name, shaderType, s_projectFiles[projectFileID].specialCase ? s_projectFiles[projectFileID].specialCase : "" );
+						fprintf( f, projectSourceHLSL, s_sourcePath, s_projectFiles[projectFileID].name, shaderType, s_projectFiles[projectFileID].specialCase ? s_projectFiles[projectFileID].specialCase : "" );
 					}
 				}
 			}
 			else if ( stricmp( extension, "txt" ) == 0 )
 			{
-				fprintf( f, projectSourceTXT, s_projectFiles[projectFileID].name );
+				fprintf( f, projectSourceTXT, s_sourcePath, s_projectFiles[projectFileID].name );
 			}
 			else
 			{
@@ -537,10 +598,11 @@ int main( int argc, char* argv[] )
 
 	s_solutionName = argv[1];
 	s_solutionVersion = argv[2];
+	sprintf( s_solutionPath, "project/vc%s", s_solutionVersion );
 
 	{
 		char solutionFilename[256];
-		sprintf_s( solutionFilename, sizeof( solutionFilename ), "project/vc%s/%s_%s.sln", s_solutionVersion, s_solutionName, s_solutionVersion );
+		sprintf_s( solutionFilename, sizeof( solutionFilename ), "%s/%s_%s.sln", s_solutionPath, s_solutionName, s_solutionVersion );
 		FILE* fSolution = fopen( solutionFilename, "wt" );
 		if ( !fSolution )
 		{
@@ -554,7 +616,7 @@ int main( int argc, char* argv[] )
 	for ( u32 configID = 0; configID < CONFIG_COUNT; ++configID )
 	{
 		char commonFilename[256];
-		sprintf_s( commonFilename, sizeof( commonFilename ), "project/vc%s/%s_common_%s_%s.props", s_solutionVersion, s_solutionName, s_configs[configID].name, s_solutionVersion );
+		sprintf_s( commonFilename, sizeof( commonFilename ), "%s/%s_common_%s_%s.props", s_solutionPath, s_solutionName, s_configs[configID].name, s_solutionVersion );
 		FILE* fCommon = fopen( commonFilename, "wt" );
 		if ( !fCommon )
 		{
@@ -573,7 +635,7 @@ int main( int argc, char* argv[] )
 
 		{
 			char projectFilename[256];
-			sprintf_s( projectFilename, sizeof( projectFilename ), "project/vc%s/%s.vcxproj", s_solutionVersion, Project_GetName( project ) );
+			sprintf_s( projectFilename, sizeof( projectFilename ), "%s/%s.vcxproj", s_solutionPath, Project_GetName( project ) );
 			FILE* fProject = fopen( projectFilename, "wt" );
 			if ( !fProject )
 			{
@@ -586,11 +648,10 @@ int main( int argc, char* argv[] )
 
 		{
 			char projectUserFilename[256];
-			sprintf_s( projectUserFilename, sizeof( projectUserFilename ), "project/vc%s/%s.vcxproj.user", s_solutionVersion, Project_GetName( project ) );
-			FILE* fProjectUser = fopen( projectUserFilename, "rt" );
-			if ( !fProjectUser )
+			sprintf_s( projectUserFilename, sizeof( projectUserFilename ), "%s/%s.vcxproj.user", s_solutionPath, Project_GetName( project ) );
+			if ( !FilePath_Exist(  projectUserFilename ) )
 			{
-				fProjectUser = fopen( projectUserFilename, "wt" );
+				FILE* fProjectUser = fopen( projectUserFilename, "wt" );
 				if ( !fProjectUser )
 				{
 					printf( "Error: Unable to open %s\n", projectUserFilename );
@@ -598,7 +659,6 @@ int main( int argc, char* argv[] )
 				}
 				ProjectUser_Write( fProjectUser, project );
 			}
-			fclose( fProjectUser );
 		}
 	}
 
