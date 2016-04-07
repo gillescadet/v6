@@ -35,7 +35,7 @@ struct CodecFrameHeader_s
 Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth )
 {
 	// note: use the exact same code than Codec_ComputeGridCenter
-	const float blockSize = gridMacroHalfWidth / gridScale;
+	const float blockSize = gridScale / gridMacroHalfWidth;
 	const Vec3 normalizedPos = *pos * (1.0f / blockSize);
 
 	return Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * blockSize;
@@ -44,7 +44,7 @@ Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMa
 Vec3i Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth )
 {
 	// note: use the exact same code than Codec_ComputeMacroGridCoords
-	const float blockSize = gridMacroHalfWidth / gridScale;
+	const float blockSize = gridScale / gridMacroHalfWidth;
 	const Vec3 normalizedPos = *pos * (1.0f / blockSize);
 
 	return Vec3i_Make( (int)floorf( normalizedPos.x ), (int)floorf( normalizedPos.y ), (int)floorf( normalizedPos.z ) );
@@ -80,18 +80,18 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 		return false;
 	}
 
-	u32 rangeSize = 0;
+	u32 rangeDefSize = 0;
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		rangeSize += sequenceHeader.desc.rangeCounts[bucket] * 2;
+		rangeDefSize += sequenceHeader.desc.rangeDefCounts[bucket] * sizeof( CodecRange_s );
 
-	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) + rangeSize )
+	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) + rangeDefSize )
 	{
 		V6_ERROR( "Bad file size of %d bytes for sequence header.\n", sequenceHeader.size );
 		return false;
 	}
 
-	if ( (u32)streamReader->GetRemaining() < rangeSize )
+	if ( (u32)streamReader->GetRemaining() < rangeDefSize )
 	{
 		V6_ERROR( "Bad stream size of %d bytes for frame header.\n", streamReader->GetRemaining() );
 		return nullptr;
@@ -100,9 +100,10 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 	memcpy( desc, &sequenceHeader.desc, sizeof( sequenceHeader.desc ) );
 
 	// todo: aligned alloc
-	u8* buffer = (u8*)allocator->alloc( rangeSize );
+	u8* buffer = (u8*)allocator->alloc( rangeDefSize );
 
-	streamReader->Read( rangeSize, buffer );
+	data->rangeDefs = (CodecRange_s*)buffer;
+	streamReader->Read( rangeDefSize, buffer );
 
 	V6_ASSERT( streamReader->GetPos() - beginPos == sequenceHeader.size );
 
@@ -113,19 +114,19 @@ void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s
 {
 	const u32 beginPos = streamWriter->GetPos();
 
-	u32 rangeSize = 0;
+	u32 rangeDefSize = 0;
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		rangeSize += desc->rangeCounts[bucket] * 2;
+		rangeDefSize += desc->rangeDefCounts[bucket] * sizeof( CodecRange_s );
 
 	CodecSequenceHeader_s sequenceHeader = {};
 	memcpy( sequenceHeader.magic, CODEC_SEQUENCE_MAGIC, 4 );
 	sequenceHeader.version = CODEC_SEQUENCE_VERSION;
-	sequenceHeader.size = sizeof( CodecSequenceHeader_s ) + rangeSize;
+	sequenceHeader.size = sizeof( CodecSequenceHeader_s ) + rangeDefSize;
 	memcpy( &sequenceHeader.desc, desc, sizeof( sequenceHeader.desc ) );
 
 	streamWriter->Write( &sequenceHeader, sizeof( CodecSequenceHeader_s ) );
-	streamWriter->Write( data->ranges, rangeSize );
+	streamWriter->Write( data->rangeDefs, rangeDefSize );
 	
 	V6_ASSERT( streamWriter->GetPos() - beginPos == sequenceHeader.size );
 }

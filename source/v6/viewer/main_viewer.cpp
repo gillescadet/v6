@@ -179,10 +179,6 @@ enum
 	COMPUTE_BLOCK_CULL_STATS32,
 	COMPUTE_BLOCK_CULL_STATS64,
 	COMPUTE_BLOCK_TRACE_INIT,
-#if HLSL_ENCODE_DATA == 1
-	COMPUTE_BLOCK_TRACE,
-	COMPUTE_BLOCK_TRACE_STATS,
-#else
 	COMPUTE_BLOCK_TRACE4,
 	COMPUTE_BLOCK_TRACE8,
 	COMPUTE_BLOCK_TRACE16,
@@ -193,7 +189,6 @@ enum
 	COMPUTE_BLOCK_TRACE_DEBUG16,
 	COMPUTE_BLOCK_TRACE_DEBUG32,
 	COMPUTE_BLOCK_TRACE_DEBUG64,
-#endif
 	COMPUTE_BLENDPIXEL,
 	COMPUTE_BLENDPIXEL_OVERDRAW,
 	COMPUTE_COMPOSESURFACE,
@@ -278,11 +273,19 @@ struct CameraPath_s
 {
 	static const core::u32	MAX_POINT_COUNT = 128;
 	core::Vec3				positions[MAX_POINT_COUNT];
-	float					times[MAX_POINT_COUNT];
 	int						keyCount;
-	float					duration;
 	int						activeKey;
 	bool					dirty;
+};
+
+struct CameraPlayer_s
+{
+	float					times[CameraPath_s::MAX_POINT_COUNT];
+	float					duration;
+	float					pathTime;
+	core::u32				pathFrame;
+	bool					isPlaying;
+	bool					isPaused;
 };
 
 struct BasicVertex_s
@@ -492,19 +495,6 @@ struct SceneCameraPath_s : Scene_s
 	core::u32 entitySelectedBoxID;
 };
 
-struct Cube_s
-{	
-	ID3D11Texture2D* colorBuffer;	
-	ID3D11ShaderResourceView* colorSRV;	
-	ID3D11RenderTargetView* colorRTV;
-	
-	ID3D11Texture2D* depthBuffer;
-	ID3D11ShaderResourceView* depthSRV;
-	ID3D11DepthStencilView* depthRTV;
-
-	core::u32 size;
-};
-
 struct Config_s
 {
 	core::u32 screenWidth;
@@ -517,6 +507,19 @@ struct Config_s
 	core::u32 culledBlockCount;
 	core::u32 culledCellCount;
 	core::u32 cellItemCount;
+};
+
+struct CubeContext_s
+{	
+	ID3D11Texture2D* colorBuffer;	
+	ID3D11ShaderResourceView* colorSRV;	
+	ID3D11RenderTargetView* colorRTV;
+
+	ID3D11Texture2D* depthBuffer;
+	ID3D11ShaderResourceView* depthSRV;
+	ID3D11DepthStencilView* depthRTV;
+
+	core::u32 size;
 };
 
 struct SampleContext_s
@@ -543,20 +546,16 @@ struct BlockContext_s
 
 struct SequenceContext_s
 {	
-	hlsl::BlockRange			blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT] = {};
+	static const core::u32		GROUP_MAX_COUNT = 65536;
+
+	core::CodecRange_s*			rangeDefs[CODEC_BUCKET_COUNT];
+	hlsl::BlockRange			blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
 	core::u32					frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
 	core::u32					frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
 	GPUBuffer_s					blockPos;
 	GPUBuffer_s					blockData;
 	GPUBuffer_s					ranges[2];
 	GPUBuffer_s					groups[2];
-};
-
-struct SequenceFrameContext_s
-{
-	static const core::u32		GROUP_MAX_COUNT = 65536;
-	core::u32					blockPosOffsets[CODEC_BUCKET_COUNT];
-	core::u32					blockDataOffsets[CODEC_BUCKET_COUNT];
 };
 
 struct TraceContext_s
@@ -599,13 +598,11 @@ static DrawMode_e g_drawMode				= DRAW_MODE_DEFAULT;
 static int g_sample							= 0;
 
 static bool g_cameraKey						= false;
-static bool g_showCameraPath				= false;
-static bool g_playCameraPath				= false;
-static float g_playCameraPathTime			= 0.0f;
-static core::u32 g_playCameraPathFrame		= 0;
+static bool g_cameraShowPath				= false;
 static float g_cameraSpeed					= 100.0f;
 static int g_limit							= false; 
 static bool g_showMip						= false;
+static bool g_showBucket					= false; 
 static bool g_showOverdraw					= false;
 static int g_pixelMode						= 0;
 static bool g_randomBackground				= false;
@@ -636,7 +633,8 @@ static core::u32 s_gridOccupancy = 0;
 static core::Vec3 s_rayOrg = {};
 static core::Vec3 s_rayEnd = {};
 
-static CameraPath_s s_cameraPath;
+static CameraPath_s		s_cameraPath;
+static CameraPlayer_s	s_cameraPlayer;
 
 void CameraPath_Init( CameraPath_s* cameraPath )
 {
@@ -677,45 +675,10 @@ void CameraPath_InsertKey( CameraPath_s* cameraPath, const core::Vec3* position,
 	}
 	V6_ASSERT( key <= (core::u32)cameraPath->keyCount );
 	cameraPath->positions[key] = *position;
-	cameraPath->times[key] = -1.0f;
 	++cameraPath->keyCount;
 
 	cameraPath->activeKey = key;
 	cameraPath->dirty = true;
-}
-
-void CameraPath_Compute( CameraPath_s* cameraPath, float speed )
-{
-	V6_ASSERT( speed > 0.0f );
-	const float invSpeed = 1.0f / speed;
-	cameraPath->times[0] = 0.0f;
-	cameraPath->duration = 0.0f;
-	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
-	{
-		const core::Vec3 delta = cameraPath->positions[key] - cameraPath->positions[key-1];
-		const float interval = delta.Length() * invSpeed;
-		V6_ASSERT( interval > 0.00001f );
-		cameraPath->times[key] = cameraPath->times[key-1] + interval;
-		cameraPath->duration += interval;
-	}
-
-	cameraPath->dirty = false;
-}
-
-core::Vec3 CameraPath_GetPosition( CameraPath_s* cameraPath, float time )
-{
-	V6_ASSERT( !cameraPath->dirty );
-	V6_ASSERT( cameraPath->keyCount > 0 );
-	V6_ASSERT( time >= 0.0f );
-	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
-	{
-		if ( cameraPath->times[key] >= time )
-		{
-			const float alpha = (time - cameraPath->times[key-1]) / (cameraPath->times[key] - cameraPath->times[key-1]);
-			return (1.0f - alpha) * cameraPath->positions[key-1] + alpha * cameraPath->positions[key];
-		}
-	}
-	return cameraPath->positions[cameraPath->keyCount-1];
 }
 
 void CameraPath_Load( CameraPath_s* cameraPath, const SceneInfo_s* sceneInfo )
@@ -732,6 +695,108 @@ void CameraPath_Save( const CameraPath_s* cameraPath, SceneInfo_s* sceneInfo )
 		sceneInfo->cameraPositions[key] = cameraPath->positions[key];
 	sceneInfo->cameraPositionCount = cameraPath->keyCount;
 	sceneInfo->dirty = true;
+}
+
+void CameraPlayer_Init( CameraPlayer_s* cameraPlayer )
+{
+	memset( cameraPlayer, 0, sizeof( * cameraPlayer ) );
+}
+
+void CameraPlayer_Release( CameraPlayer_s* cameraPlayer )
+{
+}
+
+void CameraPlayer_Compute( CameraPlayer_s* cameraPlayer, CameraPath_s* cameraPath, float cameraSpeed )
+{
+	if ( !cameraPath->dirty )
+		return;
+
+	V6_ASSERT( cameraSpeed > 0.0f );
+	const float invSpeed = 1.0f / cameraSpeed;
+	cameraPlayer->times[0] = 0.0f;
+	cameraPlayer->duration = 0.0f;
+	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	{
+		const core::Vec3 delta = cameraPath->positions[key] - cameraPath->positions[key-1];
+		const float interval = delta.Length() * invSpeed;
+		V6_ASSERT( interval > 0.00001f );
+		cameraPlayer->times[key] = cameraPlayer->times[key-1] + interval;
+		cameraPlayer->duration += interval;
+	}
+
+	cameraPath->dirty = false;
+}
+
+void CameraPlayer_Play( CameraPlayer_s* cameraPlayer, bool play )
+{
+	cameraPlayer->isPlaying = play;
+	cameraPlayer->isPaused = false;
+	cameraPlayer->pathTime = 0.0f;
+	cameraPlayer->pathFrame = 0;
+}
+
+void CameraPlayer_Pause( CameraPlayer_s* cameraPlayer, int relativeFrameID )
+{
+	cameraPlayer->isPaused = true;
+	
+	if ( !cameraPlayer->isPlaying )
+	{
+		cameraPlayer->isPlaying = true;
+		cameraPlayer->pathTime = 0.0f;
+		cameraPlayer->pathFrame = 0;
+		return;
+	}
+
+	if ( relativeFrameID == 0 )
+		return;
+
+	const float dt = 1.0f / HMD_FPS;
+	const float duration = core::Min( cameraPlayer->duration, (VIDEO_FRAME_MAX_COUNT-1) * dt );
+	cameraPlayer->pathTime = core::Clamp( cameraPlayer->pathTime + relativeFrameID * dt, 0.0f, duration );
+	cameraPlayer->pathFrame = core::Clamp( (int)cameraPlayer->pathFrame + relativeFrameID, 0, (int)VIDEO_FRAME_MAX_COUNT-1 );
+}
+
+core::u32 CameraPlayer_GetFrame( CameraPlayer_s* cameraPlayer )
+{
+	if ( cameraPlayer->isPlaying )
+		return cameraPlayer->pathFrame;
+	return 0;
+}
+
+core::Vec3 CameraPlayer_GetPosition( const CameraPlayer_s* cameraPlayer, const CameraPath_s* cameraPath )
+{
+	V6_ASSERT( !cameraPath->dirty );
+	V6_ASSERT( cameraPath->keyCount > 0 );
+	V6_ASSERT( cameraPlayer->pathTime >= 0.0f );
+	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	{
+		if ( cameraPlayer->times[key] >= cameraPlayer->pathTime )
+		{
+			const float alpha = (cameraPlayer->pathTime - cameraPlayer->times[key-1]) / (cameraPlayer->times[key] - cameraPlayer->times[key-1]);
+			return (1.0f - alpha) * cameraPath->positions[key-1] + alpha * cameraPath->positions[key];
+		}
+	}
+	return cameraPath->positions[cameraPath->keyCount-1];
+}
+
+bool CameraPlayer_AddTimeStep( CameraPlayer_s* cameraPlayer, float dt )
+{
+	if ( !cameraPlayer->isPlaying )
+		return false;
+
+	if ( cameraPlayer->isPaused )
+		return true;
+
+	if ( cameraPlayer->pathTime + dt > cameraPlayer->duration || cameraPlayer->pathFrame + 1 >= VIDEO_FRAME_MAX_COUNT )
+	{
+		cameraPlayer->isPlaying = false;
+		return false;
+	}
+
+	cameraPlayer->pathTime += dt;
+	++cameraPlayer->pathFrame;
+
+	return true;
 }
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
@@ -809,25 +874,21 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 					case 'C':
 						break;
 					case 'P':
-						g_playCameraPath = g_playCameraPath ? false : s_cameraPath.keyCount > 0;
-						g_playCameraPathTime = 0.0f;
-						g_playCameraPathFrame = 0;
-						V6_MSG( "Camera path: %s\n", g_playCameraPath ? "play" : "stop" );
+						CameraPlayer_Play( &s_cameraPlayer, s_cameraPlayer.isPlaying ? false : s_cameraPath.keyCount > 0 );
+						V6_MSG( "Camera path: %s\n", s_cameraPlayer.isPlaying ? "play" : "stop" );
 						break;
 					case 'R':
 						if ( s_cameraPath.keyCount > 0 )
 						{
-							g_playCameraPath = true;
-							g_playCameraPathTime = 0.0f;
-							g_playCameraPathFrame = 0;
+							CameraPlayer_Play( &s_cameraPlayer, true );
 							g_drawMode = DRAW_MODE_BLOCK;
 							g_sample = 0;
 							V6_MSG( "Camera path: record\n" );
 						}
 						break;
 					case 'S':
-						g_showCameraPath = !g_showCameraPath;
-						V6_MSG( "Camera path: %s\n", g_showCameraPath ? "show" : "hide" );
+						g_cameraShowPath = !g_cameraShowPath;
+						V6_MSG( "Camera path: %s\n", g_cameraShowPath ? "show" : "hide" );
 						break;
 					case 0x21:
 						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.activeKey + 1 );
@@ -867,6 +928,14 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
 						break;
 #endif
+					case 0x28:
+						CameraPlayer_Pause( &s_cameraPlayer, -1 );
+						V6_MSG( "Camera pause: frame %d\n", s_cameraPlayer.pathFrame );
+						break;
+					case 0x26:
+						CameraPlayer_Pause( &s_cameraPlayer, +1 );
+						V6_MSG( "Camera pause: frame %d\n", s_cameraPlayer.pathFrame );
+						break;
 					default:
 						V6_MSG( "Unknow camera path key: %04x\n", raw->data.keyboard.VKey );
 					}
@@ -893,6 +962,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				case 'I': if ( pressed ) { s_logReadBack = true; } break;
 				case 'L': g_limit = pressed ? !g_limit : g_limit; break;
 				case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
+				case 'N': g_showBucket = pressed ? !g_showBucket : g_showBucket; break;
 				case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
 				case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
 				case 'Q': if ( pressed ) { g_traceGrid = true; } break;
@@ -919,23 +989,15 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				case '7':
 				case '8':
 				case '9':
-				{
 					if ( pressed ) 
 					{
-#if 0
-						s_yaw = core::DegToRad( -90.0f );
-						s_pitch = 0.0f;
-						s_headOffset = core::Vec3_Make( 0.0f, 500.0f, 0.0f );
-#else
 						const int key = core::Min( raw->data.keyboard.VKey - '0', s_cameraPath.keyCount-1 );
 						if ( s_cameraPath.keyCount == 0 )
 							s_headOffset = core::Vec3_Zero();
 						else
 							s_headOffset = s_cameraPath.positions[key];
-#endif
 					}
 					break;
-				}
 				case 109:
 					if ( pressed ) 
 					{
@@ -1003,7 +1065,6 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 	} 
 	default:
 		return DefWindowProcA(hWnd, message, wParam, lParam);
-		break;
 	}
 
 	return 0;
@@ -1092,7 +1153,7 @@ static const char* ModeToString( DrawMode_e drawMode )
 			if ( g_sample < SAMPLE_MAX_COUNT )
 			{
 				static char buffer[256];
-				sprintf_s( buffer, sizeof( buffer ), "baking #%d", g_sample );
+				sprintf_s( buffer, sizeof( buffer ), "baking sample %d @ frame %d", g_sample, CameraPlayer_GetFrame( &s_cameraPlayer ) );
 				return buffer;
 			}
 			return "blockContext";
@@ -1303,8 +1364,9 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 	const int vsBytecodeSize = fileSystem->ReadFile( vs, &vsBytecode, stack );
 	if ( vsBytecodeSize <= 0 )
 	{
+		V6_ERROR( "Unable to read file %s!\n", vs );
 		return false;
-	}	
+	}
 
 	{
 		HRESULT hRes = device->CreateVertexShader( vsBytecode, vsBytecodeSize, nullptr, &shader->m_vertexShader );
@@ -1312,6 +1374,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 		if ( FAILED( hRes) )
 		{
 			V6_ERROR( "ID3D11Device::CreateVertexShader failed!\n" );
+			return false;
 		}
 	}
 
@@ -1319,6 +1382,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 	const int psBytecodeSize = fileSystem->ReadFile( ps, &psBytecode, stack );
 	if ( psBytecodeSize <= 0 )
 	{
+		V6_ERROR( "Unable to read file %s!\n", ps );
 		return false;
 	}
 
@@ -1328,6 +1392,7 @@ static bool Shader_Create( ID3D11Device* device, GPUShader_s* shader, const char
 		if ( FAILED( hRes) )
 		{
 			V6_ERROR( "ID3D11Device::CreatePixelShader failed!\n" );
+			return false;
 		}
 	}
 	
@@ -1619,8 +1684,11 @@ static void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DX
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * DXGIFormat_Size( format );
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
-		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
-		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = 0;
 		bufferDesc.StructureByteStride = 0;
 		
@@ -1652,6 +1720,7 @@ static void GPUBuffer_CreateTyped( ID3D11Device* device, GPUBuffer_s* buffer, DX
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
 
+	if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = format;
@@ -1707,8 +1776,11 @@ static void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffe
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * elementSize;
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
-		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
-		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 		bufferDesc.StructureByteStride = elementSize;
 		
@@ -1740,6 +1812,7 @@ static void GPUBuffer_CreateStructured( ID3D11Device* device, GPUBuffer_s* buffe
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
 
+	if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
@@ -1760,7 +1833,7 @@ static void GPUBuffer_CreateStructuredWithInitialData( ID3D11Device* device, GPU
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = count * elementSize;
 		bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
-		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 		bufferDesc.StructureByteStride = elementSize;
@@ -1797,17 +1870,6 @@ static void GPUBuffer_CreateStructuredWithInitialData( ID3D11Device* device, GPU
 
 		V6_ASSERT_D3D11( device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
-
-	{
-		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
-		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = count;
-		uavDesc.Buffer.Flags = 0;
-
-		V6_ASSERT_D3D11( device->CreateUnorderedAccessView( buffer->buf, &uavDesc, &buffer->uav ) );
-	}
 }
 
 static void GPUBuffer_Release( ID3D11Device* device, GPUBuffer_s* buffer )
@@ -1836,18 +1898,25 @@ static void GPUBuffer_UnmapReadBack( ID3D11DeviceContext* context, GPUBuffer_s* 
 }
 
 template < typename T >
-static void GPUBuffer_Update( ID3D11DeviceContext* context, GPUBuffer_s* dstBuffer, core::u32 dstOffset, T* srcData, core::u32 srcCount )
+static void GPUBuffer_Update( ID3D11DeviceContext* context, GPUBuffer_s* dstBuffer, core::u32 dstOffset, const T* srcData, core::u32 srcCount )
 {
-	D3D11_BOX box;
-	box.left = dstOffset * sizeof( T );
-	box.right = (dstOffset + count) * sizeof( T );
-	box.front = 0;
-	box.back = 1;
-	box.top = 0;
-	box.bottom = 1;
+#if 0
+	D3D11_BOX dstBox;
+	dstBox.left = dstOffset * sizeof( T );
+	dstBox.right = (dstOffset + srcCount) * sizeof( T );
+	dstBox.front = 0;
+	dstBox.back = 1;
+	dstBox.top = 0;
+	dstBox.bottom = 1;
 
-	const core::u32 size = box.right - box.left;
-	context->UpdateSubresource( buffer, 0, &box, data, size, size );
+	const core::u32 size = dstBox.right - dstBox.left;
+	context->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
+#else
+	D3D11_MAPPED_SUBRESOURCE res;
+	V6_ASSERT_D3D11( context->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res ) );
+	memcpy( (core::u8*)res.pData + dstOffset * sizeof( T ), srcData, srcCount * sizeof( T ) );
+	context->Unmap( dstBuffer->buf, 0 );
+#endif
 }
 
 static void Texture2D_Create( ID3D11Device* device, GPUTexture2D_s* tex, core::u32 width, core::u32 height, core::Color_s* pixels, bool mipmap, const char* name )
@@ -1969,7 +2038,7 @@ static void GPUTexture_Release( GPUTexture2D_s* tex )
 
 static void ConstantBuffer_Create( ID3D11Device* device, GPUConstantBuffer_s* buffer, core::u32 sizeOfStruct, const char* name )
 {
-	D3D11_BUFFER_DESC bufDesc = {};	
+	D3D11_BUFFER_DESC bufDesc = {};
 	bufDesc.Usage = D3D11_USAGE_DYNAMIC;
 	bufDesc.ByteWidth = sizeOfStruct;
 	bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -2112,10 +2181,6 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
-#if HLSL_ENCODE_DATA == 1
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE], "block_trace_cs.cso", fileSystem, stack );
-	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_STATS], "block_trace_stats_cs.cso", fileSystem, stack );
-#else
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
@@ -2126,7 +2191,6 @@ static void GPUContext_CreateShaders( GPUContext_s* context, core::CFileSystem* 
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", fileSystem, stack );
-#endif
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
 	Compute_Create( device, &context->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", fileSystem, stack );
@@ -2492,98 +2556,6 @@ void GPUContext_Release( GPUContext_s* context )
 	V6_RELEASE_D3D11( context->device );
 }
 
-static void Cube_Create( ID3D11Device* device, Cube_s* cube, core::u32 size )
-{
-	{
-		D3D11_TEXTURE2D_DESC texDesc = {};
-		texDesc.Width = size;
-		texDesc.Height = size;
-		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		texDesc.SampleDesc.Count = 1;
-		texDesc.SampleDesc.Quality = 0;
-		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-		texDesc.CPUAccessFlags = 0;
-		texDesc.MiscFlags = 0;
-		
-		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->colorBuffer) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeColor" );
-	}
-
-	{
-		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		viewDesc.Texture2D.MipLevels = 1;
-		viewDesc.Texture2D.MostDetailedMip = 0;
-
-		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->colorBuffer, &viewDesc, &cube->colorSRV ) );
-	}
-
-	{
-		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-		viewDesc.Texture2D.MipSlice = 0;
-
-		V6_ASSERT_D3D11( device->CreateRenderTargetView( cube->colorBuffer, &viewDesc, &cube->colorRTV ) );
-	}
-	
-	{
-		D3D11_TEXTURE2D_DESC texDesc = {};
-		texDesc.Width = size;
-		texDesc.Height = size;
-		texDesc.MipLevels = 1;
-		texDesc.ArraySize = 1;
-		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;		
-		texDesc.SampleDesc.Count = 1;
-		texDesc.SampleDesc.Quality = 0;
-		texDesc.Usage = D3D11_USAGE_DEFAULT;
-		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-		texDesc.CPUAccessFlags = 0;
-		texDesc.MiscFlags = 0;
-
-		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cube->depthBuffer ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeDepth" );
-	}
-
-	{
-		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		viewDesc.Texture2D.MipLevels = 1;
-		viewDesc.Texture2D.MostDetailedMip = 0;
-
-		V6_ASSERT_D3D11( device->CreateShaderResourceView( cube->depthBuffer, &viewDesc, &cube->depthSRV ) );
-	}
-
-	{
-		D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
-		viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		viewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-		viewDesc.Flags = 0;
-		viewDesc.Texture2D.MipSlice = 0;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilView( cube->depthBuffer, &viewDesc, &cube->depthRTV ) );
-	}
-	
-	cube->size = size;
-}
-
-static void Cube_Release( Cube_s* cube )
-{
-	V6_RELEASE_D3D11( cube->colorBuffer );
-	V6_RELEASE_D3D11( cube->depthBuffer );
-
-	V6_RELEASE_D3D11( cube->colorSRV );
-	V6_RELEASE_D3D11( cube->depthSRV );
-
-	V6_RELEASE_D3D11( cube->colorRTV );
-	V6_RELEASE_D3D11( cube->depthRTV );
-}
-
 static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 screenHeight, core::u32 cubeSize, core::u32 gridWidth )
 {
 	config->screenWidth = screenWidth;
@@ -2612,19 +2584,111 @@ static void Config_Log( const Config_s* config )
 	V6_MSG( "%-20s: %13s\n", "config.cellItem", FormatInteger_Unsafe( config->cellItemCount ) );
 }
 
-static void Sample_Create( ID3D11Device* device, SampleContext_s* sampleContext, const Config_s* config, core::IAllocator* heap )
+static void CubeContext_Create( ID3D11Device* device, CubeContext_s* cubeContext, core::u32 size )
+{
+	{
+		D3D11_TEXTURE2D_DESC texDesc = {};
+		texDesc.Width = size;
+		texDesc.Height = size;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 1;
+		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
+
+		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cubeContext->colorBuffer) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeColor" );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		viewDesc.Texture2D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( cubeContext->colorBuffer, &viewDesc, &cubeContext->colorSRV ) );
+	}
+
+	{
+		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipSlice = 0;
+
+		V6_ASSERT_D3D11( device->CreateRenderTargetView( cubeContext->colorBuffer, &viewDesc, &cubeContext->colorRTV ) );
+	}
+
+	{
+		D3D11_TEXTURE2D_DESC texDesc = {};
+		texDesc.Width = size;
+		texDesc.Height = size;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 1;
+		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;		
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
+
+		V6_ASSERT_D3D11( device->CreateTexture2D( &texDesc, nullptr, &cubeContext->depthBuffer ) );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeDepth" );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		viewDesc.Texture2D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( device->CreateShaderResourceView( cubeContext->depthBuffer, &viewDesc, &cubeContext->depthSRV ) );
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		viewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+		viewDesc.Flags = 0;
+		viewDesc.Texture2D.MipSlice = 0;
+
+		V6_ASSERT_D3D11( device->CreateDepthStencilView( cubeContext->depthBuffer, &viewDesc, &cubeContext->depthRTV ) );
+	}
+
+	cubeContext->size = size;
+}
+
+static void CubeContext_Release( CubeContext_s* cubeContext )
+{
+	V6_RELEASE_D3D11( cubeContext->colorBuffer );
+	V6_RELEASE_D3D11( cubeContext->depthBuffer );
+
+	V6_RELEASE_D3D11( cubeContext->colorSRV );
+	V6_RELEASE_D3D11( cubeContext->depthSRV );
+
+	V6_RELEASE_D3D11( cubeContext->colorRTV );
+	V6_RELEASE_D3D11( cubeContext->depthRTV );
+}
+
+static void SampleContext_Create( ID3D11Device* device, SampleContext_s* sampleContext, const Config_s* config )
 {
 	GPUBuffer_CreateStructured( device, &sampleContext->samples, sizeof( hlsl::Sample ), config->sampleCount, 0, "samples" );
 	GPUBuffer_CreateIndirectArgs( device, &sampleContext->indirectArgs, sample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "sampleIndirectArgs" );
 }
 
-static void Sample_Release( ID3D11Device* device, SampleContext_s* sampleContext )
+static void SampleContext_Release( ID3D11Device* device, SampleContext_s* sampleContext )
 {
 	GPUBuffer_Release( device, &sampleContext->samples );
 	GPUBuffer_Release( device, &sampleContext->indirectArgs );
 }
 
-static void Octree_Create( ID3D11Device* device, OctreeContext_s* octreeContext, const Config_s* config, core::IAllocator* heap )
+static void OctreeContext_Create( ID3D11Device* device, OctreeContext_s* octreeContext, const Config_s* config )
 {
 	GPUBuffer_CreateTyped( device, &octreeContext->sampleNodeOffsets, DXGI_FORMAT_R32_UINT, config->sampleCount, 0, "octreeSampleNodeOffsets" );
 	GPUBuffer_CreateTyped( device, &octreeContext->firstChildOffsets, DXGI_FORMAT_R32_UINT, config->nodeCount, 0, "octreeFirstChildOffsets" );
@@ -2644,7 +2708,7 @@ static void Octree_Create( ID3D11Device* device, OctreeContext_s* octreeContext,
 	GPUBuffer_CreateIndirectArgs( device, &octreeContext->indirectArgs, octree_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "octreeIndirectArgs" );
 }
 
-static void Octree_Release( ID3D11Device* device, OctreeContext_s* octreeContext )
+static void OctreeContext_Release( ID3D11Device* device, OctreeContext_s* octreeContext )
 {
 	GPUBuffer_Release( device, &octreeContext->sampleNodeOffsets );
 	GPUBuffer_Release( device, &octreeContext->firstChildOffsets );
@@ -2653,33 +2717,23 @@ static void Octree_Release( ID3D11Device* device, OctreeContext_s* octreeContext
 	GPUBuffer_Release( device, &octreeContext->indirectArgs );
 }
 
-static void Block_Create( ID3D11Device* device, BlockContext_s* blockContext, const Config_s* config, core::IAllocator* heap )
+static void BlockContext_Create( ID3D11Device* device, BlockContext_s* blockContext, const Config_s* config )
 {
 	GPUBuffer_CreateTyped( device, &blockContext->blockPos, DXGI_FORMAT_R32_UINT, config->blockCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockPositions" );
-#if HLSL_ENCODE_DATA == 1
-	GPUBuffer_CreateTyped( device, &blockContext->blockData, DXGI_FORMAT_R32_UINT, config->blockCount * 5, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockData" );
-#else
 	GPUBuffer_CreateTyped( device, &blockContext->blockData, DXGI_FORMAT_R32_UINT, config->blockCount * 16, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockData" );
-#endif
 	GPUBuffer_CreateIndirectArgs( device, &blockContext->blockIndirectArgs, block_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockIndirectArgs" );
 }
 
-static void Block_Release( ID3D11Device* device, BlockContext_s* blockContext )
+static void BlockContext_Release( ID3D11Device* device, BlockContext_s* blockContext )
 {
 	GPUBuffer_Release( device, &blockContext->blockPos );
 	GPUBuffer_Release( device, &blockContext->blockData );
 	GPUBuffer_Release( device, &blockContext->blockIndirectArgs );
 }
 
-static void Sequence_UpdateFrameData( ID3D11DeviceContext* context, SequenceContext_s* sequenceContext, SequenceFrameContext_s* frameContext, core::u32 frameID, const core::Sequence_s* sequence )
+static void SequenceContext_UpdateFrameData( ID3D11DeviceContext* context, SequenceContext_s* sequenceContext, core::u32 groupCounts[CODEC_BUCKET_COUNT], core::u32 frameID, const core::Sequence_s* sequence, core::IStack* stack )
 {
-	core::u32 rangeOffsets[CODEC_BUCKET_COUNT] = {};
-	core::u32 rangeCount = 0;
-	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		rangeOffsets[bucket] = rangeCount;
-		rangeCount += sequence->desc.rangeCounts[bucket];
-	}
+	core::ScopedStack scopedStack( stack );
 
 	core::Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 	float gridScale = sequence->desc.gridScaleMin;
@@ -2687,83 +2741,81 @@ static void Sequence_UpdateFrameData( ID3D11DeviceContext* context, SequenceCont
 	for ( core::u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
 		macroGridCoords[mip] = core::Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
 
-	hlsl::BlockRange blockRanges[CODEC_BUCKET_COUNT * CODEC_RANGE_MAX_COUNT] = {};
-	core::u32 blockGroups[SequenceFrameContext_s::GROUP_MAX_COUNT];
+	const core::u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
+	hlsl::BlockRange* const blockRangeBuffer = stack->newArray< hlsl::BlockRange >( CODEC_BUCKET_COUNT * CODEC_RANGE_MAX_COUNT );
+	hlsl::BlockRange* blockRanges = blockRangeBuffer;
+	core::u32 blockGroupBuffer[SequenceContext_s::GROUP_MAX_COUNT];
+	core::u32* blockGroups = blockGroupBuffer;
 	core::u32 framePosCount = 0;
 	core::u32 frameDataCount = 0;
-	core::u32 frameRangeCount = 0;
+	core::u32 frameBlockRangeCount = 0;
 	core::u32 frameGroupCount = 0;
 	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
 		const core::u32 cellPerBucketCount = 1 << (bucket + 2);
 		const core::u32 bucketBlockCount = sequence->frameDescArray[frameID].blockCounts[bucket];
 		const core::u32 bucketBlockRangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
-		const core::u16* bucketRangeIDs = sequence->frameDataArray[frameID].rangeIDs;
 		core::u32 firstThreadID = 0;
-		core::u32 prevRangeID = (core::u32)-1;
 		core::u32 bucketGroupCount = 0;
 
 		for ( core::u32 rangeRank = 0; rangeRank < bucketBlockRangeCount; ++rangeRank )
 		{
-			const core::u32 rangeID = bucketRangeIDs[rangeRank];
-			if ( rangeID != prevRangeID )
-			{
-				firstThreadID = 0;
-				prevRangeID = rangeID;
-			}
+			const core::u32 rangeID = rangeIDs[rangeRank];
 
-			const core::CodecRange_s* codecRange = &sequence->data.ranges[rangeOffsets[bucket] + rangeID];
-			const core::u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) % 0xF;
+			const core::CodecRange_s* codecRange = &sequenceContext->rangeDefs[bucket][rangeID];
+			const core::u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
 			const hlsl::BlockRange* srcBlockRange = &sequenceContext->blockRanges[bucket][rangeID];
 			
-			hlsl::BlockRange* dstBlockRange = &blockRanges[frameRangeCount + rangeRank];
-			memcpy( &dstBlockRange, srcBlockRange, sizeof( hlsl::BlockRange ) );
+			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];
+			memcpy( dstBlockRange, srcBlockRange, sizeof( hlsl::BlockRange ) );
 			dstBlockRange->macroGridOffset -= macroGridCoords[mip];
 			dstBlockRange->firstThreadID = firstThreadID;
 
 			const core::u32 blockCount = srcBlockRange->blockCount;
 			const core::u32 groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 
-			const core::u32 groupOffset = frameGroupCount + bucketGroupCount;
 			for ( core::u32 groupRank = 0; groupRank < groupCount; ++groupRank )
-				blockGroups[groupOffset + groupRank] = rangeID;
+				blockGroups[bucketGroupCount + groupRank] = rangeRank;
 
-			firstThreadID += blockCount;
+			firstThreadID += groupCount * HLSL_BLOCK_THREAD_GROUP_SIZE;
 			bucketGroupCount += groupCount;
 		}
 
-		frameContext->blockPosOffsets[bucket] = framePosCount;
-		frameContext->blockDataOffsets[bucket] = frameDataCount;
+		groupCounts[bucket] = bucketGroupCount;
+		rangeIDs += bucketBlockRangeCount;
+		blockRanges += bucketBlockRangeCount;
+		blockGroups += bucketGroupCount;
 		framePosCount += bucketBlockCount;
 		frameDataCount += bucketBlockCount * cellPerBucketCount;
-		frameRangeCount += bucketBlockRangeCount;
+		frameBlockRangeCount += bucketBlockRangeCount;
 		frameGroupCount += bucketGroupCount;
 	}
 
 	core::u32 bufferID = frameID & 1;
-	GPUBuffer_Update( context, &sequenceContext->ranges[bufferID], 0, blockRanges, frameRangeCount );
-	GPUBuffer_Update( context, &sequenceContext->groups[bufferID], 0, blockGroups, frameGroupCount );
+	GPUBuffer_Update( context, &sequenceContext->ranges[bufferID], 0, blockRangeBuffer, frameBlockRangeCount );
+	GPUBuffer_Update( context, &sequenceContext->groups[bufferID], 0, blockGroupBuffer, frameGroupCount );
 	GPUBuffer_Update( context, &sequenceContext->blockPos, sequenceContext->frameBlockPosOffsets[frameID], sequence->frameDataArray[frameID].blockPos, framePosCount );
 	GPUBuffer_Update( context, &sequenceContext->blockData, sequenceContext->frameBlockDataOffsets[frameID], sequence->frameDataArray[frameID].blockData, frameDataCount );
 }
 
-static void Sequence_CreateFromData( ID3D11Device* device, SequenceContext_s* sequenceContext, const core::Sequence_s* sequence )
+static void SequenceContext_CreateFromData( ID3D11Device* device, SequenceContext_s* sequenceContext, const core::Sequence_s* sequence )
 {
-	core::u32 rangeOffsets[CODEC_BUCKET_COUNT] = {};
-	core::u32 rangeCount = 0;
-	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
-		rangeOffsets[bucket] = rangeCount;
-		rangeCount += sequence->desc.rangeCounts[bucket];
+		core::u32 rangeDefOffset = 0;
+		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		{
+			sequenceContext->rangeDefs[bucket] = sequence->data.rangeDefs + rangeDefOffset;
+			rangeDefOffset += sequence->desc.rangeDefCounts[bucket];
+		}
 	}
 
-	core::u32 rangeIDs[CODEC_BUCKET_COUNT] = {};
-	core::u32 blockPosOffet = 0;
-	core::u32 blockDataOffet = 0;
+	core::u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
+	core::u32 blockPosCount = 0;
+	core::u32 blockDataCount = 0;
 	for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
-		sequenceContext->frameBlockPosOffsets[frameID] = blockPosOffet;
-		sequenceContext->frameBlockDataOffsets[frameID] = blockDataOffet;
+		sequenceContext->frameBlockPosOffsets[frameID] = blockPosCount;
+		sequenceContext->frameBlockDataOffsets[frameID] = blockDataCount;
 
 		core::Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 		float gridScale = sequence->desc.gridScaleMin;
@@ -2773,14 +2825,15 @@ static void Sequence_CreateFromData( ID3D11Device* device, SequenceContext_s* se
 		
 		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
 		{
-			if ( rangeIDs[bucket] == sequence->desc.rangeCounts[bucket] )
+			const core::u32 rangeID = nextRangeIDs[bucket];
+
+			if ( rangeID == sequence->desc.rangeDefCounts[bucket] )
 			{
 				++bucket;
 				continue;
 			}
-
-			const core::u32 rangeID = rangeIDs[bucket];
-			const core::CodecRange_s* codecRange = &sequence->data.ranges[rangeOffsets[bucket] + rangeID];
+			
+			const core::CodecRange_s* codecRange = &sequenceContext->rangeDefs[bucket][rangeID];
 			core::u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
 			if ( frameID != rangeFrameID )
 			{
@@ -2796,43 +2849,42 @@ static void Sequence_CreateFromData( ID3D11Device* device, SequenceContext_s* se
 			blockRange->macroGridOffset = macroGridCoords[mip]; // patched per frame
 			blockRange->firstThreadID = 0; // patched per frame
 			blockRange->blockCount = blockCount;
-			blockRange->blockPosOffset = blockPosOffet;
-			blockRange->blockDataOffset = blockDataOffet;
+			blockRange->blockPosOffset = blockPosCount;
+			blockRange->blockDataOffset = blockDataCount;
 
-			const core::u32 cellPerBucket = 1 << (2 + bucket);
-			blockPosOffet += blockCount;
-			blockDataOffet += blockCount * cellPerBucket;
+			const core::u32 cellPerBucketCount = 1 << (2 + bucket);
+			blockPosCount += blockCount;
+			blockDataCount += blockCount * cellPerBucketCount;
 
-			++rangeIDs[bucket];
+			++nextRangeIDs[bucket];
 		}
 	}
 
+	for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		V6_ASSERT( nextRangeIDs[bucket] == sequence->desc.rangeDefCounts[bucket] );
+
 	core::u32 maxBlockRangeCount = 0;
-	core::u32 blockPosCount = 0;
-	core::u32 blockDataCount = 0;
 	core::u32 maxBlockGroupCount = 0;
 
 	for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
+		const core::u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
+
 		core::u32 frameBlockRangeCount = 0;
 		core::u32 frameBlockGroupCount = 0;
 		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 		{
-			const core::u32 cellPerBucketCount = 1 << (bucket + 2);
-			const core::u32 blockCount = sequence->frameDescArray[frameID].blockCounts[bucket];
-			blockPosCount += blockCount;
-			blockDataCount += blockCount * cellPerBucketCount;
-			
-			core::u32 blockRangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
-			frameBlockRangeCount += blockRangeCount;
-			
-			const core::u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
-			for ( core::u32 rangeRank = 0; rangeRank < blockRangeCount; ++rangeRank )
+			core::u32 bucketBlockRangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
+
+			for ( core::u32 rangeRank = 0; rangeRank < bucketBlockRangeCount; ++rangeRank )
 			{
 				const core::u32 rangeID = rangeIDs[rangeRank];
-				core::u32 blockCount = sequence->data.ranges[rangeOffsets[bucket] + rangeID].frameID8_mip4_blockCount20 & 0xFFFFF;
+				core::u32 blockCount = sequenceContext->rangeDefs[bucket][rangeID].frameID8_mip4_blockCount20 & 0xFFFFF;
 				frameBlockGroupCount += GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 			}
+
+			rangeIDs += bucketBlockRangeCount;
+			frameBlockRangeCount += bucketBlockRangeCount;
 		}
 		maxBlockRangeCount = core::Max( maxBlockRangeCount, frameBlockRangeCount );
 		maxBlockGroupCount = core::Max( maxBlockGroupCount, frameBlockGroupCount );
@@ -2853,7 +2905,7 @@ static void Sequence_CreateFromData( ID3D11Device* device, SequenceContext_s* se
 	GPUBuffer_CreateTyped( device, &sequenceContext->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockGroups1" );
 }
 
-static void Sequence_Release( ID3D11Device* device, SequenceContext_s* sequenceContext )
+static void SequenceContext_Release( ID3D11Device* device, SequenceContext_s* sequenceContext )
 {
 	GPUBuffer_Release( device, &sequenceContext->blockPos );
 	GPUBuffer_Release( device, &sequenceContext->blockData );
@@ -2863,7 +2915,7 @@ static void Sequence_Release( ID3D11Device* device, SequenceContext_s* sequenceC
 	GPUBuffer_Release( device, &sequenceContext->groups[1] );
 }
 
-static void Trace_Create( ID3D11Device* device, TraceContext_s* traceContext, const Config_s* config, core::IAllocator* heap )
+static void TraceContext_Create( ID3D11Device* device, TraceContext_s* traceContext, const Config_s* config )
 {
 	GPUBuffer_CreateTyped( device, &traceContext->traceCell, DXGI_FORMAT_R32_UINT, config->culledCellCount * 2, 0, "traceCell" );
 	GPUBuffer_CreateIndirectArgs( device, &traceContext->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
@@ -2877,7 +2929,7 @@ static void Trace_Create( ID3D11Device* device, TraceContext_s* traceContext, co
 	Texture2D_CreateRW( device, &traceContext->colors, config->screenWidth, config->screenHeight, "pixelColors" );
 }
 
-static void Trace_Release( ID3D11Device* device, TraceContext_s* traceContext )
+static void TraceContext_Release( ID3D11Device* device, TraceContext_s* traceContext )
 {
 	GPUBuffer_Release( device, &traceContext->traceCell );
 	GPUBuffer_Release( device, &traceContext->traceIndirectArgs );
@@ -3342,6 +3394,30 @@ void Scene_SaveInfo( Scene_s* scene )
 	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
+void Scene_MakeSequenceFilename( const Scene_s* scene, char* path, core::u32 maxPathSize )
+{
+	V6_ASSERT( scene->filename[0] );
+
+	core::FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6s" );
+}
+
+void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, core::u32 maxPathSize )
+{
+	V6_ASSERT( scene->filename[0] );
+
+	char filepath[256];
+	core::FilePath_ExtractPath( filepath, sizeof( filepath ), scene->filename );
+
+	char filename[256];
+	core::FilePath_ExtractFilename( filename, sizeof( filename ), scene->filename );
+
+	char filenameWithoutExtension[256];
+	core::FilePath_TrimExtension( filenameWithoutExtension, sizeof( filenameWithoutExtension ), filename );
+
+	core::FilePath_Make( path, maxPathSize, filepath, filenameWithoutExtension );
+	sprintf_s( path, maxPathSize, "%s_%s.v6f", path, "%06d" );
+}
+
 void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, core::u32 maxPathSize, core::u32 frame  )
 {
 	V6_ASSERT( scene->filename[0] );
@@ -3726,17 +3802,22 @@ void Scene_UpdateCameraPath( SceneCameraPath_s* scene, const CameraPath_s* camer
 
 void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 {
-	Scene_Create( scene );
+	const char* filename = "D:/media/obj/default/default.obj";
 
-	Mesh_CreateQuad( device, &scene->meshes[MESH_QUAD_RED0], core::Color_Make( 255, 0, 0, 255 ) );
-	Mesh_CreateQuad( device, &scene->meshes[MESH_QUAD_RED1], core::Color_Make( 128, 0, 0, 255 ) );
-	Mesh_CreateQuad( device, &scene->meshes[MESH_QUAD_RED2], core::Color_Make(  64, 0, 0, 255 ) );
+	V6_ASSERT( !core::FilePath_HasExtension( filename, "info" ) );
+	char fileinfo[256];
+	core::FilePath_ChangeExtension( fileinfo, sizeof( fileinfo ), filename, "info" );
+
+	SceneInfo_s info;
+	if ( !SceneInfo_ReadFromFile( &info, fileinfo ) )
+		V6_WARNING( "Unable to read info file\n" );
+
+	Scene_Create( scene );
+	Scene_SetFilename( scene, filename );
+	Scene_SetInfo( scene, &info );
+
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_RED], core::Color_Make( 255, 0, 0, 255 ), false );
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], core::Color_Make( 0, 255, 0, 255 ), false );
 	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], core::Color_Make( 0, 0, 255, 255 ), false );
-	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
-	Mesh_CreateLine( device, &scene->meshes[MESH_LINE], core::Color_Make( 255, 255, 255, 255 ) );
-	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	
@@ -3744,9 +3825,10 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 	//const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_QUAD_RED0, core::Vec3_Make( 0, 0, depth ), pixelRadius * 16 );
-	//Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_QUAD_RED1, core::Vec3_Make( 0, 0, depth ), pixelRadius * 3 );
-	//Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_QUAD_RED2, core::Vec3_Make( 0, 0, depth ), pixelRadius * 5 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, core::Vec3_Make( 0, 0, depth ), pixelRadius * 8 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_BLUE, core::Vec3_Make( -pixelRadius * 32, 0, 0.5f * depth ), pixelRadius * 16 );
+
+	CameraPath_Load( &s_cameraPath, &info );
 }
 
 #else
@@ -3937,26 +4019,29 @@ public:
 
 public:
 	void BlendPixel( const RenderingView_s* view );
-	void BuildBlock( core::u32 frame );
+	bool BuildBlock( core::u32 frameID );
 	core::u32 BuildNode();
 	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
-	bool CheckRawFrameFile( core::u32 frameID );
 	void ClearNode();
 	void Collect( const core::Vec3* sampleOffset, core::u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
-	void CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin, SequenceContext_s* sequenceContext );
+	void CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin, float gridMinScale, core::u32 groupCounts[CODEC_BUCKET_COUNT], core::u32 frameID );
 	void Draw( float dt );
 	void DrawCameraPath( const RenderingView_s* view );
 	void DrawDebug( const RenderingView_s* view );
 	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
 	void DrawWorld( const RenderingView_s* view );	
 	void FillLeaf();
+	bool HasValidRawFrameFile( core::u32 frameID );
+	bool InitTraceMode( core::u32 frameCount );
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
 	void PackColor( core::u32 blockCounts[HLSL_BUCKET_COUNT], BlockContext_s* blockContext );
 	void Present();
 	void Release();
+	void ReleaseTraceMode();
+	void ResetDrawMode();
 	void TraceBlock( const RenderingView_s* views, const core::Vec3* buildOrigin );
-	bool WriteRawFrameToFile( const core::u32 blockCounts[HLSL_BUCKET_COUNT], BlockContext_s* blockContext, core::u32 frame );
+	bool WriteRawFrameFile( const core::u32 blockCounts[HLSL_BUCKET_COUNT], BlockContext_s* blockContext, core::u32 frame );
 
 	GPUContext_s		gpuContext;
 		
@@ -3964,11 +4049,13 @@ public:
 	
 	core::Vec3			m_sampleOffsets[SAMPLE_MAX_COUNT];
 	
-	Cube_s				m_cube;
+	CubeContext_s		m_cubeContext;
 	SampleContext_s		m_sampleContext;
 	OctreeContext_s		m_octreeContext;
-	SceneContext_s		m_sequenceConntext;
-	TraceContext_s		m_traceContext;
+	SequenceContext_s*	m_sequenceContext;
+	TraceContext_s*		m_traceContext;
+	core::Sequence_s	m_sequence;
+	int					m_bakedFrameCount;
 
 	Scene_s*			m_defaultScene;
 	SceneDebug_s*		m_debugScene;
@@ -3997,6 +4084,9 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_stack = stack;
 	core::ScopedStack scopedStack( stack );
 
+	CameraPath_Init( &s_cameraPath );
+	CameraPlayer_Init( &s_cameraPlayer );
+
 	m_width = nWidth;
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;	
@@ -4012,8 +4102,6 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 
 	m_cameraPathScene = heap->newInstance< SceneCameraPath_s >();
 	Scene_CreateCameraPath( m_cameraPathScene, gpuContext.device );
-
-	CameraPath_Init( &s_cameraPath );
 
 	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );
 
@@ -4201,8 +4289,8 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 		D3D11_VIEWPORT viewport = {};
 		viewport.TopLeftX = 0;
 		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_cube.size;
-		viewport.Height = (float)m_cube.size;
+		viewport.Width = (float)m_cubeContext.size;
+		viewport.Height = (float)m_cubeContext.size;
 		viewport.MinDepth = 0.0f;
 		viewport.MaxDepth = 1.0f;
 
@@ -4213,12 +4301,12 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Capture");
 		
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &m_cube.colorRTV, m_cube.depthRTV );
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &m_cubeContext.colorRTV, m_cubeContext.depthRTV );
 
 	// Clear
 	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	gpuContext.deviceContext->ClearRenderTargetView( m_cube.colorRTV, pRGBA );
-	gpuContext.deviceContext->ClearDepthStencilView( m_cube.depthRTV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );						
+	gpuContext.deviceContext->ClearRenderTargetView( m_cubeContext.colorRTV, pRGBA );
+	gpuContext.deviceContext->ClearDepthStencilView( m_cubeContext.depthRTV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );						
 
 	// View
 	RenderingView_s view;
@@ -4276,20 +4364,20 @@ void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
 		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
 			cbSample->c_sampleInvGridScales[gridID] = core::Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
 
-		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE] );		
+		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE] );
 	}
 
 	core::u32 values[4] = {};
 	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_sampleContext.indirectArgs.uav, values );
 		
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBSampleSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_SAMPLE].buf );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &m_cube.colorSRV );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cube.depthSRV );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &m_cubeContext.colorSRV );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_DEPTH_SLOT, 1, &m_cubeContext.depthSRV );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &m_sampleContext.samples.uav, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &m_sampleContext.indirectArgs.uav, nullptr );
 	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_SAMPLECOLLECT].m_computeShader, nullptr, 0 );
 		
-	const core::u32 cubeGroupCount = (m_cube.size / HLSL_CELL_SUPER_SAMPLING_WIDTH) >> 3;
+	const core::u32 cubeGroupCount = (m_cubeContext.size / HLSL_CELL_SUPER_SAMPLING_WIDTH) >> 3;
 	gpuContext.deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset		
@@ -4530,27 +4618,26 @@ void CRenderingDevice::PackColor( core::u32 blockCounts[HLSL_BUCKET_COUNT], Bloc
 	GPUBuffer_UnmapReadBack( gpuContext.deviceContext, &blockContext->blockIndirectArgs );
 }
 
-void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin, float gridMinScale, SequenceContext_s* sequenceContext )
+void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin, float gridMinScale, core::u32 groupCounts[CODEC_BUCKET_COUNT], core::u32 frameID )
 {		
 	static const void* nulls[8] = {};
 
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Cull Blocks");
 
 	core::u32 values[4] = {};
-	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext.traceIndirectArgs.uav, values );
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceIndirectArgs.uav, values );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext.cullStats.uav, values );
+		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cullStats.uav, values );
 
+	v6::hlsl::CBCull cbCullData = {};
 	{
-		v6::hlsl::CBCull* cbCull = ConstantBuffer_MapWrite< v6::hlsl::CBCull >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
-
 		float gridScale = gridMinScale;
-		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID, gridScale *= 2.0f )
 		{
 			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
-			cbCull->c_cullGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
+			cbCullData.c_cullGridScales[gridID] = core::Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
 			const core::Vec3 center = Codec_ComputeGridCenter( buildOrigin, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
-			cbCull->c_cullCenters[gridID] = core::Vec4_Make( &center, 0.0f );
+			cbCullData.c_cullCenters[gridID] = core::Vec4_Make( &center, 0.0f );
 		}
 
 		V6_ASSERT( views[LEFT_EYE].forward == views[RIGHT_EYE].forward );
@@ -4567,48 +4654,54 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 		core::Vec3 upPlane = (views[ANY_EYE].forward * tanHalfFOVUp - views[ANY_EYE].up).Normalized();
 		core::Vec3 bottomPlane = (views[ANY_EYE].forward * tanHalfFOVDown + views[ANY_EYE].up).Normalized();
 		
-		cbCull->c_cullFrustumPlanes[0] = core::Vec4_Make( &leftPlane, -core::Dot( leftPlane, views[LEFT_EYE].org ) );
-		cbCull->c_cullFrustumPlanes[1] = core::Vec4_Make( &rightPlane, -core::Dot( rightPlane, views[RIGHT_EYE].org ) );
-		cbCull->c_cullFrustumPlanes[2] = core::Vec4_Make( &upPlane, -core::Dot( upPlane, views[ANY_EYE].org ) );
-		cbCull->c_cullFrustumPlanes[3] = core::Vec4_Make( &bottomPlane, -core::Dot( bottomPlane, views[ANY_EYE].org ) );
-
-		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
+		cbCullData.c_cullFrustumPlanes[0] = core::Vec4_Make( &leftPlane, -core::Dot( leftPlane, views[LEFT_EYE].org ) );
+		cbCullData.c_cullFrustumPlanes[1] = core::Vec4_Make( &rightPlane, -core::Dot( rightPlane, views[RIGHT_EYE].org ) );
+		cbCullData.c_cullFrustumPlanes[2] = core::Vec4_Make( &upPlane, -core::Dot( upPlane, views[ANY_EYE].org ) );
+		cbCullData.c_cullFrustumPlanes[3] = core::Vec4_Make( &bottomPlane, -core::Dot( bottomPlane, views[ANY_EYE].org ) );
 	}
 
 	// set
 
+	core::u32 bufferID = frameID & 1;
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBCullSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL].buf );	
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &sequenceContext.blockPos.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &sequenceContext.blockData.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_blockContext.blockIndirectArgs.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, &m_sequenceContext->groups[bufferID].srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, &m_sequenceContext->ranges[bufferID].srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_sequenceContext->blockPos.srv );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &m_traceContext.cullStats.uav, nullptr );
+		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &m_traceContext->cullStats.uav, nullptr );
 
 	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Cull Bucket");
 
-		// set
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext.traceCell.uav, nullptr );
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext.traceIndirectArgs.uav, nullptr );
+		// update
+		{
+			v6::hlsl::CBCull* cbCull = ConstantBuffer_MapWrite< v6::hlsl::CBCull >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
+			memcpy( cbCull, &cbCullData, sizeof( cbCullData ) );
+			ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
+
+			cbCullData.c_cullBlockGroupOffset += groupCounts[bucket];
+			cbCullData.c_cullBlockRangeOffset += m_sequence.frameDescArray[frameID].blockRangeCounts[bucket];
+		}
 
 		// dispach
 		if ( s_logReadBack )
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL_STATS4+bucket].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL4+bucket].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->DispatchIndirect( m_blockContext.blockIndirectArgs.buf, block_groupCountX_offset( bucket ) * sizeof( core::u32 ) );
-
-		// unset
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		gpuContext.deviceContext->Dispatch( groupCounts[bucket], 1, 1 );
 
 		gpuContext.userDefinedAnnotation->EndEvent();
-	}	
-		// Unset
+	}
+	
+	// Unset
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( s_logReadBack )
 		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
@@ -4619,15 +4712,57 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 		V6_MSG( "\n" );
 
 		{
-			const hlsl::BlockCullStats* blockCullStats = GPUBuffer_MapReadBack< hlsl::BlockCullStats >( gpuContext.deviceContext, &m_traceContext.cullStats );
+			const hlsl::BlockCullStats* blockCullStats = GPUBuffer_MapReadBack< hlsl::BlockCullStats >( gpuContext.deviceContext, &m_traceContext->cullStats );
 
 			ReadBack_Log( "blockCull", blockCullStats->blockInputCount, "blockInputCount" );
+			ReadBack_Log( "blockCull", blockCullStats->blockProcessedCount, "blockProcessedCount" );
 			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
 			ReadBack_Log( "blockCull", blockCullStats->cellOutputCount, "cellOutputCount" );
 
-			GPUBuffer_UnmapReadBack( gpuContext.deviceContext, &m_traceContext.cullStats );
+			GPUBuffer_UnmapReadBack( gpuContext.deviceContext, &m_traceContext->cullStats );
 		}
 	}
+}
+
+void CRenderingDevice::ResetDrawMode()
+{
+	g_drawMode = DRAW_MODE_DEFAULT;
+	g_sample = 0;
+	CameraPlayer_Play( &s_cameraPlayer, false );
+	m_bakedFrameCount = 0;
+}
+
+bool CRenderingDevice::InitTraceMode( core::u32 frameCount )
+{
+	char templateFilename[256];
+	char sequenceFilename[256];
+
+	Scene_MakeRawFrameFileTemplate( s_activeScene, templateFilename, sizeof( templateFilename ) );
+	Scene_MakeSequenceFilename( s_activeScene, sequenceFilename, sizeof( sequenceFilename ) );
+
+	if ( !core::Sequence_Encode( templateFilename, frameCount, sequenceFilename, m_heap ) )
+		return false;
+
+	if ( !core::Sequence_Load( sequenceFilename, &m_sequence, m_heap ) )
+		return false;
+	
+	m_sequenceContext = m_heap->newInstance< SequenceContext_s >();
+	m_traceContext = m_heap->newInstance< TraceContext_s >();
+
+	SequenceContext_CreateFromData( gpuContext.device, m_sequenceContext, &m_sequence );
+	TraceContext_Create( gpuContext.device, m_traceContext, &m_config );
+
+	return true;
+}
+
+void CRenderingDevice::ReleaseTraceMode()
+{
+	core::Sequence_Release( &m_sequence, m_heap );
+	SequenceContext_Release( gpuContext.device, m_sequenceContext );
+	TraceContext_Release( gpuContext.device, m_traceContext );
+
+	m_heap->deleteInstance( m_sequenceContext );
+	m_heap->deleteInstance( m_traceContext );
 }
 
 void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec3* buildOrigin )
@@ -4637,9 +4772,9 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 	gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Blocks");
 
 	core::u32 values[4] = {};
-	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext.cellItemCounters.uav, values );
+	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cellItemCounters.uav, values );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext.traceStats.uav, values );
+		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceStats.uav, values );
 
 	float gridScale = GRID_MIN_SCALE;
 
@@ -4647,14 +4782,12 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		v6::hlsl::CBBlock* cbBlock = ConstantBuffer_MapWrite< v6::hlsl::CBBlock >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
 
 		float gridScale = GRID_MIN_SCALE;
-		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID )
+		for ( core::u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID, gridScale *= 2.0f )
 		{
 			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
 			cbBlock->c_blockGridScales[gridID] = core::Vec4_Make( gridScale, cellScale, ((1 << 21) - 1) / gridScale, 0.0f );
 			const core::Vec3 center = Codec_ComputeGridCenter( buildOrigin, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
 			cbBlock->c_blockGridCenters[gridID] = core::Vec4_Make( &center, 0.0f );
-			if ( gridID < GRID_COUNT)
-				gridScale *= 2;
 		}
 
 		const core::Vec2 frameSize = core::Vec2_Make( (float)m_width, (float)m_height );
@@ -4685,7 +4818,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 			cbBlock->c_blockEyes[eye] = blockPerEye;
 
 			cbBlock->c_blockGetStats = s_logReadBack;
-			cbBlock->c_blockShowMips = g_showMip;
+			cbBlock->c_blockShowFlag = (g_showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (g_showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0);
 		}
 
 		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
@@ -4694,22 +4827,18 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 	// set
 
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
-#if HLSL_ENCODE_DATA == 0
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_blockContext.blockPos.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_blockContext.blockData.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, &m_blockContext.blockIndirectArgs.srv );
-#endif // #if HLSL_ENCODE_DATA == 0
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext.traceCell.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext.cellItems.uav, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext.cellItemCounters.uav, nullptr );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_sequenceContext->blockData.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.srv );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.uav, nullptr );
+	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.uav, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_traceContext.traceStats.uav, nullptr );
+		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_traceContext->traceStats.uav, nullptr );
 	
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Init Trace");
 
 		// set
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext.traceIndirectArgs.uav, nullptr );
+		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
 				
 		// dispatch
 		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_INIT].m_computeShader, nullptr, 0 );				
@@ -4721,55 +4850,29 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		gpuContext.userDefinedAnnotation->EndEvent();
 	}
 
-#if HLSL_ENCODE_DATA == 1
-	{
-		gpuContext.userDefinedAnnotation->BeginEvent( L"Trace");
-		
-		// set
-		
-		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_blockContext.traceIndirectArgs.srv );
-			
-		// dispach
-		if ( s_logReadBack )
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_STATS].m_computeShader, nullptr, 0 );
-		else
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->DispatchIndirect( m_blockContext.traceIndirectArgs.buf, 0 );
-
-		// unset		
-		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-
-		gpuContext.userDefinedAnnotation->EndEvent();
-	}
-#else
 	for ( core::u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
 		gpuContext.userDefinedAnnotation->BeginEvent( L"Trace Bucket");
 
 		// set
 
-		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext.traceIndirectArgs.srv );
+		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.srv );
 
 		// dispach
-		if ( s_logReadBack | g_showMip )
+		if ( s_logReadBack | g_showMip | g_showBucket )
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->DispatchIndirect( m_traceContext.traceIndirectArgs.buf, trace_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
+		gpuContext.deviceContext->DispatchIndirect( m_traceContext->traceIndirectArgs.buf, trace_cellGroupCountX_offset( bucket ) * sizeof( core::u32 ) );
 
 		// unset		
 		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 
 		gpuContext.userDefinedAnnotation->EndEvent();
 	}
-#endif
 
 	// Unset
-#if HLSL_ENCODE_DATA == 0
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-#endif // #if HLSL_ENCODE_DATA == 0
 	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -4783,7 +4886,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		V6_MSG( "\n" );
 
 		{
-			const hlsl::BlockTraceStats* blockTraceStats = GPUBuffer_MapReadBack< hlsl::BlockTraceStats >( gpuContext.deviceContext, &m_traceContext.traceStats );
+			const hlsl::BlockTraceStats* blockTraceStats = GPUBuffer_MapReadBack< hlsl::BlockTraceStats >( gpuContext.deviceContext, &m_traceContext->traceStats );
 
 			ReadBack_Log( "blockTrace", blockTraceStats->cellInputCount, "cellInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCount, "cellProcessedCount" );
@@ -4792,7 +4895,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
 			V6_ASSERT( blockTraceStats->cellItemCount < m_config.cellItemCount );
 
-			GPUBuffer_UnmapReadBack( gpuContext.deviceContext, &m_traceContext.traceStats );
+			GPUBuffer_UnmapReadBack( gpuContext.deviceContext, &m_traceContext->traceStats );
 		}
 	}
 }
@@ -4807,8 +4910,8 @@ void CRenderingDevice::BlendPixel( const RenderingView_s* view )
 
 	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
 
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext.cellItems.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext.cellItemCounters.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.srv );
+	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.srv );
 	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &view->uav, nullptr );
 	if ( g_showOverdraw	)
 		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
@@ -4900,7 +5003,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 #endif
 }
 
-bool CRenderingDevice::CheckRawFrameFile( core::u32 frameID )
+bool CRenderingDevice::HasValidRawFrameFile( core::u32 frameID )
 {
 	if ( s_activeScene->filename[0] == 0 )
 	{
@@ -4965,7 +5068,7 @@ bool CRenderingDevice::CheckRawFrameFile( core::u32 frameID )
 	return true;
 }
 
-bool CRenderingDevice::WriteRawFrameToFile( const core::u32 blockCounts[HLSL_BUCKET_COUNT], BlockContext_s* blockContext, core::u32 frameID )
+bool CRenderingDevice::WriteRawFrameFile( const core::u32 blockCounts[HLSL_BUCKET_COUNT], BlockContext_s* blockContext, core::u32 frameID )
 {
 	if ( s_activeScene->filename[0] == 0 )
 	{
@@ -5022,7 +5125,7 @@ bool CRenderingDevice::WriteRawFrameToFile( const core::u32 blockCounts[HLSL_BUC
 	return !hasError;
 }
 
-void CRenderingDevice::BuildBlock( core::u32 frame )
+bool CRenderingDevice::BuildBlock( core::u32 frameID )
 {
 	static core::u32 lastSumLeafCount = 0;
 
@@ -5030,26 +5133,15 @@ void CRenderingDevice::BuildBlock( core::u32 frame )
 	{
 		s_buildOrigin = s_headOffset;
 
-		if ( m_blockModeInitialized )
+		if ( HasValidRawFrameFile( frameID ) )
 		{
-			Block_Release( gpuContext.device, &m_blockContext );
-			Trace_Release( gpuContext.device, &m_traceContext );
-			m_blockModeInitialized = false;
-		}
-
-#if 1
-		if ( ReadStream( frame ) )
-		{
-			Trace_Create( gpuContext.device, &m_traceContext, &m_config, m_heap );
-
 			g_sample = SAMPLE_MAX_COUNT;
-			return;
+			return true;
 		}
-#endif
 
-		Cube_Create( gpuContext.device, &m_cube, CUBE_SIZE );
-		Sample_Create( gpuContext.device, &m_sampleContext, &m_config, m_heap );
-		Octree_Create( gpuContext.device, &m_octreeContext, &m_config, m_heap );
+		CubeContext_Create( gpuContext.device, &m_cubeContext, CUBE_SIZE );
+		SampleContext_Create( gpuContext.device, &m_sampleContext, &m_config );
+		OctreeContext_Create( gpuContext.device, &m_octreeContext, &m_config );
 
 		lastSumLeafCount = 0;
 		ClearNode();
@@ -5065,8 +5157,8 @@ void CRenderingDevice::BuildBlock( core::u32 frame )
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		Capture( &samplePos, faceID );
-		Collect( &samplePos, faceID );					
-		sumLeafCount = BuildNode();
+		Collect( &samplePos, faceID );
+		sumLeafCount += BuildNode();
 		FillLeaf();
 	}
 
@@ -5084,36 +5176,38 @@ void CRenderingDevice::BuildBlock( core::u32 frame )
 	{
 		V6_MSG( "Packing all samples..." );
 
-		Cube_Release( &m_cube );
-		Sample_Release( gpuContext.device, &m_sampleContext );
+		CubeContext_Release( &m_cubeContext );
+		SampleContext_Release( gpuContext.device, &m_sampleContext );
 
-		Block_Create( gpuContext.device, &m_blockContext, &m_config, m_heap );
-		m_blockModeInitialized = true;
+		{
+			BlockContext_s blockContext = {};
+			BlockContext_Create( gpuContext.device, &blockContext, &m_config);
 
-		core::u32 blockCounts[HLSL_BUCKET_COUNT] = {};
-		PackColor( blockCounts );
+			core::u32 blockCounts[HLSL_BUCKET_COUNT] = {};
+			PackColor( blockCounts, &blockContext );
 
-		Octree_Release( gpuContext.device, &m_octreeContext );
+			OctreeContext_Release( gpuContext.device, &m_octreeContext );
 
-		if ( WriteStream( blockCounts, frame ) )
-			ReadStream( frame );
+			if ( !WriteRawFrameFile( blockCounts, &blockContext, frameID ) )
+				return false;
 
-		Trace_Create( gpuContext.device, &m_traceContext, &m_config, m_heap );
-
+			BlockContext_Release( gpuContext.device, &blockContext );
+		}
+		
 		V6_MSG( "\r" );
-		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", FormatInteger_Unsafe( sumLeafCount ), frame );
+		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", FormatInteger_Unsafe( sumLeafCount ), frameID );
 		s_logReadBack = false;
-#if 0
-		// bake always
-		g_sample = 0;
-#endif
 	}
+
+	return true;
 }
 
 void CRenderingDevice::Draw( float dt )
 {
 	static int lastKeyPosX = -1;
 	static int lastKeyPosZ = -1;
+
+	const core::u32 frameID = CameraPlayer_GetFrame( &s_cameraPlayer );
 	
 	int mouseDeltaX = 0;
 	int mouseDeltaY = 0;
@@ -5183,14 +5277,14 @@ void CRenderingDevice::Draw( float dt )
 		s_headOffset = s_buildOrigin + distanceToCenter;
 	}
 
-	if ( s_cameraPath.dirty && (g_showCameraPath || g_playCameraPath) )
+	if ( s_cameraPath.dirty && (g_cameraShowPath || s_cameraPlayer.isPlaying) )
 	{
-		CameraPath_Compute( &s_cameraPath, g_cameraSpeed );
+		CameraPlayer_Compute( &s_cameraPlayer, &s_cameraPath, g_cameraSpeed );
 		Scene_UpdateCameraPath( m_cameraPathScene, &s_cameraPath, gpuContext.deviceContext );
 	}
 
-	if ( g_playCameraPath )
-		s_headOffset = CameraPath_GetPosition( &s_cameraPath, g_playCameraPathTime );
+	if ( s_cameraPlayer.isPlaying )
+		s_headOffset = CameraPlayer_GetPosition( &s_cameraPlayer, &s_cameraPath );
 
 	RenderingView_s views[HLSL_EYE_COUNT];
 #if V6_USE_HMD
@@ -5218,6 +5312,8 @@ void CRenderingDevice::Draw( float dt )
 
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
+		// draw mode
+
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 
 		for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
@@ -5227,55 +5323,79 @@ void CRenderingDevice::Draw( float dt )
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 
-		if ( g_playCameraPath )
-		{
-			g_playCameraPathTime += dt;
-			++g_playCameraPathFrame;
-		}
+		CameraPlayer_AddTimeStep( &s_cameraPlayer, dt );
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
-	{		
+	{
 		if ( g_sample < SAMPLE_MAX_COUNT )
 		{
+			// bake mode
+
+			if ( m_bakedFrameCount == -1 )
+			{
+				ReleaseTraceMode();
+				m_bakedFrameCount = 0;
+			}
+
+			V6_ASSERT( m_bakedFrameCount == frameID );
+
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 
-			BuildBlock( g_playCameraPath ? g_playCameraPathFrame : 0 );
+			if ( BuildBlock( frameID ) )
+			{
+				if ( g_sample == SAMPLE_MAX_COUNT )
+				{
+					++m_bakedFrameCount;
+
+					if ( CameraPlayer_AddTimeStep( &s_cameraPlayer, 1.0f / HMD_FPS ) )
+						g_sample = 0;
+				}
+			}
+			else
+			{
+				ResetDrawMode();
+			}
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
-
-			if ( g_playCameraPath && g_sample == SAMPLE_MAX_COUNT )
-			{
-				g_sample = 0;
-				g_playCameraPathTime += 1.0f / HMD_FPS;
-				++g_playCameraPathFrame;
-			}
 		}
 		else
 		{
+			// trace mode
+
+			if ( m_bakedFrameCount > 0 )
+			{
+				if ( InitTraceMode( m_bakedFrameCount ) )
+					m_bakedFrameCount = -1;
+				else
+					ResetDrawMode();
+			}
+
+			V6_ASSERT( m_bakedFrameCount == -1 );
+			const core::CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
+
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
-			
-			CullBlock( views, &s_buildOrigin );
+			{
+				core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
+				SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameID, &m_sequence, m_stack );
 
+				CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
+			}
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
-
-			TraceBlock( views, &s_buildOrigin );
-
+			{
+				TraceBlock( views, &frameDesc->origin );
+			}
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
-
-			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-				BlendPixel( &views[eye] );
-
+			{
+				for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+					BlendPixel( &views[eye] );
+			}
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 
 			s_logReadBack = false;
 			g_mousePicked = false;
 
-			if ( g_playCameraPath )
-			{
-				g_playCameraPathTime += 1.0f / HMD_FPS;
-				++g_playCameraPathFrame;
-			}
+			CameraPlayer_AddTimeStep( &s_cameraPlayer, 1.0f / HMD_FPS );
 		}
 	}	
 	
@@ -5289,7 +5409,7 @@ void CRenderingDevice::Draw( float dt )
 	else
 #endif // #if V6_USE_HMD
 	{
-		if ( g_showCameraPath )
+		if ( g_cameraShowPath )
 		{
 			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 				DrawCameraPath( &views[eye] );
@@ -5300,13 +5420,6 @@ void CRenderingDevice::Draw( float dt )
 
 		Output( gpuContext.colorSRVs[LEFT_EYE], gpuContext.colorSRVs[RIGHT_EYE] );
 	}
-
-	if ( g_playCameraPath && g_playCameraPathTime >= s_cameraPath.duration || g_playCameraPathFrame >= VIDEO_FRAME_MAX_COUNT )
-	{
-		g_sample = SAMPLE_MAX_COUNT;
-		g_playCameraPath = false;
-	}
-
 }
 
 void CRenderingDevice::Present()
@@ -5316,11 +5429,8 @@ void CRenderingDevice::Present()
 
 void CRenderingDevice::Release()
 {
-	if ( m_blockModeInitialized )
-	{
-		Block_Release( gpuContext.device, &m_blockContext );
-		Trace_Release( gpuContext.device, &m_traceContext );
-	}
+	if ( m_bakedFrameCount == -1 )
+		ReleaseTraceMode();
 
 	Scene_Release( m_defaultScene );
 	m_heap->deleteInstance( m_defaultScene );
@@ -5521,12 +5631,14 @@ int main()
 
 			if ( msg.message == WM_QUIT )
 			{
-				oRenderingDevice.Release();
 #if V6_LOAD_EXTERNAL == 1
 				v6::core::Signal_Wait( &sceneContext.loadDone );
 				Scene_SaveInfo( v6::viewer::s_activeScene );
 				SceneContext_Release( &sceneContext );
+#else
+				Scene_SaveInfo( v6::viewer::s_activeScene );
 #endif
+				oRenderingDevice.Release();
 				return 0;
 			}
 		}

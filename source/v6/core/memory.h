@@ -47,7 +47,7 @@ public:
 		free(p);
 	}
 
-	virtual void	free(void * p) {};	
+	virtual void	free(void * p) {};
 
 	virtual void *	realloc(void * p, int nSize) { return nullptr; };
 };

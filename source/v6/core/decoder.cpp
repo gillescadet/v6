@@ -8,7 +8,40 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator )
+static int Block_ComparePos( void* blockPosPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
+{
+	u32* blockPos = (u32*)blockPosPointer;
+	const u32 blockID0 = *((u32*)blockIDPointer0);
+	const u32 blockID1 = *((u32*)blockIDPointer1);
+
+	return blockPos[blockID0] < blockPos[blockID1] ? -1 : 1;
+}
+
+static bool Block_CompareData( const u32* cell0, const u32* cell1 )
+{
+	const u32 pos0 = *cell0 & 0xFF;
+	const u32 pos1 = *cell1 & 0xFF;
+	if ( pos0 != pos1 )
+		return false;
+
+	const u32 r0 = (*cell0 >> 24) & 0xFF;
+	const u32 g0 = (*cell0 >> 16) & 0xFF;
+	const u32 b0 = (*cell0 >>  8) & 0xFF;
+	const u32 r1 = (*cell1 >> 24) & 0xFF;
+	const u32 g1 = (*cell1 >> 16) & 0xFF;
+	const u32 b1 = (*cell1 >>  8) & 0xFF;
+
+	if ( Abs( (int)(r0 - r1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+		return false;
+	if ( Abs( (int)(g0 - g1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+		return false;
+	if ( Abs( (int)(b0 - b1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+		return false;
+
+	return true;
+}
+
+static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator )
 {
 	CFileReader fileReader;
 	if ( !fileReader.Open( sequenceFilename ) )
@@ -31,10 +64,23 @@ bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocat
 			return false;
 		sequence->frameBufferArray[frameID] = frameBuffer;
 	}
-
+	
 	if ( fileReader.GetRemaining() > 0 )
 	{
 		V6_ERROR( "Uncomplete read of file %s\n", sequenceFilename );
+		return false;
+	}
+	
+	return true;
+}
+
+bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator )
+{
+	memset( sequence, 0, sizeof( *sequence ) );
+
+	if ( !Sequence_LoadInternal( sequenceFilename, sequence, allocator ) )
+	{
+		Sequence_Release( sequence, allocator );
 		return false;
 	}
 
@@ -43,17 +89,239 @@ bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocat
 
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator )
 {
-	V6_ASSERT( sequence->frameDescArray );
-	V6_ASSERT( sequence->frameDataArray );
-	V6_ASSERT( sequence->buffer );
-	V6_ASSERT( sequence->frameBufferArray );
-
 	allocator->free( sequence->buffer );
+	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
+		allocator->free( sequence->frameBufferArray[frameID] );
 	allocator->deleteArray( sequence->frameDescArray );
 	allocator->deleteArray( sequence->frameDataArray );
 	allocator->deleteArray( sequence->frameBufferArray );
+}
+
+bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator )
+{
+	Stack stack( allocator, MulMB( 100 ) );
+
+	const u32 gridMacroMask = (1 << sequence->desc.gridMacroShift) - 1;
+	const u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+	float gridScales[CODEC_MIP_MAX_COUNT];
+	float gridScale = sequence->desc.gridScaleMin;
+	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
+		gridScales[mip] = gridScale;
+
+	u32* rangeBlockPosOffsets[CODEC_BUCKET_COUNT];
+	u32* rangeBlockDataOffsets[CODEC_BUCKET_COUNT];
+	CodecRange_s* rangeDefs[CODEC_BUCKET_COUNT];
+
+	{
+		u32 rangeDefOffset = 0;
+		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		{
+			rangeDefs[bucket] = sequence->data.rangeDefs + rangeDefOffset;
+			const u32 rangeDefCount = sequence->desc.rangeDefCounts[bucket];
+			rangeDefOffset += rangeDefCount;
+			rangeBlockPosOffsets[bucket] = stack.newArray< u32 >( rangeDefCount );
+			rangeBlockDataOffsets[bucket] = stack.newArray< u32 >( rangeDefCount );
+		}
+	}
+
+	{
+		core::u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
+		for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
+		{
+			core::u32 blockPosOffet = 0;
+			core::u32 blockDataOffet = 0;
+
+			core::Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
+			float gridScale = sequence->desc.gridScaleMin;
+			core::u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+			for ( core::u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
+				macroGridCoords[mip] = core::Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
+
+			for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
+			{
+				const core::u32 rangeID = nextRangeIDs[bucket];
+
+				if ( rangeID == sequence->desc.rangeDefCounts[bucket] )
+				{
+					++bucket;
+					continue;
+				}
+
+				const core::CodecRange_s* codecRange = &rangeDefs[bucket][rangeID];
+				core::u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
+				if ( frameID != rangeFrameID )
+				{
+					++bucket;
+					continue;
+				}
+
+				const core::u32 blockCount = codecRange->frameID8_mip4_blockCount20 & 0xFFFFF;
+				const core::u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
+
+				rangeBlockPosOffsets[bucket][rangeID] = blockPosOffet;
+				rangeBlockDataOffsets[bucket][rangeID] = blockDataOffet;
+
+				const core::u32 cellPerBucket = 1 << (2 + bucket);
+				blockPosOffet += blockCount;
+				blockDataOffet += blockCount * cellPerBucket;
+
+				++nextRangeIDs[bucket];
+			}
+		}
+
+		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+			V6_ASSERT( nextRangeIDs[bucket] == sequence->desc.rangeDefCounts[bucket] );
+	}
+
 	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
-		allocator->free( sequence->frameBufferArray[frameID] );
+	{
+		ScopedStack scopedStack( &stack );
+
+		char filename[256];
+		sprintf_s( filename, sizeof( filename ), templateFilename, frameID );
+
+		CFileReader fileReader;
+		if ( !fileReader.Open( filename ) )
+		{
+			V6_ERROR( "Unable to open %s.\n", filename );
+			return false;
+		}
+
+		CodecRawFrameDesc_s rawFrameDesc;
+		CodecRawFrameData_s rawFrameData;
+
+		if  ( !Codec_ReadRawFrame( &fileReader, &rawFrameDesc, &rawFrameData, &stack ) )
+		{
+			V6_ERROR( "Unable to read %s.\n", filename );
+			return false;
+		}
+
+		if ( rawFrameDesc.sampleCount != sequence->desc.sampleCount )
+		{
+			V6_ERROR( "Incompatible sample count.\n" );
+			return false;
+		}
+
+		if ( rawFrameDesc.gridMacroShift != sequence->desc.gridMacroShift )
+		{
+			V6_ERROR( "Incompatible grid resolution.\n" );
+			return false;
+		}
+
+		if ( rawFrameDesc.gridScaleMin != sequence->desc.gridScaleMin || rawFrameDesc.gridScaleMax != sequence->desc.gridScaleMax )
+		{
+			V6_ERROR( "Incompatible grid scales.\n" );
+			return false;
+		}
+
+		u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
+		u32* rawFrameBlockPos = (u32*)rawFrameData.blockPos;
+		u32* rawFrameBlockData = (u32*)rawFrameData.blockData;
+		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		{
+			u32 bucketBlockCount = 0;
+			const u32 rangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
+			
+			for ( u32 rangeRank = 0; rangeRank < rangeCount; ++rangeRank )
+			{
+				const u32 rangeID = rangeIDs[rangeRank];
+				const CodecRange_s* range = &rangeDefs[bucket][rangeID];
+				bucketBlockCount += range->frameID8_mip4_blockCount20 & 0xFFFFF;
+			}
+
+			if ( bucketBlockCount != rawFrameDesc.blockCounts[bucket] )
+			{
+				V6_ERROR( "Incompatible block count.\n" );
+				return false;
+			}
+
+			const u32 cellPerBucketCount = 1 << (2 + bucket);
+
+			{
+				ScopedStack scopedStackSort( &stack );
+
+				u32* sequenceBlockPos = stack.newArray< u32 >( bucketBlockCount );
+				u32* sequenceBlockData = stack.newArray< u32 >( bucketBlockCount * cellPerBucketCount );
+				u32 sequenceBlockOffset = 0;
+
+				const u32 rangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
+				for ( u32 rangeRank = 0; rangeRank < rangeCount; ++rangeRank )
+				{
+					const u32 rangeID = rangeIDs[rangeRank];
+					const CodecRange_s* range = &rangeDefs[bucket][rangeID];
+					const u32 rangeFrameID = range->frameID8_mip4_blockCount20 >> 24;
+					const u32 rangeMip = (range->frameID8_mip4_blockCount20 >> 20) & 0xF;
+					const u32 rangeBlockCount = range->frameID8_mip4_blockCount20 & 0xFFFFF;
+					const u32 frameBlockPosOffset = rangeBlockPosOffsets[bucket][rangeID];
+					const u32 frameBlockDataOffset = rangeBlockDataOffsets[bucket][rangeID];
+					const Vec3i gridOffset = 
+						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameID].origin, gridScales[rangeMip], gridMacroHalfWidth ) -
+						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScales[rangeMip], gridMacroHalfWidth );
+					for ( u32 blockRank = 0; blockRank < rangeBlockCount; ++blockRank )
+					{
+						const u32 sequencePackedBlockPos = sequence->frameDataArray[rangeFrameID].blockPos[frameBlockPosOffset + blockRank];
+						const u32 mip = sequencePackedBlockPos >> 28;
+						const u32 x = ((sequencePackedBlockPos >> (sequence->desc.gridMacroShift * 0)) & gridMacroMask);
+						const u32 y = ((sequencePackedBlockPos >> (sequence->desc.gridMacroShift * 1)) & gridMacroMask);
+						const u32 z = ((sequencePackedBlockPos >> (sequence->desc.gridMacroShift * 2)) & gridMacroMask);
+
+						if ( mip != rangeMip )
+						{
+							V6_ERROR( "Incompatible block mip.\n" );
+							return false;
+						}
+
+						sequenceBlockPos[sequenceBlockOffset + blockRank] = mip << 28;
+						sequenceBlockPos[sequenceBlockOffset + blockRank] |= (x + gridOffset.x) << (sequence->desc.gridMacroShift * 0);
+						sequenceBlockPos[sequenceBlockOffset + blockRank] |= (y + gridOffset.y) << (sequence->desc.gridMacroShift * 1);
+						sequenceBlockPos[sequenceBlockOffset + blockRank] |= (z + gridOffset.z) << (sequence->desc.gridMacroShift * 2);
+					}
+					memcpy( sequenceBlockData + sequenceBlockOffset * cellPerBucketCount, sequence->frameDataArray[rangeFrameID].blockData + frameBlockDataOffset, rangeBlockCount * cellPerBucketCount * 4 );
+
+					sequenceBlockOffset += rangeBlockCount;
+				}
+				
+				u32* sequenceBlockIDs = stack.newArray< u32 >( bucketBlockCount );
+				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
+					sequenceBlockIDs[blockRank] = blockRank;
+
+				qsort_s( sequenceBlockIDs, bucketBlockCount, sizeof( core::u32 ), Block_ComparePos, sequenceBlockPos );
+
+				u32* rawFrameBlockIDs = stack.newArray< u32 >( bucketBlockCount );
+				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
+					rawFrameBlockIDs[blockRank] = blockRank;
+
+				qsort_s( rawFrameBlockIDs, bucketBlockCount, sizeof( core::u32 ), Block_ComparePos, rawFrameBlockPos );
+
+				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
+				{
+					const u32 sequenceBlockID = sequenceBlockIDs[blockRank];
+					const u32 rawFrameBlockID = rawFrameBlockIDs[blockRank];
+					if ( sequenceBlockPos[sequenceBlockID] != rawFrameBlockPos[rawFrameBlockID] )
+					{
+						V6_ERROR( "Incompatible block pos.\n" );
+						return false;
+					}
+					for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+					{
+						if ( !Block_CompareData( &sequenceBlockData[sequenceBlockID * cellPerBucketCount + cellID], &rawFrameBlockData[rawFrameBlockID * cellPerBucketCount + cellID] ) )
+						{
+							V6_ERROR( "Incompatible block data.\n" );
+							return false;
+						}
+					}
+				}
+			}
+
+			rangeIDs += rangeCount;
+			rawFrameBlockPos += bucketBlockCount;
+			rawFrameBlockData += bucketBlockCount * cellPerBucketCount;
+		}
+
+		V6_MSG( "F%02d: validated.\n", frameID );
+	}
+
+	return true;
 }
 
 END_V6_CORE_NAMESPACE

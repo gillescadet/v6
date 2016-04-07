@@ -31,8 +31,11 @@ void * CHeap::alloc(int nSize)
 
 void CHeap::free(void * p)
 {
+	if ( p == nullptr)
+		return;
+	
 	--m_notFreeCount;
-	return ::free(p);
+	::free(p);
 }
 
 void * CHeap::realloc(void * p, int nSize)

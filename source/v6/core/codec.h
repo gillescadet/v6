@@ -25,6 +25,8 @@ BEGIN_V6_CORE_NAMESPACE
 #define CODEC_RANGE_MAX_COUNT			65536
 #define CODEC_FRAME_MAX_COUNT			256
 
+#define CODEC_COLOR_ERROR_TOLERANCE		0x0F
+
 class IAllocator;
 class IStreamReader;
 class IStreamWriter;
@@ -41,12 +43,12 @@ struct CodecSequenceDesc_s
 	u32				gridMacroShift;
 	float			gridScaleMin;
 	float			gridScaleMax;
-	u32				rangeCounts[CODEC_BUCKET_COUNT];
+	u32				rangeDefCounts[CODEC_BUCKET_COUNT];
 };
 
 struct CodecSequenceData_s
 {
-	CodecRange_s*	ranges;
+	CodecRange_s*	rangeDefs;
 };
 
 struct CodecRawFrameDesc_s

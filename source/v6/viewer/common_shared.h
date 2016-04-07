@@ -20,6 +20,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_DEBUG_OCCUPANCY						0
 #define HLSL_DEBUG_COLLECT							1
 
+#define HLSL_BLOCK_SHOW_FLAG_MIPS					1
+#define HLSL_BLOCK_SHOW_FLAG_BUCKETS				2
+
 #define HLSL_TRILINEAR_SLOT							0
 
 #define HLSL_SURFACE_SLOT							0
@@ -202,7 +205,8 @@ CBUFFER( CBOctree, 3 )
 CBUFFER( CBCull, 4 )
 {
 	uint				c_cullBlockGroupOffset;
-	uint3				c_cullPad0;
+	uint				c_cullBlockRangeOffset;
+	uint2				c_cullPad0;
 	float4				c_cullGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4];
 	float4				c_cullCenters[HLSL_MIP_MAX_COUNT];
@@ -233,7 +237,7 @@ CBUFFER( CBBlock, 5 )
 
 	float2				c_blockFrameSize;
 	uint				c_blockGetStats;
-	uint				c_blockShowMips;
+	uint				c_blockShowFlag;
 
 	BlockPerEye			c_blockEyes[HLSL_EYE_COUNT];
 };
@@ -301,6 +305,7 @@ struct BlockRange
 struct BlockCullStats 
 {
 	uint	blockInputCount;
+	uint	blockProcessedCount;
 	uint	blockPassedCount;
 	uint	cellOutputCount;
 };

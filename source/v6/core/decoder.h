@@ -23,6 +23,7 @@ struct Sequence_s
 
 bool Sequence_Load( const char* streamFilename, Sequence_s* sequence, IAllocator* allocator );
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator );
+bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator );
 
 END_V6_CORE_NAMESPACE
 

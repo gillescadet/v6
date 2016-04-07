@@ -80,10 +80,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const uint3 cellCoords = uint3( x, y, z );
 
 #if BLOCK_DEBUG == 1
-			if ( c_blockShowMips )
+			if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_MIPS )
 			{
 				const uint mipColors[6] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0x7F000000, 0x007F0000, 0x00007F00 };
 				rgb_none = mipColors[mip % 6];
+			}
+			else if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_BUCKETS )
+			{
+				const uint bucketColors[5] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0xFF00FF00, 0xFFFF0000 };
+				rgb_none = bucketColors[GRID_CELL_BUCKET];
 			}
 #endif // #if BLOCK_DEBUG == 1
 

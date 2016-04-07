@@ -23,9 +23,9 @@
 #define V6_STATIC_ASSERT( EXP )		static_assert( EXP, "static assert: "#EXP )
 
 #define V6_PRINT( ... )				printf( __VA_ARGS__ );
-#define V6_MSG( ... )				do { V6_PRINT( "[MSG] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
-#define V6_WARNING( ... )			do { V6_PRINT( "[WRN] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
-#define V6_ERROR( ... )				do { V6_PRINT( "[ERR] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
+#define V6_MSG( ... )				do { V6_PRINT( __VA_ARGS__ ); } while ( false )
+#define V6_WARNING( ... )			do { V6_PRINT( "[WARNING] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
+#define V6_ERROR( ... )				do { V6_PRINT( "[ERROR] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
 
 #define V6_INLINE					__inline
 

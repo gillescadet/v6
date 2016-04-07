@@ -26,7 +26,7 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 	const uint blockGroupID = c_cullBlockGroupOffset + Gid.x;
 	const uint rangeID = blockGroups[blockGroupID];
 
-	const BlockRange range = blockRanges[rangeID];
+	const BlockRange range = blockRanges[c_cullBlockRangeOffset + rangeID];
 	const uint blockRank = DTid.x - range.firstThreadID;
 
 #if BLOCK_GET_STATS == 1
@@ -35,14 +35,18 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 
 	if ( blockRank < range.blockCount )
 	{
+#if BLOCK_GET_STATS == 1
+		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );
+#endif // #if BLOCK_GET_STATS == 1	
+
 		const uint blockPosID = range.blockPosOffset + blockRank;
 		const uint packedBlockPos = blockPositions[blockPosID];
 
 		const uint mip = packedBlockPos >> 28;
 		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
-		const uint blockPosX = range.gridOffset.x + ((blockPos >> 0)						& HLSL_GRID_MACRO_MASK);
-		const uint blockPosY = range.gridOffset.y + ((blockPos >> HLSL_GRID_MACRO_SHIFT)	& HLSL_GRID_MACRO_MASK);
-		const uint blockPosZ = range.gridOffset.z + ((blockPos >> HLSL_GRID_MACRO_2XSHIFT)	& HLSL_GRID_MACRO_MASK);
+		const uint blockPosX = range.macroGridOffset.x + ((blockPos >> 0)						& HLSL_GRID_MACRO_MASK);
+		const uint blockPosY = range.macroGridOffset.y + ((blockPos >> HLSL_GRID_MACRO_SHIFT)	& HLSL_GRID_MACRO_MASK);
+		const uint blockPosZ = range.macroGridOffset.z + ((blockPos >> HLSL_GRID_MACRO_2XSHIFT)	& HLSL_GRID_MACRO_MASK);
 		const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << HLSL_GRID_BLOCK_SHIFT;
 		const float gridScale = c_cullGridScales[mip].x;
 		const float cellSize = gridScale * 2.0f * HLSL_GRID_INV_WIDTH;
