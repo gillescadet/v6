@@ -1,0 +1,39 @@
+*Your shipped or WIP titles/projects (Please provide links):
+
+http://www.video6dof.com/
+
+*Your LinkedIn profile or portfolio (Optional):
+
+https://www.linkedin.com/in/gilles-cadet-67902350
+
+*What perspective do you bring to the games/VR industry that you believe is currently under-represented?  Why do you believe it is important for this perspective to be represented as a role model? (1200 or fewer characters)
+
+I think that having true VR video, which is not existing actually, can help VR to become a mass market product. Like "videos" have preceded "video games", "VR videos" should precede "VR games". This is based on the fact that people need to be educated to be in VR, and also that VR has currently some technical limitations, which makes watching a VR video a better and more affordable experience than playing a VR game.
+
+Since the apparition of the Gear VR, many 360 videos have been released. This proves that people are requesting VR videos, but this gives the user only a glimpse of VR. Even for the best 360 videos, there is no parallax, the image is distorted, the stereoscopy is biased, and there is a lack of depth. All of this makes watching these videos not fully immersive and not plenty comfortable.
+
+True VR video will attract more users, and will make creating video for VR more appealing for movie makers, leading to a virtuous circle of having better content and more users.
+
+*Tell us your story and tell us where you hope it leads next. (1200 or fewer characters)
+
+As a side-project of my full time job, I am working on a prototype to capture the footage of a 3D rendering, frame by frame, and to playback this capture smoothly in VR with 6 degrees of freedom.
+
+Developing this prototype raises a lot of technical challenges in terms of performance, memory usage and quality.
+
+I would like to transform this prototype in two public tools:
+- a video maker to be integrated as a plugin into the major 3D rendering tools like Unreal Engine, Unity, Maya, 3ds Max, Blender...
+- a video player that could be freely downloaded by everyone.
+
+My long term vision is to build a business around the video maker tool depending of the type video created:
+- video for free diffusion => free video maker.
+- video with commercial feedback (based of what the user has looked at) => pay for the service.
+- video with customisable interactions => pay for the SDK.
+- video on demand => pay for a volume of diffusion.
+
+*Describe your dream for VR content that you think needs to be brought to life. (1200 or fewer characters)
+
+I really would love to watch an immersive AAA movie specially designed for VR.
+
+I would also love to watch an interactive movie where the story is influenced by what you have looked at, hence adding a replayability value to the movie.
+
+Last but not least, I would love to play a world-scale VR action/adventure game with photorealistic graphics...

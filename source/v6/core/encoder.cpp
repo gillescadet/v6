@@ -682,9 +682,9 @@ static void RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 
 	context->stack->push();
 
-	CMemoryWriter memoryBlockPosWriter(		context->stack->alloc( MulMB(  2 ) ),	MulMB(  2 ) );
-	CMemoryWriter memoryBlockDataWriter(	context->stack->alloc( MulMB( 30 ) ),	MulMB( 30 ) );
-	CMemoryWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(  1 ) );
+	CMemoryWriter memoryBlockPosWriter(		context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
+	CMemoryWriter memoryBlockDataWriter(	context->stack->alloc( MulMB( 200 ) ),	MulMB( 200 ) );
+	CMemoryWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
 
 	u32 blockCounts[CODEC_BUCKET_COUNT] = {};
 	u32 rangeCounts[CODEC_BUCKET_COUNT] = {};
@@ -736,7 +736,7 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 		return false;
 	}
 
-	Stack stack( heap, 100 * 1024 * 1024 );
+	Stack stack( heap, 300 * 1024 * 1024 );
 
 	Context_s* context = stack.newInstance< Context_s >();
 	memset( context, 0, sizeof( *context ) );

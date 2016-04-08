@@ -83,7 +83,7 @@ static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 10;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 4;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -214,9 +214,12 @@ enum
 	QUERY_T1,
 	QUERY_T2,
 	QUERY_T3,
+	QUERY_T4,
 	QUERY_FRAME_END,
 
-	QUERY_COUNT
+	QUERY_COUNT,
+
+	QUERY_TIME_COUNT = QUERY_FRAME_END - QUERY_T0 - 1
 };
 
 enum
@@ -505,7 +508,6 @@ struct Config_s
 	core::u32 cellCount;
 	core::u32 blockCount;
 	core::u32 culledBlockCount;
-	core::u32 culledCellCount;
 	core::u32 cellItemCount;
 };
 
@@ -604,6 +606,7 @@ static int g_limit							= false;
 static bool g_showMip						= false;
 static bool g_showBucket					= false; 
 static bool g_showOverdraw					= false;
+static bool g_showHistory					= false;
 static int g_pixelMode						= 0;
 static bool g_randomBackground				= false;
 static bool g_traceGrid						= false;
@@ -958,7 +961,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				case 'D': g_keyRightPressed = pressed; break;
 				case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
 				case 'G': if ( pressed ) { g_debugBlocks = true; } break;
-				case 'H': g_transparentDebug = pressed ? !g_transparentDebug: g_transparentDebug; break;
+				case 'H': g_showHistory = pressed ? !g_showHistory: g_showHistory; break;
 				case 'I': if ( pressed ) { s_logReadBack = true; } break;
 				case 'L': g_limit = pressed ? !g_limit : g_limit; break;
 				case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
@@ -1156,7 +1159,12 @@ static const char* ModeToString( DrawMode_e drawMode )
 				sprintf_s( buffer, sizeof( buffer ), "baking sample %d @ frame %d", g_sample, CameraPlayer_GetFrame( &s_cameraPlayer ) );
 				return buffer;
 			}
-			return "blockContext";
+			else
+			{
+				static char buffer[256];
+				sprintf_s( buffer, sizeof( buffer ), "block @ frame %d", CameraPlayer_GetFrame( &s_cameraPlayer ) );
+				return buffer;
+			}
 		}
 	}
 	return "unknown";
@@ -2566,7 +2574,6 @@ static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 scre
 	config->cellCount = config->leafCount * 33 / 16;
 	config->blockCount = config->cellCount / 8;
 	config->culledBlockCount = config->blockCount / 6;
-	config->culledCellCount = config->culledBlockCount * 16;
 	config->cellItemCount = (screenWidth * HLSL_EYE_COUNT * screenHeight) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT;
 }
 
@@ -2580,7 +2587,6 @@ static void Config_Log( const Config_s* config )
 	V6_MSG( "%-20s: %13s\n", "config.cell", FormatInteger_Unsafe( config->cellCount ) );
 	V6_MSG( "%-20s: %13s\n", "config.blockContext", FormatInteger_Unsafe( config->blockCount ) );
 	V6_MSG( "%-20s: %13s\n", "config.culledBlock", FormatInteger_Unsafe( config->culledBlockCount ) );
-	V6_MSG( "%-20s: %13s\n", "config.culledCell", FormatInteger_Unsafe( config->culledCellCount ) );
 	V6_MSG( "%-20s: %13s\n", "config.cellItem", FormatInteger_Unsafe( config->cellItemCount ) );
 }
 
@@ -2917,7 +2923,7 @@ static void SequenceContext_Release( ID3D11Device* device, SequenceContext_s* se
 
 static void TraceContext_Create( ID3D11Device* device, TraceContext_s* traceContext, const Config_s* config )
 {
-	GPUBuffer_CreateTyped( device, &traceContext->traceCell, DXGI_FORMAT_R32_UINT, config->culledCellCount * 2, 0, "traceCell" );
+	GPUBuffer_CreateTyped( device, &traceContext->traceCell, DXGI_FORMAT_R32_UINT, config->culledBlockCount * 2, 0, "traceCell" );
 	GPUBuffer_CreateIndirectArgs( device, &traceContext->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
 
 	GPUBuffer_CreateStructured( device, &traceContext->cellItems, sizeof( hlsl::BlockCellItem ), config->cellItemCount, 0, "blockCellItems" );
@@ -5322,6 +5328,7 @@ void CRenderingDevice::Draw( float dt )
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
 
 		CameraPlayer_AddTimeStep( &s_cameraPlayer, dt );
 	}	
@@ -5358,6 +5365,7 @@ void CRenderingDevice::Draw( float dt )
 
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
 		}
 		else
 		{
@@ -5374,23 +5382,25 @@ void CRenderingDevice::Draw( float dt )
 			V6_ASSERT( m_bakedFrameCount == -1 );
 			const core::CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
 
+			core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
 			{
-				core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
 				SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameID, &m_sequence, m_stack );
-
-				CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
 			}
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 			{
-				TraceBlock( views, &frameDesc->origin );
+				CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
 			}
 			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
+			{
+				TraceBlock( views, &frameDesc->origin );
+			}
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 			{
 				for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 					BlendPixel( &views[eye] );
 			}
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
 
 			s_logReadBack = false;
 			g_mousePicked = false;
@@ -5548,10 +5558,8 @@ int main()
 		static const int tMaxCount = 64;
 		static float dts[tMaxCount] = {};
 		static float tfTimes[tMaxCount] = {};
-		static float t0Times[tMaxCount] = {};
-		static float t1Times[tMaxCount] = {};
-		static float t2Times[tMaxCount] = {};
-		static int tID = 0;
+		static float tbTimes[v6::viewer::QUERY_TIME_COUNT][tMaxCount] = {};
+	static int tID = 0;
 		
 		if ( v6::viewer::GPUQuery_ReadTimeStampDisjoint( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[v6::viewer::QUERY_FREQUENCY] ) )
 		{
@@ -5559,9 +5567,8 @@ int main()
 				v6::viewer::GPUQuery_ReadTimeStamp( oRenderingDevice.gpuContext.deviceContext, &pendingQueries[queryID] );
 			
 			tfTimes[tID] = v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_FRAME_BEGIN], &pendingQueries[v6::viewer::QUERY_FRAME_END], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
-			t0Times[tID] = v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T0], &pendingQueries[v6::viewer::QUERY_T1], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
-			t1Times[tID] = v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T1], &pendingQueries[v6::viewer::QUERY_T2], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
-			t2Times[tID] = v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T2], &pendingQueries[v6::viewer::QUERY_T3], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
+			for ( v6::core::u32 timeID = 0; timeID < v6::viewer::QUERY_TIME_COUNT; ++timeID )
+				tbTimes[timeID][tID] = v6::viewer::GPUQuery_GetElpasedTime( &pendingQueries[v6::viewer::QUERY_T0+timeID], &pendingQueries[v6::viewer::QUERY_T1+timeID], &pendingQueries[v6::viewer::QUERY_FREQUENCY] );
 			tID = (tID + 1) & (tMaxCount-1);
 		}
 		
@@ -5590,33 +5597,30 @@ int main()
 		{
 			float ifps = 0;
 			float tfTime = 0;
-			float t0Time = 0;
-			float t1Time = 0;
-			float t2Time = 0;
+			float tbTime[v6::viewer::QUERY_TIME_COUNT] = {};
 				
 			for ( int t = 0; t < tMaxCount; ++t )
 			{
 				ifps += dts[t];
 				tfTime += tfTimes[t];
-				t0Time += t0Times[t];
-				t1Time += t1Times[t];
-				t2Time += t2Times[t];
+				for ( v6::core::u32 timeID = 0; timeID < v6::viewer::QUERY_TIME_COUNT; ++timeID )
+					tbTime[timeID] += tbTimes[timeID][t];
 			}
 
 			ifps *= 1.0f / tMaxCount;
 			tfTime *= 1.0f / tMaxCount;
-			t0Time *= 1.0f / tMaxCount;
-			t1Time *= 1.0f / tMaxCount;
-			t2Time *= 1.0f / tMaxCount;
+			for ( v6::core::u32 timeID = 0; timeID < v6::viewer::QUERY_TIME_COUNT; ++timeID )
+				tbTime[timeID] *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | %s | Hmd %d %s", 
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | t3: %4u | %s | Hmd %d %s", 
 				title, 
 				(int)(1.0f / ifps), 
 				(int)(tfTime * 1000000.0f),
-				(int)(t0Time * 1000000.0f),
-				(int)(t1Time * 1000000.0f),
-				(int)(t2Time * 1000000.0f),
+				(int)(tbTime[0] * 1000000.0f),
+				(int)(tbTime[1] * 1000000.0f),
+				(int)(tbTime[2] * 1000000.0f),
+				(int)(tbTime[3] * 1000000.0f),
 				v6::viewer::ModeToString( v6::viewer::g_drawMode ),
 				v6::viewer::s_hmdState,
 				v6::viewer::s_activeScene->info.dirty ? "| *" : "" );
