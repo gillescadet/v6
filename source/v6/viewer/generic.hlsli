@@ -9,7 +9,7 @@
 
 struct VertexInput
 {
-	float3 position : POSITION;	
+	float3 position : POSITION;
 	float3 normal	: USER0;
 	float2 uv		: USER1;
 };

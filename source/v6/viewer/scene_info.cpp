@@ -91,26 +91,39 @@ bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename )
 			goto bad_format;
 
 		strKey = Trim( strKey );
-		int index = 0;
-		if ( strIndex != nullptr )
-			index = atoi( strIndex );
 		strValue = Trim( strValue );
 
-		if ( _stricmp( strBegin, "cameraPosition" ) == 0 )
+		if ( _stricmp( strKey, "pathEntity" ) == 0 )
 		{
-			if ( index < 0 || index >= sceneInfo->MAX_CAMERA_POSITION_COUNT )
+			const int pathID = atoi( strIndex );
+			if ( pathID < 0 || pathID >= sceneInfo->MAX_PATH_COUNT )
+				goto bad_format;
+			strcpy_s( sceneInfo->paths[pathID].entityName, sizeof( sceneInfo->paths[pathID].entityName ), strValue );
+		}
+		else if ( _stricmp( strKey, "pathPosition" ) == 0 )
+		{
+			int pathID, positionID;
+			const core::u32 scanCount = sscanf_s( strIndex, "%d_%d", &pathID, &positionID );
+			if ( scanCount != 2 || pathID < 0 || pathID >= sceneInfo->MAX_PATH_COUNT || positionID < 0 || positionID >= sceneInfo->MAX_POSITION_COUNT )
 				goto bad_format;
 			core::Vec3 pos;
 			if ( sscanf_s( strValue, "%g %g %g", &pos.x, &pos.y, &pos.z ) != 3 )
 				goto bad_format;
-			sceneInfo->cameraPositions[index] = pos;
-			sceneInfo->cameraPositionCount = core::Max( sceneInfo->cameraPositionCount, (core::u32)index + 1 );
+			sceneInfo->paths[pathID].positions[positionID] = pos;
+			sceneInfo->paths[pathID].positionCount = core::Max( sceneInfo->paths[pathID].positionCount, (core::u32)positionID + 1 );
 		}
-		else if ( _stricmp( strBegin, "cameraYaw" ) == 0 )
+		else if ( _stricmp( strKey, "pathSpeed" ) == 0 )
+		{
+			const int pathID = atoi( strIndex );
+			if ( pathID < 0 || pathID >= sceneInfo->MAX_PATH_COUNT )
+				goto bad_format;
+			sceneInfo->paths[pathID].speed = (float)atof( strValue );
+		}
+		else if ( _stricmp( strKey, "cameraYaw" ) == 0 )
 		{
 			sceneInfo->cameraYaw = (float)atof( strValue );
 		}
-		else if ( _stricmp( strBegin, "worldUnitToCM" ) == 0 )
+		else if ( _stricmp( strKey, "worldUnitToCM" ) == 0 )
 		{
 			sceneInfo->worldUnitToCM = (float)atof( strValue );
 		}
@@ -147,10 +160,15 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 	char* str = info;
 	core::u32 remainingSize = sizeof( info );
 
-	for ( core::u32 positionID = 0; positionID < sceneInfo->cameraPositionCount; ++positionID )
+	for ( core::u32 pathID = 0; pathID < SceneInfo_s::MAX_PATH_COUNT; ++pathID )
 	{
-		const core::Vec3* pos = &sceneInfo->cameraPositions[positionID];
-		str += sprintf_s( str, sizeof( info ) - (str-info), "cameraPosition#%d: %g %g %g\n", positionID, pos->x, pos->y, pos->z );
+		str += sprintf_s( str, sizeof( info ) - (str-info), "pathEntity#%d: %s\n", pathID, sceneInfo->paths[pathID].entityName );
+		for ( core::u32 positionID = 0; positionID < sceneInfo->paths[pathID].positionCount; ++positionID )
+		{
+			const core::Vec3* pos = &sceneInfo->paths[pathID].positions[positionID];
+			str += sprintf_s( str, sizeof( info ) - (str-info), "pathPosition#%d_%d: %g %g %g\n", pathID, positionID, pos->x, pos->y, pos->z );
+		}
+		str += sprintf_s( str, sizeof( info ) - (str-info), "pathSpeed#%d: %g\n", pathID, sceneInfo->paths[pathID].speed );
 	}
 	str += sprintf_s( str, sizeof( info ) - (str-info), "cameraYaw: %g\n", sceneInfo->cameraYaw );
 	str += sprintf_s( str, sizeof( info ) - (str-info), "worldUnitToCM: %g\n", sceneInfo->worldUnitToCM );

@@ -25,6 +25,7 @@ struct Color_s
 			u8 b;
 			u8 a;
 		};
+		u32 bits;
 	};
 };
 

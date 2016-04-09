@@ -289,10 +289,12 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	core::u32 lastDisplayTriangleID = 0;
 
 	ObjMesh_s* mesh = nullptr;
+	char s_lastMeshName[64] = {};
 
 	if ( meshCount == 0 )
 	{
 		mesh = &scene->meshes[meshID];
+		mesh->name[0] = 0;
 		mesh->firstTriangleID = triangleID;
 		mesh->triangleCount = 0;
 		mesh->materialID = 0;
@@ -337,6 +339,12 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			V6_ASSERT( n == 2 );
 			++uvID;
 		}
+		else if ( _strnicmp( token, "g ", 2 ) == 0 || _strnicmp( token, "o ", 2 ) == 0 )
+		{
+			char* meshName = NextToken( token );
+			TrimRight( meshName );
+			strcpy_s( s_lastMeshName, sizeof( s_lastMeshName ), meshName );
+		}
 		else if ( _strnicmp( token, "usemtl ", 7 ) == 0 )
 		{
 			V6_ASSERT( meshID < meshCount );
@@ -354,6 +362,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			V6_ASSERT( materialID < materialCount );
 
 			mesh = &scene->meshes[meshID];
+			strcpy_s( mesh->name, sizeof( mesh->name ), s_lastMeshName );
+			s_lastMeshName[0] = 0;
 			mesh->firstTriangleID = triangleID;
 			mesh->triangleCount = 0;
 			mesh->materialID = materialID;

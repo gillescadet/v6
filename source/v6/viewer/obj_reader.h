@@ -49,6 +49,7 @@ struct ObjTriangle_s
 
 struct ObjMesh_s
 {
+	char			name[64];
 	core::u32		materialID;
 	core::u32		firstTriangleID;
 	core::u32		triangleCount;

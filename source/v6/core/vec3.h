@@ -102,6 +102,14 @@ public:
 		z *= v2.z;
 		return *this;
 	}
+
+	Vec3& operator*=( float s )
+	{
+		x *= s;
+		y *= s;
+		z *= s;
+		return *this;
+	}
 	
 	Vec3& operator+=(Vec3 const & v2)
 	{
@@ -111,11 +119,27 @@ public:
 		return *this;
 	}
 
+	Vec3& operator+=( float s )
+	{
+		x += s;
+		y += s;
+		z += s;
+		return *this;
+	}
+
 	Vec3& operator-=(Vec3 const & v2)
 	{
 		x -= v2.x;
 		y -= v2.y;
 		z -= v2.z;
+		return *this;
+	}
+
+	Vec3& operator-=( float s )
+	{
+		x -= s;
+		y -= s;
+		z -= s;
 		return *this;
 	}
 };

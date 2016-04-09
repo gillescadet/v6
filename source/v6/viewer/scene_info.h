@@ -12,9 +12,16 @@ BEGIN_V6_VIEWER_NAMESPACE
 
 struct SceneInfo_s
 {	
-	static const core::u32	MAX_CAMERA_POSITION_COUNT = 128;
-	core::Vec3				cameraPositions[MAX_CAMERA_POSITION_COUNT];
-	core::u32				cameraPositionCount;
+	static const core::u32	MAX_PATH_COUNT = 2;
+	static const core::u32	MAX_POSITION_COUNT = 128;
+	struct
+	{
+		char				entityName[64];
+		core::Vec3			positions[MAX_POSITION_COUNT];
+		core::u32			positionCount;
+		float				speed;
+	}						paths[MAX_PATH_COUNT];
+
 	float					cameraYaw;
 	float					worldUnitToCM;
 	bool					dirty;

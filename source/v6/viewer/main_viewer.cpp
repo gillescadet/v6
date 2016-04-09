@@ -83,7 +83,7 @@ static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 4;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 75 * 5;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -102,6 +102,8 @@ v6::core::u32		s_hmdState				= v6::viewer::HMD_TRACKING_STATE_OFF;
 #else
 v6::core::u32		s_hmdState				= 0;
 #endif // #if V6_USE_HMD
+
+static POINT		s_mouseCursorPos		= {};
 
 enum DrawMode_e
 {
@@ -272,19 +274,32 @@ enum CubeAxis_e
 	CUBE_AXIS_COUNT
 };
 
-struct CameraPath_s
+enum
+{
+	PATH_CAMERA,
+	PATH_OBJECT1,
+
+	PATH_COUNT
+};
+
+struct Path_s
 {
 	static const core::u32	MAX_POINT_COUNT = 128;
 	core::Vec3				positions[MAX_POINT_COUNT];
 	int						keyCount;
 	int						activeKey;
+	core::u32				entityID;
+	float					speed;
 	bool					dirty;
 };
 
-struct CameraPlayer_s
+struct PathPlayer_s
 {
-	float					times[CameraPath_s::MAX_POINT_COUNT];
-	float					duration;
+	Path_s*					paths;
+	core::u32				pathCount;
+	float					times[PATH_COUNT][Path_s::MAX_POINT_COUNT];
+	float					durations[PATH_COUNT];
+	float					durationMax;
 	float					pathTime;
 	core::u32				pathFrame;
 	bool					isPlaying;
@@ -454,6 +469,7 @@ struct Material_s
 
 struct Entity_s
 {
+	char			name[64];
 	core::u32		materialID;
 	core::u32		meshID;
 	core::Vec3		pos;
@@ -488,14 +504,25 @@ struct SceneDebug_s : Scene_s
 	core::u32 entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
 };
 
-struct SceneCameraPath_s : Scene_s
+struct ScenePathGeo_s : Scene_s
 {
-	core::u32 meshLineIDs[CameraPath_s::MAX_POINT_COUNT-1];
+	core::u32 meshLineIDs[Path_s::MAX_POINT_COUNT-1];
 	core::u32 meshBoxID;
 	core::u32 meshSelectedBoxID;
-	core::u32 entityLineIDs[CameraPath_s::MAX_POINT_COUNT];
-	core::u32 entityBoxIDs[CameraPath_s::MAX_POINT_COUNT];
+	core::u32 entityLineIDs[Path_s::MAX_POINT_COUNT];
+	core::u32 entityBoxIDs[Path_s::MAX_POINT_COUNT];
 	core::u32 entitySelectedBoxID;
+};
+
+struct SceneContext_s
+{
+	char				filename[256];
+	v6::core::IStack*	stack;
+	ObjScene_s			objScene;
+	Scene_s*			scene;
+	ID3D11Device*		device;
+	v6::core::Signal_s	deviceReady;
+	v6::core::Signal_s	loadDone;
 };
 
 struct Config_s
@@ -599,9 +626,8 @@ static DrawMode_e g_drawMode				= DRAW_MODE_DEFAULT;
 
 static int g_sample							= 0;
 
-static bool g_cameraKey						= false;
-static bool g_cameraShowPath				= false;
-static float g_cameraSpeed					= 100.0f;
+static bool g_keyPath						= false;
+static bool g_showPath						= false;
 static int g_limit							= false; 
 static bool g_showMip						= false;
 static bool g_showBucket					= false; 
@@ -615,6 +641,7 @@ static bool g_useMSAA						= false;
 #else
 static bool g_useMSAA						= true;
 #endif
+static bool g_showObjects					= false;
 static bool g_debugBlocks					= false;
 static bool g_transparentDebug				= false;
 static bool g_reloadShaders					= false;
@@ -636,117 +663,164 @@ static core::u32 s_gridOccupancy = 0;
 static core::Vec3 s_rayOrg = {};
 static core::Vec3 s_rayEnd = {};
 
-static CameraPath_s		s_cameraPath;
-static CameraPlayer_s	s_cameraPlayer;
+static core::u32		s_activePath = PATH_CAMERA;
+static Path_s			s_paths[PATH_COUNT];
+static const float		s_defaultPathSpeed = 100.0f;
+static PathPlayer_s		s_pathPlayer;
 
-void CameraPath_Init( CameraPath_s* cameraPath )
+static core::u32 Scene_FindEntityByName( const Scene_s* scene, const char* entityName );
+
+static void Path_Init( Path_s* path )
 {
-	memset( cameraPath, 0, sizeof( *cameraPath ) );
-	cameraPath->dirty = true;
+	memset( path, 0, sizeof( *path ) );
+	path->entityID = (core::u32)-1;
+	path->speed = s_defaultPathSpeed;
+	path->dirty = true;
 }
 
-void CameraPath_Release( CameraPath_s* cameraPath )
+static void Path_Release( Path_s* path )
 {
 }
 
-void CameraPath_SelectKey( CameraPath_s* cameraPath, int key )
+static void Path_SelectKey( Path_s* path, int key )
 {
-	cameraPath->activeKey = core::Clamp( key, 0, cameraPath->keyCount-1 );
-	cameraPath->dirty = true;
+	path->activeKey = core::Clamp( key, 0, path->keyCount-1 );
+	path->dirty = true;
 }
 
-void CameraPath_DeleteKey( CameraPath_s* cameraPath, core::u32 key )
+static void Path_DeleteKey( Path_s* path, core::u32 key )
 {
-	V6_ASSERT( cameraPath->keyCount > 0 );
-	V6_ASSERT( key < (core::u32)cameraPath->keyCount );
-	for ( core::u32 keyNext = key+1; keyNext < (core::u32)cameraPath->keyCount; ++keyNext )
-		cameraPath->positions[keyNext-1] = cameraPath->positions[keyNext];
-	--cameraPath->keyCount;
+	V6_ASSERT( path->keyCount > 0 );
+	V6_ASSERT( key < (core::u32)path->keyCount );
+	for ( core::u32 keyNext = key+1; keyNext < (core::u32)path->keyCount; ++keyNext )
+		path->positions[keyNext-1] = path->positions[keyNext];
+	--path->keyCount;
 
-	cameraPath->activeKey = core::Min( (int)key, cameraPath->keyCount );
-	cameraPath->dirty = true;
+	path->activeKey = core::Min( (int)key, path->keyCount );
+	path->dirty = true;
 }
 
-void CameraPath_InsertKey( CameraPath_s* cameraPath, const core::Vec3* position, core::u32 key )
+static void Path_InsertKey( Path_s* path, const core::Vec3* position, core::u32 key )
 {
-	V6_ASSERT( cameraPath->keyCount < CameraPath_s::MAX_POINT_COUNT );
-	if ( key != 0 || cameraPath->keyCount != 0 )
+	V6_ASSERT( path->keyCount < Path_s::MAX_POINT_COUNT );
+	if ( key != 0 || path->keyCount != 0 )
 	{
 		++key;
-		for ( core::u32 keyNext = cameraPath->keyCount; keyNext > key; --keyNext )
-			cameraPath->positions[keyNext] = cameraPath->positions[keyNext-1];
+		for ( core::u32 keyNext = path->keyCount; keyNext > key; --keyNext )
+			path->positions[keyNext] = path->positions[keyNext-1];
 	}
-	V6_ASSERT( key <= (core::u32)cameraPath->keyCount );
-	cameraPath->positions[key] = *position;
-	++cameraPath->keyCount;
+	V6_ASSERT( key <= (core::u32)path->keyCount );
+	path->positions[key] = *position;
+	++path->keyCount;
 
-	cameraPath->activeKey = key;
-	cameraPath->dirty = true;
+	path->activeKey = key;
+	path->dirty = true;
 }
 
-void CameraPath_Load( CameraPath_s* cameraPath, const SceneInfo_s* sceneInfo )
+static void Path_Load( Path_s* paths, core::u32 maxPathCount, const Scene_s* scene )
 {
-	for ( core::u32 cameraPositionID = 0; cameraPositionID < sceneInfo->cameraPositionCount; ++cameraPositionID )
-		cameraPath->positions[cameraPositionID] = sceneInfo->cameraPositions[cameraPositionID];
-	cameraPath->keyCount = sceneInfo->cameraPositionCount;
-	cameraPath->dirty = true;
-}
-
-void CameraPath_Save( const CameraPath_s* cameraPath, SceneInfo_s* sceneInfo )
-{
-	for ( core::u32 key = 0; key < (core::u32)cameraPath->keyCount; ++key )
-		sceneInfo->cameraPositions[key] = cameraPath->positions[key];
-	sceneInfo->cameraPositionCount = cameraPath->keyCount;
-	sceneInfo->dirty = true;
-}
-
-void CameraPlayer_Init( CameraPlayer_s* cameraPlayer )
-{
-	memset( cameraPlayer, 0, sizeof( * cameraPlayer ) );
-}
-
-void CameraPlayer_Release( CameraPlayer_s* cameraPlayer )
-{
-}
-
-void CameraPlayer_Compute( CameraPlayer_s* cameraPlayer, CameraPath_s* cameraPath, float cameraSpeed )
-{
-	if ( !cameraPath->dirty )
-		return;
-
-	V6_ASSERT( cameraSpeed > 0.0f );
-	const float invSpeed = 1.0f / cameraSpeed;
-	cameraPlayer->times[0] = 0.0f;
-	cameraPlayer->duration = 0.0f;
-	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	V6_STATIC_ASSERT( SceneInfo_s::MAX_POSITION_COUNT == Path_s::MAX_POINT_COUNT );
+	V6_ASSERT( maxPathCount <= SceneInfo_s::MAX_PATH_COUNT );
+	const SceneInfo_s* sceneInfo = &scene->info;
+	for ( core::u32 pathID = 0; pathID < maxPathCount; ++pathID )
 	{
-		const core::Vec3 delta = cameraPath->positions[key] - cameraPath->positions[key-1];
-		const float interval = delta.Length() * invSpeed;
-		V6_ASSERT( interval > 0.00001f );
-		cameraPlayer->times[key] = cameraPlayer->times[key-1] + interval;
-		cameraPlayer->duration += interval;
+		for ( core::u32 positionID = 0; positionID < sceneInfo->paths[pathID].positionCount; ++positionID )
+			paths[pathID].positions[positionID] = sceneInfo->paths[pathID].positions[positionID];
+		paths[pathID].keyCount = sceneInfo->paths[pathID].positionCount;
+		paths[pathID].entityID = Scene_FindEntityByName( scene, sceneInfo->paths[pathID].entityName );
+		paths[pathID].speed = sceneInfo->paths[pathID].speed != 0.0f ? sceneInfo->paths[pathID].speed : s_defaultPathSpeed;
+		paths[pathID].dirty = true;
+	}
+}
+
+static void Path_Save( const Path_s* paths, core::u32 pathCount, Scene_s* scene )
+{
+	V6_ASSERT( pathCount <= SceneInfo_s::MAX_PATH_COUNT );
+	SceneInfo_s* sceneInfo = &scene->info;
+	for ( core::u32 pathID = 0; pathID < pathCount; ++pathID )
+	{
+		for ( core::u32 positionID = 0; positionID < (core::u32)paths[pathID].keyCount; ++positionID )
+			sceneInfo->paths[pathID].positions[positionID] = paths[pathID].positions[positionID];
+		sceneInfo->paths[pathID].positionCount = paths[pathID].keyCount;
+		if ( paths[pathID].entityID != (core::u32)-1 )
+			strcpy_s( sceneInfo->paths[pathID].entityName, sizeof( sceneInfo->paths[pathID].entityName ), scene->entities[paths[pathID].entityID].name );
+		else
+			sceneInfo->paths[pathID].entityName[0] = 0;
+		sceneInfo->paths[pathID].speed = paths[pathID].speed;
+		sceneInfo->dirty = true;
+	}
+}
+
+static void PathPlayer_Init( PathPlayer_s* pathlayer )
+{
+	memset( pathlayer, 0, sizeof( * pathlayer ) );
+}
+
+static void PathPlayer_Release( PathPlayer_s* pathPlayer )
+{
+}
+
+static void PathPlayer_Compute( PathPlayer_s* pathPlayer, Path_s* paths, core::u32 pathCount )
+{
+	pathPlayer->paths = paths;
+	pathPlayer->pathCount = pathCount;
+
+	for ( core::u32 pathID = 0; pathID < pathCount; ++pathID )
+	{
+		Path_s* path = &paths[pathID];
+
+		if ( !path->dirty )
+			continue;
+
+		if ( path->keyCount == 0 )
+		{
+			for ( core::u32 key = 0; key < (core::u32)path->keyCount; ++key )
+			{
+				pathPlayer->times[pathID][key] = 0.0f;
+				pathPlayer->durations[pathID] = 0.0f;
+			}
+		}
+		else
+		{
+			V6_ASSERT( path->speed > 0.0f );
+			const float invSpeed = 1.0f / path->speed;
+			pathPlayer->times[pathID][0] = 0.0f;
+			pathPlayer->durations[pathID] = 0.0f;
+			for ( core::u32 key = 1; key < (core::u32)path->keyCount; ++key )
+			{
+				const core::Vec3 delta = path->positions[key] - path->positions[key-1];
+				const float interval = delta.Length() * invSpeed;
+				V6_ASSERT( interval > 0.00001f );
+				pathPlayer->times[pathID][key] = pathPlayer->times[pathID][key-1] + interval;
+				pathPlayer->durations[pathID] += interval;
+			}
+		}
+
+		path->dirty = false;
 	}
 
-	cameraPath->dirty = false;
+	pathPlayer->durationMax = 0.0f;
+	for ( core::u32 pathID = 0; pathID < pathCount; ++pathID )
+		pathPlayer->durationMax = core::Max( pathPlayer->durationMax, pathPlayer->durations[pathID] );
 }
 
-void CameraPlayer_Play( CameraPlayer_s* cameraPlayer, bool play )
+static void PathPlayer_Play( PathPlayer_s* pathPlayer, bool play )
 {
-	cameraPlayer->isPlaying = play;
-	cameraPlayer->isPaused = false;
-	cameraPlayer->pathTime = 0.0f;
-	cameraPlayer->pathFrame = 0;
+	pathPlayer->isPlaying = play;
+	pathPlayer->isPaused = false;
+	pathPlayer->pathTime = 0.0f;
+	pathPlayer->pathFrame = 0;
 }
 
-void CameraPlayer_Pause( CameraPlayer_s* cameraPlayer, int relativeFrameID )
+static void PathPlayer_Pause( PathPlayer_s* pathPlayer, int relativeFrameID )
 {
-	cameraPlayer->isPaused = true;
+	pathPlayer->isPaused = true;
 	
-	if ( !cameraPlayer->isPlaying )
+	if ( !pathPlayer->isPlaying )
 	{
-		cameraPlayer->isPlaying = true;
-		cameraPlayer->pathTime = 0.0f;
-		cameraPlayer->pathFrame = 0;
+		pathPlayer->isPlaying = true;
+		pathPlayer->pathTime = 0.0f;
+		pathPlayer->pathFrame = 0;
 		return;
 	}
 
@@ -754,58 +828,93 @@ void CameraPlayer_Pause( CameraPlayer_s* cameraPlayer, int relativeFrameID )
 		return;
 
 	const float dt = 1.0f / HMD_FPS;
-	const float duration = core::Min( cameraPlayer->duration, (VIDEO_FRAME_MAX_COUNT-1) * dt );
-	cameraPlayer->pathTime = core::Clamp( cameraPlayer->pathTime + relativeFrameID * dt, 0.0f, duration );
-	cameraPlayer->pathFrame = core::Clamp( (int)cameraPlayer->pathFrame + relativeFrameID, 0, (int)VIDEO_FRAME_MAX_COUNT-1 );
+	pathPlayer->pathFrame = core::Clamp( (int)pathPlayer->pathFrame + relativeFrameID, 0, (int)VIDEO_FRAME_MAX_COUNT-1 );
+	pathPlayer->pathTime = pathPlayer->pathFrame * dt;
 }
 
-core::u32 CameraPlayer_GetFrame( CameraPlayer_s* cameraPlayer )
+static core::u32 PathPlayer_GetFrame( PathPlayer_s* pathPlayer )
 {
-	if ( cameraPlayer->isPlaying )
-		return cameraPlayer->pathFrame;
+	if ( pathPlayer->isPlaying )
+		return pathPlayer->pathFrame;
 	return 0;
 }
 
-core::Vec3 CameraPlayer_GetPosition( const CameraPlayer_s* cameraPlayer, const CameraPath_s* cameraPath )
+static bool PathPlayer_GetPosition( core::Vec3* position, const PathPlayer_s* pathPlayer, core::u32 pathID )
 {
-	V6_ASSERT( !cameraPath->dirty );
-	V6_ASSERT( cameraPath->keyCount > 0 );
-	V6_ASSERT( cameraPlayer->pathTime >= 0.0f );
-	for ( core::u32 key = 1; key < (core::u32)cameraPath->keyCount; ++key )
+	V6_ASSERT( pathPlayer->paths != nullptr);
+	V6_ASSERT( pathID < pathPlayer->pathCount );
+
+	const Path_s* path = &pathPlayer->paths[pathID];
+
+	V6_ASSERT( !path->dirty );
+
+	if ( path->keyCount == 0 )
+		return false;
+
+	V6_ASSERT( pathPlayer->pathTime >= 0.0f );
+	for ( core::u32 key = 1; key < (core::u32)path->keyCount; ++key )
 	{
-		if ( cameraPlayer->times[key] >= cameraPlayer->pathTime )
+		if ( pathPlayer->times[pathID][key] >= pathPlayer->pathTime )
 		{
-			const float alpha = (cameraPlayer->pathTime - cameraPlayer->times[key-1]) / (cameraPlayer->times[key] - cameraPlayer->times[key-1]);
-			return (1.0f - alpha) * cameraPath->positions[key-1] + alpha * cameraPath->positions[key];
+			const float alpha = (pathPlayer->pathTime - pathPlayer->times[pathID][key-1]) / (pathPlayer->times[pathID][key] - pathPlayer->times[pathID][key-1]);
+			*position = (1.0f - alpha) * path->positions[key-1] + alpha * path->positions[key];
+			return true;
 		}
 	}
-	return cameraPath->positions[cameraPath->keyCount-1];
+
+	*position = path->positions[path->keyCount-1];
+	return true;
 }
 
-bool CameraPlayer_AddTimeStep( CameraPlayer_s* cameraPlayer, float dt )
+static bool PathPlayer_AddTimeStep( PathPlayer_s* pathPlayer, float dt )
 {
-	if ( !cameraPlayer->isPlaying )
+	if ( !pathPlayer->isPlaying )
 		return false;
 
-	if ( cameraPlayer->isPaused )
+	if ( pathPlayer->isPaused )
 		return true;
 
-	if ( cameraPlayer->pathTime + dt > cameraPlayer->duration || cameraPlayer->pathFrame + 1 >= VIDEO_FRAME_MAX_COUNT )
+	if ( pathPlayer->pathTime + dt > pathPlayer->durationMax || pathPlayer->pathFrame + 1 >= VIDEO_FRAME_MAX_COUNT )
 	{
-		cameraPlayer->isPlaying = false;
+		pathPlayer->isPlaying = false;
 		return false;
 	}
 
-	cameraPlayer->pathTime += dt;
-	++cameraPlayer->pathFrame;
+	pathPlayer->pathTime += dt;
+	++pathPlayer->pathFrame;
 
 	return true;
+}
+
+static void Mouse_Capture( HWND hWnd )
+{
+	GetCursorPos( &s_mouseCursorPos );
+	SetCapture( hWnd ) ;
+	ShowCursor( false );
+	g_mousePressed = true;
+}
+
+static void Mouse_Release()
+{
+	if ( g_mousePressed )
+	{
+		SetCursorPos( s_mouseCursorPos.x, s_mouseCursorPos.y );
+		ShowCursor( true );
+		ReleaseCapture();
+		g_mousePressed = false;
+	}
 }
 
 LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
 {
 	switch (message)
 	{
+	case WM_ACTIVATE:
+	case WM_KILLFOCUS:
+	case WM_SETFOCUS:
+		Mouse_Release();
+		//V6_MSG( "WM_ACTIVATE: wParam=%08x lParam=%08x\n", (core::u32)wParam, (core::u32)lParam );
+		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
@@ -831,7 +940,7 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 			else
 			{
 				ShowCursor( true );
-				ReleaseCapture();				
+				ReleaseCapture();
 			}
 		}
 		break;
@@ -868,84 +977,82 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 		{
 			const bool pressed = raw->data.keyboard.Message == 0x100;
 
-			if ( g_cameraKey )
+			if ( g_keyPath )
 			{
 				if ( pressed )
 				{
 					switch( raw->data.keyboard.VKey )
 					{
+					case 'A':
+						s_activePath = (s_activePath + 1) % PATH_COUNT;
+						s_paths[s_activePath].dirty = true;
+						V6_MSG( "Path: %s#%d\n", s_activePath == PATH_CAMERA ? "camera" : "object", s_activePath );
+						break;
 					case 'C':
 						break;
 					case 'P':
-						CameraPlayer_Play( &s_cameraPlayer, s_cameraPlayer.isPlaying ? false : s_cameraPath.keyCount > 0 );
-						V6_MSG( "Camera path: %s\n", s_cameraPlayer.isPlaying ? "play" : "stop" );
+						PathPlayer_Play( &s_pathPlayer, s_pathPlayer.isPlaying ? false : s_paths[s_activePath].keyCount > 0 );
+						V6_MSG( "Path: %s\n", s_pathPlayer.isPlaying ? "play" : "stop" );
 						break;
 					case 'R':
-						if ( s_cameraPath.keyCount > 0 )
+						if ( s_activePath == PATH_CAMERA && s_paths[PATH_CAMERA].keyCount > 0 )
 						{
-							CameraPlayer_Play( &s_cameraPlayer, true );
+							PathPlayer_Play( &s_pathPlayer, true );
 							g_drawMode = DRAW_MODE_BLOCK;
 							g_sample = 0;
-							V6_MSG( "Camera path: record\n" );
+							V6_MSG( "Path: record\n" );
 						}
 						break;
 					case 'S':
-						g_cameraShowPath = !g_cameraShowPath;
-						V6_MSG( "Camera path: %s\n", g_cameraShowPath ? "show" : "hide" );
+						g_showPath = !g_showPath;
+						V6_MSG( "Path: %s\n", g_showPath ? "show" : "hide" );
 						break;
 					case 0x21:
-						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.activeKey + 1 );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey + 1 );
+						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						break;
 					case 0x22:
-						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.activeKey - 1 );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey - 1 );
+						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						break;
 					case 0x23:
-						CameraPath_SelectKey( &s_cameraPath, s_cameraPath.keyCount-1 );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].keyCount-1 );
+						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						break;
 					case 0x24:
-						CameraPath_SelectKey( &s_cameraPath, 0 );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						Path_SelectKey( &s_paths[s_activePath], 0 );
+						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						break;
 					case 0x6A:
-						CameraPath_Save( &s_cameraPath, &s_activeScene->info );
-						V6_MSG( "Camera path: saved.\n" );
+						Path_Save( s_paths, PATH_COUNT, s_activeScene );
+						V6_MSG( "Path: saved.\n" );
 						break;
 					case 0x6B:
-						CameraPath_InsertKey( &s_cameraPath, &s_headOffset, s_cameraPath.activeKey );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+						Path_InsertKey( &s_paths[s_activePath], &s_headOffset, s_paths[s_activePath].activeKey );
+						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						break;
 					case 0x6D:
-						if ( s_cameraPath.keyCount )
+						if ( s_paths[s_activePath].keyCount )
 						{
-							CameraPath_DeleteKey( &s_cameraPath, s_cameraPath.activeKey );
-							V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
+							Path_DeleteKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey );
+							V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
 						}
 						break;
-#if 0
-					case 0x6F:
-						CameraPath_Release( &s_cameraPath );
-						CameraPath_Init( &s_cameraPath );
-						V6_MSG( "Camera path: key #%03u/#%03u\n", s_cameraPath.activeKey, s_cameraPath.keyCount );
-						break;
-#endif
 					case 0x28:
-						CameraPlayer_Pause( &s_cameraPlayer, -1 );
-						V6_MSG( "Camera pause: frame %d\n", s_cameraPlayer.pathFrame );
+						PathPlayer_Pause( &s_pathPlayer, -1 );
+						V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
 						break;
 					case 0x26:
-						CameraPlayer_Pause( &s_cameraPlayer, +1 );
-						V6_MSG( "Camera pause: frame %d\n", s_cameraPlayer.pathFrame );
+						PathPlayer_Pause( &s_pathPlayer, +1 );
+						V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
 						break;
 					default:
-						V6_MSG( "Unknow camera path key: %04x\n", raw->data.keyboard.VKey );
+						V6_MSG( "Unknow path key: %04x\n", raw->data.keyboard.VKey );
 					}
 				}
 				else if ( raw->data.keyboard.VKey == 'C' )
 				{
-					g_cameraKey = false;
+					g_keyPath = false;
 				}
 			}
 			else
@@ -957,9 +1064,10 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 					break;
 				case 'A': g_keyLeftPressed = pressed; break;
 				case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
-				case 'C': g_cameraKey = pressed; break;
+				case 'C': g_keyPath = pressed; break;
 				case 'D': g_keyRightPressed = pressed; break;
 				case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
+				case 'F': g_showObjects = pressed ? !g_showObjects : g_showObjects; break;
 				case 'G': if ( pressed ) { g_debugBlocks = true; } break;
 				case 'H': g_showHistory = pressed ? !g_showHistory: g_showHistory; break;
 				case 'I': if ( pressed ) { s_logReadBack = true; } break;
@@ -994,11 +1102,11 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 				case '9':
 					if ( pressed ) 
 					{
-						const int key = core::Min( raw->data.keyboard.VKey - '0', s_cameraPath.keyCount-1 );
-						if ( s_cameraPath.keyCount == 0 )
+						const int key = core::Min( raw->data.keyboard.VKey - '0', s_paths[PATH_CAMERA].keyCount-1 );
+						if ( s_paths[PATH_CAMERA].keyCount == 0 )
 							s_headOffset = core::Vec3_Zero();
 						else
-							s_headOffset = s_cameraPath.positions[key];
+							s_headOffset = s_paths[PATH_CAMERA].positions[key];
 					}
 					break;
 				case 109:
@@ -1029,22 +1137,11 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 		}
 		else if ( raw->header.dwType == RIM_TYPEMOUSE ) 
 		{
-			static POINT cursorPos = {};
-			if ( raw->data.mouse.ulButtons & 1 )
-			{				
-				GetCursorPos( &cursorPos );
-				SetCapture( hWnd ) ;
-				ShowCursor( false );
-				g_mousePressed = true;
-			}
 			
-			if ( raw->data.mouse.ulButtons & 2 )
-			{
-				SetCursorPos( cursorPos.x, cursorPos.y );
-				ShowCursor( true );
-				ReleaseCapture();
-				g_mousePressed = false;
-			}
+			if ( raw->data.mouse.ulButtons & 4 )
+				Mouse_Capture( hWnd );
+			else if ( raw->data.mouse.ulButtons & 8 )
+				Mouse_Release();
 
 			if ( g_mousePressed )
 			{
@@ -1093,12 +1190,12 @@ static bool CaptureInputs( HWND hWnd )
 		return false;
 	}
 
-	SetCursor( LoadCursor(NULL, IDC_ARROW) );
+	SetCursor( LoadCursor( NULL, IDC_ARROW ) );
 
 	return true;
 }
 
-static HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
+static HWND CreateMainWindow( const char * sTitle, int x, int y, int nWidth, int nHeight )
 {
 	WNDCLASSEXA wcex;
 
@@ -1125,18 +1222,21 @@ static HWND CreateMainWindow( const char * sTitle, int nWidth, int nHeight )
 		
 	RECT rect = { 0, 0, nWidth, nHeight };
 	AdjustWindowRect( &rect, style, false );
+	core::Vec2u dim = core::Vec2u_Make( rect.right - rect.left, rect.bottom - rect.top );
 
 	HWND hWnd = CreateWindowA(
 		"v6",
 		sTitle,
 		style,
 		CW_USEDEFAULT, CW_USEDEFAULT,
-		rect.right - rect.left, rect.bottom - rect.top,
+		dim.x, dim.y,
 		NULL,
 		NULL,
 		NULL,
 		NULL
 		);
+
+	SetWindowPos( hWnd, nullptr, x - dim.x + nWidth, y - dim.y + nHeight, dim.x, dim.y, 0 );
 
 	return hWnd;
 }
@@ -1156,13 +1256,13 @@ static const char* ModeToString( DrawMode_e drawMode )
 			if ( g_sample < SAMPLE_MAX_COUNT )
 			{
 				static char buffer[256];
-				sprintf_s( buffer, sizeof( buffer ), "baking sample %d @ frame %d", g_sample, CameraPlayer_GetFrame( &s_cameraPlayer ) );
+				sprintf_s( buffer, sizeof( buffer ), "baking sample %d @ frame %d", g_sample, PathPlayer_GetFrame( &s_pathPlayer ) );
 				return buffer;
 			}
 			else
 			{
 				static char buffer[256];
-				sprintf_s( buffer, sizeof( buffer ), "block @ frame %d", CameraPlayer_GetFrame( &s_cameraPlayer ) );
+				sprintf_s( buffer, sizeof( buffer ), "block @ frame %d", PathPlayer_GetFrame( &s_pathPlayer ) );
 				return buffer;
 			}
 		}
@@ -3284,9 +3384,19 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 	cbGeneric->c_genericObjectToWorld = worlMatrix;
 	cbGeneric->c_genericWorldToView = view->viewMatrix;
 	cbGeneric->c_genericViewToProj = view->projMatrix;
-	cbGeneric->c_genericDiffuse = useAlbedo ? core::Vec3_Make( 1.0f, 1.0f, 1.0f ) : material->diffuse;
-	cbGeneric->c_genericUseAlbedo = useAlbedo;
-	cbGeneric->c_genericUseAlpha = useAlpha;	
+	if ( g_showObjects )
+	{
+		core::Color_s color;
+		color.bits = core::HashPointer( entity );
+		cbGeneric->c_genericDiffuse = core::Vec3_Make( color.r / 255.0f, color.g / 255.0f, color.b / 255.0f );
+		cbGeneric->c_genericUseAlbedo = false;
+	}
+	else
+	{
+		cbGeneric->c_genericDiffuse = useAlbedo ? core::Vec3_Make( 1.0f, 1.0f, 1.0f ) : material->diffuse;
+		cbGeneric->c_genericUseAlbedo = useAlbedo;
+	}
+	cbGeneric->c_genericUseAlpha = useAlpha;
 
 	ConstantBuffer_UnmapWrite( ctx->deviceContext, &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC] );
 
@@ -3342,6 +3452,7 @@ static void Material_SetTexture( Material_s* material, core::u32 textureID, core
 
 static void Entity_Create( Entity_s* entity, core::u32 materialID, core::u32 meshID, const core::Vec3& pos, float scale )
 {
+	memset( entity->name, 0, sizeof( entity->name ) );
 	entity->materialID = materialID;
 	entity->meshID = meshID;
 	entity->pos = pos;
@@ -3356,6 +3467,14 @@ static void Entity_Draw( Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, co
 
 	Material_s* material = &scene->materials[entity->materialID];
 	material->drawFunction( material, entity, scene, ctx, view, settings );
+}
+
+static void Entity_SetName( Entity_s* entity, const char* name )
+{
+	if ( name )
+		strcpy_s( entity->name, sizeof( entity->name ), name );
+	else
+		entity->name[0] = 0;
 }
 
 static void Entity_SetVisible( Entity_s* entity, bool visible )
@@ -3373,22 +3492,22 @@ static void Entity_SetScale( Entity_s* entity, float scale )
 	entity->scale = scale;
 }
 
-void Scene_Create( Scene_s* scene )
+static void Scene_Create( Scene_s* scene )
 {
 	memset( scene, 0, sizeof( *scene) );
 }
 
-void Scene_SetFilename( Scene_s* scene, const char* filename )
+static void Scene_SetFilename( Scene_s* scene, const char* filename )
 {
 	strcpy_s( scene->filename, sizeof( scene->filename ), filename );
 }
 
-void Scene_SetInfo( Scene_s* scene, const SceneInfo_s* sceneInfo )
+static void Scene_SetInfo( Scene_s* scene, const SceneInfo_s* sceneInfo )
 {
 	memcpy( &scene->info, sceneInfo, sizeof( scene->info ) );
 }
 
-void Scene_SaveInfo( Scene_s* scene )
+static void Scene_SaveInfo( Scene_s* scene )
 {
 	if ( !scene->filename[0] )
 		return;
@@ -3400,14 +3519,14 @@ void Scene_SaveInfo( Scene_s* scene )
 	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
-void Scene_MakeSequenceFilename( const Scene_s* scene, char* path, core::u32 maxPathSize )
+static void Scene_MakeSequenceFilename( const Scene_s* scene, char* path, core::u32 maxPathSize )
 {
 	V6_ASSERT( scene->filename[0] );
 
 	core::FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6s" );
 }
 
-void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, core::u32 maxPathSize )
+static void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, core::u32 maxPathSize )
 {
 	V6_ASSERT( scene->filename[0] );
 
@@ -3424,7 +3543,7 @@ void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, core::u32
 	sprintf_s( path, maxPathSize, "%s_%s.v6f", path, "%06d" );
 }
 
-void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, core::u32 maxPathSize, core::u32 frame  )
+static void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, core::u32 maxPathSize, core::u32 frame  )
 {
 	V6_ASSERT( scene->filename[0] );
 
@@ -3441,7 +3560,21 @@ void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, core::u32 max
 	sprintf_s( path, maxPathSize, "%s_%06u.v6f", path, frame );
 }
 
-void Scene_Release( Scene_s* scene )
+static core::u32 Scene_FindEntityByName( const Scene_s* scene, const char* entityName )
+{
+	if ( entityName != nullptr && entityName[0] != 0 )
+	{
+		for ( core::u32 entityID = 0; entityID < scene->entityCount; ++entityID )
+		{
+			if ( strcmp( scene->entities[entityID].name, entityName ) == 0 )
+				return entityID;
+		}
+	}
+
+	return (core::u32)-1;
+}
+
+static void Scene_Release( Scene_s* scene )
 {
 	for ( core::u32 meshID = 0; meshID < scene->meshCount; ++meshID )
 		Mesh_Release( &scene->meshes[meshID] );
@@ -3454,23 +3587,12 @@ void Scene_Release( Scene_s* scene )
 	scene->entityCount = 0;
 }
 
-struct SceneContext_s
+static void SceneContext_Create( SceneContext_s* sceneContext, v6::core::IStack* stack )
 {
-	char				filename[256];
-	v6::core::IStack*	allocator;
-	ObjScene_s			objScene;
-	Scene_s*			scene;
-	ID3D11Device*		device;
-	v6::core::Signal_s	deviceReady;
-	v6::core::Signal_s	loadDone;
-};
-
-static void SceneContext_Create( SceneContext_s* sceneContext, v6::core::IStack* allocator )
-{
-	allocator->push();
+	stack->push();
 
 	memset( sceneContext, 0, sizeof( SceneContext_s ) );
-	sceneContext->allocator = allocator;
+	sceneContext->stack = stack;
 	core::Signal_Create( &sceneContext->deviceReady );
 	core::Signal_Create( &sceneContext->loadDone );
 }
@@ -3487,7 +3609,7 @@ static void SceneContext_Release( SceneContext_s* sceneContext )
 	core::Signal_Release( &sceneContext->deviceReady );
 	core::Signal_Release( &sceneContext->loadDone );
 
-	sceneContext->allocator->pop();
+	sceneContext->stack->pop();
 }
 
 static void SceneContext_SetDevice( SceneContext_s* sceneContext, ID3D11Device* device )
@@ -3508,7 +3630,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	if ( !SceneInfo_ReadFromFile( &info, fileinfo ) )
 		V6_WARNING( "Unable to read info file\n" );
 	
-	if ( !Obj_ReadObjectFile( &sceneContext->objScene, sceneContext->filename, sceneContext->allocator ) )
+	if ( !Obj_ReadObjectFile( &sceneContext->objScene, sceneContext->filename, sceneContext->stack ) )
 	{
 		sceneContext->objScene.meshCount = 0;
 		V6_ERROR( "Unable to load %s\n", sceneContext->filename );
@@ -3523,7 +3645,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	V6_MSG( "Init scene\n" );
 
 	ObjScene_s* objScene = &sceneContext->objScene;
-	Scene_s* scene = sceneContext->allocator->newInstance< Scene_s >();
+	Scene_s* scene = sceneContext->stack->newInstance< Scene_s >();
 	Scene_Create( scene );
 	Scene_SetFilename( scene, sceneContext->filename );
 	Scene_SetInfo( scene, &info );
@@ -3536,7 +3658,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 		Material_Create( material, Material_DrawGeneric );
 		++scene->materialCount;
 
-		sceneContext->allocator->push();
+		sceneContext->stack->push();
 
 		material->diffuse = objMaterial->kd;
 		
@@ -3553,7 +3675,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 
 			core::Image_s image = {};
 			core::CFileReader fileReader;
-			if ( core::FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename ) && core::Image_ReadTga( &image, &fileReader, sceneContext->allocator ) )
+			if ( core::FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename ) && core::Image_ReadTga( &image, &fileReader, sceneContext->stack ) )
 			{
 				static const char* textureNames[TEXTURE_GENERIC_COUNT] = { "diffuse", "alpha", "bump" };
 				const core::u32 textureID = scene->textureCount;
@@ -3566,7 +3688,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 				V6_WARNING( "Unable to load %s for material %s\n", textureFilename, objMaterial->name );
 		}
 
-		sceneContext->allocator->pop();
+		sceneContext->stack->pop();
 	}
 
 	float maxDim = 0.0f;
@@ -3576,26 +3698,36 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 		V6_ASSERT( meshID < MESH_MAX_COUNT );
 		V6_ASSERT( meshID < ENTITY_MAX_COUNT );
 
-		sceneContext->allocator->push();
+		sceneContext->stack->push();
 
 		ObjMesh_s* mesh = &objScene->meshes[meshID];
 		
-		GenericVertex_s* vertices = sceneContext->allocator->newArray< GenericVertex_s >( mesh->triangleCount * 3 );
+		GenericVertex_s* vertices = sceneContext->stack->newArray< GenericVertex_s >( mesh->triangleCount * 3 );
 		
 		ObjTriangle_s* triangle = &objScene->triangles[mesh->firstTriangleID];
+		
+		core::Vec3 meshCenter = core::Vec3_Zero();
+		for ( core::u32 triangleID = 0; triangleID < mesh->triangleCount; ++triangleID, ++triangle )
+		{
+			for ( core::u32 vertexID = 0; vertexID < 3; ++vertexID )
+			{
+				const core::Vec3 worldPos = objScene->positions[triangle->vertices[vertexID].posID] * info.worldUnitToCM;
+				meshCenter += worldPos;
+				maxDim = core::Max( maxDim, worldPos.x );
+				maxDim = core::Max( maxDim, worldPos.y );
+				maxDim = core::Max( maxDim, worldPos.z );
+			}
+		}
+		if ( mesh->triangleCount )
+			meshCenter *= 1.0f / (mesh->triangleCount * 3);
+
+		triangle = &objScene->triangles[mesh->firstTriangleID];
 		GenericVertex_s* vertex = vertices;
 		for ( core::u32 triangleID = 0; triangleID < mesh->triangleCount; ++triangleID, ++triangle, vertex += 3 )
 		{
-			vertex[0].position = objScene->positions[triangle->vertices[0].posID] * info.worldUnitToCM;
-			vertex[1].position = objScene->positions[triangle->vertices[1].posID] * info.worldUnitToCM;
-			vertex[2].position = objScene->positions[triangle->vertices[2].posID] * info.worldUnitToCM;
-
-			for ( core::u32 vertexID = 0; vertexID < 3; ++vertexID )
-			{
-				maxDim = core::Max( maxDim, vertex[vertexID].position.x );
-				maxDim = core::Max( maxDim, vertex[vertexID].position.y );
-				maxDim = core::Max( maxDim, vertex[vertexID].position.z );
-			}
+			vertex[0].position = objScene->positions[triangle->vertices[0].posID] * info.worldUnitToCM - meshCenter;
+			vertex[1].position = objScene->positions[triangle->vertices[1].posID] * info.worldUnitToCM - meshCenter;
+			vertex[2].position = objScene->positions[triangle->vertices[2].posID] * info.worldUnitToCM - meshCenter;
 
 			if ( objScene->normals && triangle->vertices[0].normalID != (core::u32)-1 )
 			{
@@ -3630,10 +3762,11 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 		Mesh_Create( sceneContext->device, &scene->meshes[meshID], vertices, mesh->triangleCount * 3, sizeof( GenericVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 		++scene->meshCount;
 
-		Entity_Create( &scene->entities[meshID], mesh->materialID, meshID, core::Vec3_Make( 0.0f, 0.0f, 0.0f ), 1.0f );
+		Entity_Create( &scene->entities[meshID], mesh->materialID, meshID, meshCenter, 1.0f );
+		Entity_SetName( &scene->entities[meshID], mesh->name );
 		++scene->entityCount;
 
-		sceneContext->allocator->pop();
+		sceneContext->stack->pop();
 	}	
 
 	const core::u32 materialID = scene->materialCount;
@@ -3686,10 +3819,15 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	sceneContext->scene = scene;
 	s_activeScene = scene;
 
-	CameraPath_Load( &s_cameraPath, &info );
+	Path_Load( s_paths, PATH_COUNT, scene );
 	s_yaw = core::DegToRad( info.cameraYaw );
-	if ( s_cameraPath.keyCount )
-		s_headOffset = s_cameraPath.positions[0];
+	if ( s_paths[PATH_CAMERA].keyCount )
+		s_headOffset = s_paths[PATH_CAMERA].positions[0];
+	for ( core::u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
+	{
+		if ( s_paths[pathID].keyCount && s_paths[pathID].entityID != (core::u32)-1 )
+			Entity_SetPos( &scene->entities[s_paths[pathID].entityID], &s_paths[pathID].positions[0] );
+	}
 
 	core::Signal_Emit( &sceneContext->loadDone );
 }
@@ -3761,11 +3899,11 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 	}
 }
 
-void Scene_CreateCameraPath( SceneCameraPath_s* scene, ID3D11Device* device )
+void Scene_CreatePathGeo( ScenePathGeo_s* scene, ID3D11Device* device )
 {
 	Scene_Create( scene );
 
-	for ( core::u32 lineRank = 0; lineRank < CameraPath_s::MAX_POINT_COUNT-1; ++lineRank )
+	for ( core::u32 lineRank = 0; lineRank < Path_s::MAX_POINT_COUNT-1; ++lineRank )
 	{
 		scene->meshLineIDs[lineRank] = scene->meshCount;
 		Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], core::Color_Make( 128, 128, 128, 255 ) );
@@ -3780,24 +3918,27 @@ void Scene_CreateCameraPath( SceneCameraPath_s* scene, ID3D11Device* device )
 	Material_Create( &scene->materials[scene->materialCount++], Material_DrawBasic );
 }
 
-void Scene_UpdateCameraPath( SceneCameraPath_s* scene, const CameraPath_s* cameraPath, ID3D11DeviceContext* context )
+void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path, ID3D11DeviceContext* context )
 {
+	if ( !path->dirty )
+		return;
+
 	scene->entityCount = 0;
 	
-	for ( core::u32 key = 0; key < (core::u32)cameraPath->keyCount; ++key )
+	for ( core::u32 key = 0; key < (core::u32)path->keyCount; ++key )
 	{
-		const bool isSelected = key == s_cameraPath.activeKey;
-		Entity_Create( &scene->entities[scene->entityCount++], 0, isSelected ? scene->meshSelectedBoxID : scene->meshBoxID, cameraPath->positions[key], 5.0f );
+		const bool isSelected = key == path->activeKey;
+		Entity_Create( &scene->entities[scene->entityCount++], 0, isSelected ? scene->meshSelectedBoxID : scene->meshBoxID, path->positions[key], 5.0f );
 	}
 
 	int lineRank;
-	for ( lineRank = 0; lineRank < cameraPath->keyCount-1; ++lineRank )
+	for ( lineRank = 0; lineRank < path->keyCount-1; ++lineRank )
 	{		
 		const core::u32 meshLineID = scene->meshLineIDs[lineRank];
 		const BasicVertex_s vertices[2] = 
 		{
-			{ cameraPath->positions[lineRank], core::Color_Make( 128, 128, 128, 255 ) },
-			{ cameraPath->positions[lineRank+1], core::Color_Make( 128, 128, 128, 255 ) },
+			{ path->positions[lineRank], core::Color_Make( 128, 128, 128, 255 ) },
+			{ path->positions[lineRank+1], core::Color_Make( 128, 128, 128, 255 ) },
 		};
 		Mesh_UpdateVertices( context, &scene->meshes[meshLineID], vertices );
 		Entity_Create( &scene->entities[scene->entityCount++], 0, meshLineID, core::Vec3_Zero(), 1.0f );
@@ -4065,7 +4206,7 @@ public:
 
 	Scene_s*			m_defaultScene;
 	SceneDebug_s*		m_debugScene;
-	SceneCameraPath_s*	m_cameraPathScene;
+	ScenePathGeo_s*		m_pathGeoScene;
 
 	core::IAllocator*	m_heap;
 	core::IStack*		m_stack;
@@ -4090,8 +4231,9 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_stack = stack;
 	core::ScopedStack scopedStack( stack );
 
-	CameraPath_Init( &s_cameraPath );
-	CameraPlayer_Init( &s_cameraPlayer );
+	for ( core::u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
+		Path_Init( &s_paths[pathID] );
+	PathPlayer_Init( &s_pathPlayer );
 
 	m_width = nWidth;
 	m_height = nHeight;
@@ -4106,8 +4248,8 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, core::CFileSy
 	m_debugScene = heap->newInstance< SceneDebug_s >();
 	Scene_CreateDebug( m_debugScene, gpuContext.device );
 
-	m_cameraPathScene = heap->newInstance< SceneCameraPath_s >();
-	Scene_CreateCameraPath( m_cameraPathScene, gpuContext.device );
+	m_pathGeoScene = heap->newInstance< ScenePathGeo_s >();
+	Scene_CreatePathGeo( m_pathGeoScene, gpuContext.device );
 
 	Config_Init( &m_config, m_width, m_height, CUBE_SIZE, HLSL_GRID_WIDTH );
 
@@ -4233,7 +4375,7 @@ void CRenderingDevice::DrawCameraPath( const RenderingView_s* view )
 	settings.useAlphaCoverage = false;
 	settings.isCapturing = false;
 
-	DrawScene( m_cameraPathScene, view, &settings );
+	DrawScene( m_pathGeoScene, view, &settings );
 
 	// un RT
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
@@ -4734,7 +4876,7 @@ void CRenderingDevice::ResetDrawMode()
 {
 	g_drawMode = DRAW_MODE_DEFAULT;
 	g_sample = 0;
-	CameraPlayer_Play( &s_cameraPlayer, false );
+	PathPlayer_Play( &s_pathPlayer, false );
 	m_bakedFrameCount = 0;
 }
 
@@ -5213,7 +5355,7 @@ void CRenderingDevice::Draw( float dt )
 	static int lastKeyPosX = -1;
 	static int lastKeyPosZ = -1;
 
-	const core::u32 frameID = CameraPlayer_GetFrame( &s_cameraPlayer );
+	const core::u32 frameID = PathPlayer_GetFrame( &s_pathPlayer );
 	
 	int mouseDeltaX = 0;
 	int mouseDeltaY = 0;
@@ -5283,14 +5425,24 @@ void CRenderingDevice::Draw( float dt )
 		s_headOffset = s_buildOrigin + distanceToCenter;
 	}
 
-	if ( s_cameraPath.dirty && (g_cameraShowPath || s_cameraPlayer.isPlaying) )
+	if ( g_showPath || s_pathPlayer.isPlaying )
 	{
-		CameraPlayer_Compute( &s_cameraPlayer, &s_cameraPath, g_cameraSpeed );
-		Scene_UpdateCameraPath( m_cameraPathScene, &s_cameraPath, gpuContext.deviceContext );
+		Scene_UpdatePathGeo( m_pathGeoScene, &s_paths[s_activePath], gpuContext.deviceContext );
+		PathPlayer_Compute( &s_pathPlayer, s_paths, PATH_COUNT );
 	}
 
-	if ( s_cameraPlayer.isPlaying )
-		s_headOffset = CameraPlayer_GetPosition( &s_cameraPlayer, &s_cameraPath );
+	if ( s_pathPlayer.isPlaying )
+	{
+		if ( s_activePath == PATH_CAMERA )
+			PathPlayer_GetPosition( &s_headOffset, &s_pathPlayer, PATH_CAMERA );
+		for ( core::u32 pathID = PATH_CAMERA+1; pathID < PATH_COUNT; ++pathID )
+		{
+			core::Vec3 entityPosition;
+			const core::u32 entityID = s_paths[pathID].entityID;
+			if ( entityID != (core::u32)-1 && PathPlayer_GetPosition( &entityPosition, &s_pathPlayer, pathID ) )
+				Entity_SetPos( &s_activeScene->entities[entityID], &entityPosition );
+		}
+	}
 
 	RenderingView_s views[HLSL_EYE_COUNT];
 #if V6_USE_HMD
@@ -5330,7 +5482,7 @@ void CRenderingDevice::Draw( float dt )
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
 		v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
 
-		CameraPlayer_AddTimeStep( &s_cameraPlayer, dt );
+		PathPlayer_AddTimeStep( &s_pathPlayer, dt );
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
 	{
@@ -5354,7 +5506,7 @@ void CRenderingDevice::Draw( float dt )
 				{
 					++m_bakedFrameCount;
 
-					if ( CameraPlayer_AddTimeStep( &s_cameraPlayer, 1.0f / HMD_FPS ) )
+					if ( PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS ) )
 						g_sample = 0;
 				}
 			}
@@ -5405,7 +5557,7 @@ void CRenderingDevice::Draw( float dt )
 			s_logReadBack = false;
 			g_mousePicked = false;
 
-			CameraPlayer_AddTimeStep( &s_cameraPlayer, 1.0f / HMD_FPS );
+			PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS );
 		}
 	}	
 	
@@ -5419,7 +5571,7 @@ void CRenderingDevice::Draw( float dt )
 	else
 #endif // #if V6_USE_HMD
 	{
-		if ( g_cameraShowPath )
+		if ( g_showPath )
 		{
 			for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 				DrawCameraPath( &views[eye] );
@@ -5448,10 +5600,11 @@ void CRenderingDevice::Release()
 	Scene_Release( m_debugScene );
 	m_heap->deleteInstance( m_debugScene );
 
-	Scene_Release( m_cameraPathScene );
-	m_heap->deleteInstance( m_cameraPathScene );
+	Scene_Release( m_pathGeoScene );
+	m_heap->deleteInstance( m_pathGeoScene );
 
-	CameraPath_Release( &s_cameraPath );
+	for ( core::u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
+		Path_Release( &s_paths[pathID] );
 
 	GPUContext_Release( &gpuContext );
 }
@@ -5514,7 +5667,7 @@ int main()
 	v6::core::Vec2i renterTargerSize = v6::core::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	HWND hWnd = v6::viewer::CreateMainWindow( title, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y );
+	HWND hWnd = v6::viewer::CreateMainWindow( title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y );
 	if (!hWnd)
 	{
 		V6_ERROR( "Call to CreateWindow failed!\n" );
