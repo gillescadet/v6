@@ -65,7 +65,13 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const uint traceBlockOffset = trace_blockOffset( GRID_CELL_BUCKET );
 			const uint traceBlockID = traceBlockOffset + blockRank;
 			const uint packedPos = traceCells[traceBlockID * 2 + 0];
+#if BLOCK_DEBUG == 1
+			uint blockDataID = traceCells[traceBlockID * 2 + 1];
+			const uint historyColor = blockDataID >> 30;
+			blockDataID &= 0x3FFFFFFF;
+#else
 			const uint blockDataID = traceCells[traceBlockID * 2 + 1];
+#endif
 			const uint packedColor = blockData[blockDataID + cellRank];
 
 			valid = packedColor != HLSL_GRID_BLOCK_CELL_EMPTY;
@@ -89,6 +95,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			{
 				const uint bucketColors[5] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0xFF00FF00, 0xFFFF0000 };
 				rgb_none = bucketColors[GRID_CELL_BUCKET];
+			}
+			else if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_HISTORY )
+			{
+				const uint historyColors[4] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0x7F7F7F00 };
+				rgb_none = historyColors[historyColor];
 			}
 #endif // #if BLOCK_DEBUG == 1
 

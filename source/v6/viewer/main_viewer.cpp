@@ -83,7 +83,7 @@ static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 75 * 5;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 10;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -703,7 +703,7 @@ static void Path_DeleteKey( Path_s* path, core::u32 key )
 static void Path_InsertKey( Path_s* path, const core::Vec3* position, core::u32 key )
 {
 	V6_ASSERT( path->keyCount < Path_s::MAX_POINT_COUNT );
-	if ( key != 0 || path->keyCount != 0 )
+	if ( key != path->keyCount )
 	{
 		++key;
 		for ( core::u32 keyNext = path->keyCount; keyNext > key; --keyNext )
@@ -2869,12 +2869,14 @@ static void SequenceContext_UpdateFrameData( ID3D11DeviceContext* context, Seque
 			const core::u32 rangeID = rangeIDs[rangeRank];
 
 			const core::CodecRange_s* codecRange = &sequenceContext->rangeDefs[bucket][rangeID];
-			const core::u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
+			const core::u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
+			const core::u32 rangeMip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
 			const hlsl::BlockRange* srcBlockRange = &sequenceContext->blockRanges[bucket][rangeID];
 			
 			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];
 			memcpy( dstBlockRange, srcBlockRange, sizeof( hlsl::BlockRange ) );
-			dstBlockRange->macroGridOffset -= macroGridCoords[mip];
+			dstBlockRange->macroGridOffset -= macroGridCoords[rangeMip];
+			dstBlockRange->frameDistance = frameID - rangeFrameID;
 			dstBlockRange->firstThreadID = firstThreadID;
 
 			const core::u32 blockCount = srcBlockRange->blockCount;
@@ -4835,7 +4837,7 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const core::Vec3
 		}
 
 		// dispach
-		if ( s_logReadBack )
+		if ( s_logReadBack || g_showHistory )
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL_STATS4+bucket].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL4+bucket].m_computeShader, nullptr, 0 );
@@ -4966,7 +4968,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 			cbBlock->c_blockEyes[eye] = blockPerEye;
 
 			cbBlock->c_blockGetStats = s_logReadBack;
-			cbBlock->c_blockShowFlag = (g_showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (g_showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0);
+			cbBlock->c_blockShowFlag = (g_showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (g_showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0) | (g_showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
 		}
 
 		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
@@ -5007,7 +5009,7 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const core::Vec
 		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.srv );
 
 		// dispach
-		if ( s_logReadBack | g_showMip | g_showBucket )
+		if ( s_logReadBack || g_showMip || g_showBucket || g_showHistory )
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket].m_computeShader, nullptr, 0 );
 		else
 			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );

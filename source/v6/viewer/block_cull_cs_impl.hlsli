@@ -88,7 +88,20 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 			const uint traceBlockID = traceBlockOffset + traceBlockRank;
 			const uint blockDataID = range.blockDataOffset + blockRank * GRID_CELL_COUNT;
 			traceCells[traceBlockID * 2 + 0] = tracePackedBlockPos;
+#if BLOCK_GET_STATS == 1
+			uint historyColor;
+			if ( range.frameDistance == 0 )
+				historyColor = 0;
+			else if ( range.frameDistance < 5 )
+				historyColor = 1;
+			else if ( range.frameDistance < 10 )
+				historyColor = 2;
+			else
+				historyColor = 3;
+			traceCells[traceBlockID * 2 + 1] = (historyColor << 30) | blockDataID;
+#else
 			traceCells[traceBlockID * 2 + 1] = blockDataID;
+#endif
 
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
