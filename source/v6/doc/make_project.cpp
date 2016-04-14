@@ -296,6 +296,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "core/vec4i.h",							PROJECT_CORE },
 
 	// doc
+	{ "doc/bench.txt",							PROJECT_DOC },
 	{ "doc/make_project.cpp",					PROJECT_DOC },
 	{ "doc/survey.txt",							PROJECT_DOC },
 	{ "doc/todo.txt",							PROJECT_DOC },

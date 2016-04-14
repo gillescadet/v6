@@ -18,10 +18,31 @@ struct BitSet_s
 	u32		findBitMask;
 };
 
+V6_INLINE u32 Bit_GetBitHighCount( u16 value )
+{
+	return (u32)__popcnt16( value );
+}
+
+V6_INLINE u32 Bit_GetBitHighCount( u32 value )
+{
+	return (u32)__popcnt( value );
+}
+
+V6_INLINE u32 Bit_GetBitHighCount( u64 value )
+{
+	return (u32)__popcnt64( value );
+}
+
 V6_INLINE u32 Bit_GetFirstBitHigh( u32 value )
 {
 	unsigned long index;
 	return _BitScanReverse( &index, value ) == 0 ? (u32)-1 : (u32)index;
+}
+
+V6_INLINE u32 Bit_GetFirstBitHigh( u64 value )
+{
+	unsigned long index;
+	return _BitScanReverse64( &index, value ) == 0 ? (u32)-1 : (u32)index;
 }
 
 V6_INLINE u32 BitSet_GetSize( u32 count )

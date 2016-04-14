@@ -5,6 +5,9 @@
 #ifndef __V6_CORE_ENCODER_H__
 #define __V6_CORE_ENCODER_H__
 
+#define ENCODER_STRICT_CELL		0
+#define ENCODER_STRICT_BUCKET	0
+
 BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;

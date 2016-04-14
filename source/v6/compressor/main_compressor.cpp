@@ -2,66 +2,13 @@
 
 #include <v6/core/common.h>
 #include <v6/core/color.h>
+#include <v6/core/compression.h>
 #include <v6/core/image.h>
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 
 using namespace v6;
-
-#define rgb	AsRGB()
-#define xyx	AsXYZ()
-
-typedef core::u32 uint; 
-
-struct uint3
-{
-	uint3() {}
-	uint3( uint v0, uint v1, uint v2 ) : x( v0 ), y( v1 ), z( v2 ) {}
-	union
-	{
-		struct
-		{
-			uint x;
-			uint y;
-			uint z;
-		};
-		struct
-		{
-			uint r;
-			uint g;
-			uint b;
-		};
-	};
-};
-
-struct uint4
-{
-	uint4() {}
-	uint4( uint v0, uint v1, uint v2, uint v3 ) : x( v0 ), y( v1 ), z( v2 ), w( v3 ) {}
-	uint4( uint3 v0, uint v1 ) : x( v0.x ), y( v0.y ), z( v0.z ), w( v1 ) {}
-	union
-	{
-		struct
-		{
-			uint x;
-			uint y;
-			uint z;
-			uint w;
-		};
-		struct
-		{
-			uint r;
-			uint g;
-			uint b;
-			uint a;
-		};
-	};
-	uint3& AsRGB() { return *((uint3*)&x); }
-	const uint3& AsRGB() const { return *((uint3*)&x); }
-	uint3& AsXYZ() { return *((uint3*)&x); }
-	const uint3& AsXYZ() const { return *((uint3*)&x); }
-};
 
 struct ImageBlock_s
 {
@@ -70,80 +17,11 @@ struct ImageBlock_s
 	core::u32 bits;
 };
 
-struct EncodedBlock
-{
-	uint	blockPos;
-	uint	cellEndColors;
-	uint	cellColorIndices[4];
-	uint	cellPresence[2];
-};
-
-struct DecodedBlock
-{
-	uint	blockPos;
-	uint	cellRGBA[64];
-	uint	cellCount;
-};
-
-inline uint min( uint a, uint b )
-{
-	return a < b ? a : b;
-}
-
-inline uint max( uint a, uint b )
-{
-	return a > b ? a : b;
-}
-
-inline uint3 min( uint3 a, uint3 b )
-{
-	uint3 res;
-	res.x = min( a.x, b.x );
-	res.y = min( a.y, b.y );
-	res.z = min( a.z, b.z );
-	return res;
-}
-
-inline uint3 max( uint3 a, uint3 b )
-{
-	uint3 res;
-	res.x = max( a.x, b.x );
-	res.y = max( a.y, b.y );
-	res.z = max( a.z, b.z );
-	return res;
-}
-
-inline uint3 operator-( uint3 a, uint3 b )
-{
-	uint3 res;
-	res.x = a.x - b.x;
-	res.y = a.y - b.y;
-	res.z = a.z - b.z;
-	return res;
-}
-
-inline uint3 operator>>( uint3 a, uint shift )
-{
-	uint3 res;
-	res.x = a.x >> shift;
-	res.y = a.y >> shift;
-	res.z = a.z >> shift;
-	return res;
-}
-
-uint4 UnpackRGBA( uint rgba )
-{
-	return uint4( (rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF, rgba & 0xFF );
-}
-
-uint PackRGBA( uint4 rgba )
-{
-	return (rgba.r << 24) | (rgba.g << 16) | (rgba.b << 8) | rgba.a;
-}
-
 int CompareRGBAByAlpha( const void* rgba1, const void* rgba2 )
 {
-	return UnpackRGBA( *(uint*)rgba1 ).a - UnpackRGBA( *(uint*)rgba2 ).a;
+	const int a1 = *((core::u32*)rgba1) & 0xFF;
+	const int a2 = *((core::u32*)rgba2) & 0xFF;
+	return a1 - a2;
 }
 
 void ImageBlock_EncodeBC1( ImageBlock_s* block, const core::Color_s* pixels, core::u32 lineStride )
@@ -293,187 +171,6 @@ void ImageBlock_DecodeBC1( core::Color_s* pixels, core::u32 lineStride, const Im
 	}
 }
 
-EncodedBlock Block_Encode( uint blockPos, uint cellRGBA[64], uint cellCount )
-{
-	EncodedBlock block;
-
-	// Output blockPos
-	
-	block.blockPos = blockPos;
-
-	// Find the min/max colors
-	
-	uint3 minColor = uint3( 255, 255, 255 );
-	uint3 maxColor = uint3(   0,   0,   0 );
-
-	{
-		for ( uint cellID = 0; cellID < cellCount; ++cellID )
-		{
-			const uint4 color = UnpackRGBA( cellRGBA[cellID] );
-
-			minColor = min( minColor, color.rgb );
-			maxColor = max( maxColor, color.rgb );
-		}	
-
-		const uint3 extentColor = (maxColor - minColor) >> 4;
-
-		minColor.r = minColor.r + extentColor.r < 255 ? (minColor.r + extentColor.r) : 255;
-		minColor.g = minColor.g + extentColor.g < 255 ? (minColor.g + extentColor.g) : 255;
-		minColor.b = minColor.b + extentColor.b < 255 ? (minColor.b + extentColor.b) : 255;
-
-		maxColor.r = maxColor.r > extentColor.r ? (maxColor.r - extentColor.r) : 0;
-		maxColor.g = maxColor.g > extentColor.g ? (maxColor.g - extentColor.g) : 0;
-		maxColor.b = maxColor.b > extentColor.b ? (maxColor.b - extentColor.b) : 0;
-	}
-
-	// Output colors
-
-	const uint color0 = ((maxColor.r >> 3) << 11) | ((maxColor.g >> 2) << 5) | (maxColor.b >> 3);
-	const uint color1 = ((minColor.r >> 3) << 11) | ((minColor.g >> 2) << 5) | (minColor.b >> 3);
-	block.cellEndColors = (color1 << 16) | color0;
-
-	// Make palette
-
-	uint3 colors[4];
-
-	colors[0].r = (maxColor.r & 0xF8) | (maxColor.r >> 5);
-	colors[0].g = (maxColor.g & 0xFC) | (maxColor.g >> 6);
-	colors[0].b = (maxColor.b & 0xF8) | (maxColor.b >> 5);
-
-	colors[1].r = (minColor.r & 0xF8) | (minColor.r >> 5);
-	colors[1].g = (minColor.g & 0xFC) | (minColor.g >> 6);
-	colors[1].b = (minColor.b & 0xF8) | (minColor.b >> 5);
-	
-	colors[2].r = (170 * colors[0].r + 85 * colors[1].r) >> 8;
-	colors[2].g = (170 * colors[0].g + 85 * colors[1].g) >> 8;
-	colors[2].b = (170 * colors[0].b + 85 * colors[1].b) >> 8;
-	
-	colors[3].r = (85 * colors[0].r + 170 * colors[1].r) >> 8;
-	colors[3].g = (85 * colors[0].g + 170 * colors[1].g) >> 8;
-	colors[3].b = (85 * colors[0].b + 170 * colors[1].b) >> 8;
-
-	// Output cell presence
-
-	block.cellPresence[0] = 0;
-	block.cellPresence[1] = 0;
-
-	uint cellPosToID[64];
-
-	{
-		for ( uint cellPos = 0; cellPos < 64; ++cellPos )
-			cellPosToID[cellPos] = (uint)-1;
-
-		for ( uint cellID = 0; cellID < cellCount; ++cellID )
-		{
-			const uint cellPos = UnpackRGBA( cellRGBA[cellID] ).a;
-			block.cellPresence[cellPos >> 5] |= 1 << (cellPos & 0x1F);
-			cellPosToID[cellPos] = cellID;
-		}
-	}
-
-	// Ouput cell colors
-
-	block.cellColorIndices[0] = 0;
-	block.cellColorIndices[1] = 0;
-	block.cellColorIndices[2] = 0;
-	block.cellColorIndices[3] = 0;
-	
-	{
-		uint cellRank = 0;
-		for ( uint cellPos = 0; cellPos < 64; ++cellPos )
-		{
-			if ( cellPosToID[cellPos] == (uint)-1 )
-				continue;
-
-			const uint cellID = cellPosToID[cellPos];
-			const uint4 color = UnpackRGBA( cellRGBA[cellID] );
-
-			uint bestColorID = 0;
-			uint bestError = 0xFFFFFFFF;
-			
-			for ( uint colorID = 0; colorID < 4; ++colorID )
-			{
-				const int dR = color.r - colors[colorID].r;
-				const int dG = color.g - colors[colorID].g;
-				const int dB = color.b - colors[colorID].b;
-
-				const uint error = dR * dR + dG * dG + dB * dB;
-				if ( error < bestError )
-				{
-					bestError = error;
-					bestColorID = colorID;
-				}
-			}
-
-			block.cellColorIndices[cellRank >> 4] |= bestColorID << ((cellRank << 1) & 0x1F);
-			++cellRank;
-		}
-	}
-
-	return block;
-}
-
-DecodedBlock Block_Decode( EncodedBlock encodedBlock )
-{
-	DecodedBlock decodedBlock;
-
-	// Decode blockPos
-
-	decodedBlock.blockPos = encodedBlock.blockPos;
-
-	// Decode min/max
-
-	const uint color0 = (encodedBlock.cellEndColors >> 0 ) & 0xFFFF;
-	const uint color1 = (encodedBlock.cellEndColors >> 16) & 0xFFFF;
-
-	uint3 maxColor;
-	maxColor.r = ((color0 >> 11) & 0x1F) << 3;
-	maxColor.g = ((color0 >>  5) & 0x3F) << 2;
-	maxColor.b = ((color0 >>  0) & 0x1F) << 3;
-	
-	uint3 minColor;
-	minColor.r = ((color1 >> 11) & 0x1F) << 3;
-	minColor.g = ((color1 >>  5) & 0x3F) << 2;
-	minColor.b = ((color1 >>  0) & 0x1F) << 3;
-
-	// Make palette
-
-	uint3 colors[4];
-	
-	colors[0].r = maxColor.r | (maxColor.r >> 5);
-	colors[0].g = maxColor.g | (maxColor.g >> 6);
-	colors[0].b = maxColor.b | (maxColor.b >> 5);
-
-	colors[1].r = minColor.r | (minColor.r >> 5);
-	colors[1].g = minColor.g | (minColor.g >> 6);
-	colors[1].b = minColor.b | (minColor.b >> 5);
-	
-	colors[2].r = (170 * colors[0].r + 85 * colors[1].r) >> 8;
-	colors[2].g = (170 * colors[0].g + 85 * colors[1].g) >> 8;
-	colors[2].b = (170 * colors[0].b + 85 * colors[1].b) >> 8;
-	
-	colors[3].r = (85 * colors[0].r + 170 * colors[1].r) >> 8;
-	colors[3].g = (85 * colors[0].g + 170 * colors[1].g) >> 8;	
-	colors[3].b = (85 * colors[0].b + 170 * colors[1].b) >> 8;
-
-	// Decode bits
-
-	decodedBlock.cellCount = 0;
-	
-	for ( uint cellPos = 0; cellPos < 64; ++cellPos )
-	{
-		if ( (encodedBlock.cellPresence[cellPos >> 5] & (1 << (cellPos & 0x1F))) == 0 )
-			continue;
-
-		const uint cellRank = decodedBlock.cellCount;
-		const uint colorID = (encodedBlock.cellColorIndices[cellRank >> 4] >> ((cellRank << 1) & 0x1F)) & 3;
-		decodedBlock.cellRGBA[cellRank] = PackRGBA( uint4( colors[colorID], cellPos ) );
-		++decodedBlock.cellCount;
-	}
-
-	return decodedBlock;
-}
-
 void TestImageCompression( core::IAllocator* allocator )
 {
 	//const char* filenameSrc = "D:/media/image/femme.tga";
@@ -528,45 +225,53 @@ void TestImageCompression( core::IAllocator* allocator )
 
 void TestBlockCompression( core::IAllocator* allocator )
 {
-	static const uint testCount = 16;
+	static const core::u32 testCount = 4;
 
-	for ( uint testID = 0; testID < testCount; ++testID )	
+	for ( core::u32 testID = 0; testID < testCount; ++testID )
 	{
-		uint cellCount = 0;
+		core::u32 cellCount = 0;
 
-		uint cellRGBA[64] = {};
+		core::u32 cellRGBA[64] = {};
 		memset( cellRGBA, 0xFF, sizeof( cellRGBA ) );
 
-		while ( cellCount < 16 )
+		while ( cellCount < 64 )
 		{
 retry:
-			const uint cellPos = rand() & 0x3F;
+			const core::u32 cellPos = rand() & 0x3F;
 			
-			for ( uint cellRank = 0; cellRank < 64; ++cellRank )
+			for ( core::u32 cellRank = 0; cellRank < cellCount; ++cellRank )
 			{
-				if ( UnpackRGBA( cellRGBA[cellRank] ).a == cellPos )
+				if ( (cellRGBA[cellRank] & 0xFF) == cellPos )
 					goto retry;
 			}
 
-			cellRGBA[cellCount] = PackRGBA( uint4( rand() & 0xFF, rand() & 0xFF, rand() & 0xFF, cellPos ) );
+			cellRGBA[cellCount] = ((rand() & 0xFF) << 24) | ((rand() & 0xFF) << 16) | ((rand() & 0xFF) << 8) | cellPos;
 			++cellCount;
 		}
 
-		EncodedBlock encodedBlock = Block_Encode( 0, cellRGBA, cellCount );
-		DecodedBlock decodedBlock = Block_Decode( encodedBlock );
+		core::EncodedBlock_s encodedBlock = core::Block_Encode( cellRGBA, cellCount );
+		core::DecodedBlock_s decodedBlock = core::Block_Decode( encodedBlock );
 
 		qsort( cellRGBA, cellCount, sizeof( *cellRGBA ), CompareRGBAByAlpha );
-		qsort( decodedBlock.cellRGBA, cellCount, sizeof( *cellRGBA ), CompareRGBAByAlpha );
+		qsort( decodedBlock.cellRGBA, cellCount, sizeof( *decodedBlock.cellRGBA ), CompareRGBAByAlpha );
 
 		printf( "%d cells:\n", cellCount );
-		for ( uint cellID = 0; cellID < cellCount; ++cellID )
+		for ( core::u32 cellID = 0; cellID < cellCount; ++cellID )
 		{
-			const uint4 rgba1 = UnpackRGBA( cellRGBA[cellID] );
-			const uint4 rgba2 = UnpackRGBA( decodedBlock.cellRGBA[cellID] );
-			V6_ASSERT( rgba1.a == rgba2.a );
+			const core::u32 color1R  = (cellRGBA[cellID] >> 24) & 0xFF;
+			const core::u32 color1G  = (cellRGBA[cellID] >> 16) & 0xFF;
+			const core::u32 color1B  = (cellRGBA[cellID] >>  8) & 0xFF;
+			const core::u32 cellpos1 = cellRGBA[cellID] & 0xFF;
+
+			const core::u32 color2R  = (decodedBlock.cellRGBA[cellID] >> 24) & 0xFF;
+			const core::u32 color2G  = (decodedBlock.cellRGBA[cellID] >> 16) & 0xFF;
+			const core::u32 color2B  = (decodedBlock.cellRGBA[cellID] >>  8) & 0xFF;
+			const core::u32 cellpos2 = decodedBlock.cellRGBA[cellID] & 0xFF;
+
+			V6_ASSERT( cellpos1 == cellpos2 );
 			printf( "%02X %02X %02X %02X => %02X %02X %02X %02X\n", 
-				rgba1.r, rgba1.g, rgba1.b, rgba1.a,
-				rgba2.r, rgba2.g, rgba2.b, rgba2.a );
+				color1R, color1G, color1B, cellpos1,
+				color2R, color2G, color2B, cellpos2 );
 		}
 	}
 }
@@ -578,9 +283,9 @@ int main()
 	core::CHeap heap;
 	core::Stack stack( &heap, 100 * 1024 * 1024 );
 		
-	TestImageCompression( &stack );
+	// TestImageCompression( &stack );
 
-	// TestBlockCompression( &stack );
+	TestBlockCompression( &stack );
 
 	return 0;
 }

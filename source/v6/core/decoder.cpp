@@ -1,6 +1,7 @@
 /*V6*/
 #include <v6/core/common.h>
 
+#include <v6/core/bit.h>
 #include <v6/core/codec.h>
 #include <v6/core/decoder.h>
 #include <v6/core/memory.h>
@@ -17,26 +18,53 @@ static int Block_ComparePos( void* blockPosPointer, void const* blockIDPointer0,
 	return blockPos[blockID0] < blockPos[blockID1] ? -1 : 1;
 }
 
-static bool Block_CompareData( const u32* cell0, const u32* cell1 )
+static bool Block_CompareData( const u32* cells0, const u32* cells1, u32 cellCount )
 {
-	const u32 pos0 = *cell0 & 0xFF;
-	const u32 pos1 = *cell1 & 0xFF;
-	if ( pos0 != pos1 )
+	u64 cellPresence0 = 0;
+	u64 cellPresence1 = 0;
+	u64 cellRGBA0[CODEC_CELL_MAX_COUNT] = {};
+	u64 cellRGBA1[CODEC_CELL_MAX_COUNT] = {};
+
+	for ( u32 cellID = 0; cellID < cellCount; ++cellID )
+	{
+		if ( cells0[cellID] != 0xFFFFFFFF )
+		{
+			const u32 cellPos = cells0[cellID] & 0xFF;
+			cellPresence0 |= 1ll << cellPos;
+		}
+		if ( cells1[cellID] != 0xFFFFFFFF )
+		{
+			const u32 cellPos = cells1[cellID] & 0xFF;
+			cellPresence1 |= 1ll << cellPos;
+		}
+	}
+
+	u64 commonPresence = cellPresence0 & cellPresence1;
+
+	if ( commonPresence == 0 )
 		return false;
 
-	const u32 r0 = (*cell0 >> 24) & 0xFF;
-	const u32 g0 = (*cell0 >> 16) & 0xFF;
-	const u32 b0 = (*cell0 >>  8) & 0xFF;
-	const u32 r1 = (*cell1 >> 24) & 0xFF;
-	const u32 g1 = (*cell1 >> 16) & 0xFF;
-	const u32 b1 = (*cell1 >>  8) & 0xFF;
+	do
+	{
+		const u32 cellPos = Bit_GetFirstBitHigh( commonPresence );
+		commonPresence -= 1ll << cellPos;
 
-	if ( Abs( (int)(r0 - r1) ) > CODEC_COLOR_ERROR_TOLERANCE )
-		return false;
-	if ( Abs( (int)(g0 - g1) ) > CODEC_COLOR_ERROR_TOLERANCE )
-		return false;
-	if ( Abs( (int)(b0 - b1) ) > CODEC_COLOR_ERROR_TOLERANCE )
-		return false;
+		const u32 r0 = (cellRGBA0[cellPos] >> 24) & 0xFF;
+		const u32 g0 = (cellRGBA0[cellPos] >> 16) & 0xFF;
+		const u32 b0 = (cellRGBA0[cellPos] >>  8) & 0xFF;
+
+		const u32 r1 = (cellRGBA1[cellPos] >> 24) & 0xFF;
+		const u32 g1 = (cellRGBA1[cellPos] >> 16) & 0xFF;
+		const u32 b1 = (cellRGBA1[cellPos] >>  8) & 0xFF;
+
+		if ( Abs( (int)(r0 - r1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+		if ( Abs( (int)(g0 - g1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+		if ( Abs( (int)(b0 - b1) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+
+	} while ( commonPresence != 0 );
 
 	return true;
 }
@@ -297,18 +325,17 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 				{
 					const u32 sequenceBlockID = sequenceBlockIDs[blockRank];
 					const u32 rawFrameBlockID = rawFrameBlockIDs[blockRank];
+					
 					if ( sequenceBlockPos[sequenceBlockID] != rawFrameBlockPos[rawFrameBlockID] )
 					{
 						V6_ERROR( "Incompatible block pos.\n" );
 						return false;
 					}
-					for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+			
+					if ( !Block_CompareData( sequenceBlockData + sequenceBlockID * cellPerBucketCount, rawFrameBlockData + rawFrameBlockID * cellPerBucketCount, cellPerBucketCount ) )
 					{
-						if ( !Block_CompareData( &sequenceBlockData[sequenceBlockID * cellPerBucketCount + cellID], &rawFrameBlockData[rawFrameBlockID * cellPerBucketCount + cellID] ) )
-						{
-							V6_ERROR( "Incompatible block data.\n" );
-							return false;
-						}
+						V6_ERROR( "Incompatible block data.\n" );
+						return false;
 					}
 				}
 			}
