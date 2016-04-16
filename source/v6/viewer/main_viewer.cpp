@@ -49,8 +49,7 @@
 
 BEGIN_V6_VIEWER_NAMESPACE
 
-static const float AVERAGE_LAYER_COUNT			= 4.0f; // temp for low res
-//static const float AVERAGE_LAYER_COUNT			= 2.0f;
+static const float AVERAGE_LAYER_COUNT			= 2.0f;
 #if HLSL_CELL_SUPER_SAMPLING_WIDTH > 1
 static const float AVERAGE_SAMPLE_PER_PIXEL		= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 #else
@@ -531,7 +530,7 @@ struct Config_s
 	core::u32 screenHeight;
 	core::u32 sampleCount;
 	core::u32 leafCount;
-	core::u32 nodeCount;	
+	core::u32 nodeCount;
 	core::u32 cellCount;
 	core::u32 blockCount;
 	core::u32 culledBlockCount;
@@ -2670,7 +2669,7 @@ static void Config_Init( Config_s* config, core::u32 screenWidth, core::u32 scre
 	config->screenHeight = screenHeight;
 	config->sampleCount = (core::u32)(cubeSize * cubeSize / AVERAGE_SAMPLE_PER_PIXEL);
 	config->leafCount = (core::u32)(gridWidth * gridWidth * 6 * AVERAGE_LAYER_COUNT);
-	config->nodeCount = config->leafCount * 3;	
+	config->nodeCount = config->leafCount * 3;
 	config->cellCount = config->leafCount * 33 / 16;
 	config->blockCount = config->cellCount / 8;
 	config->culledBlockCount = config->blockCount / 6;
@@ -4172,7 +4171,7 @@ public:
 	core::u32 BuildNode();
 	void Capture( const core::Vec3* sampleOffset, core::u32 faceID );
 	void ClearNode();
-	void Collect( const core::Vec3* sampleOffset, core::u32 faceID );
+	void Collect( const core::Vec3* buildOrigin, const core::Vec3* sampleOffset, core::u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, core::CFileSystem* fileSystem, core::IAllocator* heap, core::IStack* stack );
 	void CullBlock( const RenderingView_s* views, const core::Vec3* buildOrigin, float gridMinScale, core::u32 groupCounts[CODEC_BUCKET_COUNT], core::u32 frameID );
 	void Draw( float dt );
@@ -4476,7 +4475,7 @@ void CRenderingDevice::Capture( const core::Vec3* samplePos, core::u32 faceID )
 	gpuContext.userDefinedAnnotation->EndEvent();
 }
 
-void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
+void CRenderingDevice::Collect( const core::Vec3* buildOrigin, const core::Vec3* samplePos, core::u32 faceID )
 {
 	static const void* nulls[8] = {};
 
@@ -4493,7 +4492,7 @@ void CRenderingDevice::Collect( const core::Vec3* samplePos, core::u32 faceID )
 		for ( core::u32 gridID = 0; gridID < GRID_COUNT; ++gridID, gridScale *= 2 )
 		{
 			gridScales[gridID] = gridScale;
-			gridCenters[gridID] = Codec_ComputeGridCenter( samplePos, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
+			gridCenters[gridID] = Codec_ComputeGridCenter( buildOrigin, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
 		}
 		for ( core::u32 gridID = GRID_COUNT; gridID < 16; ++gridID )
 		{
@@ -4893,7 +4892,7 @@ bool CRenderingDevice::InitTraceMode( core::u32 frameCount )
 	if ( !core::Sequence_Encode( templateFilename, frameCount, sequenceFilename, m_heap ) )
 		return false;
 
-	if ( !core::Sequence_Load( sequenceFilename, &m_sequence, m_heap ) )
+	if ( !core::Sequence_Load( sequenceFilename, &m_sequence, m_heap, m_stack ) )
 		return false;
 	
 	m_sequenceContext = m_heap->newInstance< SequenceContext_s >();
@@ -5307,7 +5306,7 @@ bool CRenderingDevice::BuildBlock( core::u32 frameID )
 	for ( core::u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		Capture( &samplePos, faceID );
-		Collect( &samplePos, faceID );
+		Collect( &s_buildOrigin, &samplePos, faceID );
 		sumLeafCount += BuildNode();
 		FillLeaf();
 	}
@@ -5533,33 +5532,35 @@ void CRenderingDevice::Draw( float dt )
 					ResetDrawMode();
 			}
 
-			V6_ASSERT( m_bakedFrameCount == -1 );
-			const core::CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
+			if ( m_bakedFrameCount == -1 )
+			{
+				const core::CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
 
-			core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
-			{
-				SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameID, &m_sequence, m_stack );
-			}
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
-			{
-				CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
-			}
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
-			{
-				TraceBlock( views, &frameDesc->origin );
-			}
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
-			{
-				for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-					BlendPixel( &views[eye] );
-			}
-			v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
+				core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+				{
+					SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameID, &m_sequence, m_stack );
+				}
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
+				{
+					CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
+				}
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
+				{
+					TraceBlock( views, &frameDesc->origin );
+				}
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T3] );
+				{
+					for ( core::u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+						BlendPixel( &views[eye] );
+				}
+				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T4] );
 
-			s_logReadBack = false;
-			g_mousePicked = false;
+				s_logReadBack = false;
+				g_mousePicked = false;
 
-			PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS );
+				PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS );
+			}
 		}
 	}	
 	

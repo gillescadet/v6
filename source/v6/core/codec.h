@@ -27,10 +27,13 @@ BEGIN_V6_CORE_NAMESPACE
 
 #define CODEC_COLOR_ERROR_TOLERANCE		15
 #define CODEC_COLOR_COUNT_TOLERANCE		4
+#define CODEC_COLOR_COMPRESS			1
 
 class IAllocator;
+class IStack;
 class IStreamReader;
 class IStreamWriter;
+
 
 struct CodecRange_s
 {
@@ -87,7 +90,7 @@ struct CodecFrameData_s
 Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth );
 Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth );
 u32		Codec_GetMipCount( float gridScaleMin, float gridScaleMax );
-void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameID, IAllocator* allocator );
+void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameID, IAllocator* allocator, IStack* stack );
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, IAllocator* allocator );
 bool	Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
 void*	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, IAllocator* alllocator );

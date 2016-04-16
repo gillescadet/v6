@@ -23,15 +23,18 @@ int main()
 	const char* sequenceFilename = "D:/media/obj/default/default.v6s";
 #endif
 
-	if ( !v6::core::Sequence_Encode( templateFilename, 4, sequenceFilename, &heap ) )
+	if ( !v6::core::Sequence_Encode( templateFilename, 2, sequenceFilename, &heap ) )
 		return 1;
 
 #if VALIDATE
 	V6_MSG( "Validating...\n" );
 
 	v6::core::Sequence_s sequence = {};
-	if ( !v6::core::Sequence_Load( sequenceFilename, &sequence, &heap ) )
-		return 1;
+	{
+		v6::core::Stack stack( &heap, v6::core::MulMB( 50 ) );
+		if ( !v6::core::Sequence_Load( sequenceFilename, &sequence, &heap, &stack ) )
+			return 1;
+	}
 
 	const bool validated = v6::core::Sequence_Validate( templateFilename, sequenceFilename, &sequence, &heap );
 

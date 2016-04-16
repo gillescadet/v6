@@ -6,10 +6,8 @@
 
 BEGIN_V6_CORE_NAMESPACE
 
-EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount )
+void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount )
 {
-	EncodedBlock_s block;
-
 	// Find the min/max colors
 
 	u32 minColorR = 255;
@@ -52,7 +50,7 @@ EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount )
 	{
 		const u32 color0 = ((maxColorR >> 3) << 11) | ((maxColorG >> 2) << 5) | (maxColorB >> 3);
 		const u32 color1 = ((minColorR >> 3) << 11) | ((minColorG >> 2) << 5) | (minColorB >> 3);
-		block.cellEndColors = (color1 << 16) | color0;
+		encodedBlock->cellEndColors = (color1 << 16) | color0;
 	}
 
 	// Make palette
@@ -79,7 +77,7 @@ EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount )
 
 	// Output cell presence
 	
-	block.cellPresence = 0;
+	encodedBlock->cellPresence = 0;
 
 	u32 cellPosToID[64];
 
@@ -90,15 +88,15 @@ EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount )
 		for ( u32 cellID = 0; cellID < cellCount; ++cellID )
 		{
 			const u32 cellPos = cellRGBA[cellID] & 0x3F;
-			block.cellPresence |= 1ll << cellPos;
+			encodedBlock->cellPresence |= 1ll << cellPos;
 			cellPosToID[cellPos] = cellID;
 		}
 	}
 
 	// Ouput cell colors
 
-	block.cellColorIndices[0] = 0;
-	block.cellColorIndices[1] = 0;
+	encodedBlock->cellColorIndices[0] = 0;
+	encodedBlock->cellColorIndices[1] = 0;
 
 	{
 		u32 cellRank = 0;
@@ -129,22 +127,18 @@ EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount )
 				}
 			}
 
-			block.cellColorIndices[cellRank >> 5] |= (u64)bestColorID << ((cellRank << 1) & 0x3F);
+			encodedBlock->cellColorIndices[cellRank >> 5] |= (u64)bestColorID << ((cellRank << 1) & 0x3F);
 			++cellRank;
 		}
 	}
-
-	return block;
 }
 
-DecodedBlock_s Block_Decode( EncodedBlock_s encodedBlock )
+void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock )
 {
-	DecodedBlock_s decodedBlock;
-
 	// Decode min/max
 
-	const u32 color0 = (encodedBlock.cellEndColors >> 0 ) & 0xFFFF;
-	const u32 color1 = (encodedBlock.cellEndColors >> 16) & 0xFFFF;
+	const u32 color0 = (encodedBlock->cellEndColors >> 0 ) & 0xFFFF;
+	const u32 color1 = (encodedBlock->cellEndColors >> 16) & 0xFFFF;
 
 	const u32 maxColorR = ((color0 >> 11) & 0x1F) << 3;
 	const u32 maxColorG = ((color0 >>  5) & 0x3F) << 2;
@@ -178,20 +172,18 @@ DecodedBlock_s Block_Decode( EncodedBlock_s encodedBlock )
 
 	// Decode bits
 
-	decodedBlock.cellCount = 0;
+	*cellCount = 0;
 
 	for ( u32 cellPos = 0; cellPos < 64; ++cellPos )
 	{
-		if ( (encodedBlock.cellPresence & (1ll << cellPos)) == 0 )
+		if ( (encodedBlock->cellPresence & (1ll << cellPos)) == 0 )
 			continue;
 
-		const u32 cellRank = decodedBlock.cellCount;
-		const u32 colorID = (encodedBlock.cellColorIndices[cellRank >> 5] >> ((cellRank << 1) & 0x3F)) & 3;
-		decodedBlock.cellRGBA[cellRank] = (rs[colorID] << 24) | (gs[colorID] << 16) | (bs[colorID] << 8) | cellPos;
-		++decodedBlock.cellCount;
+		const u32 cellRank = *cellCount;
+		const u32 colorID = (encodedBlock->cellColorIndices[cellRank >> 5] >> ((cellRank << 1) & 0x3F)) & 3;
+		cellRGBA[cellRank] = (rs[colorID] << 24) | (gs[colorID] << 16) | (bs[colorID] << 8) | cellPos;
+		++(*cellCount);
 	}
-
-	return decodedBlock;
 }
 
 END_V6_CORE_NAMESPACE

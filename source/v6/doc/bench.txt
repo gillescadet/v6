@@ -236,7 +236,7 @@ cameraYaw: -90
 worldUnitToCM: 1
 
 Bench:
-- config.context                             : SPONZA.INFO #2 REF
+- config.context0                            : SPONZA.INFO #2 REF
 - merging.F01                                : 383628 blocks split into 64 35.
 - merging.F02                                : 383844 blocks split into 54 07 37.
 - merging.F03                                : 383740 blocks split into 49 03 09 37.
@@ -269,7 +269,7 @@ Bench:
 - tracing.blockTrace.cellItemMaxCountPerPixel:         17
 
 Bench:
-- config.context                             : SPONZA.INFO #2 REF
+- config.context1                            : config.context0 + better interframe merging
 - merging.F00                                :   384028/384028, 100.0% unique blocks.
 - merging.F01                                :    31476/383628,   8.2% unique blocks.
 - merging.F02                                :    35921/383844,   9.4% unique blocks.
@@ -302,3 +302,35 @@ Bench:
 - tracing.blockTrace.cellItemCount           :     710490
 - tracing.blockTrace.cellItemMaxCountPerPixel:         18
 
+Bench:
+- config.context0                            : config.context1 + BC1 + more controlled merging
+- merging.F00                                :   384028/384028, 100.0% unique blocks.
+- merging.F01                                :    35564/383628,   9.3% unique blocks.
+- merging.F02                                :    56193/383844,  14.6% unique blocks.
+- merging.F03                                :    59610/383740,  15.5% unique blocks.
+- merging.F04                                :    63709/383874,  16.6% unique blocks.
+- merging.F05                                :    63064/383859,  16.4% unique blocks.
+- merging.F06                                :    65179/383760,  17.0% unique blocks.
+- merging.F07                                :    64279/384236,  16.7% unique blocks.
+- merging.F08                                :    65000/384315,  16.9% unique blocks.
+- merging.F09                                :    60947/384329,  15.9% unique blocks.
+- writing.F00                                : blockPos 1500 KB, blockData 9002 KB, range IDs 0 KB.
+- writing.F01                                : blockPos 138 KB, blockData 833 KB, range IDs 0 KB.
+- writing.F02                                : blockPos 219 KB, blockData 1317 KB, range IDs 0 KB.
+- writing.F03                                : blockPos 232 KB, blockData 1397 KB, range IDs 1 KB.
+- writing.F04                                : blockPos 248 KB, blockData 1494 KB, range IDs 1 KB.
+- writing.F05                                : blockPos 246 KB, blockData 1478 KB, range IDs 1 KB.
+- writing.F06                                : blockPos 254 KB, blockData 1528 KB, range IDs 1 KB.
+- writing.F07                                : blockPos 251 KB, blockData 1507 KB, range IDs 0 KB.
+- writing.F08                                : blockPos 253 KB, blockData 1523 KB, range IDs 0 KB.
+- writing.F09                                : blockPos 238 KB, blockData 1429 KB, range IDs 0 KB.
+- writing.Sequence                           : 25112 KB, avg of 2511 KB/frame
+- tracing.blockCull.blockInputCount          :     393344
+- tracing.blockCull.blockProcessedCount      :     384028
+- tracing.blockCull.blockPassedCount         :      65652
+- tracing.blockCull.cellOutputCount          :    1139276
+- tracing.blockTrace.cellInputCount          :    1139328
+- tracing.blockTrace.cellProcessedCount      :    1139276
+- tracing.blockTrace.pixelSampleCount        :     895388
+- tracing.blockTrace.cellItemCount           :     705492
+- tracing.blockTrace.cellItemMaxCountPerPixel:         18

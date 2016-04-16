@@ -249,11 +249,15 @@ retry:
 			++cellCount;
 		}
 
-		core::EncodedBlock_s encodedBlock = core::Block_Encode( cellRGBA, cellCount );
-		core::DecodedBlock_s decodedBlock = core::Block_Decode( encodedBlock );
+		core::EncodedBlockEx_s encodedBlock;
+		core::Block_Encode( &encodedBlock, cellRGBA, cellCount );
+
+		core::u32 decodedCellRGBA[64] = {};
+		core::u32 decodedCellCount = 0;
+		core::Block_Decode( decodedCellRGBA, &decodedCellCount, &encodedBlock );
 
 		qsort( cellRGBA, cellCount, sizeof( *cellRGBA ), CompareRGBAByAlpha );
-		qsort( decodedBlock.cellRGBA, cellCount, sizeof( *decodedBlock.cellRGBA ), CompareRGBAByAlpha );
+		qsort( decodedCellRGBA, cellCount, sizeof( *decodedCellRGBA ), CompareRGBAByAlpha );
 
 		printf( "%d cells:\n", cellCount );
 		for ( core::u32 cellID = 0; cellID < cellCount; ++cellID )
@@ -263,10 +267,10 @@ retry:
 			const core::u32 color1B  = (cellRGBA[cellID] >>  8) & 0xFF;
 			const core::u32 cellpos1 = cellRGBA[cellID] & 0xFF;
 
-			const core::u32 color2R  = (decodedBlock.cellRGBA[cellID] >> 24) & 0xFF;
-			const core::u32 color2G  = (decodedBlock.cellRGBA[cellID] >> 16) & 0xFF;
-			const core::u32 color2B  = (decodedBlock.cellRGBA[cellID] >>  8) & 0xFF;
-			const core::u32 cellpos2 = decodedBlock.cellRGBA[cellID] & 0xFF;
+			const core::u32 color2R  = (decodedCellRGBA[cellID] >> 24) & 0xFF;
+			const core::u32 color2G  = (decodedCellRGBA[cellID] >> 16) & 0xFF;
+			const core::u32 color2B  = (decodedCellRGBA[cellID] >>  8) & 0xFF;
+			const core::u32 cellpos2 = decodedCellRGBA[cellID] & 0xFF;
 
 			V6_ASSERT( cellpos1 == cellpos2 );
 			printf( "%02X %02X %02X %02X => %02X %02X %02X %02X\n", 

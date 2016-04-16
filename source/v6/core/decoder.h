@@ -10,6 +10,7 @@
 BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
+class IStack;
 
 struct Sequence_s
 {
@@ -21,7 +22,7 @@ struct Sequence_s
 	void**					frameBufferArray;
 };
 
-bool Sequence_Load( const char* streamFilename, Sequence_s* sequence, IAllocator* allocator );
+bool Sequence_Load( const char* streamFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack );
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator );
 bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator );
 

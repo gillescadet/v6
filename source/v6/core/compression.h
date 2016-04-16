@@ -11,17 +11,18 @@ struct EncodedBlock_s
 {
 	u32	cellEndColors;
 	u64	cellPresence;
+	u64	cellColorIndices;
+};
+
+struct EncodedBlockEx_s
+{
+	u32	cellEndColors;
+	u64	cellPresence;
 	u64	cellColorIndices[2];
 };
 
-struct DecodedBlock_s
-{
-	u32	cellRGBA[64];
-	u32	cellCount;
-};
-
-DecodedBlock_s Block_Decode( EncodedBlock_s encodedBlock );
-EncodedBlock_s Block_Encode( u32 cellRGBA[64], u32 cellCount );
+void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
+void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount );
 
 END_V6_CORE_NAMESPACE
 

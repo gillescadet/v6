@@ -34,6 +34,13 @@ struct Block_s
 	u8			sharedFrameCount;
 };
 
+struct BlockCluster_s
+{
+	u64		cellPresence;
+	Vec3u	cellRGB[CODEC_CELL_MAX_COUNT];
+	u32		cellCount[CODEC_CELL_MAX_COUNT];
+};
+
 struct RawFrame_s
 {
 	Block_s*	blocks;
@@ -142,20 +149,20 @@ static int Block_CompareByBucketThenBySharedFrameCountThenByKey2( void* framePoi
 	return frame->blocks[blockID0].key < frame->blocks[blockID1].key ? -1 : 1;
 }
 
-static bool Block_HasSimilarColors( const Block_s* block, u64 cellPresence, const Vec3u cellRGB[CODEC_CELL_MAX_COUNT], const u32 cellCount[CODEC_CELL_MAX_COUNT] )
+static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block )
 {
 #if ENCODER_STRICT_CELL == 1
-	if ( block->cellPresence != cellPresence )
+	if ( block->cellPresence != cluster->cellPresence )
 		return false;
 #endif // #if ENCODER_STRICT_CELL == 1
 
-	u64 commonPresence = block->cellPresence & cellPresence;
+	u64 commonPresence = block->cellPresence & cluster->cellPresence;
 
 	if ( commonPresence == 0 )
 		return false;
 
 #if ENCODER_STRICT_BUCKET == 1
-	const u64 allPresence = block->cellPresence | cellPresence;
+	const u64 allPresence = block->cellPresence | cluster->cellPresence;
 	if ( block->bucket != Block_GetBucket( Bit_GetBitHighCount( allPresence ) ) )
 		return false;
 #endif // #if ENCODER_STRICT_BUCKET == 1
@@ -169,9 +176,9 @@ static bool Block_HasSimilarColors( const Block_s* block, u64 cellPresence, cons
 		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
 		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
 
-		const u32 avgR = (refR + cellRGB[cellPos].x) / (1 + cellCount[cellPos]);
-		const u32 avgG = (refG + cellRGB[cellPos].y) / (1 + cellCount[cellPos]);
-		const u32 avgB = (refB + cellRGB[cellPos].z) / (1 + cellCount[cellPos]);
+		const u32 avgR = cluster->cellRGB[cellPos].x / cluster->cellCount[cellPos];
+		const u32 avgG = cluster->cellRGB[cellPos].y / cluster->cellCount[cellPos];
+		const u32 avgB = cluster->cellRGB[cellPos].z / cluster->cellCount[cellPos];
 
 		if ( Abs( (int)(refR - avgR) ) > CODEC_COLOR_ERROR_TOLERANCE )
 			return false;
@@ -185,7 +192,50 @@ static bool Block_HasSimilarColors( const Block_s* block, u64 cellPresence, cons
 	return true;
 }
 
-static void Block_AddColors( const Block_s* block, u64* cellPresence, Vec3u cellRGB[CODEC_CELL_MAX_COUNT], u32 cellCount[CODEC_CELL_MAX_COUNT] )
+static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster, const Block_s* block )
+{
+#if ENCODER_STRICT_CELL == 1
+	if ( block->cellPresence != cluster->cellPresence )
+		return false;
+#endif // #if ENCODER_STRICT_CELL == 1
+
+	u64 commonPresence = block->cellPresence & cluster->cellPresence;
+
+	if ( commonPresence == 0 )
+		return false;
+
+#if ENCODER_STRICT_BUCKET == 1
+	const u64 allPresence = block->cellPresence | cluster->cellPresence;
+	if ( block->bucket != Block_GetBucket( Bit_GetBitHighCount( allPresence ) ) )
+		return false;
+#endif // #if ENCODER_STRICT_BUCKET == 1
+
+	do
+	{
+		const u32 cellPos = Bit_GetFirstBitHigh( commonPresence );
+		commonPresence -= 1ll << cellPos;
+
+		const u32 refR = (block->cellRGBA[cellPos] >> 24) & 0xFF;
+		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
+		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
+
+		const u32 avgR = (refR + cluster->cellRGB[cellPos].x) / (1 + cluster->cellCount[cellPos]);
+		const u32 avgG = (refG + cluster->cellRGB[cellPos].y) / (1 + cluster->cellCount[cellPos]);
+		const u32 avgB = (refB + cluster->cellRGB[cellPos].z) / (1 + cluster->cellCount[cellPos]);
+
+		if ( Abs( (int)(refR - avgR) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+		if ( Abs( (int)(refG - avgG) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+		if ( Abs( (int)(refB - avgB) ) > CODEC_COLOR_ERROR_TOLERANCE )
+			return false;
+
+	} while ( commonPresence != 0 );
+
+	return true;
+}
+
+static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* block )
 {
 	u64 blockPresence = block->cellPresence;
 	V6_ASSERT( blockPresence != 0 )
@@ -199,18 +249,19 @@ static void Block_AddColors( const Block_s* block, u64* cellPresence, Vec3u cell
 		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
 		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
 
-		cellRGB[cellPos].x += refR;
-		cellRGB[cellPos].y += refG;
-		cellRGB[cellPos].z += refB;
-		++cellCount[cellPos];
+		cluster->cellRGB[cellPos].x += refR;
+		cluster->cellRGB[cellPos].y += refG;
+		cluster->cellRGB[cellPos].z += refB;
+		++cluster->cellCount[cellPos];
 
 	} while ( blockPresence != 0 );
 
-	*cellPresence |= block->cellPresence;
+	cluster->cellPresence |= block->cellPresence;
 }
 
-static void Block_ResolveColors( Block_s* block, u64 cellPresence, const Vec3u cellRGB[CODEC_CELL_MAX_COUNT], const u32 cellCount[CODEC_CELL_MAX_COUNT] )
+static void BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* block )
 {
+	u64 cellPresence = cluster->cellPresence;
 	V6_ASSERT( cellPresence != 0 )
 	
 	block->cellPresence = cellPresence;
@@ -220,10 +271,10 @@ static void Block_ResolveColors( Block_s* block, u64 cellPresence, const Vec3u c
 	{
 		const u32 cellPos = Bit_GetFirstBitHigh( cellPresence );
 		cellPresence -= 1ll << cellPos;
-
-		const u32 refR = cellRGB[cellPos].x / cellCount[cellPos];
-		const u32 refG = cellRGB[cellPos].y / cellCount[cellPos];
-		const u32 refB = cellRGB[cellPos].z / cellCount[cellPos];
+		
+		const u32 refR = cluster->cellRGB[cellPos].x / cluster->cellCount[cellPos];
+		const u32 refG = cluster->cellRGB[cellPos].y / cluster->cellCount[cellPos];
+		const u32 refB = cluster->cellRGB[cellPos].z / cluster->cellCount[cellPos];
 
 		block->cellRGBA[cellPos] = (refR << 24) | (refG << 16) | (refB << 8) | cellPos;
 		++blockCellCount;
@@ -236,6 +287,34 @@ static void Block_ResolveColors( Block_s* block, u64 cellPresence, const Vec3u c
 	block->bucket = Block_GetBucket( blockCellCount );
 #endif
 }
+
+static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBlock, u32 clusterDiffCount, u32 sharedFrameCount )
+{
+	clusterDiffCount += Bit_GetBitHighCount( cluster->cellPresence ^ linkedBlock->cellPresence );
+	if ( clusterDiffCount > CODEC_COLOR_COUNT_TOLERANCE || !BlockCluster_HasSimilarAverageColors( cluster, linkedBlock ) )
+		return sharedFrameCount;
+
+	BlockCluster_AddColors( cluster, linkedBlock );
+	++sharedFrameCount;
+
+	if ( !linkedBlock->nextFrame )
+		return sharedFrameCount;
+
+	const BlockCluster_s prevCluster = *cluster;
+
+	const u32 nextSharedFrameCount = BlockCluster_LinkColors( cluster, linkedBlock->nextFrame, clusterDiffCount, sharedFrameCount );
+	if ( nextSharedFrameCount == sharedFrameCount )
+		return sharedFrameCount;
+
+	if ( !BlockCluster_HasSimilarColors( cluster, linkedBlock ) )
+	{
+		*cluster = prevCluster;
+		return sharedFrameCount;
+	}
+
+	return nextSharedFrameCount;
+}
+
 
 static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s* context )
 {
@@ -485,32 +564,33 @@ static u32 RawFrame_Merge( u32 frameID, Context_s* context )
 		if ( !block->nextFrame )
 			continue;
 
-		u64 cellPresence = 0;
-		Vec3u cellRGB[CODEC_CELL_MAX_COUNT] = {};
-		u32 cellCount[CODEC_CELL_MAX_COUNT] = {};
+		BlockCluster_s cluster = {};
+		BlockCluster_AddColors( &cluster, block );
 
-		Block_AddColors( block, &cellPresence, cellRGB, cellCount );
+		u32 sharedFrameCount = BlockCluster_LinkColors( &cluster, block->nextFrame, 0, 0 );
 
-		u32 sharedFrameCount = 0;
-
-		for ( Block_s* linkedBlock = block->nextFrame; linkedBlock; linkedBlock = linkedBlock->nextFrame )
+		if ( sharedFrameCount )
 		{
-			if ( Bit_GetBitHighCount( block->cellPresence ^ linkedBlock->cellPresence ) > CODEC_COLOR_COUNT_TOLERANCE || 
-				!Block_HasSimilarColors( linkedBlock, cellPresence, cellRGB, cellCount ) )
+			if ( !BlockCluster_HasSimilarColors( &cluster, block ) )
+			{
+				sharedFrameCount = 0;
+			}
+			else
+			{
+				BlockCluster_ResolveColors( &cluster, block );
+				block->sharedFrameCount = sharedFrameCount;
+			}
+		}
+		
+		for ( Block_s* linkedBlock = block->nextFrame; linkedBlock; linkedBlock = linkedBlock->nextFrame, --sharedFrameCount )
+		{
+			if ( sharedFrameCount == 0 )
 			{
 				linkedBlock->linked = false;
 				break;
 			}
-
-			Block_AddColors( linkedBlock, &cellPresence, cellRGB, cellCount );
-			++sharedFrameCount;
 		}
-
-		if ( sharedFrameCount )
-		{
-			Block_ResolveColors( block, cellPresence, cellRGB, cellCount );
-			block->sharedFrameCount = sharedFrameCount;
-		}
+		V6_ASSERT( sharedFrameCount == 0 );
 	}
 
 	return rootCount;
@@ -619,18 +699,32 @@ static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameID, IStreamWriter* bloc
 				V6_ASSERT( block->bucket == bucket );
 				const u32 packedBlockPos = (block->mip << 28) | block->pos;
 				blockPosWriter->Write( &packedBlockPos, sizeof( u32 ) );
-				u64 cellPresence = block->cellPresence;
-				V6_ASSERT( cellPresence );
+				u32 cellRGBA[CODEC_CELL_MAX_COUNT];
 				u32 cellCount = 0;
-				do
 				{
-					const u32 cellPos = Bit_GetFirstBitHigh( cellPresence );
-					cellPresence -= 1ll << cellPos;
-					blockDataWriter->Write( &block->cellRGBA[cellPos], sizeof( u32 ) );
+					u64 cellPresence = block->cellPresence;
+					V6_ASSERT( cellPresence );
+					do
+					{
+						const u32 cellPos = Bit_GetFirstBitHigh( cellPresence );
+						cellPresence -= 1ll << cellPos;
+						cellRGBA[cellCount] = block->cellRGBA[cellPos];
+						++cellCount;
+					} while ( cellPresence != 0 );
+				}
+#if CODEC_COLOR_COMPRESS == 1
+				EncodedBlockEx_s encodedBlock;
+				Block_Encode( &encodedBlock, cellRGBA, cellCount );
+				blockDataWriter->Write( &encodedBlock, cellCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s ) );
+#else
+				const u32 cellPerBucketCount = 1 << (2 + bucket);
+				while ( cellCount < cellPerBucketCount )
+				{
+					cellRGBA[cellCount] = ENCODER_EMPTY_CELL;
 					++cellCount;
-				} while ( cellPresence != 0 );
-				for ( u32 cellID = cellCount; cellID < perBucketCellCount; ++cellID )
-					blockDataWriter->Write( &emptyRGBA, sizeof( u32 ) );
+				}
+				blockDataWriter->Write( cellRGBA, cellCount * sizeof( u32 ) );
+#endif
 			}
 		}
 	}

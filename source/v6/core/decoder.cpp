@@ -3,6 +3,7 @@
 
 #include <v6/core/bit.h>
 #include <v6/core/codec.h>
+#include <v6/core/compression.h>
 #include <v6/core/decoder.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
@@ -22,6 +23,7 @@ static bool Block_CompareData( const u32* cells0, const u32* cells1, u32 cellCou
 {
 	u64 cellPresence0 = 0;
 	u64 cellPresence1 = 0;
+
 	u64 cellRGBA0[CODEC_CELL_MAX_COUNT] = {};
 	u64 cellRGBA1[CODEC_CELL_MAX_COUNT] = {};
 
@@ -30,20 +32,27 @@ static bool Block_CompareData( const u32* cells0, const u32* cells1, u32 cellCou
 		if ( cells0[cellID] != 0xFFFFFFFF )
 		{
 			const u32 cellPos = cells0[cellID] & 0xFF;
+			cellRGBA0[cellPos] = cells0[cellID];
 			cellPresence0 |= 1ll << cellPos;
 		}
 		if ( cells1[cellID] != 0xFFFFFFFF )
 		{
 			const u32 cellPos = cells1[cellID] & 0xFF;
+			cellRGBA1[cellPos] = cells1[cellID];
 			cellPresence1 |= 1ll << cellPos;
 		}
 	}
+
+	const u64 diffPresence = cellPresence0 ^ cellPresence1;
+	if( Bit_GetBitHighCount( diffPresence ) > CODEC_COLOR_COUNT_TOLERANCE )
+		return false;
 
 	u64 commonPresence = cellPresence0 & cellPresence1;
 
 	if ( commonPresence == 0 )
 		return false;
 
+#if CODEC_COLOR_COMPRESS == 0
 	do
 	{
 		const u32 cellPos = Bit_GetFirstBitHigh( commonPresence );
@@ -65,11 +74,12 @@ static bool Block_CompareData( const u32* cells0, const u32* cells1, u32 cellCou
 			return false;
 
 	} while ( commonPresence != 0 );
+#endif // #if CODEC_COLOR_COMPRESS == 0
 
 	return true;
 }
 
-static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator )
+static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack )
 {
 	CFileReader fileReader;
 	if ( !fileReader.Open( sequenceFilename ) )
@@ -85,9 +95,10 @@ static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* seq
 	sequence->frameDescArray = allocator->newArray< CodecFrameDesc_s >( sequence->desc.frameCount );
 	sequence->frameDataArray = allocator->newArray< CodecFrameData_s >( sequence->desc.frameCount );
 	sequence->frameBufferArray = allocator->newArray< void* >( sequence->desc.frameCount );
+	memset( sequence->frameBufferArray, 0, sequence->desc.frameCount * sizeof( void* ) );
 	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
-		void* frameBuffer = Codec_ReadFrame( &fileReader, &sequence->frameDescArray[frameID], &sequence->frameDataArray[frameID], frameID, allocator );
+		void* frameBuffer = Codec_ReadFrame( &fileReader, &sequence->frameDescArray[frameID], &sequence->frameDataArray[frameID], frameID, allocator, stack );
 		if ( !frameBuffer )
 			return false;
 		sequence->frameBufferArray[frameID] = frameBuffer;
@@ -102,11 +113,11 @@ static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* seq
 	return true;
 }
 
-bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator )
+bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack )
 {
 	memset( sequence, 0, sizeof( *sequence ) );
 
-	if ( !Sequence_LoadInternal( sequenceFilename, sequence, allocator ) )
+	if ( !Sequence_LoadInternal( sequenceFilename, sequence, allocator, stack ) )
 	{
 		Sequence_Release( sequence, allocator );
 		return false;
@@ -189,9 +200,10 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 				rangeBlockPosOffsets[bucket][rangeID] = blockPosOffet;
 				rangeBlockDataOffsets[bucket][rangeID] = blockDataOffet;
 
-				const core::u32 cellPerBucket = 1 << (2 + bucket);
+				const core::u32 cellPerBucketCount = 1 << (2 + bucket);
+				const u32 dataWidth = cellPerBucketCount;
 				blockPosOffet += blockCount;
-				blockDataOffet += blockCount * cellPerBucket;
+				blockDataOffet += blockCount * dataWidth;
 
 				++nextRangeIDs[bucket];
 			}
@@ -264,12 +276,13 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 			}
 
 			const u32 cellPerBucketCount = 1 << (2 + bucket);
+			const u32 dataWidth = cellPerBucketCount;
 
 			{
 				ScopedStack scopedStackSort( &stack );
 
 				u32* sequenceBlockPos = stack.newArray< u32 >( bucketBlockCount );
-				u32* sequenceBlockData = stack.newArray< u32 >( bucketBlockCount * cellPerBucketCount );
+				u32* sequenceBlockData = stack.newArray< u32 >( bucketBlockCount * dataWidth );
 				u32 sequenceBlockOffset = 0;
 
 				const u32 rangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
@@ -304,7 +317,7 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 						sequenceBlockPos[sequenceBlockOffset + blockRank] |= (y + gridOffset.y) << (sequence->desc.gridMacroShift * 1);
 						sequenceBlockPos[sequenceBlockOffset + blockRank] |= (z + gridOffset.z) << (sequence->desc.gridMacroShift * 2);
 					}
-					memcpy( sequenceBlockData + sequenceBlockOffset * cellPerBucketCount, sequence->frameDataArray[rangeFrameID].blockData + frameBlockDataOffset, rangeBlockCount * cellPerBucketCount * 4 );
+					memcpy( sequenceBlockData + sequenceBlockOffset * dataWidth, sequence->frameDataArray[rangeFrameID].blockData + frameBlockDataOffset, rangeBlockCount * dataWidth * 4 );
 
 					sequenceBlockOffset += rangeBlockCount;
 				}
@@ -331,8 +344,8 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 						V6_ERROR( "Incompatible block pos.\n" );
 						return false;
 					}
-			
-					if ( !Block_CompareData( sequenceBlockData + sequenceBlockID * cellPerBucketCount, rawFrameBlockData + rawFrameBlockID * cellPerBucketCount, cellPerBucketCount ) )
+
+					if ( !Block_CompareData( sequenceBlockData + sequenceBlockID * dataWidth, rawFrameBlockData + rawFrameBlockID * cellPerBucketCount, cellPerBucketCount ) )
 					{
 						V6_ERROR( "Incompatible block data.\n" );
 						return false;
