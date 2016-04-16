@@ -8,6 +8,17 @@ BEGIN_V6_CORE_NAMESPACE
 
 void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount )
 {
+	// Ensure a correct cell count
+
+	for ( u32 cellID = 0; cellID < cellCount; ++cellID )
+	{
+		if ( cellRGBA[cellID] == 0xFFFFFFFF )
+		{
+			cellCount = cellID;
+			break;
+		}
+	}
+
 	// Find the min/max colors
 
 	u32 minColorR = 255;

@@ -3,7 +3,6 @@
 
 #include <v6/core/bit.h>
 #include <v6/core/codec.h>
-#include <v6/core/compression.h>
 #include <v6/core/decoder.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>

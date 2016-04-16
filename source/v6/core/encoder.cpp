@@ -2,7 +2,6 @@
 #include <v6/core/common.h>
 
 #include <v6/core/bit.h>
-#include <v6/core/compression.h>
 #include <v6/core/encoder.h>
 #include <v6/core/codec.h>
 #include <v6/core/memory.h>
@@ -117,6 +116,8 @@ static u32 Block_GetBucket( u32 cellCount )
 	return Max( (bit == (u32)-1) ? 0u : bit, 1u ) - 1;
 }
 
+#if 0
+
 static int Block_CompareEncoded( void* bufferPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
 	const EncodedBlock_s* encodedBlocks = (EncodedBlock_s*)bufferPointer;
@@ -134,6 +135,8 @@ static int Block_CompareEncodedEx( void* bufferPointer, void const* blockIDPoint
 
 	return memcmp( &encodedBlockExs[blockID0], &encodedBlockExs[blockID1], sizeof( EncodedBlockEx_s ) );
 }
+
+#endif
 
 static int Block_CompareKey( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
@@ -730,11 +733,6 @@ static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameID, IStreamWriter* bloc
 						++cellCount;
 					} while ( cellPresence != 0 );
 				}
-#if CODEC_COLOR_COMPRESS == 1
-				EncodedBlockEx_s encodedBlock;
-				Block_Encode( &encodedBlock, cellRGBA, cellCount );
-				blockDataWriter->Write( &encodedBlock, cellCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s ) );
-#else
 				const u32 cellPerBucketCount = 1 << (2 + bucket);
 				while ( cellCount < cellPerBucketCount )
 				{
@@ -742,7 +740,6 @@ static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameID, IStreamWriter* bloc
 					++cellCount;
 				}
 				blockDataWriter->Write( cellRGBA, cellCount * sizeof( u32 ) );
-#endif
 			}
 		}
 	}
@@ -889,7 +886,7 @@ static void RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 		data.blockData = (u32*)memoryBlockDataWriter.GetBuffer();
 		data.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
 
-		Codec_WriteFrame( streamWriter, &desc, &data );
+		Codec_WriteFrame( streamWriter, &desc, &data, context->stack );
 	}
 	
 	V6_MSG( "F%02d: blockPos %d KB, blockData %d KB, range IDs %d KB.\n", 

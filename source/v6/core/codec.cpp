@@ -297,9 +297,9 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	u32 blockPosSize = 0;
 #if CODEC_COLOR_COMPRESS == 1
-	u32 blockCompressedDataSize = 0;
+	u32 blockDataCompressedSize = 0;
 #endif // #if CODEC_COLOR_COMPRESS == 1
-	u32 blockUncompressedDataSize = 0;
+	u32 blockDataUncompressedSize = 0;
 	u32 rangeIDSize = 0;
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -309,18 +309,18 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		const u32 cellPerBucketCount = 1 << (2 + bucket);
 #if CODEC_COLOR_COMPRESS == 1
 		const u32 dataCompressedSize = cellPerBucketCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s );
-		blockCompressedDataSize += frameHeader.desc.blockCounts[bucket] * dataCompressedSize;
+		blockDataCompressedSize += frameHeader.desc.blockCounts[bucket] * dataCompressedSize;
 #endif // #if CODEC_COLOR_COMPRESS == 1
 		const u32 dataUncompressedSize = cellPerBucketCount * 4;
-		blockUncompressedDataSize += frameHeader.desc.blockCounts[bucket] * dataUncompressedSize;
+		blockDataUncompressedSize += frameHeader.desc.blockCounts[bucket] * dataUncompressedSize;
 
 		rangeIDSize += frameHeader.desc.blockRangeCounts[bucket] * 2;
 	}
 
 #if CODEC_COLOR_COMPRESS == 1
-	const u32 chunkSize = blockPosSize + blockCompressedDataSize + rangeIDSize;
+	const u32 chunkSize = blockPosSize + blockDataCompressedSize + rangeIDSize;
 #else
-	const u32 chunkSize = blockPosSize + blockUncompressedDataSize + rangeIDSize;
+	const u32 chunkSize = blockPosSize + blockDataUncompressedSize + rangeIDSize;
 #endif // #if CODEC_COLOR_COMPRESS == 1
 
 	if ( frameHeader.size != sizeof( CodecFrameHeader_s ) + chunkSize )
@@ -337,7 +337,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
 
-	const u32 bufferSize = blockPosSize + blockUncompressedDataSize + rangeIDSize;
+	const u32 bufferSize = blockPosSize + blockDataUncompressedSize + rangeIDSize;
 
 	// todo: aligned alloc
 	u8* buffer = (u8*)allocator->alloc( bufferSize );
@@ -349,10 +349,10 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 #if CODEC_COLOR_COMPRESS == 1
 	{
-		stack->push();
+		ScopedStack scopedStack( stack );
 		
-		u8* encodedData = (u8*)stack->alloc( blockCompressedDataSize );
-		streamReader->Read( blockCompressedDataSize, encodedData );
+		u8* encodedData = (u8*)stack->alloc( blockDataCompressedSize );
+		streamReader->Read( blockDataCompressedSize, encodedData );
 
 		u32* blockData = (u32*)chunk;
 		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -371,16 +371,14 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 				blockData += cellPerBucketCount;
 			}
 		}
-		
-		stack->pop();
 
-		V6_ASSERT( chunk + blockUncompressedDataSize == (u8*)blockData );
+		V6_ASSERT( chunk + blockDataUncompressedSize == (u8*)blockData );
 	}
 #else
 	streamReader->Read( blockDataSize, chunk );
 #endif // #if CODEC_COLOR_COMPRESS == 1
 	data->blockData = (u32*)chunk;
-	chunk += blockUncompressedDataSize;
+	chunk += blockDataUncompressedSize;
 	
 	streamReader->Read( rangeIDSize, chunk );
 	data->rangeIDs = (u16*)chunk;
@@ -392,12 +390,15 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	return buffer;
 }
 
-void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data )
+void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack )
 {
 	const u32 beginPos = streamWriter->GetPos();
 
 	u32 blockPosSize = 0;
-	u32 blockDataSize = 0;
+#if CODEC_COLOR_COMPRESS == 1
+	u32 blockDataCompressedSize = 0;
+#endif
+	u32 blockDataUncompressedSize = 0;
 	u32 rangeIDSize = 0;
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -406,25 +407,62 @@ void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 
 		const u32 cellPerBucketCount = 1 << (2 + bucket);
 #if CODEC_COLOR_COMPRESS == 1
-		const u32 dataSize = cellPerBucketCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s );
-#else
-		const u32 dataSize = cellPerBucketCount * 4;
+		const u32 dataCompressedSize = cellPerBucketCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s );
 #endif
-		blockDataSize += desc->blockCounts[bucket] * dataSize;
+		const u32 dataUncompressedSize = cellPerBucketCount * 4;
+
+#if CODEC_COLOR_COMPRESS == 1
+		blockDataCompressedSize += desc->blockCounts[bucket] * dataCompressedSize;
+#endif
+		blockDataUncompressedSize += desc->blockCounts[bucket] * dataUncompressedSize;
 
 		V6_ASSERT( desc->blockRangeCounts[bucket] <= CODEC_RANGE_MAX_COUNT )
 		rangeIDSize += desc->blockRangeCounts[bucket] * 2;
 	}
 
+#if CODEC_COLOR_COMPRESS == 1
+	ScopedStack scopedStack( stack );
+
+	u8* blockData = (u8*)stack->alloc( blockDataCompressedSize );
+	u8* encodedData = blockData;
+
+	u32* uncompressedBlockData = data->blockData;
+	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+	{
+		const u32 blockCount = desc->blockCounts[bucket];
+		const u32 cellPerBucketCount = 1 << (2 + bucket);
+		const u32 dataCompressedSize = cellPerBucketCount <= 32 ? sizeof( EncodedBlock_s ) : sizeof( EncodedBlockEx_s );
+		for ( u32 blockRank = 0; blockRank < blockCount; ++blockRank )
+		{
+			EncodedBlockEx_s* encodedBlock = (EncodedBlockEx_s*)encodedData;
+			u32 cellCount = 0;
+			Block_Encode( encodedBlock, uncompressedBlockData, cellPerBucketCount );
+			encodedData += dataCompressedSize;
+			uncompressedBlockData += cellPerBucketCount;
+		}
+	}
+
+	V6_ASSERT( (u8*)data->blockData + blockDataUncompressedSize == (u8*)uncompressedBlockData );
+#endif // #if CODEC_COLOR_COMPRESS == 1
+
 	CodecFrameHeader_s frameHeader = {};
 	memcpy( frameHeader.magic, CODEC_FRAME_MAGIC, 4 );
 	frameHeader.version = CODEC_FRAME_VERSION;
-	frameHeader.size = sizeof( CodecFrameHeader_s ) + blockPosSize + blockDataSize + rangeIDSize;
+#if CODEC_COLOR_COMPRESS == 1
+	frameHeader.size = sizeof( CodecFrameHeader_s ) + blockPosSize + blockDataCompressedSize + rangeIDSize;
+#else
+	frameHeader.size = sizeof( CodecFrameHeader_s ) + blockPosSize + blockDataUncompressedSize + rangeIDSize;
+#endif // #if CODEC_COLOR_COMPRESS == 1
 	memcpy( &frameHeader.desc, desc, sizeof( frameHeader.desc ) );
 
 	streamWriter->Write( &frameHeader, sizeof( CodecFrameHeader_s ) );
+
 	streamWriter->Write( data->blockPos, blockPosSize );
-	streamWriter->Write( data->blockData, blockDataSize );
+#if CODEC_COLOR_COMPRESS == 1
+	streamWriter->Write( blockData, blockDataCompressedSize );
+#else
+	streamWriter->Write( data->blockData, blockDataUncompressedSize );
+#endif // #if CODEC_COLOR_COMPRESS == 1
 	streamWriter->Write( data->rangeIDs, rangeIDSize );
 
 	V6_ASSERT( streamWriter->GetPos() - beginPos == frameHeader.size );
