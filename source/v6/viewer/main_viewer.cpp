@@ -77,12 +77,12 @@ static const float FOV							= core::DegToRad( 90.0f );
 static const float FOV							= core::DegToRad( 90.0f );
 #endif
 static const core::u32 GRID_COUNT				= core::Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
-static const int SAMPLE_MAX_COUNT				= 1;
+static const int SAMPLE_MAX_COUNT				= 9;
 static const float FREE_SCALE					= 50.0f;
 static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
-static const core::u32 VIDEO_FRAME_MAX_COUNT	= 10;
+static const core::u32 VIDEO_FRAME_MAX_COUNT	= 4;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;

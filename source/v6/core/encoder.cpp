@@ -117,6 +117,24 @@ static u32 Block_GetBucket( u32 cellCount )
 	return Max( (bit == (u32)-1) ? 0u : bit, 1u ) - 1;
 }
 
+static int Block_CompareEncoded( void* bufferPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
+{
+	const EncodedBlock_s* encodedBlocks = (EncodedBlock_s*)bufferPointer;
+	const u32 blockID0 = *((u32*)blockIDPointer0);
+	const u32 blockID1 = *((u32*)blockIDPointer1);
+
+	return memcmp( &encodedBlocks[blockID0], &encodedBlocks[blockID1], sizeof( EncodedBlock_s ) );
+}
+
+static int Block_CompareEncodedEx( void* bufferPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
+{
+	const EncodedBlockEx_s* encodedBlockExs = (EncodedBlockEx_s*)bufferPointer;
+	const u32 blockID0 = *((u32*)blockIDPointer0);
+	const u32 blockID1 = *((u32*)blockIDPointer1);
+
+	return memcmp( &encodedBlockExs[blockID0], &encodedBlockExs[blockID1], sizeof( EncodedBlockEx_s ) );
+}
+
 static int Block_CompareKey( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
 	RawFrame_s* frame = (RawFrame_s*)framePointer;
@@ -817,6 +835,47 @@ static void RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 		for ( u32 refFrameID = 0; refFrameID <= frameID; ++refFrameID )
 			rangeCounts[bucket] += BucketFrame_WriteRangeIDs( bucket, refFrameID, frameID, &memoryRangeIDWriter, context );
 	}
+
+#if 0
+	{
+		ScopedStack scopedStack2( context->stack );
+
+		const u32 lessThan32Count = blockCounts[0] + blockCounts[1] + blockCounts[2] + blockCounts[3];
+		const u32 moreThan32Count = blockCounts[4];
+		const u32 blockCount = lessThan32Count + moreThan32Count;
+
+		u32* blockIDs = context->stack->newArray< u32 >( lessThan32Count );
+		for ( u32 blockID = 0; blockID < lessThan32Count; ++blockID )
+			blockIDs[blockID] = blockID;
+		
+		u32* blockIDExs = context->stack->newArray< u32 >( moreThan32Count );
+		for ( u32 blockID = 0; blockID < moreThan32Count; ++blockID )
+			blockIDExs[blockID] = blockID;
+
+		qsort_s( blockIDs, lessThan32Count, sizeof( u32 ), Block_CompareEncoded, memoryBlockDataWriter.GetBuffer() );
+		qsort_s( blockIDExs, moreThan32Count, sizeof( u32 ), Block_CompareEncodedEx, (EncodedBlock_s*)memoryBlockDataWriter.GetBuffer() + lessThan32Count );
+		
+		EncodedBlock_s* encodedBlocks = (EncodedBlock_s*)memoryBlockDataWriter.GetBuffer();
+		u32 sameBlockCount = 0;
+		for ( u32 blockOrder = 1; blockOrder < lessThan32Count; ++blockOrder )
+		{
+			const u32 blockID0 = blockIDs[blockOrder-1];
+			const u32 blockID1 = blockIDs[blockOrder];
+			sameBlockCount += memcmp( &encodedBlocks[blockID0], &encodedBlocks[blockID1], sizeof( EncodedBlock_s) ) == 0;
+		}
+		
+		EncodedBlockEx_s* encodedBlockExs = (EncodedBlockEx_s*)((EncodedBlock_s*)memoryBlockDataWriter.GetBuffer() + lessThan32Count);
+		u32 sameBlockExCount = 0;
+		for ( u32 blockOrder = 1; blockOrder < moreThan32Count; ++blockOrder )
+		{
+			const u32 blockID0 = blockIDExs[blockOrder-1];
+			const u32 blockID1 = blockIDExs[blockOrder];
+			sameBlockExCount += memcmp( &encodedBlockExs[blockID0], &encodedBlockExs[blockID1], sizeof( EncodedBlockEx_s) ) == 0;
+		}
+
+		V6_MSG( "F%02d: %d unique encoded block (%d/%d + %d/%d).\n", frameID, sameBlockCount + sameBlockExCount, sameBlockCount, lessThan32Count, sameBlockExCount, moreThan32Count );
+	}
+#endif
 
 	{
 		CodecFrameDesc_s desc = {};
