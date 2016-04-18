@@ -23,7 +23,7 @@ int main()
 	const char* sequenceFilename = "D:/media/obj/default/default.v6s";
 #endif
 
-	if ( !v6::core::Sequence_Encode( templateFilename, 2, sequenceFilename, &heap ) )
+	if ( !v6::core::Sequence_Encode( templateFilename, 9, sequenceFilename, &heap ) )
 		return 1;
 
 #if VALIDATE

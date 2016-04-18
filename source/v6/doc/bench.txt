@@ -303,7 +303,7 @@ Bench:
 - tracing.blockTrace.cellItemMaxCountPerPixel:         18
 
 Bench:
-- config.context0                            : config.context1 + BC1 + more controlled merging
+- config.context2                            : config.context1 + BC1 + more controlled merging
 - merging.F00                                :   384028/384028, 100.0% unique blocks.
 - merging.F01                                :    35564/383628,   9.3% unique blocks.
 - merging.F02                                :    56193/383844,  14.6% unique blocks.
@@ -334,3 +334,102 @@ Bench:
 - tracing.blockTrace.pixelSampleCount        :     895388
 - tracing.blockTrace.cellItemCount           :     705492
 - tracing.blockTrace.cellItemMaxCountPerPixel:         18
+
+Bench:
+- config.context3                            : config.context2 + LZ4
+- merging.F00                                 :   384028/384028, 100.0% unique blocks.
+- merging.F01                                 :    35564/383628,   9.3% unique blocks.
+- merging.F02                                 :    56193/383844,  14.6% unique blocks.
+- merging.F03                                 :    59610/383740,  15.5% unique blocks.
+- merging.F04                                 :    63709/383874,  16.6% unique blocks.
+- merging.F05                                 :    63064/383859,  16.4% unique blocks.
+- merging.F06                                 :    65179/383760,  17.0% unique blocks.
+- merging.F07                                 :    64279/384236,  16.7% unique blocks.
+- merging.F08                                 :    65000/384315,  16.9% unique blocks.
+- merging.F09                                 :    60947/384329,  15.9% unique blocks.
+- writing.F00                                 : added 4765 KB.
+- writing.F01                                 : added 504 KB.
+- writing.F02                                 : added 815 KB.
+- writing.F03                                 : added 864 KB.
+- writing.F04                                 : added 921 KB.
+- writing.F05                                 : added 912 KB.
+- writing.F06                                 : added 937 KB.
+- writing.F07                                 : added 922 KB.
+- writing.F08                                 : added 925 KB.
+- writing.F09                                 : added 865 KB.
+- writing.Sequence                            : 12440 KB, avg of 1244 KB/frame
+- tracing.blockCull.blockInputCount           :     393344
+- tracing.blockCull.blockProcessedCount       :     384028
+- tracing.blockCull.blockPassedCount          :      65652
+- tracing.blockCull.cellOutputCount           :    1139276
+- tracing.blockTrace.cellInputCount           :    1139328
+- tracing.blockTrace.cellProcessedCount       :    1139276
+- tracing.blockTrace.pixelSampleCount         :     895388
+- tracing.blockTrace.cellItemCount            :     705492
+- tracing.blockTrace.cellItemMaxCountPerPixel :         18
+
+Bench:
+- config.context4                            : config.context3 + LZ4 of the full frame
+- merging.F00                                :   384028/384028, 100.0% unique blocks.
+- merging.F01                                :    35564/383628,   9.3% unique blocks.
+- merging.F02                                :    56193/383844,  14.6% unique blocks.
+- merging.F03                                :    59610/383740,  15.5% unique blocks.
+- merging.F04                                :    63709/383874,  16.6% unique blocks.
+- merging.F05                                :    63064/383859,  16.4% unique blocks.
+- merging.F06                                :    65179/383760,  17.0% unique blocks.
+- merging.F07                                :    64279/384236,  16.7% unique blocks.
+- merging.F08                                :    65000/384315,  16.9% unique blocks.
+- merging.F09                                :    60947/384329,  15.9% unique blocks.
+- writing.F00                                : added 4755 KB.
+- writing.F01                                : added 502 KB.
+- writing.F02                                : added 813 KB.
+- writing.F03                                : added 862 KB.
+- writing.F04                                : added 918 KB.
+- writing.F05                                : added 909 KB.
+- writing.F06                                : added 934 KB.
+- writing.F07                                : added 919 KB.
+- writing.F08                                : added 923 KB.
+- writing.F09                                : added 864 KB.
+- writing.Sequence                           : 12407 KB, avg of 1240 KB/frame
+- tracing.blockCull.blockInputCount          :     393344
+- tracing.blockCull.blockProcessedCount      :     384028
+- tracing.blockCull.blockPassedCount         :      65652
+- tracing.blockCull.cellOutputCount          :    1139276
+- tracing.blockTrace.cellInputCount          :    1139328
+- tracing.blockTrace.cellProcessedCount      :    1139276
+- tracing.blockTrace.pixelSampleCount        :     895388
+- tracing.blockTrace.cellItemCount           :     705492
+- tracing.blockTrace.cellItemMaxCountPerPixel:         18
+
+Bench:
+- config.context5                            : config.context4 + 9 samples
+- merging.F00                                :   470602/470602, 100.0% unique blocks.
+- merging.F01                                :    23162/470507,   4.9% unique blocks.
+- merging.F02                                :    34400/470598,   7.3% unique blocks.
+- merging.F03                                :    38139/470685,   8.1% unique blocks.
+- merging.F04                                :    41530/470851,   8.8% unique blocks.
+- merging.F05                                :    42180/470980,   9.0% unique blocks.
+- merging.F06                                :    45027/470889,   9.6% unique blocks.
+- merging.F07                                :    43244/471417,   9.2% unique blocks.
+- merging.F08                                :    43962/471836,   9.3% unique blocks.
+- merging.F09                                :    40482/471853,   8.6% unique blocks.
+- writing.F00                                : added 5732 KB.
+- writing.F01                                : added 322 KB.
+- writing.F02                                : added 501 KB.
+- writing.F03                                : added 558 KB.
+- writing.F04                                : added 606 KB.
+- writing.F05                                : added 619 KB.
+- writing.F06                                : added 654 KB.
+- writing.F07                                : added 630 KB.
+- writing.F08                                : added 636 KB.
+- writing.F09                                : added 586 KB.
+- writing.Sequence                           : 10852 KB, avg of 1085 KB/frame
+- tracing.blockCull.blockInputCount          :     479872
+- tracing.blockCull.blockProcessedCount      :     470602
+- tracing.blockCull.blockPassedCount         :      80262
+- tracing.blockCull.cellOutputCount          :    1442556
+- tracing.blockTrace.cellInputCount          :    1442624
+- tracing.blockTrace.cellProcessedCount      :    1442556
+- tracing.blockTrace.pixelSampleCount        :    1107566
+- tracing.blockTrace.cellItemCount           :     882633
+- tracing.blockTrace.cellItemMaxCountPerPixel:         39

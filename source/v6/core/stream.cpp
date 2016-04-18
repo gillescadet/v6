@@ -128,33 +128,6 @@ void CFileWriter::Write( const void * pData, int nSize )
 	m_nSize += nSize;
 }
 
-/// CMemoryWriter
-
-CMemoryWriter::CMemoryWriter( void* buffer, u32 capacity )
-: m_pBuffer( buffer )
-, m_nPos( 0 )
-, m_nCapacity( capacity )
-{
-}
-
-CMemoryWriter::~CMemoryWriter()
-{
-	Clear();
-}
-
-void CMemoryWriter::Clear()
-{
-	m_pBuffer = nullptr;
-	m_nPos = 0;
-}
-
-void CMemoryWriter::Write( const void * pData, int nSize )
-{
-	V6_ASSERT( m_nPos + nSize <= m_nCapacity );
-	memcpy( (u8*)m_pBuffer + m_nPos, pData, (size_t)nSize );
-	m_nPos += nSize;
-}
-
 /// CBufferReader
 
 CBufferReader::CBufferReader( const void * pBuffer, int nSize )
@@ -196,12 +169,12 @@ CBufferWriter::CBufferWriter(void * pBuffer, int nSize)
 
 void CBufferWriter::Write( const void * pData, int nSize)
 {
-	if (m_nPos + nSize > m_nSize)
+	if ( m_nPos + nSize > m_nSize )
 	{
-		V6_ASSERT(!"Buffer overflow");
+		V6_ASSERT( !"Buffer overflow" );
 		return;
 	}
-	memcpy((char *)m_pBuffer + m_nPos, pData, (size_t)nSize);
+	memcpy( (char *)m_pBuffer + m_nPos, pData, (size_t)nSize );
 	m_nPos += nSize;
 }
 

@@ -789,7 +789,7 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, Context_s*
 {
 	ScopedStack scopedStack( context->stack );
 	
-	CMemoryWriter memoryRangeDefWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(  1 ) );
+	CBufferWriter memoryRangeDefWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(  1 ) );
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 		memoryRangeDefWriter.Write( context->rangeDefs[bucket], context->rangeDefCounts[bucket] * sizeof( CodecRange_s ) );
@@ -812,15 +812,15 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, Context_s*
 	V6_MSG( "Header: range defs %d KB.\n", DivKB( memoryRangeDefWriter.GetSize() ) );
 }
 
-static void RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s* context )
+static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s* context )
 {
 	const RawFrame_s* frame = &context->frames[frameID];
 
 	ScopedStack scopedStack( context->stack );
 
-	CMemoryWriter memoryBlockPosWriter(		context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
-	CMemoryWriter memoryBlockDataWriter(	context->stack->alloc( MulMB( 200 ) ),	MulMB( 200 ) );
-	CMemoryWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
+	CBufferWriter memoryBlockPosWriter(		context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
+	CBufferWriter memoryBlockDataWriter(	context->stack->alloc( MulMB( 200 ) ),	MulMB( 200 ) );
+	CBufferWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
 
 	u32 blockCounts[CODEC_BUCKET_COUNT] = {};
 	u32 rangeCounts[CODEC_BUCKET_COUNT] = {};
@@ -886,14 +886,19 @@ static void RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 		data.blockData = (u32*)memoryBlockDataWriter.GetBuffer();
 		data.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
 
-		Codec_WriteFrame( streamWriter, &desc, &data, context->stack );
+		if ( !Codec_WriteFrame( streamWriter, &desc, &data, context->stack ) )
+			return false;
 	}
 	
+#if 0
 	V6_MSG( "F%02d: blockPos %d KB, blockData %d KB, range IDs %d KB.\n", 
 		frameID,
 		DivKB( memoryBlockPosWriter.GetSize() ),
 		DivKB( memoryBlockDataWriter.GetSize() ),
 		DivKB( memoryRangeIDWriter.GetSize() ) );
+#endif
+
+	return true;
 }
 
 bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* streamFilename, IAllocator* heap )
@@ -976,7 +981,13 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 	u32 prevFileSize = fileWriter.GetPos();
 	for ( u32 frameID = 0; frameID < context->frameCount; ++frameID )
 	{		
-		RawFrame_Write( frameID, &fileWriter, context );
+		if ( !RawFrame_Write( frameID, &fileWriter, context ) )
+		{
+			for( ; frameID < context->frameCount; ++frameID )
+				RawFrame_Release( frameID-1, context );
+			return false;
+		}
+
 		RawFrame_Release( frameID, context );
 		V6_MSG( "F%02d: added %d KB.\n", frameID, DivKB( fileWriter.GetPos() - prevFileSize ) );
 		prevFileSize = fileWriter.GetPos();

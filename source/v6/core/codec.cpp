@@ -6,6 +6,10 @@
 #include <v6/core/compression.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
+#include <lz4/lib/lz4.h>
+#include <lz4/lib/lz4hc.h>
+
+#define CODEC_LZ4_COMPRESSION_LEVEL 4
 
 BEGIN_V6_CORE_NAMESPACE
 
@@ -266,6 +270,8 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 
 void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameID, IAllocator* allocator, IStack* stack )
 {
+	ScopedStack scopedStack( stack );
+
 	const u32 beginPos = streamReader->GetPos();
 
 	if ( streamReader->GetRemaining() < sizeof( CodecFrameHeader_s ) )
@@ -317,19 +323,13 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		rangeIDSize += frameHeader.desc.blockRangeCounts[bucket] * 2;
 	}
 
-#if CODEC_COLOR_COMPRESS == 1
-	const u32 chunkSize = blockPosSize + blockDataCompressedSize + rangeIDSize;
-#else
-	const u32 chunkSize = blockPosSize + blockDataUncompressedSize + rangeIDSize;
-#endif // #if CODEC_COLOR_COMPRESS == 1
+#if CODEC_COLOR_COMPRESS == 0
+	u32 blockDataCompressedSize = blockDataUncompressedSize;
+#endif
 
-	if ( frameHeader.size != sizeof( CodecFrameHeader_s ) + chunkSize )
-	{
-		V6_ERROR( "Bad file size of %d bytes for frame header.\n", frameHeader.size );
-		return nullptr;
-	}
+	const u32 compressedChunkSize = frameHeader.size - sizeof( CodecFrameHeader_s );
 
-	if ( (u32)streamReader->GetRemaining() < chunkSize )
+	if ( (u32)streamReader->GetRemaining() < compressedChunkSize )
 	{
 		V6_ERROR( "Bad stream size of %d bytes for frame header.\n", streamReader->GetRemaining() );
 		return nullptr;
@@ -337,22 +337,38 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
 
+	IStreamReader* chunkReader = nullptr;
+	const u32 decompressedChunkSize = blockPosSize + blockDataCompressedSize + rangeIDSize;
+#if CODEC_FRAME_COMPRESS == 1
+	u8* chunkLZ4 = (u8*)stack->alloc( compressedChunkSize );
+	streamReader->Read( compressedChunkSize, chunkLZ4 );
+	u8* decompressedChunk = (u8*)stack->alloc( decompressedChunkSize );
+	if ( LZ4_decompress_fast( (char*)chunkLZ4, (char*)decompressedChunk, decompressedChunkSize ) != compressedChunkSize )
+	{
+		V6_ERROR( "LZ4 decompression failed.\n" );
+		return nullptr;
+	}
+	CBufferReader decompressedChunkReader( decompressedChunk, decompressedChunkSize );
+	chunkReader = &decompressedChunkReader;
+#else
+	V6_ASSERT( compressedChunkSize == decompressedChunkSize );
+	chunkReader = streamReader;
+#endif
+
 	const u32 bufferSize = blockPosSize + blockDataUncompressedSize + rangeIDSize;
 
 	// todo: aligned alloc
 	u8* buffer = (u8*)allocator->alloc( bufferSize );
 	u8* chunk = buffer;
 
-	streamReader->Read( blockPosSize, chunk );
+	chunkReader->Read( blockPosSize, chunk );
 	data->blockPos = (u32*)chunk;
 	chunk += blockPosSize;
 
 #if CODEC_COLOR_COMPRESS == 1
 	{
-		ScopedStack scopedStack( stack );
-		
 		u8* encodedData = (u8*)stack->alloc( blockDataCompressedSize );
-		streamReader->Read( blockDataCompressedSize, encodedData );
+		chunkReader->Read( blockDataCompressedSize, encodedData );
 
 		u32* blockData = (u32*)chunk;
 		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -375,12 +391,12 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		V6_ASSERT( chunk + blockDataUncompressedSize == (u8*)blockData );
 	}
 #else
-	streamReader->Read( blockDataSize, chunk );
+	chunkReader->Read( blockDataSize, chunk );
 #endif // #if CODEC_COLOR_COMPRESS == 1
 	data->blockData = (u32*)chunk;
 	chunk += blockDataUncompressedSize;
 	
-	streamReader->Read( rangeIDSize, chunk );
+	chunkReader->Read( rangeIDSize, chunk );
 	data->rangeIDs = (u16*)chunk;
 	chunk += rangeIDSize;
 	
@@ -390,8 +406,10 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	return buffer;
 }
 
-void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack )
+bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack )
 {
+	ScopedStack scopedStack( stack );
+
 	const u32 beginPos = streamWriter->GetPos();
 
 	u32 blockPosSize = 0;
@@ -421,10 +439,8 @@ void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	}
 
 #if CODEC_COLOR_COMPRESS == 1
-	ScopedStack scopedStack( stack );
-
-	u8* blockData = (u8*)stack->alloc( blockDataCompressedSize );
-	u8* encodedData = blockData;
+	u8* blockCompressedData = (u8*)stack->alloc( blockDataCompressedSize );
+	u8* encodedData = blockCompressedData;
 
 	u32* uncompressedBlockData = data->blockData;
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -443,29 +459,54 @@ void Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	}
 
 	V6_ASSERT( (u8*)data->blockData + blockDataUncompressedSize == (u8*)uncompressedBlockData );
+#else
+	u32 blockDataCompressedSize = blockDataUncompressedSize;
+	u8* blockCompressedData = (u8*)data->blockData;
 #endif // #if CODEC_COLOR_COMPRESS == 1
+
+	const u32 chunkSize = blockPosSize + blockDataCompressedSize + rangeIDSize;
+
+#if CODEC_FRAME_COMPRESS == 1
+	const u32 chunkLZ4MaxSize = LZ4_compressBound( chunkSize );
+	u8* chunckLZ4 = (u8*)stack->alloc( chunkLZ4MaxSize );
+
+	CBufferWriter chunkWriter( stack->alloc( chunkSize ), chunkSize );
+	chunkWriter.Write( data->blockPos, blockPosSize );
+	chunkWriter.Write( blockCompressedData, blockDataCompressedSize );
+	chunkWriter.Write( data->rangeIDs, rangeIDSize );
+
+	const u32 chunkLZ4Size = LZ4_compress_HC( (char*)chunkWriter.GetBuffer(), (char*)chunckLZ4, chunkSize, chunkLZ4MaxSize, CODEC_LZ4_COMPRESSION_LEVEL );
+	if ( chunkLZ4Size == 0 )
+	{
+		V6_ERROR( "LZ4 compression failed.\n" );
+		return false;
+	}
+	V6_MSG( "LZ4 compression: %5.2f%%.\n", chunkLZ4Size * 100.0f / chunkSize );
+#endif
 
 	CodecFrameHeader_s frameHeader = {};
 	memcpy( frameHeader.magic, CODEC_FRAME_MAGIC, 4 );
 	frameHeader.version = CODEC_FRAME_VERSION;
-#if CODEC_COLOR_COMPRESS == 1
-	frameHeader.size = sizeof( CodecFrameHeader_s ) + blockPosSize + blockDataCompressedSize + rangeIDSize;
+#if CODEC_FRAME_COMPRESS == 1
+	frameHeader.size = sizeof( CodecFrameHeader_s ) + chunkLZ4Size;
 #else
-	frameHeader.size = sizeof( CodecFrameHeader_s ) + blockPosSize + blockDataUncompressedSize + rangeIDSize;
-#endif // #if CODEC_COLOR_COMPRESS == 1
+	frameHeader.size = sizeof( CodecFrameHeader_s ) + chunkSize;
+#endif
 	memcpy( &frameHeader.desc, desc, sizeof( frameHeader.desc ) );
 
 	streamWriter->Write( &frameHeader, sizeof( CodecFrameHeader_s ) );
 
-	streamWriter->Write( data->blockPos, blockPosSize );
-#if CODEC_COLOR_COMPRESS == 1
-	streamWriter->Write( blockData, blockDataCompressedSize );
+#if CODEC_FRAME_COMPRESS == 1
+	streamWriter->Write( chunckLZ4, chunkLZ4Size );
 #else
-	streamWriter->Write( data->blockData, blockDataUncompressedSize );
-#endif // #if CODEC_COLOR_COMPRESS == 1
+	streamWriter->Write( data->blockPos, blockPosSize );
+	streamWriter->Write( blockCompressedData, blockDataCompressedSize );
 	streamWriter->Write( data->rangeIDs, rangeIDSize );
+#endif
 
 	V6_ASSERT( streamWriter->GetPos() - beginPos == frameHeader.size );
+
+	return true;
 }
 
 END_V6_CORE_NAMESPACE

@@ -17,7 +17,7 @@ BEGIN_V6_CORE_NAMESPACE
 #define CODEC_RAWFRAME_VERSION			3
 
 #define CODEC_FRAME_MAGIC				"V6_F"
-#define CODEC_FRAME_VERSION				1
+#define CODEC_FRAME_VERSION				2
 
 #define CODEC_BUCKET_COUNT				5
 #define CODEC_CELL_MAX_COUNT			64
@@ -28,6 +28,8 @@ BEGIN_V6_CORE_NAMESPACE
 #define CODEC_COLOR_ERROR_TOLERANCE		15
 #define CODEC_COLOR_COUNT_TOLERANCE		4
 #define CODEC_COLOR_COMPRESS			1
+
+#define CODEC_FRAME_COMPRESS			1
 
 class IAllocator;
 class IStack;
@@ -94,7 +96,7 @@ void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, IAllocator* allocator );
 bool	Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
 void*	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, IAllocator* alllocator );
-void	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
+bool	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
 void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data );
 void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data );
 

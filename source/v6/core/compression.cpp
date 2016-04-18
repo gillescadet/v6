@@ -178,7 +178,7 @@ void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* enc
 	bs[2] = (170 * bs[0] + 85 * bs[1]) >> 8;
 
 	rs[3] = (85 * rs[0] + 170 * rs[1]) >> 8;
-	gs[3] = (85 * gs[0] + 170 * gs[1]) >> 8;	
+	gs[3] = (85 * gs[0] + 170 * gs[1]) >> 8;
 	bs[3] = (85 * bs[0] + 170 * bs[1]) >> 8;
 
 	// Decode bits

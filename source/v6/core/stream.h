@@ -68,25 +68,6 @@ private:
 	int m_nSize;
 };
 
-class CMemoryWriter : public IStreamWriter
-{
-public:
-	CMemoryWriter( void* buffer, u32 capacity );
-	virtual ~CMemoryWriter();
-
-public:
-	void Clear();
-	void * GetBuffer() { return m_pBuffer; }
-	virtual int GetPos() const { return m_nPos; }
-	virtual int GetSize() const { return m_nPos; }
-	virtual void Write( const void * pData, int nSize);
-
-private:
-	void * m_pBuffer;
-	int m_nPos;
-	int m_nCapacity;
-};
-
 class CBufferReader : public IStreamReader
 {
 public:
