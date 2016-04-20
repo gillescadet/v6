@@ -71,12 +71,20 @@ V6_INLINE void BitSet_SetBit( BitSet_s* bitSet, u32 id )
 	bitSet->bits[chunk] |= 1 << bit;
 }
 
-V6_INLINE u32 BitSet_GetBit( BitSet_s* bitSet, u32 id )
+V6_INLINE void BitSet_UnsetBit( BitSet_s* bitSet, u32 id )
 {
 	V6_ASSERT( id < bitSet->count );
 	const u32 chunk = id >> 5;
 	const u32 bit = id & 0x1F;
-	return bitSet->bits[chunk] & (1 << bit);
+	bitSet->bits[chunk] &= ~(1 << bit);
+}
+
+V6_INLINE bool BitSet_GetBit( BitSet_s* bitSet, u32 id )
+{
+	V6_ASSERT( id < bitSet->count );
+	const u32 chunk = id >> 5;
+	const u32 bit = id & 0x1F;
+	return (bitSet->bits[chunk] & (1 << bit)) != 0;
 }
 
 V6_INLINE void BitSet_FindBegin( BitSet_s* bitSet )

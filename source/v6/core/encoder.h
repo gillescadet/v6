@@ -12,7 +12,7 @@ BEGIN_V6_CORE_NAMESPACE
 
 class IAllocator;
 
-bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* sequenceFilename, IAllocator* heap );
+bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* sequenceFilename, float frameToWriteRatio, IAllocator* heap );
 
 END_V6_CORE_NAMESPACE
 

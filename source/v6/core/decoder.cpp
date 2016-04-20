@@ -100,7 +100,8 @@ static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* seq
 		void* frameBuffer = Codec_ReadFrame( &fileReader, &sequence->frameDescArray[frameID], &sequence->frameDataArray[frameID], frameID, allocator, stack );
 		if ( !frameBuffer )
 			return false;
-		sequence->frameBufferArray[frameID] = frameBuffer;
+		if ( (sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION) == 0 )
+			sequence->frameBufferArray[frameID] = frameBuffer;
 	}
 	
 	if ( fileReader.GetRemaining() > 0 )
@@ -110,6 +111,22 @@ static bool Sequence_LoadInternal( const char* sequenceFilename, Sequence_s* seq
 	}
 	
 	return true;
+}
+
+
+bool Sequence_LoadDesc( const char* sequenceFilename, CodecSequenceDesc_s* sequenceDesc, IStack* stack )
+{
+	CFileReader fileReader;
+	if ( !fileReader.Open( sequenceFilename ) )
+	{
+		V6_ERROR( "Unable to open file %s\n", sequenceFilename );
+		return false;
+	}
+
+	ScopedStack scopedStack( stack );
+
+	CodecSequenceData_s sequenceData;
+	return Codec_ReadSequence( &fileReader, sequenceDesc, &sequenceData, stack ) != nullptr;
 }
 
 bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack )
@@ -166,6 +183,9 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 		core::u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
 		for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 		{
+			if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
+				continue;
+
 			core::u32 blockPosOffet = 0;
 			core::u32 blockDataOffet = 0;
 
@@ -214,6 +234,9 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 
 	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
+		if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
+			continue;
+
 		ScopedStack scopedStack( &stack );
 
 		char filename[256];

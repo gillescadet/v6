@@ -23,6 +23,7 @@ struct Sequence_s
 };
 
 bool Sequence_Load( const char* streamFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack );
+bool Sequence_LoadDesc( const char* sequenceFilename, CodecSequenceDesc_s* sequenceDesc, IStack* stack );
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator );
 bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator );
 

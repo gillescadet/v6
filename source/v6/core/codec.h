@@ -17,7 +17,7 @@ BEGIN_V6_CORE_NAMESPACE
 #define CODEC_RAWFRAME_VERSION			3
 
 #define CODEC_FRAME_MAGIC				"V6_F"
-#define CODEC_FRAME_VERSION				2
+#define CODEC_FRAME_VERSION				3
 
 #define CODEC_BUCKET_COUNT				5
 #define CODEC_CELL_MAX_COUNT			64
@@ -36,6 +36,10 @@ class IStack;
 class IStreamReader;
 class IStreamWriter;
 
+enum
+{
+	CODEC_FRAME_FLAG_MOTION = 1 << 0,
+};
 
 struct CodecRange_s
 {
@@ -77,7 +81,8 @@ struct CodecRawFrameData_s
 struct CodecFrameDesc_s
 {
 	Vec3			origin;
-	u32				frameID;
+	u16				frameID;
+	u16				flags;
 	u32				blockCounts[CODEC_BUCKET_COUNT];
 	u32				blockRangeCounts[CODEC_BUCKET_COUNT];
 };

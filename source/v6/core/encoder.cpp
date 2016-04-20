@@ -4,6 +4,8 @@
 #include <v6/core/bit.h>
 #include <v6/core/encoder.h>
 #include <v6/core/codec.h>
+#include <v6/core/color.h>
+#include <v6/core/image.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 #include <v6/core/vec3i.h>
@@ -46,6 +48,7 @@ struct RawFrame_s
 	u32			blockCount;
 	u32*		blockIDs;
 	Vec3		origin;
+	u32			refFrameID;
 	Vec3i		gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i		gridMax[CODEC_MIP_MAX_COUNT];
 	u32			blockCountPerMip[CODEC_MIP_MAX_COUNT];
@@ -336,6 +339,36 @@ static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBloc
 	return nextSharedFrameCount;
 }
 
+// https://en.wikipedia.org/wiki/Hilbert_curve
+
+void rot( int n, int *x, int *y, int rx, int ry )
+{
+	if (ry == 0) {
+		if (rx == 1) {
+			*x = n-1 - *x;
+			*y = n-1 - *y;
+		}
+
+		//Swap x and y
+		int t  = *x;
+		*x = *y;
+		*y = t;
+	}
+}
+
+static void d2xy( int n, int d, int *x, int *y )
+{
+	int rx, ry, s, t=d;
+	*x = *y = 0;
+	for (s=1; s<n; s*=2) {
+		rx = 1 & (t/2);
+		ry = 1 & (t ^ rx);
+		rot(s, x, y, rx, ry);
+		*x += s * rx;
+		*y += s * ry;
+		t /= 4;
+	}
+}
 
 static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s* context )
 {
@@ -392,6 +425,7 @@ static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s*
 	}
 
 	frame->origin = desc.origin;
+	frame->refFrameID = (u32)-1;
 
 	float gridScale = context->gridScaleMin;
 	for ( u32 mip = 0; mip < context->mipCount; ++mip, gridScale *= 2.0f )
@@ -480,6 +514,91 @@ static void RawFrame_Release( u32 frameID, Context_s* context )
 	context->heap->free( frame->blockIDs );
 }
 
+static void RawFrame_GenerateBitmaps( u32 frameID, Context_s* context )
+{
+	ScopedStack scopedStack( context->stack );
+	
+	RawFrame_s* frame = &context->frames[frameID];
+
+	for ( u32 mip = 0; mip < context->mipCount; ++mip )
+	{
+		const u32 blockCount = frame->blockCountPerMip[mip];
+		u32 width = 1;
+		while ( width * width < blockCount )
+			width *= 2;
+
+		core::Image_s image;
+		Image_Create( &image, context->stack, width * 8, width * 8);
+		memset( image.pixels, 0, Image_GetSize( &image ) );
+		
+		for ( u32 blockOrder = 0; blockOrder < blockCount; ++blockOrder )
+		{
+			const u32 blockID = frame->blockIDs[blockOrder];
+			const Block_s* block = &frame->blocks[blockID];
+
+			int x, y;
+			d2xy( width, blockOrder, &x, &y );
+			x *= 8;
+			y *= 8;
+
+			u32 sumR = 0;
+			u32 sumG = 0;
+			u32 sumB = 0;
+			u32 cellCount = 0;
+
+			u64 cellPresence = block->cellPresence;
+			V6_ASSERT( cellPresence );
+			do
+			{
+				const u32 cellPos = Bit_GetFirstBitHigh( cellPresence );
+				cellPresence -= 1ll << cellPos;
+				
+				int i, j;
+				d2xy( 8, cellPos, &i, &j );
+
+				const u32 pixelID = (y + j) * (width * 8) + x + i;
+				
+				Color_s* color = &image.pixels[pixelID];
+				color->r = (block->cellRGBA[cellPos] >> 24) & 0xFF;
+				color->g = (block->cellRGBA[cellPos] >> 16) & 0xFF;
+				color->b = (block->cellRGBA[cellPos] >>  8) & 0xFF;
+				color->a = 255;
+
+				sumR += color->r;
+				sumG += color->g;
+				sumB += color->b;
+				++cellCount;
+			} while ( cellPresence != 0 );
+
+			const u32 r = sumR / cellCount;
+			const u32 g = sumG / cellCount;
+			const u32 b = sumB / cellCount;
+
+			for ( u32 j = 0; j < 8; ++j )
+			{
+				for ( u32 i = 0; i < 8; ++i )
+				{
+					const u32 pixelID = (y + j) * (width * 8) + x + i;
+					Color_s* color = &image.pixels[pixelID];
+					if ( color->a == 0 )
+					{
+						color->r = r;
+						color->g = g;
+						color->b = b;
+						color->a = 255;
+					}
+				}
+			}
+		}
+
+		char filename[256];
+		sprintf_s( filename, sizeof( filename ), "d:/tmp/frame_%06d_mip_%02d.bmp", frameID, mip );
+		CFileWriter fileWriter;
+		if ( fileWriter.Open( filename ) )
+			Image_WriteBitmap( &image, &fileWriter );
+	}
+}
+
 static void RawFrame_SortByKey( u32 frameID, Context_s* context )
 {
 	RawFrame_s* frame = &context->frames[frameID];
@@ -564,6 +683,33 @@ static u32 RawFrame_LinkBlocks( u32 frameID, Context_s* context )
 	}
 
 	return linkCount;
+}
+
+static bool RawFrame_IsRefFrame( u32 frameID, Context_s* context )
+{
+	RawFrame_s* frame = &context->frames[frameID];
+	return frame->refFrameID == (u32)-1;
+}
+
+static void RawFrame_Skip( u32 frameID, u32 refFrameID, Context_s* context )
+{
+	RawFrame_s* frame = &context->frames[frameID];
+
+	for ( u32 blockOrder = 0; blockOrder < frame->blockCount; ++blockOrder )
+	{
+		const u32 blockID = frame->blockIDs[blockOrder];
+		Block_s* block = &frame->blocks[blockID];
+
+		if ( block->linked )
+			continue;
+
+		if ( !block->nextFrame )
+			continue;
+
+		block->nextFrame->linked = false;
+	}
+
+	frame->refFrameID = refFrameID;
 }
 
 static u32 RawFrame_Merge( u32 frameID, Context_s* context )
@@ -825,15 +971,21 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 	u32 blockCounts[CODEC_BUCKET_COUNT] = {};
 	u32 rangeCounts[CODEC_BUCKET_COUNT] = {};
 
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		blockCounts[bucket] = BucketFrame_WriteBlocks( bucket, frameID, &memoryBlockPosWriter, &memoryBlockDataWriter, context );
+	const bool refFrame = RawFrame_IsRefFrame( frameID, context );
 
-		for ( u32 refFrameID = 0; refFrameID <= frameID; ++refFrameID )
-			rangeCounts[bucket] += BucketFrame_WriteRangeIDs( bucket, refFrameID, frameID, &memoryRangeIDWriter, context );
+	if ( refFrame )
+	{
+		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		{
+			blockCounts[bucket] = BucketFrame_WriteBlocks( bucket, frameID, &memoryBlockPosWriter, &memoryBlockDataWriter, context );
+
+			for ( u32 refFrameID = 0; refFrameID <= frameID; ++refFrameID )
+				rangeCounts[bucket] += BucketFrame_WriteRangeIDs( bucket, refFrameID, frameID, &memoryRangeIDWriter, context );
+		}
 	}
 
 #if 0
+	if ( refFrame )
 	{
 		ScopedStack scopedStack2( context->stack );
 
@@ -874,9 +1026,11 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 	}
 #endif
 
+	if ( refFrame )
 	{
 		CodecFrameDesc_s desc = {};
 		desc.origin = frame->origin;
+		desc.flags = refFrame ? 0 : CODEC_FRAME_FLAG_MOTION;
 		desc.frameID = frameID;
 		memcpy( desc.blockCounts, blockCounts, sizeof( desc.blockCounts ) );
 		memcpy( desc.blockRangeCounts, rangeCounts, sizeof( desc.blockRangeCounts ) );
@@ -887,6 +1041,16 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 		data.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
 
 		if ( !Codec_WriteFrame( streamWriter, &desc, &data, context->stack ) )
+			return false;
+	}
+	else
+	{
+		CodecFrameDesc_s desc = {};
+		desc.origin = frame->origin;
+		desc.flags = refFrame ? 0 : CODEC_FRAME_FLAG_MOTION;
+		desc.frameID = frame->refFrameID;
+
+		if ( !Codec_WriteFrame( streamWriter, &desc, nullptr, context->stack ) )
 			return false;
 	}
 	
@@ -901,7 +1065,7 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 	return true;
 }
 
-bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* streamFilename, IAllocator* heap )
+bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* streamFilename, float frameToWriteRatio, IAllocator* heap )
 {
 	if ( fileCount == 0 || fileCount > CODEC_FRAME_MAX_COUNT )
 	{
@@ -953,6 +1117,15 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 		V6_MSG( "F%02d: sorted.\n", frameID );
 	}
 
+#if 0
+	V6_MSG( "Bitmapping...\n" );
+	for ( u32 frameID = 0; frameID < context->frameCount; ++frameID )
+	{
+		RawFrame_GenerateBitmaps( frameID, context );
+		V6_MSG( "F%02d: bitmapped.\n", frameID );
+	}
+#endif
+
 	V6_MSG( "Linking...\n" );
 	for ( u32 frameID = 0; frameID < context->frameCount-1; ++frameID )
 	{
@@ -961,17 +1134,33 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 	}
 
 	V6_MSG( "Merging...\n" );
-	for ( u32 frameID = 0; frameID < context->frameCount; ++frameID )
+	float framePart = 1.0f;
+	u32 refFrameID = (u32)-1;
+	for ( u32 frameID = 0; frameID < context->frameCount; ++frameID, framePart += frameToWriteRatio )
 	{
-		const u32 rootCount = RawFrame_Merge( frameID, context );
-		V6_MSG( "F%02d: %8d/%d, %5.1f%% unique blocks.\n", frameID, rootCount, context->frames[frameID].blockCount, rootCount * 100.0f / context->frames[frameID].blockCount );
+		if ( framePart + FLT_EPSILON >= 1.0f )
+		{
+			const u32 rootCount = RawFrame_Merge( frameID, context );
+			V6_MSG( "F%02d: %8d/%d, %5.1f%% unique blocks.\n", frameID, rootCount, context->frames[frameID].blockCount, rootCount * 100.0f / context->frames[frameID].blockCount );
+			framePart = 0.0f;
+			refFrameID = frameID;
+		}
+		else
+		{
+			V6_ASSERT( refFrameID != (u32)-1 );
+			RawFrame_Skip( frameID, refFrameID, context );
+			V6_MSG( "F%02d: skipped.\n", frameID );
+		}
 	}
 
 	V6_MSG( "Sorting by ranges...\n" );
 	for ( u32 frameID = 0; frameID < context->frameCount; ++frameID )
 	{
-		RawFrame_SortByRange( frameID, context );
-		V6_MSG( "F%02d: sorted.\n", frameID );
+		if ( RawFrame_IsRefFrame( frameID,  context ) )
+		{
+			RawFrame_SortByRange( frameID, context );
+			V6_MSG( "F%02d: sorted.\n", frameID );
+		}
 	}
 
 	V6_MSG( "Writing...\n" );

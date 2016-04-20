@@ -83,6 +83,7 @@ static const core::u32 RANDOM_CUBE_COUNT		= 100;
 
 static const core::u32 HMD_FPS					= 75;
 static const core::u32 VIDEO_FRAME_MAX_COUNT	= 10;
+static const float VIDEO_FRAME_RATIO			= 25.0f / 75.0f;
 
 static const core::u32 VERTEX_INPUT_MAX_COUNT	= 6;
 static const core::u32 MESH_MAX_COUNT			= 16384;
@@ -2921,6 +2922,9 @@ static void SequenceContext_CreateFromData( ID3D11Device* device, SequenceContex
 	core::u32 blockDataCount = 0;
 	for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
+		if ( sequence->frameDescArray[frameID].flags & core::CODEC_FRAME_FLAG_MOTION )
+			continue;
+
 		sequenceContext->frameBlockPosOffsets[frameID] = blockPosCount;
 		sequenceContext->frameBlockDataOffsets[frameID] = blockDataCount;
 
@@ -2975,6 +2979,9 @@ static void SequenceContext_CreateFromData( ID3D11Device* device, SequenceContex
 
 	for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 	{
+		if ( sequence->frameDescArray[frameID].flags & core::CODEC_FRAME_FLAG_MOTION )
+			continue;
+
 		const core::u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
 
 		core::u32 frameBlockRangeCount = 0;
@@ -4204,6 +4211,7 @@ public:
 	TraceContext_s*		m_traceContext;
 	core::Sequence_s	m_sequence;
 	int					m_bakedFrameCount;
+	core::u32			m_lastUpdatedFrameID;
 
 	Scene_s*			m_defaultScene;
 	SceneDebug_s*		m_debugScene;
@@ -4889,9 +4897,17 @@ bool CRenderingDevice::InitTraceMode( core::u32 frameCount )
 	Scene_MakeRawFrameFileTemplate( s_activeScene, templateFilename, sizeof( templateFilename ) );
 	Scene_MakeSequenceFilename( s_activeScene, sequenceFilename, sizeof( sequenceFilename ) );
 
-	if ( !core::Sequence_Encode( templateFilename, frameCount, sequenceFilename, m_heap ) )
-		return false;
-
+	core::CodecSequenceDesc_s sequenceDesc;
+	if ( !Sequence_LoadDesc( sequenceFilename, &sequenceDesc, m_stack ) ||
+		sequenceDesc.frameCount != frameCount ||
+		sequenceDesc.sampleCount != SAMPLE_MAX_COUNT ||
+		sequenceDesc.gridScaleMin != GRID_MIN_SCALE ||
+		sequenceDesc.gridScaleMax != GRID_MAX_SCALE )
+	{
+		if ( !core::Sequence_Encode( templateFilename, frameCount, sequenceFilename, VIDEO_FRAME_RATIO, m_heap ) )
+			return false;
+	}
+		
 	if ( !core::Sequence_Load( sequenceFilename, &m_sequence, m_heap, m_stack ) )
 		return false;
 	
@@ -4900,6 +4916,8 @@ bool CRenderingDevice::InitTraceMode( core::u32 frameCount )
 
 	SequenceContext_CreateFromData( gpuContext.device, m_sequenceContext, &m_sequence );
 	TraceContext_Create( gpuContext.device, m_traceContext, &m_config );
+
+	m_lastUpdatedFrameID = (core::u32)-1;
 
 	return true;
 }
@@ -5535,15 +5553,19 @@ void CRenderingDevice::Draw( float dt )
 			if ( m_bakedFrameCount == -1 )
 			{
 				const core::CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
+				if ( frameDesc->flags & core::CODEC_FRAME_FLAG_MOTION )
+					frameDesc = &m_sequence.frameDescArray[frameDesc->frameID];
 
 				core::u32 groupCounts[CODEC_BUCKET_COUNT] = {};
 				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T0] );
+				//if ( m_lastUpdatedFrameID != frameDesc->frameID )
 				{
-					SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameID, &m_sequence, m_stack );
+					SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameDesc->frameID, &m_sequence, m_stack );
+					m_lastUpdatedFrameID = frameDesc->frameID;
 				}
 				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T1] );
 				{
-					CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameID );
+					CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameDesc->frameID );
 				}
 				v6::viewer::GPUQuery_WriteTimeStamp( gpuContext.deviceContext, &gpuContext.pendingQueries[v6::viewer::QUERY_T2] );
 				{

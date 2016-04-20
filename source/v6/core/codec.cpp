@@ -295,6 +295,18 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		return nullptr;
 	}
 
+	if ( frameHeader.desc.flags & CODEC_FRAME_FLAG_MOTION )
+	{
+		if ( frameHeader.desc.frameID >= frameID )
+		{
+			V6_ERROR( "Incompatible ref frame ID %d for frame desc.\n", frameHeader.desc.frameID );
+			return nullptr;
+		}
+
+		memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
+		return (void*)1;
+	}
+
 	if ( frameHeader.desc.frameID != frameID )
 	{
 		V6_ERROR( "Incompatible frame ID %d for frame desc.\n", frameHeader.desc.frameID );
@@ -408,9 +420,32 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack )
 {
-	ScopedStack scopedStack( stack );
-
 	const u32 beginPos = streamWriter->GetPos();
+
+	if ( desc->flags & CODEC_FRAME_FLAG_MOTION )
+	{
+		V6_ASSERT( data == nullptr );
+		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		{
+			V6_ASSERT( desc->blockCounts[bucket] == 0 );
+			V6_ASSERT( desc->blockRangeCounts[bucket] == 0 );
+		}
+
+		CodecFrameHeader_s frameHeader = {};
+		memcpy( frameHeader.magic, CODEC_FRAME_MAGIC, 4 );
+		frameHeader.version = CODEC_FRAME_VERSION;
+		frameHeader.size = sizeof( CodecFrameHeader_s );
+		memcpy( &frameHeader.desc, desc, sizeof( frameHeader.desc ) );
+		streamWriter->Write( &frameHeader, sizeof( CodecFrameHeader_s ) );
+
+		V6_ASSERT( streamWriter->GetPos() - beginPos == frameHeader.size );
+
+		return true;
+	}
+	
+	V6_ASSERT( data != nullptr );
+
+	ScopedStack scopedStack( stack );
 
 	u32 blockPosSize = 0;
 #if CODEC_COLOR_COMPRESS == 1
@@ -481,7 +516,7 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 		V6_ERROR( "LZ4 compression failed.\n" );
 		return false;
 	}
-	V6_MSG( "LZ4 compression: %5.2f%%.\n", chunkLZ4Size * 100.0f / chunkSize );
+	// V6_MSG( "LZ4 compression: %5.2f%%.\n", chunkLZ4Size * 100.0f / chunkSize );
 #endif
 
 	CodecFrameHeader_s frameHeader = {};
