@@ -1,0 +1,6 @@
+disabled anti-aliasing
+disabled motion blur
+
+Commands:
+stat fps
+stat unit
