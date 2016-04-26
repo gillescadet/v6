@@ -12,7 +12,11 @@ public:
 
 	void Screenshot( const TArray<FString>& Args );
 
+public:
+	UPROPERTY()
+	class UVideo6DOFCapturer*	m_capturer;
+
 private:
 
-	FAutoConsoleCommand ScreenshotCommand;
+	FAutoConsoleCommand			m_screenshotCommand;
 };

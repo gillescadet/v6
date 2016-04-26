@@ -10,5 +10,7 @@
 DECLARE_LOG_CATEGORY_EXTERN( LogVideo6DOF, Verbose, All );
 
 #include "Video6DOF.h"
+#include "Video6DOFCapturer.h"
 #include "Video6DOFManager.h"
 #include "Video6DOFPawn.h"
+

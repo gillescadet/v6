@@ -22,4 +22,4 @@ TSharedPtr< FVideo6DOFManager > FVideo6DOFModule::Get()
 }
 
 IMPLEMENT_MODULE( FVideo6DOFModule, Video6DOF )
-DEFINE_LOG_CATEGORY(LogVideo6DOF);
+DEFINE_LOG_CATEGORY( LogVideo6DOF );

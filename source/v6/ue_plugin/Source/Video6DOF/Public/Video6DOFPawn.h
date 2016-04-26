@@ -6,7 +6,7 @@
 #include "LatentActions.h"
 #include "Video6DOFPawn.generated.h"
 
-UCLASS(config = Game, Blueprintable, BlueprintType)
+UCLASS( config = Game, Blueprintable, BlueprintType )
 class AVideo6DOFPawn
 	: public ADefaultPawn
 {
@@ -14,6 +14,6 @@ class AVideo6DOFPawn
 
 public:
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Pawn)
+    UPROPERTY( VisibleAnywhere, BlueprintReadOnly, Category = Pawn )
 	UTexture2D* OutputImage;
 };
