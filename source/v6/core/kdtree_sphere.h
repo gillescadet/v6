@@ -7,7 +7,7 @@
 
 #include <v6/core/vec3.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class CBlockAllocator;
 class IAllocator;
@@ -33,6 +33,6 @@ private:
 	CBlockAllocator * m_pBlockAllocator;
 };
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_KDTREE_SPHERE_H__

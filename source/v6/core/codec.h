@@ -8,7 +8,7 @@
 #include <v6/core/vec3.h> 
 #include <v6/core/vec3i.h> 
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 #define CODEC_SEQUENCE_MAGIC			"V6_S"
 #define CODEC_SEQUENCE_VERSION			1
@@ -94,8 +94,8 @@ struct CodecFrameData_s
 	u16*			rangeIDs;
 };
 
-Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth );
-Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth );
+Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
+Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
 u32		Codec_GetMipCount( float gridScaleMin, float gridScaleMax );
 void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameID, IAllocator* allocator, IStack* stack );
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, IAllocator* allocator );
@@ -105,6 +105,6 @@ bool	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data );
 void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data );
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_CODEC_H__

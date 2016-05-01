@@ -7,7 +7,7 @@
 
 #include <v6/core/math.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct BitSet_s
 {
@@ -116,6 +116,6 @@ V6_INLINE bool BitSet_FindNext( BitSet_s* bitSet, u32* id )
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_BIT_H__

@@ -9,7 +9,7 @@
 #include <v6/core/vec3.h>
 #include <v6/core/vec4.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 // row-major notation and storage
 // column-vector convention
@@ -236,7 +236,7 @@ V6_INLINE Mat4x4 Mat4x4_RotationZ( float a )
 	return m;
 }
 
-V6_INLINE Mat4x4 Mat4x4_View( const core::Vec3* org, const core::Vec3* forward, const core::Vec3* up, const core::Vec3* right )
+V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right )
 {	
 	Mat4x4 m;
 	m.m_row0 = Vec4_Make( right->x, right->y, right->z, 0 );
@@ -280,6 +280,6 @@ V6_INLINE Mat4x4 Mat4x4_Projection( float n, float f, float fov, float aspectRat
 	return m;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_MAT4X4_H__

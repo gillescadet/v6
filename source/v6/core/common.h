@@ -7,8 +7,8 @@
 #ifndef __V6_CORE_COMMON_H__
 #define __V6_CORE_COMMON_H__
 
-#define BEGIN_V6_CORE_NAMESPACE		namespace v6 { namespace core {
-#define END_V6_CORE_NAMESPACE		} }
+#define BEGIN_V6_NAMESPACE		namespace v6 {
+#define END_V6_NAMESPACE		}
 
 #if 0
 #define __ASSERT( EXP )				assert( EXP )
@@ -68,7 +68,7 @@ _CRTIMP void __cdecl _wassert(_In_z_ const wchar_t * _Message, _In_z_ const wcha
 }
 #endif  /* __cplusplus */
 
-#define assert(_Expression) (void)( (!!(_Expression)) || (_wassert(_CRT_WIDE(#_Expression), _CRT_WIDE(__FILE__), (core::u32)__LINE__), 0) )
+#define assert(_Expression) (void)( (!!(_Expression)) || (_wassert(_CRT_WIDE(#_Expression), _CRT_WIDE(__FILE__), (u32)__LINE__), 0) )
 
 #endif  /* NDEBUG */
 

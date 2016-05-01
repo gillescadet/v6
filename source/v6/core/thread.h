@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_THREAD_H__
 #define __V6_CORE_THREAD_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 #define JOB_BUFFER_SIZE		32
 #define JOB_BUFFER_MASK		(JOB_BUFFER_SIZE-1)
@@ -98,6 +98,6 @@ void Job_Launch( typename Job_s< T >::Process_f process,  T* context )
 	Thread_Create( __Job_Execute< T >, job );
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_THREAD_H__

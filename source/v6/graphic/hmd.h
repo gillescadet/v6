@@ -5,13 +5,13 @@
 #ifndef __V6_VIEWER_HMD_H__
 #define __V6_VIEWER_HMD_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
-BEGIN_V6_VIEWER_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 enum
 {
@@ -23,8 +23,8 @@ enum
 
 struct HmdEyePose_s
 {	
-	core::Mat4x4	lookAt;
-	core::Mat4x4	projection;
+	Mat4x4	lookAt;
+	Mat4x4	projection;
 	float			tanHalfFOVLeft;
 	float			tanHalfFOVRight;
 	float			tanHalfFOVUp;
@@ -43,14 +43,14 @@ struct HmdRenderTarget_s
 	void*	uav;
 };
 
-core::u32		Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar );
-bool			Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize );
+u32		Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar );
+bool			Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize );
 bool			Hmd_EndRendering( HmdOuput_s* output );
-core::Vec2i		Hmd_GetRecommendedRenderTargetSize();
+Vec2i		Hmd_GetRecommendedRenderTargetSize();
 bool			Hmd_Init();
 void			Hmd_ReleaseResources();
 void			Hmd_Shutdown();
 
-END_V6_VIEWER_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_VIEWER_HMD_H__

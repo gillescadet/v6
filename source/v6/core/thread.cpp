@@ -7,7 +7,7 @@
 #include <v6/core/common.h>
 #include <v6/core/thread.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 #define WORKER_THREAD_EXIT_CODE 0xFFFFFFFF
 
@@ -162,4 +162,4 @@ void WorkerThread_Release( WorkerThread_s* workerThread )
 		SwitchToThread();
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

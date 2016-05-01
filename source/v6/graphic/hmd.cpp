@@ -3,29 +3,27 @@
 #include <OVR_CAPI_D3D.h>
 #include <Extras/OVR_Math.h>
 
-#include <v6/viewer/common.h>
+#include <v6/core/common.h>
 
 #include <v6/core/math.h>
 #include <v6/core/mat4x4.h>
 #include <v6/core/vec2i.h>
 #include <v6/core/vec3.h>
+#include <v6/graphic/hmd.h>
 
-#include <v6/viewer/hmd.h>
-
-
-BEGIN_V6_VIEWER_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static ovrSession					s_session = nullptr;
 static ovrHmdDesc					s_hmdDesc;
-static const core::u32				s_textureCount = 2;
-static core::Vec2i					s_eyeRenderTargetSize;
+static const u32					s_textureCount = 2;
+static Vec2i						s_eyeRenderTargetSize;
 static ovrSwapTextureSet*			s_textureSets[2] = { nullptr, nullptr };
 static ID3D11RenderTargetView*		s_textureRTVs[2][s_textureCount] = {};
 static ID3D11UnorderedAccessView*	s_textureUAVs[2][s_textureCount] = {};
 static ovrTexture*					s_mirrorTexture = nullptr;
 static ovrLayer_Union				s_layer = {};
 
-static const core::u32 s_ovrHmdTypeCount = 9;
+static const u32 s_ovrHmdTypeCount = 9;
 static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] = 
 {
 	"ovrHmd_None",
@@ -39,7 +37,7 @@ static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] =
 	"ovrHmd_ES09",
 };
 
-static ovrFovPort GetFovPort( core::u32 eye )
+static ovrFovPort GetFovPort( u32 eye )
 {
 #if 1
 	return s_hmdDesc.DefaultEyeFov[eye];
@@ -55,7 +53,7 @@ static ovrFovPort GetFovPort( core::u32 eye )
 
 static void ReleaseResources()
 {
-	for ( core::u32 eye = 0; eye < 2; ++eye )
+	for ( u32 eye = 0; eye < 2; ++eye )
 	{
 		if ( s_textureSets[eye] )
 		{
@@ -117,7 +115,7 @@ bool Hmd_Init()
 
 	s_hmdDesc = ovr_GetHmdDesc( s_session );
 
-	if ( (core::u32)s_hmdDesc.Type < s_ovrHmdTypeCount )
+	if ( (u32)s_hmdDesc.Type < s_ovrHmdTypeCount )
 	{
 		V6_MSG( "hmd.type                      : %s\n", s_ovrHmdTypeNames[s_hmdDesc.Type] );
 	}
@@ -132,25 +130,25 @@ bool Hmd_Init()
 	V6_MSG( "hmd.serialNumber              : %s\n", s_hmdDesc.SerialNumber );
 	V6_MSG( "hmd.firmwareMajor             : %d\n", s_hmdDesc.FirmwareMajor );
 	V6_MSG( "hmd.firmwareMinor             : %d\n", s_hmdDesc.FirmwareMinor );
-	V6_MSG( "hmd.cameraFrustumHFovInDegrees: %g\n", core::RadToDeg( s_hmdDesc.CameraFrustumHFovInRadians ) );
-	V6_MSG( "hmd.cameraFrustumVFovInDegrees: %g\n", core::RadToDeg( s_hmdDesc.CameraFrustumVFovInRadians ) );
+	V6_MSG( "hmd.cameraFrustumHFovInDegrees: %g\n", RadToDeg( s_hmdDesc.CameraFrustumHFovInRadians ) );
+	V6_MSG( "hmd.cameraFrustumVFovInDegrees: %g\n", RadToDeg( s_hmdDesc.CameraFrustumVFovInRadians ) );
 	V6_MSG( "hmd.cameraFrustumNearZInMeters: %g\n", s_hmdDesc.CameraFrustumNearZInMeters );
 	V6_MSG( "hmd.cameraFrustumFarZInMeters : %g\n", s_hmdDesc.CameraFrustumFarZInMeters );
 	V6_MSG( "hmd.availableHmdCaps          : 0x%08X\n", s_hmdDesc.AvailableHmdCaps );
 	V6_MSG( "hmd.defaultHmdCaps            : 0x%08X\n", s_hmdDesc.DefaultHmdCaps );
 	V6_MSG( "hmd.availableTrackingCaps     : 0x%08X\n", s_hmdDesc.AvailableTrackingCaps );
 	V6_MSG( "hmd.defaultTrackingCaps       : 0x%08X\n", s_hmdDesc.DefaultTrackingCaps );
-	V6_MSG( "hmd.defaultEyeFov[0]          : up %g, down %g, left %g, right %g\n", core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].UpTan ) ),	core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].DownTan ) ),		core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].LeftTan ) ),	core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].RightTan ) ) );
-	V6_MSG( "hmd.defaultEyeFov[1]          : up %g, down %g, left %g, right %g\n", core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].UpTan ) ),	core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].DownTan ) ),		core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].LeftTan ) ),	core::RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].RightTan ) ) );
-	V6_MSG( "hmd.maxEyeFov[0]              : up %g, down %g, left %g, right %g\n", core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].UpTan ) ),		core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].DownTan ) ),			core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].LeftTan ) ),		core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].RightTan ) ) );
-	V6_MSG( "hmd.maxEyeFov[1]              : up %g, down %g, left %g, right %g\n", core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].UpTan ) ),		core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].DownTan ) ),			core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].LeftTan ) ),		core::RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].RightTan ) ) );
+	V6_MSG( "hmd.defaultEyeFov[0]          : up %g, down %g, left %g, right %g\n", RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].UpTan ) ),	RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].DownTan ) ),		RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].LeftTan ) ),	RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[0].RightTan ) ) );
+	V6_MSG( "hmd.defaultEyeFov[1]          : up %g, down %g, left %g, right %g\n", RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].UpTan ) ),	RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].DownTan ) ),		RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].LeftTan ) ),	RadToDeg( atanf( s_hmdDesc.DefaultEyeFov[1].RightTan ) ) );
+	V6_MSG( "hmd.maxEyeFov[0]              : up %g, down %g, left %g, right %g\n", RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].UpTan ) ),		RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].DownTan ) ),			RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].LeftTan ) ),		RadToDeg( atanf( s_hmdDesc.MaxEyeFov[0].RightTan ) ) );
+	V6_MSG( "hmd.maxEyeFov[1]              : up %g, down %g, left %g, right %g\n", RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].UpTan ) ),		RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].DownTan ) ),			RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].LeftTan ) ),		RadToDeg( atanf( s_hmdDesc.MaxEyeFov[1].RightTan ) ) );
 	V6_MSG( "hmd.resolution                : %dx%d\n", s_hmdDesc.Resolution.w, s_hmdDesc.Resolution.h );
 	V6_MSG( "hmd.displayRefreshRate        : %g hz\n", s_hmdDesc.DisplayRefreshRate );
 
 	return true;
 }
 
-core::Vec2i Hmd_GetRecommendedRenderTargetSize()
+Vec2i Hmd_GetRecommendedRenderTargetSize()
 {
 	V6_ASSERT( s_session != nullptr );
 	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
@@ -160,10 +158,10 @@ core::Vec2i Hmd_GetRecommendedRenderTargetSize()
 	const OVR::Sizei recommendedTex1Size = ovr_GetFovTextureSize( s_session, ovrEye_Right, GetFovPort( 1 ), 1.0f );
 
 	V6_ASSERT( recommendedTex0Size.w == recommendedTex1Size.w );
-	return core::Vec2i_Make( recommendedTex0Size.w, core::Max( recommendedTex0Size.h, recommendedTex1Size.h ) );
+	return Vec2i_Make( recommendedTex0Size.w, Max( recommendedTex0Size.h, recommendedTex1Size.h ) );
 }
 
-bool Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize )
+bool Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize )
 {
 	V6_ASSERT( s_session != nullptr );
 	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
@@ -189,7 +187,7 @@ bool Hmd_CreateResources( void* device, const core::Vec2i* eyeRenderTargetSize )
 		td.MiscFlags = 0;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS;
 
-		for ( core::u32 eye = 0; eye < 2; ++eye )
+		for ( u32 eye = 0; eye < 2; ++eye )
 		{
 			const ovrResult result = ovr_CreateSwapTextureSetD3D11( s_session, d3d11Device, &td, ovrSwapTextureSetD3D11_Typeless, &s_textureSets[eye] );
 
@@ -271,7 +269,7 @@ void Hmd_ReleaseResources()
 	ReleaseResources();
 }
 
-core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar )
+u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar )
 {	
 	V6_ASSERT( s_session != nullptr );
 	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
@@ -283,7 +281,7 @@ core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s p
 	if ( (ts.StatusFlags & ovrStatus_HmdConnected) == 0 )
 		return HMD_TRACKING_STATE_OFF;
 
-	core::u32 state = HMD_TRACKING_STATE_ON;
+	u32 state = HMD_TRACKING_STATE_ON;
 
 	state |= (ts.StatusFlags & ovrStatus_OrientationTracked) != 0 ? HMD_TRACKING_STATE_ORIENTATION : 0;
 	state |= (ts.StatusFlags & ovrStatus_PositionTracked) != 0 ? HMD_TRACKING_STATE_POS: 0;
@@ -311,9 +309,9 @@ core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s p
 	s_layer.EyeFov.SensorSampleTime = ovr_GetTimeInSeconds();
 	ovr_CalcEyePoses( ts.HeadPose.ThePose, hmdToEyeViewOffset, s_layer.EyeFov.RenderPose );
 	
-	for ( core::u32 eye = 0; eye < 2; ++eye )
+	for ( u32 eye = 0; eye < 2; ++eye )
 	{
-		const core::u32 textureIndex = s_textureSets[eye]->CurrentIndex;
+		const u32 textureIndex = s_textureSets[eye]->CurrentIndex;
 		renderTargets[eye].texture2D = ((ovrD3D11Texture*)&s_textureSets[eye]->Textures[textureIndex])->D3D11.pTexture;
 		renderTargets[eye].rtv = s_textureRTVs[eye][textureIndex];
 		renderTargets[eye].uav = s_textureUAVs[eye][textureIndex];
@@ -321,9 +319,9 @@ core::u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s p
 		const OVR::Matrix4f mxLookAt( s_layer.EyeFov.RenderPose[eye] );
 		memcpy( &poses[eye].lookAt, &mxLookAt, sizeof( mxLookAt ) );
 
-		poses[eye].lookAt.m_row0.w *= core::M_TO_CM;
-		poses[eye].lookAt.m_row1.w *= core::M_TO_CM;
-		poses[eye].lookAt.m_row2.w *= core::M_TO_CM;
+		poses[eye].lookAt.m_row0.w *= M_TO_CM;
+		poses[eye].lookAt.m_row1.w *= M_TO_CM;
+		poses[eye].lookAt.m_row2.w *= M_TO_CM;
 
 		const OVR::Matrix4f mxProj = ovrMatrix4f_Projection( s_layer.EyeFov.Fov[eye], zNear, zFar, ovrProjection_RightHanded );
 		memcpy( &poses[eye].projection, &mxProj, sizeof( mxProj ) );
@@ -346,7 +344,7 @@ bool Hmd_EndRendering( HmdOuput_s* output )
 	ovrLayerHeader* layers = &s_layer.Header;
 	const ovrResult result = ovr_SubmitFrame( s_session, 0, nullptr, &layers, 1 );
 
-	for ( core::u32 eye = 0; eye < 2; ++eye )
+	for ( u32 eye = 0; eye < 2; ++eye )
 		s_textureSets[eye]->CurrentIndex = (s_textureSets[eye]->CurrentIndex + 1) % s_textureSets[eye]->TextureCount;
 
 	s_layer.Header.Type = ovrLayerType_Disabled;
@@ -373,4 +371,4 @@ void Hmd_Shutdown()
 	s_session = nullptr;
 }
 
-END_V6_VIEWER_NAMESPACE
+END_V6_NAMESPACE

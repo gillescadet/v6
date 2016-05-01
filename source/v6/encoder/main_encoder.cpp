@@ -11,7 +11,7 @@ int main()
 {
 	V6_MSG( "Encoder 0.0\n" );
 
-	v6::core::CHeap heap;
+	v6::CHeap heap;
 
 #if 1
 	const char* templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
@@ -23,22 +23,22 @@ int main()
 	const char* sequenceFilename = "D:/media/obj/default/default.v6s";
 #endif
 
-	if ( !v6::core::Sequence_Encode( templateFilename, 2, sequenceFilename, 75.0f / 75.0f, &heap ) )
+	if ( !v6::Sequence_Encode( templateFilename, 2, sequenceFilename, 75.0f / 75.0f, &heap ) )
 		return 1;
 
 #if VALIDATE
 	V6_MSG( "Validating...\n" );
 
-	v6::core::Sequence_s sequence = {};
+	v6::Sequence_s sequence = {};
 	{
-		v6::core::Stack stack( &heap, v6::core::MulMB( 50 ) );
-		if ( !v6::core::Sequence_Load( sequenceFilename, &sequence, &heap, &stack ) )
+		v6::Stack stack( &heap, v6::MulMB( 50 ) );
+		if ( !v6::Sequence_Load( sequenceFilename, &sequence, &heap, &stack ) )
 			return 1;
 	}
 
-	const bool validated = v6::core::Sequence_Validate( templateFilename, sequenceFilename, &sequence, &heap );
+	const bool validated = v6::Sequence_Validate( templateFilename, sequenceFilename, &sequence, &heap );
 
-	v6::core::Sequence_Release( &sequence, &heap );
+	v6::Sequence_Release( &sequence, &heap );
 
 	if ( !validated )
 	{

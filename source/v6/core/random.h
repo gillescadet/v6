@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_RANDOM_H__
 #define __V6_CORE_RANDOM_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 inline float RandFloat()
 {
@@ -71,6 +71,6 @@ inline u32 HashVector( Vec3 v )
 	return seedx ^ seedy ^ seedy;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_RANDOM_H__

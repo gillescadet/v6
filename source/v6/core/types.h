@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_TYPES_H__
 #define __V6_CORE_TYPES_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 typedef signed char			s8;
 typedef unsigned char		u8;
@@ -22,6 +22,6 @@ typedef signed long long	s64;
 typedef unsigned long long	u64;
 struct hex64 { u64 n; };
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_TYPES_H__

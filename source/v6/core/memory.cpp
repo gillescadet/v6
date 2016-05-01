@@ -5,7 +5,7 @@
 
 #include <v6/core/math.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct Block_s
 {
@@ -180,4 +180,4 @@ void GrowingAllocator_Release( GrowingAllocator_s* allocator )
 	memset( allocator, 0, sizeof( GrowingAllocator_s ) );
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

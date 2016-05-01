@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_COMPRESSION_H__
 #define __V6_CORE_COMPRESSION_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct EncodedBlock_s
 {
@@ -24,6 +24,6 @@ struct EncodedBlockEx_s
 void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
 void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount );
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_COMPRESSION_H__

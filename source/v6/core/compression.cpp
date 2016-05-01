@@ -4,7 +4,7 @@
 #include <v6/core/compression.h>
 #include <v6/core/math.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount )
 {
@@ -197,4 +197,4 @@ void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* enc
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

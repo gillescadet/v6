@@ -7,7 +7,7 @@
 
 #include <v6/core/math.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 template <typename T>
 void QuickSort(T * pValues, int nFirst, int nLast)
@@ -61,6 +61,6 @@ void InsertionSort(T * pValues, int nCount)
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_ALGO_H__

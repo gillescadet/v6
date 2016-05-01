@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_GRID_H__
 #define __V6_CORE_GRID_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 struct SBox;
@@ -30,6 +30,6 @@ private:
 	CBuildState * m_pBuildState;
 };
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_GRID_H__

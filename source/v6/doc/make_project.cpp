@@ -230,14 +230,13 @@ enum
 {
 	PROJECT_CLASSWRAPPER	= 1 << 0,
 	PROJECT_COMPRESSOR		= 1 << 1,
-	PROJECT_CORE			= 1 << 2,
-	PROJECT_DOC				= 1 << 3,
-	PROJECT_ENCODER			= 1 << 4,
-	PROJECT_LIBOVR			= 1 << 5,
-	PROJECT_LIBOVRKERNEL	= 1 << 6,
-	PROJECT_VIEWER			= 1 << 7,
+	PROJECT_DOC				= 1 << 2,
+	PROJECT_ENCODER			= 1 << 3,
+	PROJECT_LIBOVR			= 1 << 4,
+	PROJECT_LIBOVRKERNEL	= 1 << 5,
+	PROJECT_VIEWER			= 1 << 6,
 
-	PROJECT_COUNT			= 8
+	PROJECT_COUNT			= 7
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -250,58 +249,28 @@ static const Config_s s_configs[CONFIG_COUNT] =
 
 static const Project_s s_projects[PROJECT_COUNT] = 
 { 
-	{ PROJECT_CLASSWRAPPER, "EE652B0F-8AEA-42F8-8529-41C075FA4DA7", "class_wrappper", PROJECT_CORE },
-	{ PROJECT_COMPRESSOR,	"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor"	, PROJECT_CORE },
-	{ PROJECT_CORE,			"E3F17175-50AF-4521-8877-58B667ED3DE4", "core"			, 0, true },
+	{ PROJECT_CLASSWRAPPER, "EE652B0F-8AEA-42F8-8529-41C075FA4DA7", "class_wrappper" },
+	{ PROJECT_COMPRESSOR,	"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor" },
 	{ PROJECT_DOC,			"3CF8E22B-F0B6-43A7-B472-9E3ACB91591A", "doc" },
-	{ PROJECT_ENCODER,		"8B3F2A6F-97DD-4089-82FC-70E0CC3BCC27", "encoder"		, PROJECT_CORE },
+	{ PROJECT_ENCODER,		"8B3F2A6F-97DD-4089-82FC-70E0CC3BCC27", "encoder" },
 	{ PROJECT_LIBOVR,		"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"		, 0, true, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
 	{ PROJECT_LIBOVRKERNEL,	"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"	, 0, true, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
-	{ PROJECT_VIEWER,		"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_CORE | PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
+	{ PROJECT_VIEWER,		"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
 };
 
 static ProjectFile_s s_projectFiles[] =
 {
 	// class wrapper
+	{ "source/v6/core/filesystem.cpp",					PROJECT_CLASSWRAPPER },
+	{ "source/v6/core/memory.cpp",						PROJECT_CLASSWRAPPER },
 	{ "source/v6/class_wrapper/main_class_wrapper.cpp",	PROJECT_CLASSWRAPPER },
 
 	// compressor
+	{ "source/v6/core/compression.cpp",					PROJECT_COMPRESSOR },
+	{ "source/v6/core/image.cpp",						PROJECT_COMPRESSOR },
+	{ "source/v6/core/memory.cpp",						PROJECT_COMPRESSOR },
+	{ "source/v6/core/stream.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/compressor/main_compressor.cpp",		PROJECT_COMPRESSOR },
-
-	// core
-	{ "source/v6/core/algo.h",							PROJECT_CORE },
-	{ "source/v6/core/bit.h",							PROJECT_CORE },
-	{ "source/v6/core/box.h",							PROJECT_CORE },
-	{ "source/v6/core/codec.cpp",						PROJECT_CORE },
-	{ "source/v6/core/color.h",							PROJECT_CORE },
-	{ "source/v6/core/common.h",						PROJECT_CORE },
-	{ "source/v6/core/compression.cpp",					PROJECT_CORE },
-	{ "source/v6/core/compute.cpp",						PROJECT_CORE },
-	{ "source/v6/core/cpp_hlsl.h",						PROJECT_CORE },
-	{ "source/v6/core/encoder.cpp",						PROJECT_CORE },
-	{ "source/v6/core/decoder.cpp",						PROJECT_CORE },
-	{ "source/v6/core/filesystem.cpp",					PROJECT_CORE },
-	{ "source/v6/core/grid.cpp",						PROJECT_CORE },
-	{ "source/v6/core/image.cpp",						PROJECT_CORE },
-	{ "source/v6/core/kdtree_sphere.cpp",				PROJECT_CORE },
-	{ "source/v6/core/mat4x4.h",						PROJECT_CORE },
-	{ "source/v6/core/math.h",							PROJECT_CORE },
-	{ "source/v6/core/memory.cpp",						PROJECT_CORE },
-	{ "source/v6/core/octree.cpp",						PROJECT_CORE },
-	{ "source/v6/core/random.h",						PROJECT_CORE },
-	{ "source/v6/core/stream.cpp",						PROJECT_CORE },
-	{ "source/v6/core/thread.cpp",						PROJECT_CORE },
-	{ "source/v6/core/time.cpp",						PROJECT_CORE },
-	{ "source/v6/core/types.h",							PROJECT_CORE },
-	{ "source/v6/core/vec3.cpp",						PROJECT_CORE },
-	{ "source/v6/core/vec2.h",							PROJECT_CORE },
-	{ "source/v6/core/vec2i.h",							PROJECT_CORE },
-	{ "source/v6/core/vec3.h",							PROJECT_CORE },
-	{ "source/v6/core/vec3i.h",							PROJECT_CORE },
-	{ "source/v6/core/vec4.h",							PROJECT_CORE },
-	{ "source/v6/core/vec4i.h",							PROJECT_CORE },
-	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_CORE },
-	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_CORE },
 
 	// doc
 	{ "source/v6/doc/bench.txt",						PROJECT_DOC },
@@ -310,12 +279,32 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/doc/todo.txt",							PROJECT_DOC },
 	
 	// encoder
-	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
+	{ "source/v6/core/codec.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/compression.cpp",					PROJECT_ENCODER },
+	{ "source/v6/core/decoder.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/encoder.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/memory.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
+	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },
+	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_ENCODER },
+	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },	
 
 	// viewer
-	{ "source/v6/viewer/hmd.cpp",						PROJECT_VIEWER },
-	{ "source/v6/viewer/main_viewer.cpp",				PROJECT_VIEWER },
-	{ "source/v6/viewer/obj_reader.cpp",				PROJECT_VIEWER },
+	{ "source/v6/core/codec.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/compression.cpp",					PROJECT_VIEWER },
+	{ "source/v6/core/decoder.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/encoder.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_VIEWER },	
+	{ "source/v6/core/image.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/memory.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/obj_reader.cpp",					PROJECT_VIEWER },
+	{ "source/v6/core/stream.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/thread.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/time.cpp",						PROJECT_VIEWER },
+	{ "source/v6/graphic/hmd.cpp",						PROJECT_VIEWER },
+	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_VIEWER },
+	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_VIEWER },	
+	{ "source/v6/viewer/main_viewer.cpp",				PROJECT_VIEWER },	
 	{ "source/v6/viewer/scene_info.cpp",				PROJECT_VIEWER },
 
 	// viewer - HLSL
@@ -347,7 +336,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/block_trace_x4_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x64_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/common.h",						PROJECT_VIEWER },
 	{ "source/v6/viewer/common_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_ps.hlsl",				PROJECT_VIEWER },

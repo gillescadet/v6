@@ -7,7 +7,7 @@
 
 #include <v6/core/math.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 template< typename INTEGER_TYPE >
 struct Vec2_INTEGER
@@ -189,14 +189,14 @@ Vec2_INTEGER< INTEGER_TYPE > operator-(Vec2_INTEGER< INTEGER_TYPE > const & v1, 
 }
 
 typedef Vec2_INTEGER< int >			Vec2i;
-typedef Vec2_INTEGER< core::u32 >	Vec2u;
+typedef Vec2_INTEGER< u32 >	Vec2u;
 
 V6_INLINE Vec2i Vec2i_Zero()								{ return Vec2_INTEGER_Zero< int >(); }
 V6_INLINE Vec2i Vec2i_Make( int x, int y )					{ return Vec2_INTEGER_Make< int >( x, y ); }
 
-V6_INLINE Vec2u Vec2u_Zero()								{ return Vec2_INTEGER_Zero< core::u32 >(); }
-V6_INLINE Vec2u Vec2u_Make( core::u32 x, core::u32 y )		{ return Vec2_INTEGER_Make< core::u32 >( x, y ); }
+V6_INLINE Vec2u Vec2u_Zero()								{ return Vec2_INTEGER_Zero< u32 >(); }
+V6_INLINE Vec2u Vec2u_Make( u32 x, u32 y )		{ return Vec2_INTEGER_Make< u32 >( x, y ); }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_Vec2i_H__

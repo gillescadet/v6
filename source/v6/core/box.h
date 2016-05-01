@@ -8,7 +8,7 @@
 #include <v6/core/math.h>
 #include <v6/core/vec3.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct SBox
 {
@@ -45,6 +45,6 @@ public:
 	}
 };
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_BOX_H__

@@ -7,7 +7,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 #ifndef __LITTLE_ENDIAN__
 #	ifndef __BIG_ENDIAN__
@@ -291,4 +291,4 @@ void CImage::WriteBitmap( IStreamWriter& oStream )
 	oStream.Write( pixels, bh.SizeImage );
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

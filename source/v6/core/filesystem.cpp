@@ -9,7 +9,7 @@
 
 #include <v6/core/memory.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 void FilePath_ChangeExtension( char* filePathWithNewExtension, u32 maxSize, const char* filePath, const char* extension )
 {
@@ -198,7 +198,7 @@ bool CFileSystem::GetFileList(const char * pFilter, FileCallback pFileCallback, 
 	return true;
 }
 
-int CFileSystem::ReadFile( const char* filename, void** data, core::IAllocator* allocator )
+int CFileSystem::ReadFile( const char* filename, void** data, IAllocator* allocator )
 {
 	FILE * file = NULL;
 
@@ -209,7 +209,7 @@ int CFileSystem::ReadFile( const char* filename, void** data, core::IAllocator* 
 	}
 
 	fseek( file, 0, SEEK_END );
-	const core::u32 size = ftell( file );
+	const u32 size = ftell( file );
 	fseek( file, 0, SEEK_SET );
 
 	if ( size == 0 )
@@ -226,4 +226,4 @@ int CFileSystem::ReadFile( const char* filename, void** data, core::IAllocator* 
 	return size;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

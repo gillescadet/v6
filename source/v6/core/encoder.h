@@ -8,12 +8,12 @@
 #define ENCODER_STRICT_CELL		0
 #define ENCODER_STRICT_BUCKET	0
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
 bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* sequenceFilename, float frameToWriteRatio, IAllocator* heap );
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_ENCODER_H__

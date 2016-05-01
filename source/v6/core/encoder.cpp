@@ -15,7 +15,7 @@
 
 #define ENCODER_BC1_WIP					0
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 #define INTERLEAVE_S( S, SHIFT, OFFSET )	(((S >> SHIFT) & 1) << (SHIFT * 3 + OFFSET))
 #define INTERLEAVE_X( X, SHIFT )			INTERLEAVE_S( X, SHIFT, 0 )
@@ -453,7 +453,7 @@ static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s*
 	u32 blockDataCount = 0;
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
-		const core::u32 cellPerBucketCount = 1 << (bucket + 2);
+		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		const u32 cellCount = desc.blockCounts[bucket] * cellPerBucketCount;
 		blockPosOffsets[bucket] = blockPosCount;
@@ -468,7 +468,7 @@ static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s*
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
-		const core::u32 cellPerBucketCount = 1 << (bucket + 2);
+		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
 		{
@@ -527,7 +527,7 @@ static void RawFrame_GenerateBitmaps( u32 frameID, Context_s* context )
 		while ( width * width < blockCount )
 			width *= 2;
 
-		core::Image_s image;
+		Image_s image;
 		Image_Create( &image, context->stack, width * 8, width * 8);
 		memset( image.pixels, 0, Image_GetSize( &image ) );
 		
@@ -612,7 +612,7 @@ static void RawFrame_SortByKey( u32 frameID, Context_s* context )
 		frame->blockIDs[blockID] = blockID;
 	}
 
-	qsort_s( frame->blockIDs, frame->blockCount, sizeof( core::u32 ), Block_CompareKey, frame );
+	qsort_s( frame->blockIDs, frame->blockCount, sizeof( u32 ), Block_CompareKey, frame );
 
 	for ( u32 mip = 0; mip < context->mipCount; ++mip )
 		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
@@ -633,7 +633,7 @@ static u32 RawFrame_LinkBlocks( u32 frameID, Context_s* context )
 	for ( u32 mip = 0; mip < context->mipCount; ++mip )
 	{
 		bool overlap = true; 
-		for ( core::u32 axis = 0; axis < 3; ++axis )
+		for ( u32 axis = 0; axis < 3; ++axis )
 		{
 			if ( curFrame->gridMin[mip][axis] >= nextFrame->gridMax[mip][axis] || nextFrame->gridMin[mip][axis] >= curFrame->gridMax[mip][axis] )
 			{
@@ -779,7 +779,7 @@ static void RawFrame_SortByRange( u32 frameID, Context_s* context )
 		++rootCount;
 	}
 
-	qsort_s( frame->blockIDs, rootCount, sizeof( core::u32 ), Block_CompareByBucketThenBySharedFrameCountThenByKey2, frame );
+	qsort_s( frame->blockIDs, rootCount, sizeof( u32 ), Block_CompareByBucketThenBySharedFrameCountThenByKey2, frame );
 
 	BucketFrame_s* bucketFrames[CODEC_BUCKET_COUNT];
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -1188,4 +1188,4 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 	return true;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

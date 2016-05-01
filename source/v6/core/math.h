@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_MATH_H__
 #define __V6_CORE_MATH_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static const float PI = 3.1415926f;
 
@@ -70,6 +70,6 @@ V6_INLINE T DivMB( T x ) { return x >> 20; }
 template<typename T>
 V6_INLINE T DivGB( T x ) { return x >> 30; }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_MATH_H__

@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_MEMORY_H__
 #define __V6_CORE_MEMORY_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator
 {
@@ -171,6 +171,6 @@ T* GrowingAllocator_Get( GrowingAllocator_s* allocator, u32 index )
 	return (T*)((u8*)allocator->data + index * sizeof( T )); 
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_MEMORY_H__

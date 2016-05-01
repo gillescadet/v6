@@ -8,7 +8,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/vec3.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class CGrid::CBuildState
 {
@@ -269,4 +269,4 @@ void CGrid::PrintBuildStatistics() const
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

@@ -1,12 +1,12 @@
 /*V6*/
 
-#include <v6/viewer/common.h>
-#include <v6/viewer/obj_reader.h>
+#include <v6/core/common.h>
+#include <v6/core/obj_reader.h>
 
 #include <v6/core/filesystem.h>
 #include <v6/core/memory.h>
 
-BEGIN_V6_VIEWER_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static bool IsSpaceCar( char c )
 {
@@ -19,9 +19,9 @@ static char* SkipSpace( char* token )
 	return token;
 }
 
-static core::u32 Count( const char* str, char token )
+static u32 Count( const char* str, char token )
 {
-	core::u32 count = 0;
+	u32 count = 0;
 
 	while ( *str )
 	{
@@ -45,21 +45,21 @@ static void TrimRight( char* token )
 	*token = 0;
 }
 
-static ObjMaterial_s* Obj_CreateDefaultMaterial( core::IAllocator* allocator )
+static ObjMaterial_s* Obj_CreateDefaultMaterial( IAllocator* allocator )
 {
 	ObjMaterial_s* material = (ObjMaterial_s*)allocator->alloc( sizeof( ObjMaterial_s ) );
 	memset( material, 0, sizeof( ObjMaterial_s ) );	
-	material->kd = core::Vec3_Make( 1.0f, 1.0f, 1.0f );
+	material->kd = Vec3_Make( 1.0f, 1.0f, 1.0f );
 	return material;
 }
 
-core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameMTL, core::IAllocator* allocator )
+u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameMTL, IAllocator* allocator )
 {
 	FILE* fileMTL = nullptr;
 	if ( fopen_s( &fileMTL, filenameMTL, "rb" ) != 0 )
 		return 0;
 
-	core::u32 materialCount = 0;
+	u32 materialCount = 0;
 
 	char line[4096];
 	while ( fgets( line, sizeof( line ), fileMTL ) )
@@ -77,12 +77,12 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 		return 0;
 
 	char path[256];
-	core::FilePath_ExtractPath( path, sizeof( path ), filenameMTL );
+	FilePath_ExtractPath( path, sizeof( path ), filenameMTL );
 
 	*materials = (ObjMaterial_s*)allocator->alloc( materialCount * sizeof( ObjMaterial_s ) );
 
 	ObjMaterial_s* curMaterial = nullptr;
-	core::u32 materialID = 0;
+	u32 materialID = 0;
 
 	fseek( fileMTL, 0, SEEK_SET );
 	while ( fgets( line, sizeof( line ), fileMTL ) )
@@ -99,7 +99,7 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 			TrimRight( name );
 			memset( curMaterial, 0, sizeof( *curMaterial ) );
 			strcpy_s( curMaterial->name, sizeof( curMaterial->name ), name );
-			curMaterial->kd = core::Vec3_Make( 1.0f, 1.0f, 1.0f );
+			curMaterial->kd = Vec3_Make( 1.0f, 1.0f, 1.0f );
 
 			++materialID;
 			continue;
@@ -162,19 +162,19 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 		{
 			char* mapKd = NextToken( token );
 			TrimRight( mapKd );
-			core::FilePath_Make( curMaterial->mapKd, sizeof( curMaterial->mapKd ), path, mapKd );
+			FilePath_Make( curMaterial->mapKd, sizeof( curMaterial->mapKd ), path, mapKd );
 		}
 		else if ( _strnicmp( token, "map_d", 5 ) == 0 )
 		{
 			char* mapD = NextToken( token );
 			TrimRight( mapD );
-			core::FilePath_Make( curMaterial->mapD, sizeof( curMaterial->mapD ), path, mapD );
+			FilePath_Make( curMaterial->mapD, sizeof( curMaterial->mapD ), path, mapD );
 		}
 		else if ( _strnicmp( token, "map_bump", 8 ) == 0 || _strnicmp( token, "bump", 4 ) == 0 )
 		{
 			char* mapBump = NextToken( token );
 			TrimRight( mapBump );
-			core::FilePath_Make( curMaterial->mapBump, sizeof( curMaterial->mapBump ), path, mapBump );		}
+			FilePath_Make( curMaterial->mapBump, sizeof( curMaterial->mapBump ), path, mapBump );		}
 		else
 		{
 			V6_WARNING( "Unknown token %s\n", token );
@@ -188,22 +188,22 @@ core::u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameM
 	return materialCount;
 }
 
-bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllocator* allocator )
+bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, IAllocator* allocator )
 {
 	FILE* fileOBJ = nullptr;
 	if ( fopen_s( &fileOBJ, filenameOBJ, "rb" ) != 0 )
 		return false;
 
 	ObjMaterial_s* materials = nullptr;
-	core::u32 materialCount = 0;
-	core::u32 positionCount = 0;
-	core::u32 normalCount = 0;
-	core::u32 uvCount = 0;
-	core::u32 meshCount = 0;
-	core::u32 triangleCount = 0;
+	u32 materialCount = 0;
+	u32 positionCount = 0;
+	u32 normalCount = 0;
+	u32 uvCount = 0;
+	u32 meshCount = 0;
+	u32 triangleCount = 0;
 
 	char path[256];
-	core::FilePath_ExtractPath( path, sizeof( path ), filenameOBJ );
+	FilePath_ExtractPath( path, sizeof( path ), filenameOBJ );
 
 	char line[4096];
 	while ( fgets( line, sizeof( line ), fileOBJ ) )
@@ -220,7 +220,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			TrimRight( filenameMTL );
 
 			char filepathMTL[256];
-			core::FilePath_Make( filepathMTL, sizeof( filepathMTL ), path, filenameMTL );
+			FilePath_Make( filepathMTL, sizeof( filepathMTL ), path, filenameMTL );
 			materialCount = Obj_ReadMaterialFile( &materials, filepathMTL, allocator );
 			if ( materialCount == 0 )
 			{
@@ -241,7 +241,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			++meshCount;		
 		else if ( _strnicmp( token, "f ", 2 ) == 0 )
 		{
-			core::u32 vertexCount = 0;
+			u32 vertexCount = 0;
 			char* ids = NextToken( token );
 			while ( *ids )
 			{
@@ -273,20 +273,20 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	}
 
 	scene->materials = materials;
-	scene->positions = allocator->newArray< core::Vec3 >( positionCount );
-	scene->normals = normalCount > 0 ? allocator->newArray< core::Vec3 >( normalCount ) : nullptr;
-	scene->uvs = uvCount > 0 ? allocator->newArray< core::Vec2 >( uvCount ) : nullptr;
+	scene->positions = allocator->newArray< Vec3 >( positionCount );
+	scene->normals = normalCount > 0 ? allocator->newArray< Vec3 >( normalCount ) : nullptr;
+	scene->uvs = uvCount > 0 ? allocator->newArray< Vec2 >( uvCount ) : nullptr;
 	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount );
-	scene->meshes = allocator->newArray< ObjMesh_s >( core::Max( 1u, meshCount ) );
+	scene->meshes = allocator->newArray< ObjMesh_s >( Max( 1u, meshCount ) );
 	scene->materialCount = materialCount;
-	scene->meshCount = core::Max( 1u, meshCount );
+	scene->meshCount = Max( 1u, meshCount );
 
-	core::u32 positionID = 0;
-	core::u32 normalID = 0;
-	core::u32 uvID = 0;
-	core::u32 meshID = 0;
-	core::u32 triangleID = 0;
-	core::u32 lastDisplayTriangleID = 0;
+	u32 positionID = 0;
+	u32 normalID = 0;
+	u32 uvID = 0;
+	u32 meshID = 0;
+	u32 triangleID = 0;
+	u32 lastDisplayTriangleID = 0;
 
 	ObjMesh_s* mesh = nullptr;
 	char s_lastMeshName[64] = {};
@@ -316,8 +316,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( positionID < positionCount );
 			char* v = NextToken( token );
-			core::Vec3* pos = &scene->positions[positionID];
-			const core::u32 n = sscanf_s( v, "%g %g %g", &pos->x, &pos->y, &pos->z );
+			Vec3* pos = &scene->positions[positionID];
+			const u32 n = sscanf_s( v, "%g %g %g", &pos->x, &pos->y, &pos->z );
 			V6_ASSERT( n == 3 );
 			++positionID;
 		}
@@ -325,8 +325,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( normalID < normalCount );
 			char* v = NextToken( token );
-			core::Vec3* normal = &scene->normals[normalID];
-			const core::u32 n = sscanf_s( v, "%g %g %g", &normal->x, &normal->y, &normal->z );
+			Vec3* normal = &scene->normals[normalID];
+			const u32 n = sscanf_s( v, "%g %g %g", &normal->x, &normal->y, &normal->z );
 			V6_ASSERT( n == 3 );
 			++normalID;
 		}
@@ -334,8 +334,8 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( uvID < uvCount );
 			char* v = NextToken( token );
-			core::Vec2* uv = &scene->uvs[uvID];
-			const core::u32 n = sscanf_s( v, "%g %g", &uv->x, &uv->y );
+			Vec2* uv = &scene->uvs[uvID];
+			const u32 n = sscanf_s( v, "%g %g", &uv->x, &uv->y );
 			V6_ASSERT( n == 2 );
 			++uvID;
 		}
@@ -352,7 +352,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			char* materialName = NextToken( token );
 			TrimRight( materialName );
 
-			core::u32 materialID;
+			u32 materialID;
 			for ( materialID = 0; materialID < materialCount; ++materialID )
 			{
 				if ( _stricmp( materials[materialID].name, materialName ) == 0 )
@@ -381,28 +381,28 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 		{
 			V6_ASSERT( mesh );
 			char* f = NextToken( token );
-			const core::u32 separatorCount = Count( f, '/' );
+			const u32 separatorCount = Count( f, '/' );
 
-			auto Triangle_InitVertices = [ positionID, uvID, normalID ]( ObjTriangle_s* triangle, const int* indices, const core::u32 indexRanks[9] )
+			auto Triangle_InitVertices = [ positionID, uvID, normalID ]( ObjTriangle_s* triangle, const int* indices, const u32 indexRanks[9] )
 			{
-				for ( core::u32 vertexID = 0; vertexID < 3; ++vertexID )
+				for ( u32 vertexID = 0; vertexID < 3; ++vertexID )
 				{				
-					if ( indexRanks[vertexID*3+0] == (core::u32)-1 )
-						triangle->vertices[vertexID].posID = (core::u32)-1;
+					if ( indexRanks[vertexID*3+0] == (u32)-1 )
+						triangle->vertices[vertexID].posID = (u32)-1;
 					else if ( indices[indexRanks[vertexID*3+0]] < 0 )
 						triangle->vertices[vertexID].posID = positionID + indices[indexRanks[vertexID*3+0]];
 					else
 						triangle->vertices[vertexID].posID = indices[indexRanks[vertexID*3+0]]-1;
 
-					if ( indexRanks[vertexID*3+1] == (core::u32)-1 )
-						triangle->vertices[vertexID].uvID = (core::u32)-1;
+					if ( indexRanks[vertexID*3+1] == (u32)-1 )
+						triangle->vertices[vertexID].uvID = (u32)-1;
 					else if ( indices[indexRanks[vertexID*3+1]] < 0 )
 						triangle->vertices[vertexID].uvID = uvID + indices[indexRanks[vertexID*3+1]];
 					else
 						triangle->vertices[vertexID].uvID = indices[indexRanks[vertexID*3+1]]-1;
 
-					if ( indexRanks[vertexID*3+2] == (core::u32)-1 )
-						triangle->vertices[vertexID].normalID = (core::u32)-1;
+					if ( indexRanks[vertexID*3+2] == (u32)-1 )
+						triangle->vertices[vertexID].normalID = (u32)-1;
 					else if ( indices[indexRanks[vertexID*3+2]] < 0 )
 						triangle->vertices[vertexID].normalID = normalID + indices[indexRanks[vertexID*3+2]];
 					else
@@ -410,17 +410,17 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				}
 			};
 
-			static const core::u32 NA = (core::u32)-1;
+			static const u32 NA = (u32)-1;
 			int ids[12];
 
 			if ( separatorCount == 0 )
 			{				
-				const core::u32 vertexCount = sscanf_s( f, "%d %d %d %d", ids+0, ids+1, ids+2, ids+3 );
+				const u32 vertexCount = sscanf_s( f, "%d %d %d %d", ids+0, ids+1, ids+2, ids+3 );
 				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
 
 				{
 					V6_ASSERT( triangleID < triangleCount );		
-					const core::u32 indexRanks[] = { 0, NA, NA,  1, NA, NA, 2, NA, NA };
+					const u32 indexRanks[] = { 0, NA, NA,  1, NA, NA, 2, NA, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -429,7 +429,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				if ( vertexCount == 4 )
 				{
 					V6_ASSERT( triangleID < triangleCount );			
-					const core::u32 indexRanks[] = { 0, NA, NA,  2, NA, NA, 3, NA, NA };
+					const u32 indexRanks[] = { 0, NA, NA,  2, NA, NA, 3, NA, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -437,15 +437,15 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			}
 			else if ( separatorCount == 3 || separatorCount == 4 )
 			{
-				const core::u32 n = sscanf_s( f, "%d/%d %d/%d %d/%d %d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
+				const u32 n = sscanf_s( f, "%d/%d %d/%d %d/%d %d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
 				V6_ASSERT( n % 2 == 0 );
-				const core::u32 vertexCount = n / 2;
+				const u32 vertexCount = n / 2;
 				V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
 
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-					const core::u32 indexRanks[] = { 0, 1, NA,  2, 3, NA, 4, 5, NA };
+					const u32 indexRanks[] = { 0, 1, NA,  2, 3, NA, 4, 5, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -455,7 +455,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				{
 					V6_ASSERT( triangleID < triangleCount );			
 					ObjTriangle_s* triangle = &scene->triangles[triangleID];
-					const core::u32 indexRanks[] = { 0, 1, NA,  4, 5, NA, 6, 7, NA };
+					const u32 indexRanks[] = { 0, 1, NA,  4, 5, NA, 6, 7, NA };
 					Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 					++triangleID;
 					++mesh->triangleCount;
@@ -463,18 +463,18 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 			}
 			else if ( separatorCount == 6 || separatorCount == 8 )
 			{
-				const core::u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
+				const u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
 				if ( n == 1 )
 				{
-					const core::u32 n = sscanf_s( f, "%d//%d %d//%d %d//%d %d//%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
+					const u32 n = sscanf_s( f, "%d//%d %d//%d %d//%d %d//%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
 					V6_ASSERT( n % 2 == 0 );
-					const core::u32 vertexCount = n / 2;
+					const u32 vertexCount = n / 2;
 					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
 
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, NA, 1, 2, NA, 3, 4, NA, 5 };
+						const u32 indexRanks[] = { 0, NA, 1, 2, NA, 3, 4, NA, 5 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;
@@ -484,7 +484,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, NA, 1, 4, NA, 5, 6, NA, 7 };
+						const u32 indexRanks[] = { 0, NA, 1, 4, NA, 5, 6, NA, 7 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;
@@ -493,13 +493,13 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 				else
 				{
 					V6_ASSERT( n % 3 == 0 );
-					const core::u32 vertexCount = n / 3;
+					const u32 vertexCount = n / 3;
 					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );
 
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+						const u32 indexRanks[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;
@@ -509,7 +509,7 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 					{
 						V6_ASSERT( triangleID < triangleCount );			
 						ObjTriangle_s* triangle = &scene->triangles[triangleID];
-						const core::u32 indexRanks[] = { 0, 1, 2, 6, 7, 8, 9, 10, 11 };
+						const u32 indexRanks[] = { 0, 1, 2, 6, 7, 8, 9, 10, 11 };
 						Triangle_InitVertices( &scene->triangles[triangleID], ids, indexRanks );
 						++triangleID;
 						++mesh->triangleCount;
@@ -551,4 +551,4 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, core::IAllo
 	return true;
 }
 
-END_V6_VIEWER_NAMESPACE
+END_V6_NAMESPACE

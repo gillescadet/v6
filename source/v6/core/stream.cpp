@@ -6,7 +6,7 @@
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 /// CFileReader
 
@@ -178,4 +178,4 @@ void CBufferWriter::Write( const void * pData, int nSize)
 	m_nPos += nSize;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

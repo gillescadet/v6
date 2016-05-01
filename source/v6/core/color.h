@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_COLOR_H__
 #define __V6_CORE_COLOR_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct Color_s
 {
@@ -40,6 +40,6 @@ V6_INLINE Color_s Color_Make( u8 r, u8 g, u8 b, u8 a )
 	return c;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_COLOR_H__

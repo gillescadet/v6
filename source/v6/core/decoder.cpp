@@ -7,7 +7,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static int Block_ComparePos( void* blockPosPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
@@ -180,24 +180,24 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 	}
 
 	{
-		core::u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
-		for ( core::u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
+		u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
+		for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 		{
 			if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
 				continue;
 
-			core::u32 blockPosOffet = 0;
-			core::u32 blockDataOffet = 0;
+			u32 blockPosOffet = 0;
+			u32 blockDataOffet = 0;
 
-			core::Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
+			Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 			float gridScale = sequence->desc.gridScaleMin;
-			core::u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
-			for ( core::u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-				macroGridCoords[mip] = core::Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
+			u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
+				macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
 
-			for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
+			for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
 			{
-				const core::u32 rangeID = nextRangeIDs[bucket];
+				const u32 rangeID = nextRangeIDs[bucket];
 
 				if ( rangeID == sequence->desc.rangeDefCounts[bucket] )
 				{
@@ -205,21 +205,21 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 					continue;
 				}
 
-				const core::CodecRange_s* codecRange = &rangeDefs[bucket][rangeID];
-				core::u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
+				const CodecRange_s* codecRange = &rangeDefs[bucket][rangeID];
+				u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
 				if ( frameID != rangeFrameID )
 				{
 					++bucket;
 					continue;
 				}
 
-				const core::u32 blockCount = codecRange->frameID8_mip4_blockCount20 & 0xFFFFF;
-				const core::u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
+				const u32 blockCount = codecRange->frameID8_mip4_blockCount20 & 0xFFFFF;
+				const u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
 
 				rangeBlockPosOffsets[bucket][rangeID] = blockPosOffet;
 				rangeBlockDataOffsets[bucket][rangeID] = blockDataOffet;
 
-				const core::u32 cellPerBucketCount = 1 << (2 + bucket);
+				const u32 cellPerBucketCount = 1 << (2 + bucket);
 				const u32 dataWidth = cellPerBucketCount;
 				blockPosOffet += blockCount;
 				blockDataOffet += blockCount * dataWidth;
@@ -228,7 +228,7 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 			}
 		}
 
-		for ( core::u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 			V6_ASSERT( nextRangeIDs[bucket] == sequence->desc.rangeDefCounts[bucket] );
 	}
 
@@ -348,13 +348,13 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
 					sequenceBlockIDs[blockRank] = blockRank;
 
-				qsort_s( sequenceBlockIDs, bucketBlockCount, sizeof( core::u32 ), Block_ComparePos, sequenceBlockPos );
+				qsort_s( sequenceBlockIDs, bucketBlockCount, sizeof( u32 ), Block_ComparePos, sequenceBlockPos );
 
 				u32* rawFrameBlockIDs = stack.newArray< u32 >( bucketBlockCount );
 				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
 					rawFrameBlockIDs[blockRank] = blockRank;
 
-				qsort_s( rawFrameBlockIDs, bucketBlockCount, sizeof( core::u32 ), Block_ComparePos, rawFrameBlockPos );
+				qsort_s( rawFrameBlockIDs, bucketBlockCount, sizeof( u32 ), Block_ComparePos, rawFrameBlockPos );
 
 				for ( u32 blockRank = 0; blockRank < bucketBlockCount; ++blockRank )
 				{
@@ -386,4 +386,4 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 	return true;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

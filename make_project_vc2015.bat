@@ -6,6 +6,7 @@ cl source\v6\doc\make_project.cpp /nologo /Fobin\make_project /Febin\make_projec
 if not exist "bin\make_project.exe" goto compilation_error
 
 call "bin\make_project.exe" v6 2015
+start project\vc2015\v6_2015.sln
 
 echo Done
 goto end

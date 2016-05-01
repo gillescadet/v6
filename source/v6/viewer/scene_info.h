@@ -8,17 +8,17 @@
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
 
-BEGIN_V6_VIEWER_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct SceneInfo_s
 {	
-	static const core::u32	MAX_PATH_COUNT = 2;
-	static const core::u32	MAX_POSITION_COUNT = 128;
+	static const u32	MAX_PATH_COUNT = 2;
+	static const u32	MAX_POSITION_COUNT = 128;
 	struct
 	{
 		char				entityName[64];
-		core::Vec3			positions[MAX_POSITION_COUNT];
-		core::u32			positionCount;
+		Vec3			positions[MAX_POSITION_COUNT];
+		u32			positionCount;
 		float				speed;
 	}						paths[MAX_PATH_COUNT];
 
@@ -31,6 +31,6 @@ void SceneInfo_Clear( SceneInfo_s* sceneInfo );
 bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename );
 bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename );
 
-END_V6_VIEWER_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_VIEWER_SCENE_INFO_H__

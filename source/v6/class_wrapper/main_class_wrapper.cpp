@@ -56,7 +56,7 @@ char* ReadLine( char** cursor )
 	return line;
 }
 
-char* ReadToken( char** cursor, core::IAllocator* allocator )
+char* ReadToken( char** cursor, IAllocator* allocator )
 {
 	char *s = *cursor;
 
@@ -68,7 +68,7 @@ char* ReadToken( char** cursor, core::IAllocator* allocator )
 	while ( *s && IsAlphaNum( *s ) )
 		++s;
 
-	core::u32 len = (core::u32)(s-token);
+	u32 len = (u32)(s-token);
 	char* buffer = allocator->newArray< char >( len + 1 );
 	strncpy_s( buffer, len+1, token, len );
 
@@ -146,9 +146,9 @@ void ReadFunction( char** ret, char** function, char** args, char* signature )
 	*signature = 0;
 }
 
-core::u32 ReadArgs( char** types, char** params, core::u32 maxTypeCount, char* args )
+u32 ReadArgs( char** types, char** params, u32 maxTypeCount, char* args )
 {
-	core::u32 typeCount = 0;
+	u32 typeCount = 0;
 
 	for (;;)
 	{
@@ -206,11 +206,11 @@ core::u32 ReadArgs( char** types, char** params, core::u32 maxTypeCount, char* a
 	return typeCount;
 }
 
-void Parse( const char* className, const char* filenameSrc, core::IAllocator* allocator )
+void Parse( const char* className, const char* filenameSrc, IAllocator* allocator )
 {
 	void* data;
 
-	core::CFileSystem fileSystem;
+	CFileSystem fileSystem;
 	if ( fileSystem.ReadFile( filenameSrc, &data, allocator ) <= 0 )
 		exit( 1 );
 
@@ -242,10 +242,10 @@ void Parse( const char* className, const char* filenameSrc, core::IAllocator* al
 
 		char* types[16] = {};
 		char* params[16] = {};
-		const core::u32 typeCount = ReadArgs( types, params, 16, args );
+		const u32 typeCount = ReadArgs( types, params, 16, args );
 
 		V6_MSG( "\tvirtual %s %s( ", ret, function );
-		for ( core::u32 typeID = 0; typeID < typeCount; ++typeID )
+		for ( u32 typeID = 0; typeID < typeCount; ++typeID )
 			V6_MSG( typeID == 0 ? "%s %s" : ", %s %s", types[typeID], params[typeID] );
 		V6_MSG( " ) final override\n" );
 		V6_MSG( "\t{\n" );
@@ -253,7 +253,7 @@ void Parse( const char* className, const char* filenameSrc, core::IAllocator* al
 			V6_MSG( "\t\tm_wrapped->%s( ", function );
 		else
 			V6_MSG( "\t\treturn m_wrapped->%s( ", function );
-		for ( core::u32 typeID = 0; typeID < typeCount; ++typeID )
+		for ( u32 typeID = 0; typeID < typeCount; ++typeID )
 			V6_MSG( typeID == 0 ? "%s" : ", %s", params[typeID] );
 		V6_MSG( " );\n" );
 		V6_MSG( "\t}\n" );
@@ -270,8 +270,8 @@ int main()
 {
 	V6_MSG( "Class Wrapper 0.0\n" );
 
-	core::CHeap heap;
-	core::Stack stack( &heap, 100 * 1024 * 1024 );
+	CHeap heap;
+	Stack stack( &heap, 100 * 1024 * 1024 );
 
 	Parse( "FDynamicRHI",			"../../source/v6/class_wrapper/FDynamicRHI.txt",			&stack );
 	Parse( "IRHICommandContext",	"../../source/v6/class_wrapper/IRHICommandContext.txt",		&stack );

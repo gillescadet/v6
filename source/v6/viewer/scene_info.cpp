@@ -1,12 +1,12 @@
 /*V6*/
 
-#include <v6/viewer/common.h>
+#include <v6/core/common.h>
 #include <v6/viewer/scene_info.h>
 
 #include <v6/core/filesystem.h>
 #include <v6/core/stream.h>
 
-BEGIN_V6_VIEWER_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static bool IsSpaceCar( char c )
 {
@@ -42,7 +42,7 @@ bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename )
 {
 	SceneInfo_Clear( sceneInfo );
 
-	core::CFileReader fileReader;
+	CFileReader fileReader;
 	if ( !fileReader.Open( filename ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", filename );
@@ -103,14 +103,14 @@ bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename )
 		else if ( _stricmp( strKey, "pathPosition" ) == 0 )
 		{
 			int pathID, positionID;
-			const core::u32 scanCount = sscanf_s( strIndex, "%d_%d", &pathID, &positionID );
+			const u32 scanCount = sscanf_s( strIndex, "%d_%d", &pathID, &positionID );
 			if ( scanCount != 2 || pathID < 0 || pathID >= sceneInfo->MAX_PATH_COUNT || positionID < 0 || positionID >= sceneInfo->MAX_POSITION_COUNT )
 				goto bad_format;
-			core::Vec3 pos;
+			Vec3 pos;
 			if ( sscanf_s( strValue, "%g %g %g", &pos.x, &pos.y, &pos.z ) != 3 )
 				goto bad_format;
 			sceneInfo->paths[pathID].positions[positionID] = pos;
-			sceneInfo->paths[pathID].positionCount = core::Max( sceneInfo->paths[pathID].positionCount, (core::u32)positionID + 1 );
+			sceneInfo->paths[pathID].positionCount = Max( sceneInfo->paths[pathID].positionCount, (u32)positionID + 1 );
 		}
 		else if ( _stricmp( strKey, "pathSpeed" ) == 0 )
 		{
@@ -149,7 +149,7 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 	if ( !sceneInfo->dirty )
 		return true;
 
-	core::CFileWriter fileWriter;
+	CFileWriter fileWriter;
 	if ( !fileWriter.Open( filename ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", filename );
@@ -158,14 +158,14 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 
 	char info[4096] = {};
 	char* str = info;
-	core::u32 remainingSize = sizeof( info );
+	u32 remainingSize = sizeof( info );
 
-	for ( core::u32 pathID = 0; pathID < SceneInfo_s::MAX_PATH_COUNT; ++pathID )
+	for ( u32 pathID = 0; pathID < SceneInfo_s::MAX_PATH_COUNT; ++pathID )
 	{
 		str += sprintf_s( str, sizeof( info ) - (str-info), "pathEntity#%d: %s\n", pathID, sceneInfo->paths[pathID].entityName );
-		for ( core::u32 positionID = 0; positionID < sceneInfo->paths[pathID].positionCount; ++positionID )
+		for ( u32 positionID = 0; positionID < sceneInfo->paths[pathID].positionCount; ++positionID )
 		{
-			const core::Vec3* pos = &sceneInfo->paths[pathID].positions[positionID];
+			const Vec3* pos = &sceneInfo->paths[pathID].positions[positionID];
 			str += sprintf_s( str, sizeof( info ) - (str-info), "pathPosition#%d_%d: %g %g %g\n", pathID, positionID, pos->x, pos->y, pos->z );
 		}
 		str += sprintf_s( str, sizeof( info ) - (str-info), "pathSpeed#%d: %g\n", pathID, sceneInfo->paths[pathID].speed );
@@ -173,9 +173,9 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 	str += sprintf_s( str, sizeof( info ) - (str-info), "cameraYaw: %g\n", sceneInfo->cameraYaw );
 	str += sprintf_s( str, sizeof( info ) - (str-info), "worldUnitToCM: %g\n", sceneInfo->worldUnitToCM );
 
-	fileWriter.Write( info, (core::u32)(str-info) );
+	fileWriter.Write( info, (u32)(str-info) );
 
 	return false;
 }
 
-END_V6_VIEWER_NAMESPACE
+END_V6_NAMESPACE

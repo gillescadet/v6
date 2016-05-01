@@ -7,7 +7,7 @@
 
 #define GROUP_MAX_SIZE	1024
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 static bool				s_initialized = false;
 static u32				s_threadDoneCount = 0;
@@ -37,7 +37,7 @@ static void KernelWrapper( void* threadContextPointer )
 		Signal_Emit( &s_threadGroupDone );
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 BEGIN_V6_HLSL_NAMESPACE
 
@@ -58,55 +58,55 @@ uint firstbithigh( uint value )
 
 void InterlockedAdd( uint& value, uint add )
 {
-	core::Atomic_Add( &value, add );
+	Atomic_Add( &value, add );
 }
 
 void InterlockedAdd( uint& value, uint add, uint& prevValue )
 {
-	prevValue = core::Atomic_Add( &value, add );
+	prevValue = Atomic_Add( &value, add );
 }
 
 void InterlockedAnd( uint& value, uint mask )
 {
-	core::Atomic_And( &value, mask );
+	Atomic_And( &value, mask );
 }
 
 void InterlockedAnd( uint& value, uint mask, uint& prevValue )
 {
-	prevValue = core::Atomic_And( &value, mask );
+	prevValue = Atomic_And( &value, mask );
 }
 
 void InterlockedOr( uint& value, uint mask )
 {
-	core::Atomic_Or( &value, mask );
+	Atomic_Or( &value, mask );
 }
 
 void InterlockedOr( uint& value, uint mask, uint& prevValue )
 {
-	prevValue = core::Atomic_Or( &value, mask );
+	prevValue = Atomic_Or( &value, mask );
 }
 
 void AllMemoryBarrierWithGroupSync()
 {
-	const uint barrier = v6::core::s_barrier;
-	if ( v6::core::Atomic_Inc( &v6::core::s_concurrentBarrierCounts[barrier] ) + 1 < v6::core::s_threadGroupSize )
+	const uint barrier = v6::s_barrier;
+	if ( v6::Atomic_Inc( &v6::s_concurrentBarrierCounts[barrier] ) + 1 < v6::s_threadGroupSize )
 	{
-		v6::core::Signal_Wait( &v6::core::s_threadGroupBarriers[barrier] );
-		V6_ASSERT( v6::core::s_concurrentBarrierCounts[barrier] == v6::core::s_threadGroupSize );
+		v6::Signal_Wait( &v6::s_threadGroupBarriers[barrier] );
+		V6_ASSERT( v6::s_concurrentBarrierCounts[barrier] == v6::s_threadGroupSize );
 	}
 	else
 	{
-		v6::core::s_barrier = 1 - barrier;
-		v6::core::Signal_Reset( &v6::core::s_threadGroupBarriers[v6::core::s_barrier] );
-		v6::core::s_concurrentBarrierCounts[v6::core::s_barrier] = 0;
+		v6::s_barrier = 1 - barrier;
+		v6::Signal_Reset( &v6::s_threadGroupBarriers[v6::s_barrier] );
+		v6::s_concurrentBarrierCounts[v6::s_barrier] = 0;
 
-		v6::core::Signal_Emit( &v6::core::s_threadGroupBarriers[barrier] );
+		v6::Signal_Emit( &v6::s_threadGroupBarriers[barrier] );
 	}
 }
 
 END_V6_HLSL_NAMESPACE
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 // Compute API
 
@@ -176,4 +176,4 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 	// V6_PRINT( "\rDispatch %s( %d/%d )\n", name, threadID, elementCount );
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

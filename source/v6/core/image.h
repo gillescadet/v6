@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_IMAGE_H__
 #define __V6_CORE_IMAGE_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 class IStreamReader;
@@ -41,6 +41,6 @@ bool	Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 void	Image_Release( Image_s* image );
 void	Image_WriteBitmap( Image_s* image, IStreamWriter* stream );
 	
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_IMAGE_H__

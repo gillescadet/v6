@@ -11,7 +11,7 @@
 
 #define CODEC_LZ4_COMPRESSION_LEVEL 4
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct CodecSequenceHeader_s
 {
@@ -37,7 +37,7 @@ struct CodecFrameHeader_s
 	CodecFrameDesc_s		desc;
 };
 
-Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth )
+Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth )
 {
 	// note: use the exact same code than Codec_ComputeGridCenter
 	const float blockSize = gridScale / gridMacroHalfWidth;
@@ -46,7 +46,7 @@ Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, core::u32 gridMa
 	return Vec3_Make( floorf( normalizedPos.x ), floorf( normalizedPos.y ), floorf( normalizedPos.z ) ) * blockSize;
 }
 
-Vec3i Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, core::u32 gridMacroHalfWidth )
+Vec3i Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth )
 {
 	// note: use the exact same code than Codec_ComputeMacroGridCoords
 	const float blockSize = gridScale / gridMacroHalfWidth;
@@ -544,4 +544,4 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	return true;
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

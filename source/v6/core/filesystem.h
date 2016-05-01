@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_FILESYSTEM_H__
 #define __V6_CORE_FILESYSTEM_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
@@ -28,9 +28,9 @@ public:
 
 public:
 	bool	GetFileList(const char * pFilter, FileCallback pFileCallback, void * pCallbackData) const;
-	int		ReadFile( const char* filename, void** data, core::IAllocator* allocator );
+	int		ReadFile( const char* filename, void** data, IAllocator* allocator );
 };
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_FILESYSTEM_H__

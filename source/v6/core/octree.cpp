@@ -6,7 +6,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/vec3.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct Node_s
 {
@@ -108,4 +108,4 @@ void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float* radii,
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

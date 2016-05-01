@@ -7,7 +7,7 @@
 
 #include <v6/core/codec.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 class IStack;
@@ -27,6 +27,6 @@ bool Sequence_LoadDesc( const char* sequenceFilename, CodecSequenceDesc_s* seque
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator );
 bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator );
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_DECODER_H__

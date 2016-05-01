@@ -42,22 +42,22 @@ BEGIN_V6_HLSL_NAMESPACE
 
 typedef unsigned int uint;
 
-typedef v6::core::Vec2i		int2;
-typedef v6::core::Vec4i		int4;
+typedef v6::Vec2i		int2;
+typedef v6::Vec4i		int4;
 
-typedef v6::core::Vec2u		uint2;
-typedef v6::core::Vec3u		uint3;
-typedef v6::core::Vec4u		uint4;
+typedef v6::Vec2u		uint2;
+typedef v6::Vec3u		uint3;
+typedef v6::Vec4u		uint4;
 
-typedef v6::core::Vec2		float2;
-typedef v6::core::Vec3		float3;
-typedef v6::core::Vec4		float4;
-typedef v6::core::Mat4x4	matrix;
+typedef v6::Vec2		float2;
+typedef v6::Vec3		float3;
+typedef v6::Vec4		float4;
+typedef v6::Mat4x4	matrix;
 
-struct int3 : core::Vec3i
+struct int3 : Vec3i
 {
 	int3() {}
-	int3( const core::Vec3i& v )
+	int3( const Vec3i& v )
 	{
 		x = v.x;
 		y = v.y;

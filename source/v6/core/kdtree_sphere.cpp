@@ -5,7 +5,7 @@
 
 #include <v6/core/memory.h>
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 struct SKDTreeSphereBuildState
 {
@@ -14,7 +14,7 @@ struct SKDTreeSphereBuildState
 
 CKDTreeSphere::CKDTreeSphere(IAllocator & oHeap)
 : m_oHeap(oHeap)
-, m_pBlockAllocator(oHeap.newInstance<core::CBlockAllocator>(oHeap))
+, m_pBlockAllocator(oHeap.newInstance<CBlockAllocator>(oHeap))
 {
 
 }
@@ -39,4 +39,4 @@ void CKDTreeSphere::Build(SSPhere const * pSpheres, int nSphereCount)
 	}
 }
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE

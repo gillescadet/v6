@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_OCTREE_H__
 #define __V6_CORE_OCTREE_H__
 
-BEGIN_V6_CORE_NAMESPACE
+BEGIN_V6_NAMESPACE
 
 class IAllocator;
 struct Octree_s;
@@ -15,6 +15,6 @@ void Octree_Create( Octree_s** octree, float width, IAllocator* heap );
 void Octree_Release( Octree_s* octree );
 void Octree_AddPoints( Octree_s* octree, const Vec3* points, const float* radii, u32 count, const u32 firstID );
 
-END_V6_CORE_NAMESPACE
+END_V6_NAMESPACE
 
 #endif // __V6_CORE_OCTREE_H__
