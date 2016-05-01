@@ -228,15 +228,16 @@ enum
 
 enum
 {
-	PROJECT_COMPRESSOR		= 1 << 0,
-	PROJECT_CORE			= 1 << 1,
-	PROJECT_DOC				= 1 << 2,
-	PROJECT_ENCODER			= 1 << 3,
-	PROJECT_LIBOVR			= 1 << 4,
-	PROJECT_LIBOVRKERNEL	= 1 << 5,
-	PROJECT_VIEWER			= 1 << 6,
+	PROJECT_CLASSWRAPPER	= 1 << 0,
+	PROJECT_COMPRESSOR		= 1 << 1,
+	PROJECT_CORE			= 1 << 2,
+	PROJECT_DOC				= 1 << 3,
+	PROJECT_ENCODER			= 1 << 4,
+	PROJECT_LIBOVR			= 1 << 5,
+	PROJECT_LIBOVRKERNEL	= 1 << 6,
+	PROJECT_VIEWER			= 1 << 7,
 
-	PROJECT_COUNT			= 7 
+	PROJECT_COUNT			= 8
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -249,6 +250,7 @@ static const Config_s s_configs[CONFIG_COUNT] =
 
 static const Project_s s_projects[PROJECT_COUNT] = 
 { 
+	{ PROJECT_CLASSWRAPPER, "EE652B0F-8AEA-42F8-8529-41C075FA4DA7", "class_wrappper", PROJECT_CORE },
 	{ PROJECT_COMPRESSOR,	"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor"	, PROJECT_CORE },
 	{ PROJECT_CORE,			"E3F17175-50AF-4521-8877-58B667ED3DE4", "core"			, 0, true },
 	{ PROJECT_DOC,			"3CF8E22B-F0B6-43A7-B472-9E3ACB91591A", "doc" },
@@ -260,6 +262,9 @@ static const Project_s s_projects[PROJECT_COUNT] =
 
 static ProjectFile_s s_projectFiles[] =
 {
+	// class wrapper
+	{ "source/v6/class_wrapper/main_class_wrapper.cpp",	PROJECT_CLASSWRAPPER },
+
 	// compressor
 	{ "source/v6/compressor/main_compressor.cpp",		PROJECT_COMPRESSOR },
 

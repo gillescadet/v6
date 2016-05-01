@@ -9,11 +9,13 @@ namespace UnrealBuildTool.Rules
 			PrivateIncludePaths.AddRange(
 				new string[] {
 					"Runtime/Video6DOF/Private",
-				}
+                    "../../../../Source/Runtime/Renderer/Private",
+                }
 			);
 
 			PrivateDependencyModuleNames.AddRange(
-				new string[] {
+				new string[] 
+                {
 					"Core",
 					"CoreUObject",
 					"Engine",
@@ -25,6 +27,24 @@ namespace UnrealBuildTool.Rules
 					"Slate",
 				}
 			);
-		}
+
+            if ( Target.Platform == UnrealTargetPlatform.Win64 )
+            {
+                PrivateDependencyModuleNames.AddRange(
+                    new string[]
+                    {
+                        "D3D11RHI",
+                    }
+                );
+
+                PrivateIncludePaths.AddRange(
+                    new string[]
+                    {
+                        "../../../../Source/Runtime/Windows/D3D11RHI/Private",
+                        "../../../../Source/Runtime/Windows/D3D11RHI/Private/Windows",
+                    }
+                );
+            }
+        }
 	}
 }

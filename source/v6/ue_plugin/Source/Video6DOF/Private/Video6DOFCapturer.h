@@ -4,6 +4,8 @@
 
 #include "Video6DOFCapturer.generated.h"
 
+class FSceneViewExtension;
+
 UENUM()
 enum EVideo6DOFCapturerState
 {
@@ -31,25 +33,28 @@ public:
 
 	//~ FTickableGameObject interface
 
-	virtual TStatId				GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT( UVideo6DOFCapturer, STATGROUP_Tickables ); }
-	virtual bool				IsTickable() const { return true; }
-	virtual bool				IsTickableWhenPaused() const { return false; }
-	virtual void				Tick( float DeltaTime ) override;
+	virtual TStatId												GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT( UVideo6DOFCapturer, STATGROUP_Tickables ); }
+	virtual bool												IsTickable() const { return true; }
+	virtual bool												IsTickableWhenPaused() const { return false; }
+	virtual void												Tick( float DeltaTime ) override;
 
 public:
 	
-	void						Capture( const FVector& position, const FQuat& orientation );
+	void														AddView();
+	void														Capture( const FVector& position, const FQuat& orientation );
+	void														UpdateScene();
 
 private:
 	
-	void						Init();
+	void														Init();
 
 private:
 
-	IImageWrapperModule*		m_imageWrapperModule;
-	USceneCaptureComponent2D*	m_captureComponent;
-	EVideo6DOFCapturerState		m_state;
-	FVector						m_capturePosition;
-	FQuat						m_captureOrientation;
-	TArray< FColor >			m_colors;
+	IImageWrapperModule*										m_imageWrapperModule;
+	USceneCaptureComponent2D*									m_captureComponent;
+	EVideo6DOFCapturerState										m_state;
+	FVector														m_capturePosition;
+	FQuat														m_captureOrientation;
+	TArray< FColor >											m_colors;
+	TSharedPtr< FSceneViewExtension, ESPMode::ThreadSafe >		m_viewExtension;
 };

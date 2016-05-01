@@ -204,7 +204,7 @@ int CFileSystem::ReadFile( const char* filename, void** data, core::IAllocator* 
 
 	if ( fopen_s( &file, filename, "rb" ) != 0 )
 	{
-		V6_ERROR( "Unable to open file %s", filename );
+		V6_ERROR( "Unable to open file %s\n", filename );
 		return -1;
 	}
 

@@ -10,6 +10,8 @@ public:
 
 public:
 
+	void CreateCapturer();
+	void AddView( const TArray<FString>& Args );
 	void Screenshot( const TArray<FString>& Args );
 
 public:
@@ -19,4 +21,5 @@ public:
 private:
 
 	FAutoConsoleCommand			m_screenshotCommand;
+	FAutoConsoleCommand			m_addViewCommand;
 };
