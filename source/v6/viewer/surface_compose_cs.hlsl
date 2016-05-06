@@ -1,5 +1,5 @@
 #define HLSL
-#include "common_shared.h"
+#include "viewer_shared.h"
 
 Texture2D< float4 > leftColors : register( HLSL_LCOLOR_SRV );
 Texture2D< float4 > rightColors : register( HLSL_RCOLOR_SRV );

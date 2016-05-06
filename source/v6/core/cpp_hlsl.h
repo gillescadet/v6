@@ -28,8 +28,11 @@
 #include <v6/core/vec4i.h>
 #include <v6/core/mat4x4.h>
 
-#define BEGIN_V6_HLSL_NAMESPACE		namespace v6 { namespace hlsl {
-#define END_V6_HLSL_NAMESPACE		} }
+#define BEGIN_V6_HLSL_NAMESPACE				namespace v6 { namespace hlsl {
+#define END_V6_HLSL_NAMESPACE				} }
+
+#define BEGIN_HLSL_BYTECODE( SHADER )		namespace hlsl { namespace SHADER {
+#define END_HLSL_BYTECODE					} }
 
 BEGIN_V6_HLSL_NAMESPACE
 

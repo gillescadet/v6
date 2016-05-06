@@ -1080,7 +1080,7 @@ bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* s
 		return false;
 	}
 
-	Stack stack( heap, 300 * 1024 * 1024 );
+	Stack stack( heap, 400 * 1024 * 1024 );
 
 	Context_s* context = stack.newInstance< Context_s >();
 	memset( context, 0, sizeof( *context ) );

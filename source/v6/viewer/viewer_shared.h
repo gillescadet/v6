@@ -1,9 +1,9 @@
 /*V6*/
 
-#ifndef __V6_HLSL_BASIC_SHARED_H__
-#define __V6_HLSL_BASIC_SHARED_H__
+#ifndef __V6_HLSL_VIEWER_SHARED_H__
+#define __V6_HLSL_VIEWER_SHARED_H__
 
-#include "../core/cpp_hlsl.h"
+#include "../graphic/common_shared.h"
 
 BEGIN_V6_HLSL_NAMESPACE
 
@@ -18,7 +18,6 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_EYE_COUNT								1
 #endif
 #define HLSL_DEBUG_OCCUPANCY						0
-#define HLSL_DEBUG_COLLECT							1
 
 #define HLSL_BLOCK_SHOW_FLAG_MIPS					1
 #define HLSL_BLOCK_SHOW_FLAG_BUCKETS				2
@@ -36,9 +35,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_DATA_SLOT						5
 
 // baking slots
-#define HLSL_BLOCK_INDIRECT_ARGS_SLOT				6
-#define HLSL_SAMPLE_SLOT							7
-#define HLSL_SAMPLE_INDIRECT_ARGS_SLOT				8
+#define HLSL_BLOCK_INDIRECT_ARGS_SLOT				8
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT			9
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT			10
 #define HLSL_OCTREE_LEAF_SLOT						11
@@ -63,9 +60,6 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_LCOLOR_SRV								CONCAT( t, HLSL_LCOLOR_SLOT )
 #define HLSL_RCOLOR_SRV								CONCAT( t, HLSL_RCOLOR_SLOT )
 #define HLSL_DEPTH_SRV								CONCAT( t, HLSL_DEPTH_SLOT )
-
-#define HLSL_SAMPLE_SRV								CONCAT( t, HLSL_SAMPLE_SLOT )
-#define HLSL_SAMPLE_INDIRECT_ARGS_SRV				CONCAT( t, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
 
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_SRV			CONCAT( t, HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV			CONCAT( t, HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT )
@@ -93,9 +87,6 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_SURFACE_UAV							CONCAT( u, HLSL_SURFACE_SLOT )
 #define HLSL_LCOLOR_UAV								CONCAT( u, HLSL_LCOLOR_SLOT )
 #define HLSL_RCOLOR_UAV								CONCAT( u, HLSL_RCOLOR_SLOT )
-
-#define HLSL_SAMPLE_UAV								CONCAT( u, HLSL_SAMPLE_SLOT )
-#define HLSL_SAMPLE_INDIRECT_ARGS_UAV				CONCAT( u, HLSL_SAMPLE_INDIRECT_ARGS_SLOT )
 
 #define HLSL_OCTREE_SAMPLE_NODE_OFFSET_UAV			CONCAT( u, HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT )
 #define HLSL_OCTREE_FIRST_CHILD_OFFSET_UAV			CONCAT( u, HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT )
@@ -144,16 +135,10 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GRID_HALF_WIDTH						(HLSL_GRID_WIDTH >> 1)
 #define HLSL_GRID_QUARTER_WIDTH						(HLSL_GRID_WIDTH >> 2)
 
-#define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				64
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				64
-#define	HLSL_MIP_MAX_COUNT							16
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_BUCKET_COUNT							5
-#define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
-#define HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
-#define HLSL_CELL_SUPER_SAMPLING_WIDTH_CUBE			(HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH)
-#define HLSL_CELL_SUPER_SAMPLING_WIDTH				3
 #define HLSL_PIXEL_SUPER_SAMPLING_WIDTH				1
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT		2
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT		(1 << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT)
@@ -182,17 +167,6 @@ CBUFFER( CBGeneric, 1 )
 	int					c_genericPad1;
 	int					c_genericPad2;
 	
-};
-
-CBUFFER( CBSample, 2 )
-{
-	float				c_sampleDepthLinearScale;
-	float				c_sampleDepthLinearBias;
-	float2				c_sampleInvCubeSize;
-	float3				c_samplePos;
-	uint				c_sampleFaceID;
-	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
-	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };
 
 CBUFFER( CBOctree, 3 )
@@ -257,13 +231,6 @@ CBUFFER( CBCompose, 7 )
 	uint3				c_composeunused;
 };
 
-struct Sample
-{
-	uint row0;
-	uint row1;
-	uint row2;
-};
-
 struct OctreeLeaf
 {
 	uint x9_r23;
@@ -320,41 +287,6 @@ struct BlockTraceStats
 	uint	cellItemCount;
 	uint	cellItemMaxCountPerPixel;
 };
-
-#define sample_groupCountX_offset							0
-#define sample_groupCountY_offset							1
-#define sample_groupCountZ_offset							2
-#define sample_count_offset									3
-#if HLSL_DEBUG_COLLECT == 1
-#define sample_out_offset									4
-#define sample_error_offset									5
-#define sample_pixelCount_offset							6
-#define sample_pixelSampleCount_offset						7
-#if 0
-#define sample_occupancy_offset								8
-#define sample_cellCoords_offset( ID )						(9 + (ID))
-#define sample_all_offset									(sample_cellCoords_offset( 144 ) + 1)
-#else
-#define sample_all_offset									8
-#endif
-#else
-#define sample_all_offset									4
-#endif // #if HLSL_DEBUG_COLLECT == 1
-
-#define sample_groupCountX									sampleIndirectArgs[sample_groupCountX_offset] // ThreadGroupCountX
-#define sample_groupCountY									sampleIndirectArgs[sample_groupCountY_offset] // ThreadGroupCountY
-#define sample_groupCountZ									sampleIndirectArgs[sample_groupCountZ_offset] // ThreadGroupCountZ
-#if HLSL_DEBUG_COLLECT == 1
-#define sample_out											sampleIndirectArgs[sample_out_offset]
-#define sample_error										sampleIndirectArgs[sample_error_offset]
-#define sample_pixelCount									sampleIndirectArgs[sample_pixelCount_offset]
-#define sample_pixelSampleCount								sampleIndirectArgs[sample_pixelSampleCount_offset]
-#if 0
-#define sample_occupancy									sampleIndirectArgs[sample_occupancy_offset]
-#define sample_cellCoords( ID )								sampleIndirectArgs[sample_cellCoords_offset( ID )]
-#endif
-#endif // #if HLSL_DEBUG_COLLECT == 1
-#define sample_count										sampleIndirectArgs[sample_count_offset]
 
 #define octree_leafGroupCountX_offset						0
 #define octree_leafGroupCountY_offset						1
@@ -429,4 +361,4 @@ struct BlockTraceStats
 
 END_V6_HLSL_NAMESPACE
 
-#endif // __V6_HLSL_BASIC_SHARED_H__
+#endif // __V6_HLSL_VIEWER_SHARED_H__

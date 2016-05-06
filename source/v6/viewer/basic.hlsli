@@ -5,7 +5,7 @@
 
 #define HLSL
 
-#include "common_shared.h"
+#include "viewer_shared.h"
 
 struct VertexInput
 {

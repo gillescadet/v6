@@ -2,8 +2,8 @@
 
 #pragma once
 
-#ifndef __V6_VIEWER_OBJ_READER_H__
-#define __V6_VIEWER_OBJ_READER_H__
+#ifndef __V6_CORE_OBJ_READER_H__
+#define __V6_CORE_OBJ_READER_H__
 
 #include <v6/core/image.h>
 #include <v6/core/vec2.h>
@@ -72,4 +72,4 @@ bool			Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, IAllocato
 
 END_V6_NAMESPACE
 
-#endif // __V6_VIEWER_OBJ_READER_H__
+#endif // __V6_CORE_OBJ_READER_H__

@@ -1,13 +1,15 @@
 #define HLSL
-#include "common_shared.h"
-#include "sample_pack.hlsli"
 
-StructuredBuffer< Sample > samples				: register( HLSL_SAMPLE_SRV );
-Buffer< uint > sampleIndirectArgs 				: register( HLSL_SAMPLE_INDIRECT_ARGS_SRV );
-Buffer< uint > sampleNodeOffsets 				: register( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SRV );
-Buffer< uint > firstChildOffsets				: register( HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV );
+#include "../graphic/capture_shared.h"
+#include "../graphic/sample_pack.hlsli"
+#include "viewer_shared.h"
 
-RWStructuredBuffer< OctreeLeaf > octreeLeaves	: register( HLSL_OCTREE_LEAF_UAV );
+StructuredBuffer< Sample > samples				: REGISTER_SRV( HLSL_SAMPLE_SLOT );
+Buffer< uint > sampleIndirectArgs 				: REGISTER_SRV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );
+Buffer< uint > sampleNodeOffsets 				: REGISTER_SRV( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT );
+Buffer< uint > firstChildOffsets				: REGISTER_SRV( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT );
+
+RWStructuredBuffer< OctreeLeaf > octreeLeaves	: REGISTER_UAV( HLSL_OCTREE_LEAF_SLOT );
 
 [ numthreads( HLSL_SAMPLE_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )

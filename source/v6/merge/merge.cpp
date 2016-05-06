@@ -10,7 +10,7 @@
 #include <v6/core/stream.h>
 #include <v6/core/vec3i.h>
 
-#include <v6/viewer/common_shared.h>
+#include <v6/viewer/viewer_shared.h>
 
 #define V6_MERGE_VERBOSE				0
 

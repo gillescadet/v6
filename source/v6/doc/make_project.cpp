@@ -81,6 +81,7 @@ TEMPLATE projectSourceH						= TEXT(				<ClInclude Include="%s/%s" />\n );
 TEMPLATE projectSourceHLSL					= TEXT(				<FxCompile Include="%s/%s" >\n
 																	<ShaderType>%s</ShaderType>\n
 																	%s
+																	%s
 																</FxCompile>\n );
 TEMPLATE projectSourceTXT					= TEXT(				<ClInclude Include="%s/%s" />\n );
 TEMPLATE projectSourcesEnd					= TEXT(			</ItemGroup>\n );
@@ -184,6 +185,9 @@ TEMPLATE commonRelease						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 															</ItemGroup>\n
 														</Project>\n );
 
+TEMPLATE HLSL_OuputBytecodeInHeaderFile		= TEXT( <HeaderFileOutput>%%(RelativeDir)%%(Filename)_bytecode.h</HeaderFileOutput>\n
+													<ObjectFileOutput/>\n );
+
 TEMPLATE HLSL_DisableTreatWarningAsError	= TEXT( <TreatWarningAsError>false</TreatWarningAsError>\n );
 
 // Implemmentation
@@ -208,7 +212,8 @@ struct ProjectFile_s
 {
 	const char*			name;
 	u32					projects;
-	const char*			specialCase;
+	const char*			specialCase1;
+	const char*			specialCase2;
 };
 
 struct Config_s
@@ -299,8 +304,11 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/obj_reader.cpp",					PROJECT_VIEWER },
 	{ "source/v6/core/stream.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/string.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/thread.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/time.cpp",						PROJECT_VIEWER },
+	{ "source/v6/graphic/capture.cpp",					PROJECT_VIEWER },
+	{ "source/v6/graphic/gpu.cpp",						PROJECT_VIEWER },
 	{ "source/v6/graphic/hmd.cpp",						PROJECT_VIEWER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_VIEWER },
 	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_VIEWER },	
@@ -308,6 +316,10 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/scene_info.cpp",				PROJECT_VIEWER },
 
 	// viewer - HLSL
+	{ "source/v6/graphic/capture_shared.h",				PROJECT_VIEWER },
+	{ "source/v6/graphic/common_shared.h",				PROJECT_VIEWER },
+	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },	
+	{ "source/v6/graphic/sample_pack.hlsli",			PROJECT_VIEWER },
 	{ "source/v6/viewer/basic.hlsli",					PROJECT_VIEWER },
 	{ "source/v6/viewer/basic_ps.hlsl",					PROJECT_VIEWER },
 	{ "source/v6/viewer/basic_vs.hlsl",					PROJECT_VIEWER },
@@ -335,8 +347,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/block_trace_x16_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x4_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/common_shared.h",				PROJECT_VIEWER },
+	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },	
 	{ "source/v6/viewer/fake_cube.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_ps.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_vs.hlsl",				PROJECT_VIEWER },
@@ -355,12 +366,9 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/octree_pack_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/sample_collect.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/viewer/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_DisableTreatWarningAsError },
-	{ "source/v6/viewer/sample_pack.hlsli",				PROJECT_VIEWER },
+	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },	
 	{ "source/v6/viewer/surface_compose_cs.hlsl",		PROJECT_VIEWER },
-
+	{ "source/v6/viewer/viewer_shared.h",				PROJECT_VIEWER },
 };
 
 char*	s_solutionName		= nullptr;
@@ -464,6 +472,29 @@ static void Solution_Write( FILE* f )
 	fprintf( f, solutionGlobalEnd );
 }
 
+static void Project_AddHeaderFile( FILE* f, const Project_s* project, const char* headerFile )
+{
+	const u32 projectFileCount = sizeof( s_projectFiles) / sizeof( ProjectFile_s );
+	
+	char filename[256];
+	sprintf( filename, "%s/%s/%s", s_solutionPath, s_sourcePath, headerFile );
+	if ( FilePath_Exist( filename ) )
+	{
+		bool isListed = false;
+		for ( u32 headerFileID = 0; headerFileID < projectFileCount; ++headerFileID )
+		{
+			if ( (s_projectFiles[headerFileID].projects & project->id) && stricmp( s_projectFiles[headerFileID].name, headerFile ) == 0 )
+			{
+				isListed = true;
+				break;
+			}
+		}
+
+		if ( !isListed )
+			fprintf( f, projectSourceH, s_sourcePath, headerFile );
+	}
+}
+
 static void Project_Write( FILE* f, const Project_s* project )
 {
 	fprintf( f, projectBegin );
@@ -493,23 +524,7 @@ static void Project_Write( FILE* f, const Project_s* project )
 				
 				char headerFile[256];
 				sprintf( headerFile, "%s.h", filenameWithoutExtension );
-				
-				sprintf( filename, "%s/%s/%s", s_solutionPath, s_sourcePath, headerFile );
-				if ( FilePath_Exist( filename ) )
-				{
-					bool isListed = false;
-					for ( u32 headerFileID = 0; headerFileID < projectFileCount; ++headerFileID )
-					{
-						if ( (s_projectFiles[headerFileID].projects & project->id) && stricmp( s_projectFiles[headerFileID].name, headerFile ) == 0 )
-						{
-							isListed = true;
-							break;
-						}
-					}
-
-					if ( !isListed )
-						fprintf( f, projectSourceH, s_sourcePath, headerFile );
-				}
+				Project_AddHeaderFile( f, project, headerFile );
 			}
 			else if ( stricmp( extension, "h" ) == 0 || stricmp( extension, "hlsli" ) == 0 )
 			{
@@ -540,9 +555,15 @@ static void Project_Write( FILE* f, const Project_s* project )
 					}
 					else
 					{
-						fprintf( f, projectSourceHLSL, s_sourcePath, s_projectFiles[projectFileID].name, shaderType, s_projectFiles[projectFileID].specialCase ? s_projectFiles[projectFileID].specialCase : "" );
+						fprintf( f, projectSourceHLSL, s_sourcePath, s_projectFiles[projectFileID].name, shaderType, 
+							s_projectFiles[projectFileID].specialCase1 ? s_projectFiles[projectFileID].specialCase1 : "",
+							s_projectFiles[projectFileID].specialCase2 ? s_projectFiles[projectFileID].specialCase2 : "" );
 					}
 				}
+				
+				char headerFile[256];
+				sprintf( headerFile, "%s_bytecode.h", filenameWithoutExtension );
+				Project_AddHeaderFile( f, project, headerFile );
 			}
 			else if ( stricmp( extension, "txt" ) == 0 )
 			{

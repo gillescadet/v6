@@ -1,5 +1,5 @@
 #define HLSL
-#include "common_shared.h"
+#include "capture_shared.h"
 #include "sample_pack.hlsli"
 
 static const float3 lookAts[6] = 
@@ -22,11 +22,11 @@ static const float3 ups[6] =
 	float3( 0.0f,  1.0f,  0.0f )
 };
 
-Texture2D< float4 > colors						: register( HLSL_LCOLOR_SRV );
-Texture2D< float > depths						: register( HLSL_DEPTH_SRV );
+Texture2D< float4 > colors						: REGISTER_SRV( HLSL_CAPTURE_COLOR_SLOT );
+Texture2D< float > depths						: REGISTER_SRV( HLSL_CAPTURE_DEPTH_SLOT );
 
-RWStructuredBuffer< Sample > collectedSamples	: register( HLSL_SAMPLE_UAV );
-RWBuffer< uint > sampleIndirectArgs				: register( HLSL_SAMPLE_INDIRECT_ARGS_UAV );
+RWStructuredBuffer< Sample > collectedSamples	: REGISTER_UAV( HLSL_SAMPLE_SLOT );
+RWBuffer< uint > sampleIndirectArgs				: REGISTER_UAV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );
 
 uint GetMip( float3 p )
 {
@@ -56,8 +56,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const float3 up = ups[c_sampleFaceID];
 	const float3 right = cross( lookAt, up );
 			
-	PixelSample pixelSamples[HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ];
+	static const uint pixelSampleCount = HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+	PixelSample pixelSamples[pixelSampleCount];
 	uint uniquePixelSampleCount = 0;
+
+	const uint gridHalfWidth = c_sampleGridWidth >> 1;
 
 	for ( uint j = 0; j < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++j )
 	{
@@ -82,14 +85,14 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #endif // #if HLSL_DEBUG_COLLECT == 1
 
 				const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
-				const float3 cellCoords = mad( posInMip, c_sampleInvGridScales[mip].x * HLSL_GRID_HALF_WIDTH, HLSL_GRID_HALF_WIDTH );
+				const float3 cellCoords = mad( posInMip, c_sampleInvGridScales[mip].x * gridHalfWidth, gridHalfWidth );
 				const int3 sampleCoords = int3( cellCoords );
 				const int3 subCellCoords = min( int3( frac( cellCoords ) * HLSL_CELL_SUPER_SAMPLING_WIDTH ), 2 );
-				const uint subCellID = subCellCoords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH_SQ + subCellCoords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
+				const uint subCellID = subCellCoords.z * pixelSampleCount + subCellCoords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + subCellCoords.x;
 				const uint occupancy = 1 << subCellID;
 
 #if HLSL_DEBUG_COLLECT == 1
-				if ( any( sampleCoords < 0 ) || any( sampleCoords >= HLSL_GRID_WIDTH ) )
+				if ( any( sampleCoords < 0 ) || any( sampleCoords >= (int)c_sampleGridWidth ) )
 					InterlockedAdd( sample_error, 1 );
 #if 0
 				InterlockedOr( sample_occupancy, occupancy );
@@ -143,7 +146,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 //#endif // #if HLSL_DEBUG_COLLECT == 1
 
 		const uint sampleCount = sampleID+1;
-		InterlockedMax( sample_groupCountX, GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
+		InterlockedMax( sample_groupCountX, HLSL_GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 	}
 	
 	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )

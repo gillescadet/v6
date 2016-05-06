@@ -2,8 +2,8 @@
 
 #pragma once
 
-#ifndef __V6_SCENE_INFO_READER_H__
-#define __V6_SCENE_INFO_READER_H__
+#ifndef __V6_VIEWER_SCENE_INFO_H__
+#define __V6_VIEWER_SCENE_INFO_H__
 
 #include <v6/core/vec2.h>
 #include <v6/core/vec3.h>
@@ -16,15 +16,15 @@ struct SceneInfo_s
 	static const u32	MAX_POSITION_COUNT = 128;
 	struct
 	{
-		char				entityName[64];
+		char			entityName[64];
 		Vec3			positions[MAX_POSITION_COUNT];
-		u32			positionCount;
-		float				speed;
-	}						paths[MAX_PATH_COUNT];
+		u32				positionCount;
+		float			speed;
+	}					paths[MAX_PATH_COUNT];
 
-	float					cameraYaw;
-	float					worldUnitToCM;
-	bool					dirty;
+	float				cameraYaw;
+	float				worldUnitToCM;
+	bool				dirty;
 };
 
 void SceneInfo_Clear( SceneInfo_s* sceneInfo );

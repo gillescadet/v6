@@ -21,11 +21,10 @@ float4 main( PixelInput i ) : SV_TARGET
 	const float3 albedo = c_genericUseAlbedo ? texAlbedo.Sample( trilinearSampler, i.uv ).rgb : c_genericDiffuse;
 	
 	const float3 ambientLight = float3( 0.4f, 0.4f, 0.4f );
-	const float3 skyLight = max( 0.0f, i.normal.y ) * s_skyColor;	
-	const float3 sunLight = max( 0.0f, dot( i.normal, s_sunDir ) ) * s_sunColor;	
+	const float3 skyLight = max( 0.0f, i.normal.y ) * s_skyColor;
+	const float3 sunLight = max( 0.0f, dot( i.normal, s_sunDir ) ) * s_sunColor;
 
 	const float3 color = albedo * (ambientLight + skyLight + sunLight);
-	// const float3 color = (ambientLight + skyLight + sunLight);
 
 	return float4( color, alpha );
 }

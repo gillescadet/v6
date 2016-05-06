@@ -1,5 +1,5 @@
 #define HLSL
-#include "common_shared.h"
+#include "viewer_shared.h"
 #include "block_encoding.hlsli"
 
 Buffer< uint > firstChildOffsets				: register( HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV );

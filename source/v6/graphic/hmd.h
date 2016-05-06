@@ -2,8 +2,8 @@
 
 #pragma once
 
-#ifndef __V6_VIEWER_HMD_H__
-#define __V6_VIEWER_HMD_H__
+#ifndef __V6_GRAPHIC_HMD_H__
+#define __V6_GRAPHIC_HMD_H__
 
 BEGIN_V6_NAMESPACE
 
@@ -53,4 +53,4 @@ void			Hmd_Shutdown();
 
 END_V6_NAMESPACE
 
-#endif // __V6_VIEWER_HMD_H__
+#endif // __V6_GRAPHIC_HMD_H__

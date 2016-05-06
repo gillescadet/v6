@@ -1,5 +1,5 @@
 #define HLSL
-#include "common_shared.h"
+#include "viewer_shared.h"
 
 #define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH
 

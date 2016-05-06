@@ -1,6 +1,6 @@
 #define HLSL
 
-#include "common_shared.h"
+#include "viewer_shared.h"
 
 RWBuffer< uint > traceIndirectArgs						: register( HLSL_TRACE_INDIRECT_ARGS_UAV );
 

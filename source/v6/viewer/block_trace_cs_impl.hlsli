@@ -1,6 +1,6 @@
 #define HLSL
 
-#include "common_shared.h"
+#include "viewer_shared.h"
 #include "block_encoding.hlsli"
 
 #define GRID_CELL_SHIFT		(GRID_CELL_BUCKET+2)

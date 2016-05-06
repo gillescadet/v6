@@ -1,12 +1,5 @@
 /*V6*/
 
-#ifndef __V6_HLSL_SAMPLE_PACK_H__
-#define __V6_HLSL_SAMPLE_PACK_H__
-
-#define HLSL
-
-#include "common_shared.h"
-
 void Sample_Pack( out Sample s, uint3 coords, uint mip, uint3 color, uint occupancy )
 {
 	s.row0 = (coords.x << 20) | (coords.y << 8) | color.r;
@@ -62,5 +55,3 @@ void Sample_UnpackColorAndOccupancy( Sample s, out uint3 color, out  uint occupa
 	uint mip;
 	Sample_Unpack( s, coords, mip, color, occupancy );
 }
-
-#endif // __V6_HLSL_SAMPLE_PACK_H__
