@@ -6,6 +6,10 @@
 #define __V6_GRAPHIC_GPU_H__
 
 #include <v6/core/color.h>
+#include <v6/core/mat4x4.h>
+#include <v6/core/vec2.h>
+#include <v6/core/vec2i.h>
+#include <v6/core/vec3i.h>
 
 #define V6_GPU_PROFILING 1
 
@@ -197,6 +201,65 @@ template < typename T >
 void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, u32 srcCount )
 {
 	GPUBuffer_Update( dstBuffer, dstOffset, srcData, sizeof( T ), srcCount );
+}
+
+inline void ReadBack_Log( const char* res, u32 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: %10d\n", res, name, value );
+}
+
+inline void ReadBack_Log( const char* res, hex32 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: 0x%08X\n", res, name, value.n );
+}
+
+inline void ReadBack_Log( const char* res, float value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: %g\n", res, name, value );
+}
+
+inline void ReadBack_Log( const char* res, Vec2 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%g, %g)\n", res, name, value.x, value.y );
+}
+
+inline void ReadBack_Log( const char* res, Vec3 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%g, %g, %g)\n", res, name, value.x, value.y, value.z );
+}
+
+inline void ReadBack_Log( const char* res, Vec4 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%g, %g, %g, %g)\n", res, name, value.x, value.y, value.z, value.w );
+}
+
+inline void ReadBack_Log( const char* res, Vec2u value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4u, %4u)\n", res, name, value.x, value.y );
+}
+
+inline void ReadBack_Log( const char* res, Vec3u value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u)\n", res, name, value.x, value.y, value.z );
+}
+
+inline void ReadBack_Log( const char* res, Vec2i value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4d, %4d)\n", res, name, value.x, value.y );
+}
+
+inline void ReadBack_Log( const char* res, Vec3i value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4d, %4d, %4d)\n", res, name, value.x, value.y, value.z );
+}
+
+inline void ReadBack_Log( const char* res, Mat4x4 value, const char* name )
+{
+	V6_MSG( "%-16s %-30s:\n", res, name );
+	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row0.x, value.m_row0.y, value.m_row0.z, value.m_row0.w );
+	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row1.x, value.m_row1.y, value.m_row1.z, value.m_row1.w );	
+	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row2.x, value.m_row2.y, value.m_row2.z, value.m_row2.w );
+	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row3.x, value.m_row3.y, value.m_row3.z, value.m_row3.w );
 }
 
 END_V6_NAMESPACE

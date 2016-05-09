@@ -2,7 +2,6 @@
 
 #include "../graphic/capture_shared.h"
 #include "../graphic/sample_pack.hlsli"
-#include "viewer_shared.h"
 
 StructuredBuffer< Sample > samples				: REGISTER_SRV( HLSL_SAMPLE_SLOT );
 Buffer< uint > sampleIndirectArgs 				: REGISTER_SRV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );

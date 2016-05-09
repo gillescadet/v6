@@ -3,10 +3,10 @@
 
 #define BUFFER_WIDTH HLSL_PIXEL_SUPER_SAMPLING_WIDTH
 
-StructuredBuffer< BlockCellItem > blockCellItems				: register( HLSL_BLOCK_CELL_ITEM_SRV );
-Buffer< uint > cellItemCounters									: register( HLSL_BLOCK_CELL_ITEM_COUNT_SRV );
+StructuredBuffer< BlockCellItem > blockCellItems				: REGISTER_SRV( HLSL_BLOCK_CELL_ITEM_SLOT );
+Buffer< uint > cellItemCounters									: REGISTER_SRV( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT );
 
-RWTexture2D< float4 > outputColors								: register( HLSL_LCOLOR_UAV );
+RWTexture2D< float4 > outputColors								: REGISTER_UAV( HLSL_LCOLOR_SLOT );
 
 uint3 UnpackRGB_NONE( uint rgb_none )
 {

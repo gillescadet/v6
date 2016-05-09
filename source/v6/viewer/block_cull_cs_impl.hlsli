@@ -1,19 +1,18 @@
 #define HLSL
 
 #include "viewer_shared.h"
-#include "block_encoding.hlsli"
 
 #define GRID_CELL_SHIFT		(GRID_CELL_BUCKET+2)
 #define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
 
-Buffer< uint > blockGroups								: register( HLSL_BLOCK_GROUP_SRV );
-StructuredBuffer< BlockRange > blockRanges				: register( HLSL_BLOCK_RANGE_SRV );
-Buffer< uint > blockPositions							: register( HLSL_BLOCK_POS_SRV );
+Buffer< uint > blockGroups								: REGISTER_SRV( HLSL_BLOCK_GROUP_SLOT );
+StructuredBuffer< BlockRange > blockRanges				: REGISTER_SRV( HLSL_BLOCK_RANGE_SLOT );
+Buffer< uint > blockPositions							: REGISTER_SRV( HLSL_BLOCK_POS_SLOT );
 
-RWBuffer< uint > traceCells								: register( HLSL_TRACE_CELLS_UAV );
-RWBuffer< uint > traceIndirectArgs						: register( HLSL_TRACE_INDIRECT_ARGS_UAV );
+RWBuffer< uint > traceCells								: REGISTER_UAV( HLSL_TRACE_CELLS_SLOT );
+RWBuffer< uint > traceIndirectArgs						: REGISTER_UAV( HLSL_TRACE_INDIRECT_ARGS_SLOT );
 #if BLOCK_GET_STATS == 1
-RWStructuredBuffer< BlockCullStats > blockCullStats		: register( HLSL_CULL_STATS_UAV );
+RWStructuredBuffer< BlockCullStats > blockCullStats		: REGISTER_UAV( HLSL_CULL_STATS_SLOT );
 #endif // #if BLOCK_GET_STATS == 1
 
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
@@ -81,7 +80,7 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 
 		if ( inside )
 		{
-			uint traceBlockRank = 0;  
+			uint traceBlockRank = 0;
 			InterlockedAdd( trace_blockCount( GRID_CELL_BUCKET ), 1, traceBlockRank );
 
 			const uint tracePackedBlockPos = (mip << 28) | (blockPosZ << HLSL_GRID_MACRO_2XSHIFT) | (blockPosY << HLSL_GRID_MACRO_SHIFT) | blockPosX;

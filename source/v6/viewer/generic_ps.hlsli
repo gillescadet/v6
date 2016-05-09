@@ -2,8 +2,8 @@
 
 SamplerState trilinearSampler	: register( HLSL_TRILINEAR_SAMPLER );
 
-Texture2D texAlbedo				: register( HLSL_GENERIC_ALBEDO_SRV );
-Texture2D texAlpha				: register( HLSL_GENERIC_ALPHA_SRV );
+Texture2D texAlbedo				: REGISTER_SRV( HLSL_GENERIC_ALBEDO_SLOT );
+Texture2D texAlpha				: REGISTER_SRV( HLSL_GENERIC_ALPHA_SLOT );
 
 static const float3 s_sunDir = normalize( float3( 0.8f, 1.0f, 0.5f ) );
 static const float3 s_skyColor = float3( 0.1f, 0.3f, 0.75f );

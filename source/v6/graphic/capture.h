@@ -9,43 +9,62 @@
 
 BEGIN_V6_NAMESPACE
 
+struct GPUCaptureResources_s;
+
 struct CaptureDesc_s
 {
-	Vec3	origin;
-	Vec3	samplePos;
-	u32		gridMacroShift;
-	float	gridScaleMin;
-	float	gridScaleMax;
-	float	depthLinearScale;
-	float	depthLinearBias;
+	u32							gridMacroShift;
+	float						gridScaleMin;
+	float						gridScaleMax;
+	float						depthLinearScale;
+	float						depthLinearBias;
+	bool						logReadBack;
 };
 
-struct GPUCaptureContext_s
+struct GPUCaptureResources_s
 {
-	GPUConstantBuffer_s		cb;
-	GPUColorRenderTarget_s	color;
-	GPUDepthRenderTarget_s	depth;
-	GPUCompute_s			compute;
-	u32						cbSlot;
-	u32						colorSlot;
-	u32						depthSlot;
+	GPUColorRenderTarget_s		color;
+	GPUDepthRenderTarget_s		depth;
+
+	GPUConstantBuffer_s			cbCollect;
+	GPUConstantBuffer_s			cbOctree;
+	
+	GPUBuffer_s					samples;
+	GPUBuffer_s					sampleIndirectArgs;
+	GPUBuffer_s					sampleNodeOffsets;
+	GPUBuffer_s					firstChildOffsets;
+	ID3D11UnorderedAccessView*	firstChildOffsetsLimitedUAV;
+	GPUBuffer_s					leaves;
+	GPUBuffer_s					octreeIndirectArgs;
+	GPUBuffer_s					blockPos;
+	GPUBuffer_s					blockData;
+	GPUBuffer_s					blockIndirectArgs;
+
+	GPUCompute_s				computeCollect;
+	GPUCompute_s				computeBuildInner;
+	GPUCompute_s				computeBuildLeaf;
+	GPUCompute_s				computeFillLeaf;
+	GPUCompute_s				computePackColor;
 };
 
-struct GPUSampleContext_s
+struct CaptureContext_s
 {
-	GPUBuffer_s				samples;
-	GPUBuffer_s				indirectArgs;
-	u32						sampleSlot;
-	u32						indirectArgSlot;
+	CaptureDesc_s				desc;
+	GPUCaptureResources_s*		res;
+	u32							resSampleCount;
+	u32							resNodeCount;
+	u32							resLeafCount;
+	u32							resBlockPosCount;
+	u32							resBlockDataCount;
 };
 
-void GPUCaptureContext_Create( GPUCaptureContext_s* captureContext, u32 size, u32 colorSlot, u32 depthSlot );
-void GPUCaptureContext_Release( GPUCaptureContext_s* captureContext );
-
-void GPUSampleContext_Create( GPUSampleContext_s* sampleContext, u32 sampleCount, u32 sampleSlot, u32 indirectArgSlot );
-void GPUSampleContext_Release( GPUSampleContext_s* sampleContext );
-
-void Capture_Collect( const CaptureDesc_s* captureDesc, GPUCaptureContext_s* captureContext, GPUSampleContext_s* sampleContext, u32 faceID );
+u32		Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID );
+void	Capture_Begin( CaptureContext_s* captureContext );
+void	Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc );
+void	Capture_End( CaptureContext_s* captureContext );
+void	Capture_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );
+void	Capture_Release( CaptureContext_s* captureContext );
+void	Capture_UnmapBlocksForRead( CaptureContext_s* captureContext );
 
 END_V6_NAMESPACE
 

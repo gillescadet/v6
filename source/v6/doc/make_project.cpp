@@ -185,7 +185,7 @@ TEMPLATE commonRelease						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 															</ItemGroup>\n
 														</Project>\n );
 
-TEMPLATE HLSL_OuputBytecodeInHeaderFile		= TEXT( <HeaderFileOutput>%%(RelativeDir)%%(Filename)_bytecode.h</HeaderFileOutput>\n
+TEMPLATE HLSL_OuputBytecodeInHeaderFile		= TEXT( <HeaderFileOutput>%(RelativeDir)%(Filename)_bytecode.h</HeaderFileOutput>\n
 													<ObjectFileOutput/>\n );
 
 TEMPLATE HLSL_DisableTreatWarningAsError	= TEXT( <TreatWarningAsError>false</TreatWarningAsError>\n );
@@ -318,7 +318,12 @@ static ProjectFile_s s_projectFiles[] =
 	// viewer - HLSL
 	{ "source/v6/graphic/capture_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/graphic/common_shared.h",				PROJECT_VIEWER },
-	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },	
+	{ "source/v6/graphic/octree_build_inner_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_leaf_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
+	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },
 	{ "source/v6/graphic/sample_pack.hlsli",			PROJECT_VIEWER },
 	{ "source/v6/viewer/basic.hlsli",					PROJECT_VIEWER },
 	{ "source/v6/viewer/basic_ps.hlsl",					PROJECT_VIEWER },
@@ -347,7 +352,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/block_trace_x16_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x4_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },	
+	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_ps.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_vs.hlsl",				PROJECT_VIEWER },
@@ -356,14 +361,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/generic_ps.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/generic_ps.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/generic_vs.hlsl",				PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_build_inner_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_build_leaf_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_build_node.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_fill_leaf.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_pack.hlsli",				PROJECT_VIEWER },
-	{ "source/v6/viewer/octree_pack_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },	

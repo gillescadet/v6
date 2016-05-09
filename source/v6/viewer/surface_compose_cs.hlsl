@@ -1,10 +1,10 @@
 #define HLSL
 #include "viewer_shared.h"
 
-Texture2D< float4 > leftColors : register( HLSL_LCOLOR_SRV );
-Texture2D< float4 > rightColors : register( HLSL_RCOLOR_SRV );
+Texture2D< float4 > leftColors : REGISTER_SRV( HLSL_LCOLOR_SLOT );
+Texture2D< float4 > rightColors : REGISTER_SRV( HLSL_RCOLOR_SLOT );
 
-RWTexture2D< float4 > surfaceColors : register( HLSL_SURFACE_UAV );
+RWTexture2D< float4 > surfaceColors : REGISTER_UAV( HLSL_SURFACE_SLOT );
 
 [numthreads(8, 8, 1)]
 void main( uint3 DTid : SV_DispatchThreadID )

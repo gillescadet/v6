@@ -1,14 +1,13 @@
 #define HLSL
-#include "viewer_shared.h"
-#include "block_encoding.hlsli"
+#include "../graphic/capture_shared.h"
 
-Buffer< uint > firstChildOffsets				: register( HLSL_OCTREE_FIRST_CHILD_OFFSET_SRV );
-StructuredBuffer< OctreeLeaf > octreeLeaves		: register( HLSL_OCTREE_LEAF_SRV );
-Buffer< uint > octreeIndirectArgs 				: register( HLSL_OCTREE_INDIRECT_ARGS_SRV );
+Buffer< uint > firstChildOffsets				: REGISTER_SRV( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT );
+StructuredBuffer< OctreeLeaf > octreeLeaves		: REGISTER_SRV( HLSL_OCTREE_LEAF_SLOT );
+Buffer< uint > octreeIndirectArgs 				: REGISTER_SRV( HLSL_OCTREE_INDIRECT_ARGS_SLOT );
 
-RWBuffer< uint > blockPositions					: register( HLSL_BLOCK_POS_UAV );
-RWBuffer< uint > blockData						: register( HLSL_BLOCK_DATA_UAV );
-RWBuffer< uint > blockIndirectArgs 				: register( HLSL_BLOCK_INDIRECT_ARGS_UAV );
+RWBuffer< uint > blockPositions					: REGISTER_UAV( HLSL_BLOCK_POS_SLOT );
+RWBuffer< uint > blockData						: REGISTER_UAV( HLSL_BLOCK_DATA_SLOT );
+RWBuffer< uint > blockIndirectArgs 				: REGISTER_UAV( HLSL_BLOCK_INDIRECT_ARGS_SLOT );
 
 [ numthreads( HLSL_OCTREE_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
@@ -19,13 +18,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		
 	const uint buckets[] =			{ 0, 4, 8, 16, 32, 64 };
 
-#if HLSL_ENCODE_DATA == 1
-	const uint blockDataSize[] =	{ 0, 4, 4, 4 , 5 , 7  };
-	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
-#else // #if HLSL_ENCODE_DATA == 1
 	const uint blockDataSize[] =	buckets;
 	const uint dataSizeInPreviousBucket = blockDataSize[c_octreeCurrentBucket];
-#endif // #if HLSL_ENCODE_DATA == 0
 
 	const uint posOffset = block_posOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 );
 	const uint dataOffset = block_dataOffset( c_octreeCurrentBucket-1 ) + block_count( c_octreeCurrentBucket-1 ) * dataSizeInPreviousBucket;
@@ -45,13 +39,13 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	const uint mip = (octreeLeaves[leafID].x2y2z2_mip4_count15 >> 22) & 0xF;	
 
-	const uint packLevel = HLSL_GRID_SHIFT-3;
+	const uint packLevel = c_octreeLevelCount - 3;
 
 	uint nodeOffset;
 
 	for ( uint level = 0; level <= packLevel; ++level )
 	{		
-		const uint3 cellCoords = coords >> (HLSL_GRID_SHIFT-level-1);
+		const uint3 cellCoords = coords >> (c_octreeLevelCount - level - 1);
 		const uint cellOffset = ((cellCoords.z&1)<<2) + ((cellCoords.y&1)<<1) + (cellCoords.x&1);
 
 		int childOffset;
@@ -62,9 +56,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		else
 		{
 			const uint firstChildOffset = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
-			childOffset = firstChildOffset + cellOffset;			
-		}				
-		nodeOffset = childOffset;		
+			childOffset = firstChildOffset + cellOffset;
+		}
+		nodeOffset = childOffset;
 	}
 
 	uint cellRGBA[64];
@@ -145,7 +139,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #endif // #if HLSL_DEBUG_OCCUPANCY == 1
 
 	InterlockedAdd( block_cellCount( c_octreeCurrentBucket ), cellCount );
-			
+
 	uint blockID;
 	InterlockedAdd( block_count( c_octreeCurrentBucket ), 1, blockID );
 		
@@ -153,25 +147,16 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint dataBaseID = dataOffset + blockID * dataSize;
 	const uint posBaseID = posOffset + blockID;	
 
-	const uint3 blockCoords = coords >> HLSL_GRID_BLOCK_SHIFT;
-	const uint blockPos = (blockCoords.z << HLSL_GRID_MACRO_2XSHIFT) | (blockCoords.y << HLSL_GRID_MACRO_SHIFT) | blockCoords.x;
+	const uint gridMacroShift = c_octreeLevelCount - 2;
+	const uint3 blockCoords = coords >> 2;
+	const uint blockPos = (blockCoords.z << (gridMacroShift * 2)) | (blockCoords.y << gridMacroShift) | blockCoords.x;
 	const uint packedBlockPos = blockPositions[posBaseID] = (mip << 28) | blockPos;
 	blockPositions[posBaseID] = packedBlockPos;
 
-#if HLSL_ENCODE_DATA == 1
-	const EncodedBlock encodedBlock = Block_Encode( 0, cellRGBA, cellCount );
-	
-	blockData[dataBaseID+0] = encodedBlock.cellEndColors;
-	blockData[dataBaseID+1] = encodedBlock.cellPresence[0];
-	blockData[dataBaseID+2] = encodedBlock.cellPresence[1];	
-	for ( uint colorOffset = 0; colorOffset < dataSize-3; ++colorOffset )
-		blockData[dataBaseID+3+colorOffset] = encodedBlock.cellColorIndices[colorOffset];
-#else
 	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
 		blockData[dataBaseID+cellID] = cellID < cellCount ? cellRGBA[cellID] : HLSL_GRID_BLOCK_CELL_EMPTY;
-#endif
 
 	const uint blockCount = blockID + 1;
-	const uint groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+	const uint groupCount = HLSL_GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 	InterlockedMax( block_groupCountX( c_octreeCurrentBucket ), groupCount );
 }

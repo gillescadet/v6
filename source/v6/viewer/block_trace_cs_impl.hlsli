@@ -1,20 +1,19 @@
 #define HLSL
 
 #include "viewer_shared.h"
-#include "block_encoding.hlsli"
 
 #define GRID_CELL_SHIFT		(GRID_CELL_BUCKET+2)
 #define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
 #define GRID_CELL_MASK		(GRID_CELL_COUNT-1)
 
-Buffer< uint > blockData									: register( HLSL_BLOCK_DATA_SRV );
-Buffer< uint > traceCells									: register( HLSL_TRACE_CELLS_SRV );
-Buffer< uint > traceIndirectArgs							: register( HLSL_TRACE_INDIRECT_ARGS_SRV );
+Buffer< uint > blockData									: REGISTER_SRV( HLSL_BLOCK_DATA_SLOT );
+Buffer< uint > traceCells									: REGISTER_SRV( HLSL_TRACE_CELLS_SLOT );
+Buffer< uint > traceIndirectArgs							: REGISTER_SRV( HLSL_TRACE_INDIRECT_ARGS_SLOT );
 
-RWStructuredBuffer< BlockCellItem > blockCellItems			: register( HLSL_BLOCK_CELL_ITEM_UAV );
-RWBuffer< uint > blockCellItemCounters						: register( HLSL_BLOCK_CELL_ITEM_COUNT_UAV );
+RWStructuredBuffer< BlockCellItem > blockCellItems			: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_SLOT );
+RWBuffer< uint > blockCellItemCounters						: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT );
 #if BLOCK_DEBUG == 1
-RWStructuredBuffer< BlockTraceStats > blockTraceStats		: register( HLSL_TRACE_STATS_UAV );
+RWStructuredBuffer< BlockTraceStats > blockTraceStats		: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
 #endif // #if BLOCK_DEBUG == 1
 
 bool TraceCell( int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS, uint eye )

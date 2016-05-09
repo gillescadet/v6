@@ -1,8 +1,7 @@
 #define HLSL
 
-#include "../graphic/capture_shared.h"
-#include "../graphic/sample_pack.hlsli"
-#include "viewer_shared.h"
+#include "capture_shared.h"
+#include "sample_pack.hlsli"
 
 StructuredBuffer< Sample > samples				: REGISTER_SRV( HLSL_SAMPLE_SLOT );
 Buffer< uint > sampleIndirectArgs 				: REGISTER_SRV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );
@@ -36,8 +35,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	// Node levels			: [ 0 .. HLSL_GRID_SHIFT-2 ]
 	// Leaf level			: HLSL_GRID_SHIFT-1
 
-	const uint3 cellCoords = coords >> (HLSL_GRID_SHIFT-c_octreeCurrentLevel-1);
-	const uint cellOffset = ((cellCoords.z&1)<<2) + ((cellCoords.y&1)<<1) + (cellCoords.x&1);	
+	const uint3 cellCoords = coords >> (c_octreeLevelCount - c_octreeCurrentLevel - 1);
+	const uint cellOffset = ((cellCoords.z&1)<<2) + ((cellCoords.y&1)<<1) + (cellCoords.x&1);
 
 	uint childOffset;
 	if ( c_octreeCurrentLevel == 0 )
@@ -48,7 +47,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	{
 		const uint nodeOffset = sampleNodeOffsets[sampleID];
 		const uint firstChildOffset = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
-		childOffset = firstChildOffset + cellOffset;	
+		childOffset = firstChildOffset + cellOffset;
 	}
 	
 	sampleNodeOffsets[sampleID] = childOffset;
@@ -80,7 +79,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	InterlockedAdd( octree_leafCount, 1, newLeafID );
 		
 	const uint newLeafCount = newLeafID + 1;
-	InterlockedMax( octree_leafGroupCountX, GROUP_COUNT( newLeafCount, HLSL_OCTREE_THREAD_GROUP_SIZE ) );
+	InterlockedMax( octree_leafGroupCountX, HLSL_GROUP_COUNT( newLeafCount, HLSL_OCTREE_THREAD_GROUP_SIZE ) );
 	
 	octreeLeaves[newLeafID].x9_r23 = (coords.x & ~0x3) << 21;
 	octreeLeaves[newLeafID].y9_g23 = (coords.y & ~0x3) << 21;
