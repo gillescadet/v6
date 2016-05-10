@@ -2,12 +2,14 @@
 
 #include <v6/core/common.h>
 
-#include <v6/core/codec.h>
-#include <v6/core/compression.h>
+#include <v6/codec/codec.h>
+#include <v6/codec/compression.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
+#if CODEC_FRAME_COMPRESS == 1
 #include <lz4/lib/lz4.h>
 #include <lz4/lib/lz4hc.h>
+#endif // #if CODEC_FRAME_COMPRESS == 1
 
 #define CODEC_LZ4_COMPRESSION_LEVEL 4
 

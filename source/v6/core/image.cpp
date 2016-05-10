@@ -1,9 +1,9 @@
 /*V6*/
 
 #include <v6/core/common.h>
-#include <v6/core/image.h>
 
 #include <v6/core/color.h>
+#include <v6/core/image.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 

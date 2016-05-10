@@ -1,6 +1,7 @@
 /*V6*/
 
 #include <v6/core/common.h>
+
 #include <v6/core/string.h>
 
 BEGIN_V6_NAMESPACE

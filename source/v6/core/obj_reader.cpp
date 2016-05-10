@@ -1,10 +1,10 @@
 /*V6*/
 
 #include <v6/core/common.h>
-#include <v6/core/obj_reader.h>
 
 #include <v6/core/filesystem.h>
 #include <v6/core/memory.h>
+#include <v6/core/obj_reader.h>
 
 BEGIN_V6_NAMESPACE
 

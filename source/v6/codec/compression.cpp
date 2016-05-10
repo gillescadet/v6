@@ -1,7 +1,8 @@
 /*V6*/
+
 #include <v6/core/common.h>
 
-#include <v6/core/compression.h>
+#include <v6/codec/compression.h>
 #include <v6/core/math.h>
 
 BEGIN_V6_NAMESPACE

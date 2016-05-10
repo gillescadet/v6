@@ -5,7 +5,7 @@
 #ifndef __V6_CORE_DECODER_H__
 #define __V6_CORE_DECODER_H__
 
-#include <v6/core/codec.h>
+#include <v6/codec/codec.h>
 
 BEGIN_V6_NAMESPACE
 

@@ -266,12 +266,12 @@ static const Project_s s_projects[PROJECT_COUNT] =
 static ProjectFile_s s_projectFiles[] =
 {
 	// class wrapper
-	{ "source/v6/core/filesystem.cpp",					PROJECT_CLASSWRAPPER },
 	{ "source/v6/core/memory.cpp",						PROJECT_CLASSWRAPPER },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_CLASSWRAPPER },
 	{ "source/v6/class_wrapper/main_class_wrapper.cpp",	PROJECT_CLASSWRAPPER },
 
 	// compressor
-	{ "source/v6/core/compression.cpp",					PROJECT_COMPRESSOR },
+	{ "source/v6/codec/compression.cpp",				PROJECT_COMPRESSOR },
 	{ "source/v6/core/image.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/memory.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/stream.cpp",						PROJECT_COMPRESSOR },
@@ -284,10 +284,10 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/doc/todo.txt",							PROJECT_DOC },
 	
 	// encoder
-	{ "source/v6/core/codec.cpp",						PROJECT_ENCODER },
-	{ "source/v6/core/compression.cpp",					PROJECT_ENCODER },
-	{ "source/v6/core/decoder.cpp",						PROJECT_ENCODER },
-	{ "source/v6/core/encoder.cpp",						PROJECT_ENCODER },
+	{ "source/v6/codec/codec.cpp",						PROJECT_ENCODER },
+	{ "source/v6/codec/compression.cpp",				PROJECT_ENCODER },
+	{ "source/v6/codec/decoder.cpp",					PROJECT_ENCODER },
+	{ "source/v6/codec/encoder.cpp",					PROJECT_ENCODER },
 	{ "source/v6/core/memory.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },
@@ -295,11 +295,11 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },	
 
 	// viewer
-	{ "source/v6/core/codec.cpp",						PROJECT_VIEWER },
-	{ "source/v6/core/compression.cpp",					PROJECT_VIEWER },
-	{ "source/v6/core/decoder.cpp",						PROJECT_VIEWER },
-	{ "source/v6/core/encoder.cpp",						PROJECT_VIEWER },
-	{ "source/v6/core/filesystem.cpp",					PROJECT_VIEWER },	
+	{ "source/v6/codec/codec.cpp",						PROJECT_VIEWER },
+	{ "source/v6/codec/compression.cpp",				PROJECT_VIEWER },
+	{ "source/v6/codec/decoder.cpp",					PROJECT_VIEWER },
+	{ "source/v6/codec/encoder.cpp",					PROJECT_VIEWER },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_VIEWER },
 	{ "source/v6/core/image.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/memory.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/obj_reader.cpp",					PROJECT_VIEWER },
@@ -340,7 +340,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/block_cull_x4_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/block_cull_x64_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_cull_x8_cs.hlsl",			PROJECT_VIEWER },
-	{ "source/v6/viewer/block_encoding.hlsli",			PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_debug_x16_cs.hlsl",	PROJECT_VIEWER },
 	{ "source/v6/viewer/block_trace_debug_x32_cs.hlsl",	PROJECT_VIEWER },

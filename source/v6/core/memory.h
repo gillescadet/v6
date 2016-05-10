@@ -113,13 +113,13 @@ private:
 	IStack* m_stack;
 };
 
-struct Block_s;
+struct MemoryBlock_s;
 
 struct BlockAllocator_s
 {
-	IAllocator*	 heap;
-	Block_s* firstBlock;
-	u32		 blockCapacity;
+	IAllocator*		heap;
+	MemoryBlock_s*	firstBlock;
+	u32				blockCapacity;
 };
 
 void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size );

@@ -10,6 +10,12 @@
 #define BEGIN_V6_NAMESPACE		namespace v6 {
 #define END_V6_NAMESPACE		}
 
+#if defined( PLATFORM_WINDOWS )
+#define V6_UE4_PLUGIN			1
+#else
+#define V6_UE4_PLUGIN			0
+#endif
+
 #if 0
 #define __ASSERT( EXP )				assert( EXP )
 #else

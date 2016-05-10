@@ -29,7 +29,11 @@ BEGIN_V6_NAMESPACE
 #define CODEC_COLOR_COUNT_TOLERANCE		4
 #define CODEC_COLOR_COMPRESS			1
 
+#if V6_UE4_PLUGIN == 1
+#define CODEC_FRAME_COMPRESS			0
+#else
 #define CODEC_FRAME_COMPRESS			1
+#endif
 
 class IAllocator;
 class IStack;

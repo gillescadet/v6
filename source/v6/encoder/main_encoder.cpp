@@ -1,8 +1,9 @@
 /*V6*/
 
 #include <v6/core/common.h>
-#include <v6/core/decoder.h>
-#include <v6/core/encoder.h>
+
+#include <v6/codec/decoder.h>
+#include <v6/codec/encoder.h>
 #include <v6/core/memory.h>
 
 #define VALIDATE (ENCODER_STRICT_BUCKET || ENCODER_STRICT_CELL)

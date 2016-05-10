@@ -1,10 +1,11 @@
 /*V6*/
 
-#pragma warning( push, 3 )
-#include <windows.h>
-#pragma warning( pop )
-
 #include <v6/core/common.h>
+
+#include <v6/core/windows_begin.h>
+#include <windows.h>
+#include <v6/core/windows_end.h>
+
 #include <v6/core/filesystem.h>
 
 #include <v6/core/memory.h>

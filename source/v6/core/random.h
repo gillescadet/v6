@@ -17,7 +17,7 @@ inline Vec3 RandSphere()
 {
 	// http://mathworld.wolfram.com/SpherePointPicking.html
 
-	const float alpha = RandFloat() * PI * 2.0f;
+	const float alpha = RandFloat() * V6_PI * 2.0f;
 	const float u = RandFloat() * 2.0f - 1.0f;
 	const float v = Sqrt( 1.0f - u * u );
 	const float x = v * Cos( alpha );

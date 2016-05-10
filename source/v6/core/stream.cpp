@@ -1,10 +1,10 @@
 /*V6*/
 
 #include <v6/core/common.h>
-#include <v6/core/stream.h>
 
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
+#include <v6/core/stream.h>
 
 BEGIN_V6_NAMESPACE
 

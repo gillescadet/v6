@@ -1,10 +1,11 @@
 /*V6*/
 
-#pragma warning( push, 3 )
-#include <d3d11_1.h>
-#pragma warning( pop )
-
 #include <v6/core/common.h>
+
+#include <v6/core/windows_begin.h>
+#include <d3d11_1.h>
+#include <v6/core/windows_end.h>
+
 #include <v6/core/color.h>
 #include <v6/core/filesystem.h>
 #include <v6/core/math.h>

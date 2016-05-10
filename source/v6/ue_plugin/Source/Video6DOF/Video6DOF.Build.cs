@@ -6,44 +6,27 @@ namespace UnrealBuildTool.Rules
 	{
 		public Video6DOF( TargetInfo Target )
 		{
-			PrivateIncludePaths.AddRange(
-				new string[] {
-					"Runtime/Video6DOF/Private",
-                    "../../../../Source/Runtime/Renderer/Private",
-                }
-			);
-
-			PrivateDependencyModuleNames.AddRange(
-				new string[] 
-                {
-					"Core",
-					"CoreUObject",
-					"Engine",
-					"ImageWrapper",
-					"InputCore",
-					"RenderCore",
-					"ShaderCore",
-					"RHI",
-					"Slate",
-				}
-			);
+            PrivateIncludePaths.Add("Video6DOF/Private");
+            PrivateIncludePaths.Add("../../../../Source/Runtime/Renderer/Private");
+            
+            PrivateDependencyModuleNames.Add("Core");
+            PrivateDependencyModuleNames.Add("CoreUObject");
+            PrivateDependencyModuleNames.Add("Engine");
+            PrivateDependencyModuleNames.Add("ImageWrapper");
+            PrivateDependencyModuleNames.Add("InputCore");
+            PrivateDependencyModuleNames.Add("RenderCore");
+            PrivateDependencyModuleNames.Add("ShaderCore");
+            PrivateDependencyModuleNames.Add("RHI");
+            PrivateDependencyModuleNames.Add("Slate");
 
             if ( Target.Platform == UnrealTargetPlatform.Win64 )
             {
-                PrivateDependencyModuleNames.AddRange(
-                    new string[]
-                    {
-                        "D3D11RHI",
-                    }
-                );
+                AddThirdPartyPrivateStaticDependencies(Target, "DX11");
 
-                PrivateIncludePaths.AddRange(
-                    new string[]
-                    {
-                        "../../../../Source/Runtime/Windows/D3D11RHI/Private",
-                        "../../../../Source/Runtime/Windows/D3D11RHI/Private/Windows",
-                    }
-                );
+                PrivateIncludePaths.Add("../../../../Source/Runtime/Windows/D3D11RHI/Private");
+                PrivateIncludePaths.Add("../../../../Source/Runtime/Windows/D3D11RHI/Private/Windows");
+                                
+                PrivateDependencyModuleNames.Add("D3D11RHI");
             }
         }
 	}

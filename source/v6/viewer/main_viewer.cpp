@@ -1,17 +1,17 @@
 /*V6*/
 
-#pragma warning( push, 3 )
+#include <v6/core/common.h>
+
+#include <v6/core/windows_begin.h>
 #include <windows.h>
 #include <Windowsx.h>
 #include <d3d11_1.h>
-#pragma warning( pop )
+#include <v6/core/windows_end.h>
 
-#include <v6/core/common.h>
-
-#include <v6/core/codec.h>
+#include <v6/codec/codec.h>
+#include <v6/codec/decoder.h>
+#include <v6/codec/encoder.h>
 #include <v6/core/color.h>
-#include <v6/core/decoder.h>
-#include <v6/core/encoder.h>
 #include <v6/core/filesystem.h>
 #include <v6/core/image.h>
 #include <v6/core/math.h>
@@ -1014,7 +1014,7 @@ static bool CaptureInputs( HWND hWnd )
 	Rid[1].dwFlags = RIDEV_NOLEGACY;   // adds HID keyboard and also ignores legacy keyboard messages
 	Rid[1].hwndTarget = hWnd;
 
-	if ( RegisterRawInputDevices( Rid, 2, sizeof( Rid[0] ) ) == FALSE )
+	if ( RegisterRawInputDevices( Rid, 2, sizeof( Rid[0] ) ) == false )
 	{
 		V6_ERROR( "Call to RegisterRawInputDevices failed!\n" );
 		return false;
@@ -1341,7 +1341,7 @@ static void GPUContext_Create( GPUContext_s* context, u32 width, u32 height, HWN
 		D3D11_BLEND_DESC blendState = {};
 		blendState.AlphaToCoverageEnable = false;
 		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = FALSE;
+		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = 0;
 		
 		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateNoColor ) );
@@ -1351,7 +1351,7 @@ static void GPUContext_Create( GPUContext_s* context, u32 width, u32 height, HWN
 		D3D11_BLEND_DESC blendState = {};
 		blendState.AlphaToCoverageEnable = false;
 		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = FALSE;
+		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
 		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateOpaque ) );
@@ -1361,7 +1361,7 @@ static void GPUContext_Create( GPUContext_s* context, u32 width, u32 height, HWN
 		D3D11_BLEND_DESC blendState = {};
 		blendState.AlphaToCoverageEnable = true;
 		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = FALSE;
+		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
 		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateAlphaCoverage ) );
@@ -1371,7 +1371,7 @@ static void GPUContext_Create( GPUContext_s* context, u32 width, u32 height, HWN
 		D3D11_BLEND_DESC blendState = {};
 		blendState.AlphaToCoverageEnable = false;
 		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = TRUE;
+		blendState.RenderTarget[0].BlendEnable = true;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		blendState.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
 		blendState.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;

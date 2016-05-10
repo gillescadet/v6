@@ -1,9 +1,10 @@
 /*V6*/
+
 #include <v6/core/common.h>
 
+#include <v6/codec/codec.h>
+#include <v6/codec/decoder.h>
 #include <v6/core/bit.h>
-#include <v6/core/codec.h>
-#include <v6/core/decoder.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 

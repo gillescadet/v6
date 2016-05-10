@@ -1,9 +1,11 @@
 /*V6*/
 
+#include <v6/core/common.h>
+
+#if 0
+
 #include <OVR_CAPI_D3D.h>
 #include <Extras/OVR_Math.h>
-
-#include <v6/core/common.h>
 
 #include <v6/core/math.h>
 #include <v6/core/mat4x4.h>
@@ -372,3 +374,5 @@ void Hmd_Shutdown()
 }
 
 END_V6_NAMESPACE
+
+#endif

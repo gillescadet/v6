@@ -5,6 +5,7 @@
 #include "Video6DOFCapturer.generated.h"
 
 class FSceneViewExtension;
+class IImageWrapperModule;
 
 UENUM()
 enum EVideo6DOFCapturerState

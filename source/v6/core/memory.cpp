@@ -1,17 +1,17 @@
 /*V6*/
 
 #include <v6/core/common.h>
-#include <v6/core/memory.h>
 
 #include <v6/core/math.h>
+#include <v6/core/memory.h>
 
 BEGIN_V6_NAMESPACE
 
-struct Block_s
+struct MemoryBlock_s
 {
 	u32			size;
 	u32			capacity;
-	Block_s*	next;
+	MemoryBlock_s*	next;
 };
 
 CHeap::CHeap() : m_notFreeCount( 0 )
@@ -49,7 +49,7 @@ void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 	if ( allocator->firstBlock == nullptr || allocator->firstBlock->size + size > allocator->firstBlock->capacity )
 	{
 		u32 const capacity = Max( size, allocator->blockCapacity );
-		Block_s* newBlock = (Block_s *)allocator->heap->alloc( (int)(sizeof( Block_s ) + capacity) );
+		MemoryBlock_s* newBlock = (MemoryBlock_s *)allocator->heap->alloc( (int)(sizeof( MemoryBlock_s ) + capacity) );
 		newBlock->size = size;
 		newBlock->capacity = capacity;
 		newBlock->next = allocator->firstBlock;
@@ -64,7 +64,7 @@ void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 
 void BlockAllocator_Clear( BlockAllocator_s* allocator )
 {
-	for ( Block_s * block = allocator->firstBlock, *nextBlock = nullptr; block; block = nextBlock)
+	for ( MemoryBlock_s * block = allocator->firstBlock, *nextBlock = nullptr; block; block = nextBlock)
 	{
 		nextBlock = block->next;
 		allocator->heap->free( block );

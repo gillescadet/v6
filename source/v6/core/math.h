@@ -7,9 +7,8 @@
 
 BEGIN_V6_NAMESPACE
 
-static const float PI = 3.1415926f;
-
-static const float M_TO_CM = 100.0f;
+#define V6_M_TO_CM		100.0f
+#define V6_PI			3.1415926f
 
 template< typename T >
 V6_INLINE T Abs( T x ) { return abs( x ); }
@@ -35,9 +34,9 @@ V6_INLINE float Sqrt(float v) { return sqrtf( v ); }
 
 V6_INLINE void SinCos( float a, float* s, float* c) { *s = sinf( a ); *c = cosf( a ); }
 
-V6_INLINE float DegToRad( float deg ) { return deg * (PI / 180.0f); }
+V6_INLINE float DegToRad( float deg ) { return deg * (V6_PI / 180.0f); }
 
-V6_INLINE float RadToDeg( float rad ) { return rad * (180.0f / PI); }
+V6_INLINE float RadToDeg( float rad ) { return rad * (180.0f / V6_PI); }
 
 template<typename T>
 V6_INLINE T Sin( T x ) { return sinf( x ); }
