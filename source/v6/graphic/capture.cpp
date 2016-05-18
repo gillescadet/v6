@@ -54,7 +54,7 @@ static void ClearNode( CaptureContext_s* captureContext )
 	g_deviceContext->ClearUnorderedAccessViewUint( res->firstChildOffsetsLimitedUAV, values );
 }
 
-static void Collect( const CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID )
+static void Collect( const CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
 {
 	GPU_BeginEvent( "Collect" );
 
@@ -101,8 +101,8 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 
 	// Set
 	g_deviceContext->CSSetConstantBuffers( hlsl::CBSampleSlot, 1, &res->cbCollect.buf );
-	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_COLOR_SLOT, 1, &res->color.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_DEPTH_SLOT, 1, &res->depth.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_COLOR_SLOT, 1, &colorSRV );
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_DEPTH_SLOT, 1, &depthSRV );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &res->samples.uav, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &res->sampleIndirectArgs.uav, nullptr );
 	g_deviceContext->CSSetShader( res->computeCollect.m_computeShader, nullptr, 0 );
@@ -375,9 +375,6 @@ void Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc
 	captureContext->resBlockDataCount = captureContext->resLeafCount * 33 / 16;
 	captureContext->resBlockPosCount = captureContext->resBlockDataCount / 8;
 
-	GPUColorRenderTarget_Create( &res->color, renderTargetSize, renderTargetSize, 1, true, false, "cubeColor" );
-	GPUDepthRenderTarget_Create( &res->depth, renderTargetSize, renderTargetSize, 1, true, "cubeDepth" );
-
 	GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSample ), "sample" );
 	GPUConstantBuffer_Create( &res->cbOctree, sizeof( hlsl::CBOctree ), "octree" );
 	
@@ -414,9 +411,6 @@ void Capture_Release( CaptureContext_s* captureContext )
 {
 	GPUCaptureResources_s* res = captureContext->res;
 
-	GPUColorRenderTarget_Release( &res->color );
-	GPUDepthRenderTarget_Release( &res->depth );
-	
 	GPUConstantBuffer_Release( &res->cbCollect );
 	GPUConstantBuffer_Release( &res->cbOctree );
 
@@ -450,9 +444,9 @@ void Capture_End( CaptureContext_s* captureContext )
 	PackColor( captureContext );
 }
 
-u32 Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID )
+u32 Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView )
 {
-	Collect( captureContext, origin, samplePos, faceID );
+	Collect( captureContext, origin, samplePos, faceID, (ID3D11ShaderResourceView*)colorView, (ID3D11ShaderResourceView*)depthView );
 	const u32 sumLeafCount = BuildNode( captureContext );
 	FillLeaf( captureContext );
 	return sumLeafCount;

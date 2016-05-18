@@ -277,6 +277,12 @@ struct CubeVertex_s
 	Vec2 uv;
 };
 
+struct CubeFaceContext_s
+{
+	GPUColorRenderTarget_s		color;
+	GPUDepthRenderTarget_s		depth;
+};
+
 struct GPUContext_s
 {
 	IDXGISwapChain*					swapChain;
@@ -1186,6 +1192,21 @@ static void Cube_MakeViewMatrix( Mat4x4* matrix, const Vec3& center, CubeAxis_e 
 	*matrix = Mat4x4_Rotation( lookAt, up );
 	Mat4x4_SetTranslation( matrix, center );
 	Mat4x4_AffineInverse( matrix );
+}
+
+static void CubeFace_Create( CubeFaceContext_s* cubeFaceContext, u32 gridMacroShift )
+{
+	const u32 gridWidth = 1 << (gridMacroShift + 2);
+	const u32 renderTargetSize = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+
+	GPUColorRenderTarget_Create( &cubeFaceContext->color, renderTargetSize, renderTargetSize, 1, true, false, "cubeColor" );
+	GPUDepthRenderTarget_Create( &cubeFaceContext->depth, renderTargetSize, renderTargetSize, 1, true, "cubeDepth" );
+}
+
+static void CubeFace_Release( CubeFaceContext_s* cubeFaceContext )
+{
+	GPUColorRenderTarget_Release( &cubeFaceContext->color );
+	GPUDepthRenderTarget_Release( &cubeFaceContext->depth );
 }
 
 static void GPUContext_CreateShaders( GPUContext_s* context, CFileSystem* fileSystem, IStack* stack )
@@ -2748,7 +2769,7 @@ public:
 public:
 	void BlendPixel( const RenderingView_s* view );
 	bool BuildBlock( u32 frameID );
-	void Capture_Render( const Vec3* sampleOffset, u32 faceID );
+	void Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* sampleOffset, u32 faceID );
 	bool Create(int nWidth, int nHeight, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack );
 	void CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID );
 	void Draw( float dt );
@@ -2764,12 +2785,13 @@ public:
 	void ReleaseTraceMode();
 	void ResetDrawMode();
 	void TraceBlock( const RenderingView_s* views, const Vec3* buildOrigin );
-	bool WriteRawFrameFile( u32 frame );
+	bool WriteRawFrameFile( CaptureContext_s* captureContext, u32 frame );
 
 	GPUContext_s		gpuContext;
 		
 	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
 	
+	CubeFaceContext_s	m_cubeFaceContext;
 	CaptureContext_s	m_captureContext;
 	SequenceContext_s*	m_sequenceContext;
 	TraceContext_s*		m_traceContext;
@@ -2995,7 +3017,7 @@ void CRenderingDevice::DrawDebug( const RenderingView_s* view )
 	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 }
 
-void CRenderingDevice::Capture_Render( const Vec3* samplePos, u32 faceID )
+void CRenderingDevice::Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* samplePos, u32 faceID )
 {
 	// Rasterization state
 	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
@@ -3018,12 +3040,12 @@ void CRenderingDevice::Capture_Render( const Vec3* samplePos, u32 faceID )
 	GPU_BeginEvent( "Capture" );
 		
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &m_captureContext.res->color.rtv, m_captureContext.res->depth.dsv );
+	gpuContext.deviceContext->OMSetRenderTargets( 1, &cubeFaceContext->color.rtv, cubeFaceContext->depth.dsv );
 
 	// Clear
 	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	gpuContext.deviceContext->ClearRenderTargetView( m_captureContext.res->color.rtv, pRGBA );
-	gpuContext.deviceContext->ClearDepthStencilView( m_captureContext.res->depth.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+	gpuContext.deviceContext->ClearRenderTargetView( cubeFaceContext->color.rtv, pRGBA );
+	gpuContext.deviceContext->ClearDepthStencilView( cubeFaceContext->depth.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 
 	// View
 	RenderingView_s view;
@@ -3509,7 +3531,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 	return true;
 }
 
-bool CRenderingDevice::WriteRawFrameFile( u32 frameID )
+bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 frameID )
 {
 	if ( s_activeScene->filename[0] == 0 )
 	{
@@ -3537,9 +3559,9 @@ bool CRenderingDevice::WriteRawFrameFile( u32 frameID )
 			CodecRawFrameData_s frameData = {};
 
 			{
-				Capture_MapBlocksForRead( &m_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
+				Capture_MapBlocksForRead( captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
 				Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
-				Capture_UnmapBlocksForRead( &m_captureContext );
+				Capture_UnmapBlocksForRead( captureContext );
 			}
 
 			V6_MSG( "Stream saved to file %s.\n", path );
@@ -3578,6 +3600,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
 		captureDesc.logReadBack = s_logReadBack;
 
+		CubeFace_Create( &m_cubeFaceContext, HLSL_GRID_MACRO_SHIFT );
 		Capture_Create( &m_captureContext, &captureDesc );
 
 		lastSumLeafCount = 0;
@@ -3592,8 +3615,8 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	for ( u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
-		Capture_Render( &samplePos, faceID );
-		sumLeafCount += Capture_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID );
+		Capture_Render( &m_cubeFaceContext, &samplePos, faceID );
+		sumLeafCount += Capture_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, m_cubeFaceContext.color.srv, m_cubeFaceContext.depth.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
@@ -3612,9 +3635,10 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 		Capture_End( &m_captureContext );
 
-		const bool written = WriteRawFrameFile( frameID );
+		const bool written = WriteRawFrameFile( &m_captureContext, frameID );
 
 		Capture_Release( &m_captureContext );
+		CubeFace_Release( &m_cubeFaceContext );
 
 		if ( !written )
 			return false;

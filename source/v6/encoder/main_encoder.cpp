@@ -14,7 +14,7 @@ int main()
 
 	v6::CHeap heap;
 
-#if 1
+#if 0
 	const char* templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 	const char* sequenceFilename = "D:/media/obj/crytek-sponza/sponza.v6s";
 #endif
@@ -23,8 +23,13 @@ int main()
 	const char* templateFilename = "D:/media/obj/default/default_%06d.v6f";
 	const char* sequenceFilename = "D:/media/obj/default/default.v6s";
 #endif
+	
+#if 1
+	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
+	const char* sequenceFilename = "D:/tmp/v6/ue.v6s";
+#endif
 
-	if ( !v6::Sequence_Encode( templateFilename, 2, sequenceFilename, 75.0f / 75.0f, &heap ) )
+	if ( !v6::Sequence_Encode( templateFilename, 1, sequenceFilename, 75.0f / 75.0f, &heap ) )
 		return 1;
 
 #if VALIDATE

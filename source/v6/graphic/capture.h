@@ -23,9 +23,6 @@ struct CaptureDesc_s
 
 struct GPUCaptureResources_s
 {
-	GPUColorRenderTarget_s		color;
-	GPUDepthRenderTarget_s		depth;
-
 	GPUConstantBuffer_s			cbCollect;
 	GPUConstantBuffer_s			cbOctree;
 	
@@ -58,12 +55,15 @@ struct CaptureContext_s
 	u32							resBlockDataCount;
 };
 
-u32		Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID );
-void	Capture_Begin( CaptureContext_s* captureContext );
+// any thread
 void	Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc );
+void	Capture_Release( CaptureContext_s* captureContext );
+
+// render thread
+u32		Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView );
+void	Capture_Begin( CaptureContext_s* captureContext );
 void	Capture_End( CaptureContext_s* captureContext );
 void	Capture_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );
-void	Capture_Release( CaptureContext_s* captureContext );
 void	Capture_UnmapBlocksForRead( CaptureContext_s* captureContext );
 
 END_V6_NAMESPACE

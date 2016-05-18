@@ -68,6 +68,11 @@ void GPU_BeginEvent( const char* eventName )
 	s_userDefinedAnnotation->BeginEvent( eventNameW );
 }
 
+void GPU_BeginEventW( const wchar_t* eventNameW )
+{
+	s_userDefinedAnnotation->BeginEvent( eventNameW );
+}
+
 void GPU_EndEvent()
 {
 	s_userDefinedAnnotation->EndEvent();
@@ -1057,6 +1062,59 @@ void GPUMesh_Release( GPUMesh_s* mesh )
 		V6_RELEASE_D3D11( mesh->m_vertexBuffer );
 	if ( mesh->m_indexBuffer )
 		V6_RELEASE_D3D11( mesh->m_indexBuffer );
+}
+
+void GPURenderTargetState_Init( GPURenderTargetState_s* renderTargetState )
+{	
+	V6_ASSERT( GPURenderTargetState_s::COLOR_TARGET_COUNT == D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT );
+
+	memset( renderTargetState, 0, sizeof( *renderTargetState ) );
+}
+
+void GPURenderTargetState_Save( GPURenderTargetState_s* renderTargetState )
+{
+	GPURenderTargetState_Init( renderTargetState );
+
+	g_deviceContext->OMGetRenderTargets( GPURenderTargetState_s::COLOR_TARGET_COUNT, renderTargetState->rtvs, &renderTargetState->dsv );
+}
+
+void GPURenderTargetState_Restore( GPURenderTargetState_s* renderTargetState )
+{
+	g_deviceContext->OMSetRenderTargets( GPURenderTargetState_s::COLOR_TARGET_COUNT, renderTargetState->rtvs, renderTargetState->dsv );
+}
+
+void GPUShaderState_Init( GPUShaderState_s* shaderState )
+{	
+	V6_ASSERT( GPUShaderState_s::CB_SLOT_COUNT == D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT );
+	V6_ASSERT( GPUShaderState_s::SRV_SLOT_COUNT == D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT );
+	V6_ASSERT( GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_0 == D3D11_PS_CS_UAV_REGISTER_COUNT );
+	V6_ASSERT( GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1 == D3D11_1_UAV_SLOT_COUNT );
+
+	memset( shaderState, 0, sizeof( *shaderState ) );
+}
+
+void GPUShaderState_Save( GPUShaderState_s* shaderState )
+{
+	GPUShaderState_Init( shaderState );
+
+	g_deviceContext->CSGetShader( &shaderState->cs, nullptr, nullptr );
+	g_deviceContext->CSGetConstantBuffers( 0, GPUShaderState_s::CB_SLOT_COUNT, shaderState->cbs );
+	g_deviceContext->CSGetShaderResources( 0, GPUShaderState_s::SRV_SLOT_COUNT, shaderState->srvs );
+	if ( g_device->GetFeatureLevel() == D3D_FEATURE_LEVEL_11_0 )
+		g_deviceContext->CSGetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_0, shaderState->uavs );
+	else
+		g_deviceContext->CSGetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1, shaderState->uavs );
+}
+
+void GPUShaderState_Restore( GPUShaderState_s* shaderState )
+{
+	g_deviceContext->CSSetShader( shaderState->cs, nullptr, 0 );
+	g_deviceContext->CSSetConstantBuffers( 0, GPUShaderState_s::CB_SLOT_COUNT, shaderState->cbs );
+	g_deviceContext->CSSetShaderResources( 0, GPUShaderState_s::SRV_SLOT_COUNT, shaderState->srvs );
+	if ( g_device->GetFeatureLevel() == D3D_FEATURE_LEVEL_11_0 )
+		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_0, shaderState->uavs, nullptr );
+	else
+		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1, shaderState->uavs, nullptr );
 }
 
 END_V6_NAMESPACE

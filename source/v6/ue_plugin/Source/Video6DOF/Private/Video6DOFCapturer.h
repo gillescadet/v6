@@ -4,7 +4,6 @@
 
 #include "Video6DOFCapturer.generated.h"
 
-class FSceneViewExtension;
 class IImageWrapperModule;
 
 UENUM()
@@ -31,6 +30,10 @@ public:
 	UVideo6DOFCapturer( FVTableHelper& Helper );
 
 public:
+	static void													Startup();
+	static void													Shutdown();
+
+public:
 
 	//~ FTickableGameObject interface
 
@@ -41,9 +44,7 @@ public:
 
 public:
 	
-	void														AddView();
 	void														Capture( const FVector& position, const FQuat& orientation );
-	void														UpdateScene();
 
 private:
 	
@@ -52,10 +53,8 @@ private:
 private:
 
 	IImageWrapperModule*										m_imageWrapperModule;
-	USceneCaptureComponent2D*									m_captureComponent;
 	EVideo6DOFCapturerState										m_state;
 	FVector														m_capturePosition;
 	FQuat														m_captureOrientation;
 	TArray< FColor >											m_colors;
-	TSharedPtr< FSceneViewExtension, ESPMode::ThreadSafe >		m_viewExtension;
 };

@@ -8,17 +8,19 @@ FVideo6DOFManager::FVideo6DOFManager()
 		TEXT( "V6.Screenshot" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_ScreenShot", "Takes a V6 screenshot" ).ToString(),
 		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::Screenshot ) )
-	, m_addViewCommand(
-		TEXT( "V6.AddView" ),
-		*NSLOCTEXT( "Video6DOF", "CommandText_AddView", "Add a V6 view" ).ToString(),
-		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::AddView ) )
 	, m_capturer( nullptr )
 {
+	UVideo6DOFCapturer::Startup();
+}
+
+FVideo6DOFManager::~FVideo6DOFManager()
+{
+	UVideo6DOFCapturer::Shutdown();
 }
 
 void FVideo6DOFManager::CreateCapturer()
 {
-	if (m_capturer)
+	if ( m_capturer )
 	{
 		m_capturer->RemoveFromRoot();
 		m_capturer = nullptr;
@@ -26,15 +28,6 @@ void FVideo6DOFManager::CreateCapturer()
 
 	m_capturer = NewObject< UVideo6DOFCapturer >(UVideo6DOFCapturer::StaticClass());
 	m_capturer->AddToRoot();
-}
-
-void FVideo6DOFManager::AddView( const TArray<FString>& Args )
-{
-	CreateCapturer();
-	
-	m_capturer->AddView();
-
-	UE_LOG( LogVideo6DOF, Log, TEXT( "Add View..." ) );
 }
 
 void FVideo6DOFManager::Screenshot( const TArray<FString>& Args )

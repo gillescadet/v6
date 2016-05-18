@@ -140,9 +140,32 @@ struct GPUQuery_s
 	u64								data;
 };
 
+struct GPURenderTargetState_s
+{
+	static const u32				COLOR_TARGET_COUNT = 8;
+
+	ID3D11RenderTargetView*			rtvs[COLOR_TARGET_COUNT];
+	ID3D11DepthStencilView*			dsv;
+};
+
+struct GPUShaderState_s
+{
+	static const u32				CB_SLOT_COUNT = 14;
+	static const u32				SRV_SLOT_COUNT = 128;
+	static const u32				UAV_SLOT_COUNT_D3D_11_0 = 8;
+	static const u32				UAV_SLOT_COUNT_D3D_11_1 = 64;
+	
+	// CS
+	ID3D11ComputeShader*			cs;
+	ID3D11Buffer*					cbs[CB_SLOT_COUNT];
+	ID3D11ShaderResourceView*		srvs[SRV_SLOT_COUNT];
+	ID3D11UnorderedAccessView*		uavs[UAV_SLOT_COUNT_D3D_11_1];
+};
+
 void			GPU_SetDevice( ID3D11Device* device );
 
 void			GPU_BeginEvent( const char* eventName );
+void			GPU_BeginEventW( const wchar_t* eventNameW );
 void			GPU_EndEvent();
 
 void			GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, const char* name );
@@ -194,6 +217,14 @@ void			GPUShader_Release( GPUShader_s* shader );
 void			GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* pixels, bool mipmap, const char* name );
 void			GPUTexture2D_CreateRW( GPUTexture2D_s* tex, u32 width, u32 height, const char* name );
 void			GPUTexture2D_Release( GPUTexture2D_s* tex );
+
+void			GPURenderTargetState_Init( GPURenderTargetState_s* renderTargetState );
+void			GPURenderTargetState_Save( GPURenderTargetState_s* renderTargetState );
+void			GPURenderTargetState_Restore( GPURenderTargetState_s* renderTargetState );
+
+void			GPUShaderState_Init( GPUShaderState_s* shaderState );
+void			GPUShaderState_Save( GPUShaderState_s* shaderState );
+void			GPUShaderState_Restore( GPUShaderState_s* shaderState );
 
 // inline
 

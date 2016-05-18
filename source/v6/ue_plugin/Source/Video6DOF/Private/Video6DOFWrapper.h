@@ -2,6 +2,47 @@
 
 #pragma once
 
+inline FD3D11TextureBase* __GetD3D11TextureFromRHITexture(FRHITexture* Texture)
+{
+	if(!Texture)
+	{
+		return NULL;
+	}
+	else if(Texture->GetTexture2D())
+	{
+		return static_cast<FD3D11Texture2D*>(Texture);
+	}
+	else if(Texture->GetTextureReference())
+	{
+		return static_cast<FD3D11TextureReference*>(Texture);
+	}
+	else if(Texture->GetTexture2DArray())
+	{
+		return static_cast<FD3D11Texture2DArray*>(Texture);
+	}
+	else if(Texture->GetTexture3D())
+	{
+		return static_cast<FD3D11Texture3D*>(Texture);
+	}
+	else if(Texture->GetTextureCube())
+	{
+		return static_cast<FD3D11TextureCube*>(Texture);
+	}
+	else
+	{
+		// redefined this function and commented the log to prevent this error:
+		// Module.Video6DOF.cpp.obj : error LNK2001: unresolved external symbol "struct FLogCategoryLogD3D11RHI LogD3D11RHI"
+		//UE_LOG(LogD3D11RHI, Fatal,TEXT("Unknown RHI texture type"));
+		return NULL;
+	}
+}
+
+class FD3D11DynamicRHIAccessor : public FD3D11DynamicRHI
+{
+public:
+	FD3D11TextureBase* GetDepthTexture() { return CurrentDepthTexture; }
+};
+
 class FDynamicRHIWrap : public FDynamicRHI
 {
 public:
@@ -18,7 +59,8 @@ public:
 
         virtual void Shutdown(  ) final override
         {
-                m_wrapped->Shutdown(  );
+			GDynamicRHI = m_wrapped;
+            GDynamicRHI->Shutdown();
         }
 
         virtual FSamplerStateRHIRef RHICreateSamplerState( const FSamplerStateInitializerRHI& Initializer ) final override
@@ -703,7 +745,7 @@ public:
 
         virtual void RHICopyToResolveTarget( FTextureRHIParamRef SourceTexture, FTextureRHIParamRef DestTexture, bool bKeepOriginalSurface, const FResolveParams& ResolveParams ) final override
         {
-                m_wrapped->RHICopyToResolveTarget( SourceTexture, DestTexture, bKeepOriginalSurface, ResolveParams );
+			m_wrapped->RHICopyToResolveTarget( SourceTexture, DestTexture, bKeepOriginalSurface, ResolveParams );
         }
 
         virtual void RHITransitionResources( EResourceTransitionAccess TransitionType, FTextureRHIParamRef* InTextures, int32 NumTextures ) final override
@@ -768,7 +810,13 @@ public:
 
         virtual void RHIEndScene(  ) final override
         {
-                m_wrapped->RHIEndScene(  );
+			if ( m_endSceneCallback )
+			{
+				m_endSceneCallback();
+				m_endSceneCallback = nullptr;
+				m_setRenderTargetCallback = nullptr;
+			}
+            m_wrapped->RHIEndScene(  );
         }
 
         virtual void RHISetStreamSource( uint32 StreamIndex, FVertexBufferRHIParamRef VertexBuffer, uint32 Stride, uint32 Offset ) final override
@@ -968,12 +1016,40 @@ public:
 
         virtual void RHISetRenderTargets( uint32 NumSimultaneousRenderTargets, const FRHIRenderTargetView* NewRenderTargets, const FRHIDepthRenderTargetView* NewDepthStencilTarget, uint32 NumUAVs, const FUnorderedAccessViewRHIParamRef* UAVs ) final override
         {
-                m_wrapped->RHISetRenderTargets( NumSimultaneousRenderTargets, NewRenderTargets, NewDepthStencilTarget, NumUAVs, UAVs );
+			if ( m_setRenderTargetCallback && NumSimultaneousRenderTargets > 0 )
+			{
+				FD3D11TextureBase* colorTexture = nullptr;
+				if ( NewRenderTargets->Texture && NewRenderTargets->Texture->GetName() == "SceneColorVideo6DOF" )
+					colorTexture = __GetD3D11TextureFromRHITexture( NewRenderTargets->Texture );
+				
+				FD3D11TextureBase* depthTexture = nullptr;
+				if ( NewDepthStencilTarget->Texture && NewDepthStencilTarget->Texture->GetName() == "SceneDepthZ" )
+					depthTexture = __GetD3D11TextureFromRHITexture( NewDepthStencilTarget->Texture );
+
+				if ( colorTexture || depthTexture )
+					m_setRenderTargetCallback( colorTexture, depthTexture );
+			}
+            
+			m_wrapped->RHISetRenderTargets( NumSimultaneousRenderTargets, NewRenderTargets, NewDepthStencilTarget, NumUAVs, UAVs );
         }
 
         virtual void RHISetRenderTargetsAndClear( const FRHISetRenderTargetsInfo& RenderTargetsInfo ) final override
         {
-                m_wrapped->RHISetRenderTargetsAndClear( RenderTargetsInfo );
+			if ( m_setRenderTargetCallback && RenderTargetsInfo.NumColorRenderTargets > 0 )
+			{
+				FD3D11TextureBase* colorTexture = nullptr;
+				if ( RenderTargetsInfo.ColorRenderTarget[0].Texture && RenderTargetsInfo.ColorRenderTarget[0].Texture->GetName() == "SceneColorVideo6DOF" )
+					colorTexture = __GetD3D11TextureFromRHITexture( RenderTargetsInfo.ColorRenderTarget[0].Texture );
+				
+				FD3D11TextureBase* depthTexture = nullptr;
+				if ( RenderTargetsInfo.DepthStencilRenderTarget.Texture && RenderTargetsInfo.DepthStencilRenderTarget.Texture->GetName() == "SceneDepthZ" )
+					depthTexture = __GetD3D11TextureFromRHITexture( RenderTargetsInfo.DepthStencilRenderTarget.Texture );
+
+				if ( colorTexture || depthTexture )
+					m_setRenderTargetCallback( colorTexture, depthTexture );
+			}
+
+			m_wrapped->RHISetRenderTargetsAndClear( RenderTargetsInfo );
         }
 
         virtual void RHIBindClearMRTValues( bool bClearColor, bool bClearDepth, bool bClearStencil ) final override
@@ -1043,11 +1119,13 @@ public:
 
         virtual void RHIPushEvent( const TCHAR* Name ) final override
         {
+			//v6::GPU_BeginEventW( Name );
                 m_wrapped->RHIPushEvent( Name );
         }
 
         virtual void RHIPopEvent(  ) final override
         {
+			//v6::GPU_EndEvent();
                 m_wrapped->RHIPopEvent(  );
         }
 
@@ -1074,4 +1152,6 @@ public:
 public:
 
         IRHICommandContext* m_wrapped;
+		void				(*m_endSceneCallback)();
+		void				(*m_setRenderTargetCallback)( FD3D11TextureBase* color, FD3D11TextureBase* depth );
 };
