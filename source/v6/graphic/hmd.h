@@ -25,10 +25,10 @@ struct HmdEyePose_s
 {	
 	Mat4x4	lookAt;
 	Mat4x4	projection;
-	float			tanHalfFOVLeft;
-	float			tanHalfFOVRight;
-	float			tanHalfFOVUp;
-	float			tanHalfFOVDown;
+	float	tanHalfFOVLeft;
+	float	tanHalfFOVRight;
+	float	tanHalfFOVUp;
+	float	tanHalfFOVDown;
 };
 
 struct HmdOuput_s
@@ -44,12 +44,12 @@ struct HmdRenderTarget_s
 };
 
 u32		Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2], float zNear, float zFar );
-bool			Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize );
-bool			Hmd_EndRendering( HmdOuput_s* output );
-Vec2i		Hmd_GetRecommendedRenderTargetSize();
-bool			Hmd_Init();
-void			Hmd_ReleaseResources();
-void			Hmd_Shutdown();
+bool	Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize );
+bool	Hmd_EndRendering( HmdOuput_s* output );
+Vec2i	Hmd_GetRecommendedRenderTargetSize();
+bool	Hmd_Init();
+void	Hmd_ReleaseResources();
+void	Hmd_Shutdown();
 
 END_V6_NAMESPACE
 

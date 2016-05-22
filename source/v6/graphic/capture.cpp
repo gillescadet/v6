@@ -56,7 +56,7 @@ static void ClearNode( CaptureContext_s* captureContext )
 
 static void Collect( const CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
 {
-	GPU_BeginEvent( "Collect" );
+	GPUEvent_Begin( "Collect" );
 
 	GPUCaptureResources_s* res = captureContext->res;
 	
@@ -118,7 +118,7 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();
+	GPUEvent_End();
 
 #if 1
 	if ( captureContext->desc.logReadBack )
@@ -155,7 +155,7 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 
 static u32 BuildNode( CaptureContext_s* captureContext )
 {
-	GPU_BeginEvent( "BuildNode");
+	GPUEvent_Begin( "BuildNode");
 
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -197,7 +197,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 				
-	GPU_EndEvent();
+	GPUEvent_End();
 
 	const u32* octreeIndirectArgs = (u32*)GPUBuffer_MapReadBack( &res->octreeIndirectArgs );
 
@@ -224,7 +224,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 
 static void FillLeaf( CaptureContext_s* captureContext )
 {
-	GPU_BeginEvent( "FillLeaf");
+	GPUEvent_Begin( "FillLeaf");
 
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -257,12 +257,12 @@ static void FillLeaf( CaptureContext_s* captureContext )
 	g_deviceContext->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();
+	GPUEvent_End();
 }
 
 static void PackColor( CaptureContext_s* captureContext )
 {
-	GPU_BeginEvent( "Pack");
+	GPUEvent_Begin( "Pack");
 
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -304,7 +304,7 @@ static void PackColor( CaptureContext_s* captureContext )
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();
+	GPUEvent_End();
 
 	const u32* blockIndirectArgs = (u32*)GPUBuffer_MapReadBack( &res->blockIndirectArgs );
 

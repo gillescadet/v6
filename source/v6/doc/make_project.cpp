@@ -239,9 +239,10 @@ enum
 	PROJECT_ENCODER			= 1 << 3,
 	PROJECT_LIBOVR			= 1 << 4,
 	PROJECT_LIBOVRKERNEL	= 1 << 5,
-	PROJECT_VIEWER			= 1 << 6,
+	PROJECT_PLAYER			= 1 << 6,
+	PROJECT_VIEWER			= 1 << 7,
 
-	PROJECT_COUNT			= 7
+	PROJECT_COUNT			= 8
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -254,12 +255,13 @@ static const Config_s s_configs[CONFIG_COUNT] =
 
 static const Project_s s_projects[PROJECT_COUNT] = 
 { 
-	{ PROJECT_CLASSWRAPPER, "EE652B0F-8AEA-42F8-8529-41C075FA4DA7", "class_wrappper" },
+	{ PROJECT_CLASSWRAPPER, "30B4EE66-3B03-4859-9372-974340DC4BD3", "class_wrappper" },
 	{ PROJECT_COMPRESSOR,	"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor" },
 	{ PROJECT_DOC,			"3CF8E22B-F0B6-43A7-B472-9E3ACB91591A", "doc" },
 	{ PROJECT_ENCODER,		"8B3F2A6F-97DD-4089-82FC-70E0CC3BCC27", "encoder" },
 	{ PROJECT_LIBOVR,		"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"		, 0, true, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
 	{ PROJECT_LIBOVRKERNEL,	"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"	, 0, true, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
+	{ PROJECT_PLAYER,		"4185B5D4-480C-4E72-946F-90185611CE35", "player"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
 	{ PROJECT_VIEWER,		"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
 };
 
@@ -292,7 +294,17 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_ENCODER },
-	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },	
+	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
+	
+	// player
+	{ "source/v6/core/filesystem.cpp",					PROJECT_PLAYER },
+	{ "source/v6/core/memory.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/string.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/thread.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/vec2i.h",							PROJECT_PLAYER },
+	{ "source/v6/core/win.cpp",							PROJECT_PLAYER },
+	{ "source/v6/graphic/gpu.cpp",						PROJECT_PLAYER },
+	{ "source/v6/player/main_player.cpp",				PROJECT_PLAYER },
 
 	// viewer
 	{ "source/v6/codec/codec.cpp",						PROJECT_VIEWER },
@@ -314,12 +326,14 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/vec3i.h",							PROJECT_VIEWER },
 	{ "source/v6/core/vec4.h",							PROJECT_VIEWER },
 	{ "source/v6/core/vec4i.h",							PROJECT_VIEWER },
+	{ "source/v6/core/win.cpp",							PROJECT_VIEWER },
 	{ "source/v6/graphic/capture.cpp",					PROJECT_VIEWER },
 	{ "source/v6/graphic/gpu.cpp",						PROJECT_VIEWER },
 	{ "source/v6/graphic/hmd.cpp",						PROJECT_VIEWER },
+	{ "source/v6/graphic/scene.cpp",					PROJECT_VIEWER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_VIEWER },
-	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_VIEWER },	
-	{ "source/v6/viewer/main_viewer.cpp",				PROJECT_VIEWER },	
+	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_VIEWER },
+	{ "source/v6/viewer/main_viewer.cpp",				PROJECT_VIEWER },
 	{ "source/v6/viewer/scene_info.cpp",				PROJECT_VIEWER },
 
 	// viewer - HLSL

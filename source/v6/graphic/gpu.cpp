@@ -16,11 +16,22 @@
 
 BEGIN_V6_NAMESPACE
 
+struct BasicVertex_s
+{
+	Vec3 position;
+	Color_s color;
+};
+
 static const u32 VERTEX_INPUT_MAX_COUNT = 6;
 
 ID3D11Device*						g_device = nullptr;
 ID3D11DeviceContext*				g_deviceContext = nullptr;
 static ID3DUserDefinedAnnotation*	s_userDefinedAnnotation = nullptr;
+
+GPUSurfaceContext_s					s_surfaceContext = {};
+GPUQueryContext_s					s_queryContext = {};
+GPURenderTargetContext_s			s_renderTargetContext = {};
+GPUShaderContext_s					s_shaderContext = {};
 
 static u32 s_gpuMemory = 0;
 
@@ -49,14 +60,112 @@ static u32 DXGIFormat_Size( DXGI_FORMAT format )
 	}
 }
 
-void GPU_SetDevice( ID3D11Device* device )
+void GPUDevice_Set( ID3D11Device* device )
 {
+	V6_ASSERT( device );
+	V6_ASSERT( g_device == nullptr );
+
 	g_device = device;
 	g_device->GetImmediateContext( &g_deviceContext );
 	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
 }
 
-void GPU_BeginEvent( const char* eventName )
+void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug )
+{
+	V6_ASSERT( g_device == nullptr );
+
+	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+
+	swapChainDesc.BufferDesc.Width = width;
+	swapChainDesc.BufferDesc.Height = height;
+	swapChainDesc.BufferDesc.RefreshRate.Numerator = 60;
+	swapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
+	swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+	swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+
+	swapChainDesc.SampleDesc.Count = 1;
+	swapChainDesc.SampleDesc.Quality = 0;
+
+	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
+	swapChainDesc.BufferCount = 2;
+	swapChainDesc.OutputWindow = (HWND)hWnd;
+	swapChainDesc.Windowed = true;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+	swapChainDesc.Flags = 0;
+
+	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_1 };
+	
+	D3D_FEATURE_LEVEL featureLevel;
+	V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
+		NULL,
+		D3D_DRIVER_TYPE_HARDWARE,
+		NULL,
+		(debug ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
+		pFeatureLevels,
+		1,
+		D3D11_SDK_VERSION,
+		&swapChainDesc,
+		&s_surfaceContext.swapChain,
+		&g_device,
+		&featureLevel,
+		&g_deviceContext ) );
+
+	V6_ASSERT( featureLevel == D3D_FEATURE_LEVEL_11_1 );
+	
+	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
+
+#if 0
+	for ( u32 sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount++)
+	{
+		u32 maxQualityLevel;
+		HRESULT hr = m_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, MSAA_SAMPLE_QUALITY, &maxQualityLevel );
+		
+		if ( hr != S_OK )
+			break;
+		
+		if ( maxQualityLevel > 0 )
+			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
+	}
+#endif
+
+	V6_ASSERT_D3D11( s_surfaceContext.swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&s_surfaceContext.surface.tex ) );
+
+	V6_ASSERT_D3D11( g_device->CreateRenderTargetView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.rtv ) );
+	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
+	s_surfaceContext.initialized = true;
+}
+
+void GPUDevice_Release()
+{
+	V6_ASSERT( g_device );
+
+	g_deviceContext->ClearState();
+
+	if ( s_surfaceContext.initialized )
+	{
+		V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
+		V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
+		V6_RELEASE_D3D11( s_surfaceContext.surface.uav );
+		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
+		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
+	}
+
+	if ( s_queryContext.initialized )
+		GPUQueryContext_Release();
+
+	if ( s_renderTargetContext.initialized )
+		GPURenderTargetContext_Release();
+
+	if ( s_surfaceContext.initialized )
+		GPUShaderContext_Release();
+
+	V6_RELEASE_D3D11( s_userDefinedAnnotation );
+	V6_RELEASE_D3D11( g_deviceContext );
+	V6_RELEASE_D3D11( g_device );
+}
+
+void GPUEvent_Begin( const char* eventName )
 {
 	const u32 maxLen = 256;
 	const u32 len = (u32)strlen( eventName );
@@ -68,12 +177,12 @@ void GPU_BeginEvent( const char* eventName )
 	s_userDefinedAnnotation->BeginEvent( eventNameW );
 }
 
-void GPU_BeginEventW( const wchar_t* eventNameW )
+void GPUEvent_BeginW( const wchar_t* eventNameW )
 {
 	s_userDefinedAnnotation->BeginEvent( eventNameW );
 }
 
-void GPU_EndEvent()
+void GPUEvent_End()
 {
 	s_userDefinedAnnotation->EndEvent();
 }
@@ -115,6 +224,18 @@ bool GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, CFileSyst
 void GPUCompute_Release( GPUCompute_s* compute )
 {	
 	V6_RELEASE_D3D11( compute->m_computeShader );
+}
+
+void GPUCompute_Dispatch( GPUCompute_s* compute, u32 groupX, u32 groupY, u32 groupZ )
+{
+	g_deviceContext->CSSetShader( compute->m_computeShader, nullptr, 0 );
+	g_deviceContext->Dispatch( groupX, groupY, groupZ );
+}
+
+void GPUCompute_DispatchIndirect( GPUCompute_s* compute, GPUBuffer_s* bufferArgs, u32 offsetArgs )
+{
+	g_deviceContext->CSSetShader( compute->m_computeShader, nullptr, 0 );
+	g_deviceContext->DispatchIndirect( bufferArgs->buf, offsetArgs );
 }
 
 bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, CFileSystem* fileSystem, IAllocator* allocator )
@@ -896,48 +1017,42 @@ void GPUQuery_CreateTimeStamp( GPUQuery_s* query )
 {
 	query->data = 0;
 
-#if V6_GPU_PROFILING == 1
 	D3D11_QUERY_DESC queryDesc = {};
 	queryDesc.Query = D3D11_QUERY_TIMESTAMP;
     queryDesc.MiscFlags = 0;
 	V6_ASSERT_D3D11( g_device->CreateQuery( &queryDesc, &query->query ) );
-#endif
 }
 
 void GPUQuery_CreateTimeStampDisjoint( GPUQuery_s* query )
 {
 	query->data = 0;
 
-#if V6_GPU_PROFILING == 1
 	D3D11_QUERY_DESC queryDesc = {};
 	queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
     queryDesc.MiscFlags = 0;
 	V6_ASSERT_D3D11( g_device->CreateQuery( &queryDesc, &query->query ) );
-#endif
 }
 
 void GPUQuery_BeginTimeStampDisjoint( GPUQuery_s* query )
 {
 	V6_ASSERT( query->data != (u64)-1 );
 	query->data = (u64)-1;
-#if V6_GPU_PROFILING == 1
+
 	g_deviceContext->Begin( query->query );
-#endif
 }
 
 void GPUQuery_EndTimeStampDisjoint( GPUQuery_s* query )
 {
 	V6_ASSERT( query->data == (u64)-1 );
 	query->data = 0;
-#if V6_GPU_PROFILING == 1
+
 	g_deviceContext->End( query->query );
-#endif
 }
 
 bool GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query )
 {
 	V6_ASSERT( query->data != (u64)-1 );
-#if V6_GPU_PROFILING == 1
+
 	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timestampDisjoint = {};
 	if ( g_deviceContext->GetData( query->query, &timestampDisjoint, sizeof( timestampDisjoint ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) != S_OK )
 		return false;
@@ -945,28 +1060,18 @@ bool GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query )
 		return false;
 	query->data = timestampDisjoint.Frequency;
 	return true;
-#else
-	query->data = 0;
-	return false;
-#endif
-	
 }
 
 void GPUQuery_WriteTimeStamp( GPUQuery_s* query )
 {
 	query->data = 0;
-#if V6_GPU_PROFILING == 1
+
 	g_deviceContext->End( query->query );
-#endif
 }
 
 bool GPUQuery_ReadTimeStamp( GPUQuery_s* query )
 {
-#if V6_GPU_PROFILING == 1
 	return g_deviceContext->GetData( query->query, &query->data, sizeof( query->data ), D3D11_ASYNC_GETDATA_DONOTFLUSH ) == S_OK;
-#else
-	return false;
-#endif
 }
 
 float GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* queryEnd, const GPUQuery_s* queryDisjoint )
@@ -980,9 +1085,7 @@ float GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* q
 
 void GPUQuery_Release( GPUQuery_s* query )
 {
-#if V6_GPU_PROFILING == 1
 	V6_RELEASE_D3D11( query->query );
-#endif
 }
 
 void GPUMesh_UpdateVertices( GPUMesh_s* mesh, const void* vertices )
@@ -1056,12 +1159,159 @@ void GPUMesh_Create( GPUMesh_s* mesh, const void* vertices, u32 vertexCount, u32
 	mesh->m_topology = topology;
 }
 
+void GPUMesh_CreateTriangle( GPUMesh_s* mesh )
+{
+	const BasicVertex_s vertices[3] = 
+	{
+		{ Vec3_Make( 0.0f, 1.0f, 0.0f ), Color_Make( 255, 0, 0, 255) },
+		{ Vec3_Make( 1.0f, -1.0f, 0.0f ), Color_Make( 0, 255, 0, 255) },
+		{ Vec3_Make( -1.0f, -1.0f, 0.0f ), Color_Make( 0, 0, 255, 255) } 
+	};
+
+	const u16 indices[3] = { 0, 1, 2 };
+
+	GPUMesh_Create( mesh, vertices, 3, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 3, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+}
+
+void GPUMesh_CreateBox( GPUMesh_s* mesh, const Color_s color, bool wireframe )
+{
+	const BasicVertex_s vertices[8] = 
+	{
+		{ Vec3_Make( -1.0f, -1.0f,  1.0f ), color },
+		{ Vec3_Make(  1.0f, -1.0f,  1.0f ), color },
+		{ Vec3_Make( -1.0f,  1.0f,  1.0f ), color },
+		{ Vec3_Make(  1.0f,  1.0f,  1.0f ), color },
+		{ Vec3_Make( -1.0f, -1.0f, -1.0f ), color },
+		{ Vec3_Make(  1.0f, -1.0f, -1.0f ), color },
+		{ Vec3_Make( -1.0f,  1.0f, -1.0f ), color },
+		{ Vec3_Make(  1.0f,  1.0f, -1.0f ), color },
+	};
+
+	if ( wireframe )
+	{
+		const u16 indices[24] = { 
+			0, 1, 1, 3, 3, 2, 2, 0,
+			4, 5, 5, 7, 7, 6, 6, 4,
+			1, 5, 0, 4, 3, 7, 2, 6 };
+
+		GPUMesh_Create( mesh, vertices, 8, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 24, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINELIST );
+	}
+	else
+	{
+		const u16 indices[36] = { 
+			0, 2, 3,
+			0, 3, 1,
+			1, 3, 7, 
+			1, 7, 5, 
+			5, 7, 6,
+			5, 6, 4,
+			4, 6, 2,
+			4, 2, 0, 
+			2, 6, 7, 
+			2, 7, 3,
+			1, 5, 4,
+			1, 4, 0 };
+
+		GPUMesh_Create( mesh, vertices, 8, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 36, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+	}
+}
+
+void GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color )
+{
+	const BasicVertex_s vertices[8] = 
+	{
+		{ Vec3_Make( -1.0f, -1.0f, 0.0f ), color },
+		{ Vec3_Make(  1.0f, -1.0f, 0.0f ), color },
+		{ Vec3_Make( -1.0f,  1.0f, 0.0f ), color },
+		{ Vec3_Make(  1.0f,  1.0f, 0.0f ), color },
+	};
+
+	const u16 indices[4] = { 	0, 2, 1, 3 };
+
+	GPUMesh_Create( mesh, vertices, 4, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 4, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
+}
+
+void GPUMesh_CreatePoint( GPUMesh_s* mesh )
+{
+	GPUMesh_Create( mesh, nullptr, 0, 0, 0, nullptr, 0, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_POINTLIST );
+}
+
+void GPUMesh_CreateLine( GPUMesh_s* mesh, const Color_s color )
+{
+	const BasicVertex_s vertices[2] = 
+	{
+		{ Vec3_Make( -1.0f, -1.0f, -1.0f ), color },
+		{ Vec3_Make(  1.0f,  1.0f,  1.0f ), color },
+	};
+
+	GPUMesh_Create( mesh, vertices, 2, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, nullptr, 0, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINELIST );
+}
+
 void GPUMesh_Release( GPUMesh_s* mesh )
 {
 	if ( mesh->m_vertexBuffer )
 		V6_RELEASE_D3D11( mesh->m_vertexBuffer );
 	if ( mesh->m_indexBuffer )
 		V6_RELEASE_D3D11( mesh->m_indexBuffer );
+}
+
+void GPUMesh_DrawIndirect( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader, GPUBuffer_s* bufferArgs, u32 offsetArgs )
+{
+	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
+	V6_ASSERT( instanceCount > 0 );
+
+	g_deviceContext->IASetInputLayout( shader->m_inputLayout );
+	g_deviceContext->VSSetShader( shader->m_vertexShader, nullptr, 0 );
+	g_deviceContext->PSSetShader( shader->m_pixelShader, nullptr, 0 );
+		
+	const u32 stride = mesh->m_vertexSize; 
+	const u32 offset = 0;
+			
+	g_deviceContext->IASetVertexBuffers( 0, mesh->m_vertexBuffer != nullptr ? 1 : 0, &mesh->m_vertexBuffer, &stride, &offset );	
+	g_deviceContext->IASetPrimitiveTopology( mesh->m_topology );
+
+	if ( mesh->m_indexCount )
+	{
+		switch ( mesh->m_indexSize )
+		{
+		case 2:
+			g_deviceContext->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R16_UINT, 0 );
+			break;
+		case 4:
+			g_deviceContext->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R32_UINT, 0 );
+			break;
+		default:
+			V6_ASSERT_NOT_SUPPORTED();
+		}
+
+		if ( bufferArgs )
+			g_deviceContext->DrawIndexedInstancedIndirect( bufferArgs->buf, offsetArgs );
+		else if ( instanceCount == 1 )
+			g_deviceContext->DrawIndexed( mesh->m_indexCount, 0, 0 );
+		else
+			g_deviceContext->DrawIndexedInstanced( mesh->m_indexCount, instanceCount, 0, 0, 0 );
+	}
+	else
+	{
+		V6_ASSERT( mesh->m_indexBuffer == nullptr );
+		g_deviceContext->IASetIndexBuffer( nullptr, DXGI_FORMAT_R32_UINT, 0 );
+				
+		if ( bufferArgs )
+			g_deviceContext->DrawInstancedIndirect( bufferArgs->buf, offsetArgs );
+		else 
+		{
+			V6_ASSERT( mesh->m_vertexCount > 0 );
+			if ( instanceCount == 1 )
+				g_deviceContext->Draw( mesh->m_vertexCount, 0 );
+			else
+				g_deviceContext->DrawInstanced( mesh->m_vertexCount, instanceCount, 0, 0 );
+		}
+	}
+}
+
+void GPUMesh_Draw( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader )
+{
+	GPUMesh_DrawIndirect( mesh, instanceCount, shader, nullptr, 0 );
 }
 
 void GPURenderTargetState_Init( GPURenderTargetState_s* renderTargetState )
@@ -1115,6 +1365,310 @@ void GPUShaderState_Restore( GPUShaderState_s* shaderState )
 		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_0, shaderState->uavs, nullptr );
 	else
 		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1, shaderState->uavs, nullptr );
+}
+
+void GPUQueryContext_Create()
+{
+	V6_ASSERT( !s_queryContext.initialized );
+
+	s_queryContext.initialized = true;
+}
+
+GPUQueryContext_s* GPUQueryContext_Get()
+{
+	V6_ASSERT( s_queryContext.initialized );
+
+	return &s_queryContext;
+}
+
+void GPUQueryContext_Release()
+{
+	V6_ASSERT( s_queryContext.initialized );
+
+	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
+	{
+		for ( u32 queryID = 0; queryID < GPUQueryContext_s::QUERY_MAX_COUNT; ++queryID )
+		{
+			if ( s_queryContext.queries[bufferID][queryID].query )
+				GPUQuery_Release( &s_queryContext.queries[bufferID][queryID] );
+		}
+	}
+
+	memset( &s_queryContext, 0, sizeof( s_queryContext ) );
+}
+
+void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, bool stereo )
+{
+	V6_ASSERT( !s_renderTargetContext.initialized );
+
+	GPUColorRenderTarget_Create( &s_renderTargetContext.colorBuffers[0], width, height, 1, true, true, stereo ? "mainLeftColor" : "mainColor" );
+	if ( stereo )
+		GPUColorRenderTarget_Create( &s_renderTargetContext.colorBuffers[1], width, height, 1, true, true, "mainRightColor" );
+	GPUDepthRenderTarget_Create( &s_renderTargetContext.depthBuffer, width, height, 1, false, "mainDepth" );
+
+	if ( supportMSAA )
+	{
+		GPUColorRenderTarget_Create( &s_renderTargetContext.colorBufferMSAA, width, height, 8, false, false, "mainColorMSAA" );
+		GPUDepthRenderTarget_Create( &s_renderTargetContext.depthBufferMSAA, width, height, 8, false, "depthColorMSAA" );
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
+		depthStencilDesc.DepthEnable = false;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateNoZ ) );
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
+		depthStencilDesc.DepthEnable = true;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateZRO ) );
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
+		depthStencilDesc.DepthEnable = true;
+		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateZRW ) );
+	}
+
+	{
+		D3D11_BLEND_DESC blendState = {};
+		blendState.AlphaToCoverageEnable = false;
+		blendState.IndependentBlendEnable = false;
+		blendState.RenderTarget[0].BlendEnable = false;
+		blendState.RenderTarget[0].RenderTargetWriteMask = 0;
+		
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateNoColor ) );
+	}
+
+	{
+		D3D11_BLEND_DESC blendState = {};
+		blendState.AlphaToCoverageEnable = false;
+		blendState.IndependentBlendEnable = false;
+		blendState.RenderTarget[0].BlendEnable = false;
+		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateOpaque ) );
+	}
+
+	{
+		D3D11_BLEND_DESC blendState = {};
+		blendState.AlphaToCoverageEnable = true;
+		blendState.IndependentBlendEnable = false;
+		blendState.RenderTarget[0].BlendEnable = false;
+		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateAlphaCoverage ) );
+	}
+
+	{
+		D3D11_BLEND_DESC blendState = {};
+		blendState.AlphaToCoverageEnable = false;
+		blendState.IndependentBlendEnable = false;
+		blendState.RenderTarget[0].BlendEnable = true;
+		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		blendState.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		blendState.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateAdditif ) );
+	}
+
+	{
+		D3D11_RASTERIZER_DESC rasterDesc = {};
+		rasterDesc.FillMode = D3D11_FILL_SOLID;
+		rasterDesc.CullMode = D3D11_CULL_NONE;
+		rasterDesc.FrontCounterClockwise = false;
+		rasterDesc.DepthBias = 0;
+		rasterDesc.DepthBiasClamp = 0;
+		rasterDesc.SlopeScaledDepthBias = 0.0f;
+		rasterDesc.DepthClipEnable = true;
+		rasterDesc.ScissorEnable = false;
+		rasterDesc.MultisampleEnable = false;
+		rasterDesc.AntialiasedLineEnable = false;
+		
+		V6_ASSERT_D3D11( g_device->CreateRasterizerState( &rasterDesc, &s_renderTargetContext.rasterState ) );
+	}
+
+	s_renderTargetContext.width = width;
+	s_renderTargetContext.height = height;
+	s_renderTargetContext.supportMSAA = supportMSAA;
+	s_renderTargetContext.stereo = stereo;
+	s_renderTargetContext.initialized = true;
+}
+
+GPURenderTargetContext_s* GPURenderTargetContext_Get()
+{
+	V6_ASSERT( s_renderTargetContext.initialized );
+	return &s_renderTargetContext;
+}
+
+void GPURenderTargetContext_Begin( const GPURenderTargetContextDesc_s* desc, u32 eye )
+{
+	V6_ASSERT( s_renderTargetContext.supportMSAA || !desc->useMSAA );
+
+	// Rasterization state
+	g_deviceContext->OMSetDepthStencilState( desc->disableZ ? s_renderTargetContext.depthStencilStateNoZ : s_renderTargetContext.depthStencilStateZRW, 0 );
+	if ( desc->useAlphaCoverage )
+		g_deviceContext->OMSetBlendState( s_renderTargetContext.blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );
+	else
+		g_deviceContext->OMSetBlendState( s_renderTargetContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
+		
+	// Viewport
+	{
+		D3D11_VIEWPORT viewport = {};
+		viewport.TopLeftX = 0;
+		viewport.TopLeftY = 0;
+		viewport.Width = (float)s_renderTargetContext.width;
+		viewport.Height = (float)s_renderTargetContext.height;
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		g_deviceContext->RSSetViewports( 1, &viewport );
+		g_deviceContext->RSSetState( s_renderTargetContext.rasterState );
+	}
+	
+	// RT
+	s_renderTargetContext.drawState.eye = eye;
+	if ( desc->useMSAA )
+	{
+		g_deviceContext->OMSetRenderTargets( 1, &s_renderTargetContext.colorBufferMSAA.rtv, desc->disableZ ? nullptr : s_renderTargetContext.depthBufferMSAA.dsv );
+		s_renderTargetContext.drawState.resolve = true;
+	}
+	else
+	{
+		g_deviceContext->OMSetRenderTargets( 1, &s_renderTargetContext.colorBuffers[eye].rtv, desc->disableZ ? nullptr : s_renderTargetContext.depthBuffer.dsv );
+		s_renderTargetContext.drawState.resolve = false;
+	}
+
+	// Clear
+	if ( desc->clear )
+	{
+		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		if ( desc->useMSAA )
+		{
+			g_deviceContext->ClearRenderTargetView( s_renderTargetContext.colorBufferMSAA.rtv, pRGBA );
+			if ( !desc->disableZ )
+				g_deviceContext->ClearDepthStencilView( s_renderTargetContext.depthBufferMSAA.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+		}
+		else
+		{
+			g_deviceContext->ClearRenderTargetView( s_renderTargetContext.colorBuffers[eye].rtv, pRGBA );
+			if ( !desc->disableZ )
+				g_deviceContext->ClearDepthStencilView( s_renderTargetContext.depthBuffer.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+		}
+	}
+}
+
+void GPURenderTargetContext_End()
+{
+	// un RT
+	g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+
+	if ( s_renderTargetContext.drawState.resolve )
+		g_deviceContext->ResolveSubresource( s_renderTargetContext.colorBuffers[s_renderTargetContext.drawState.eye].tex, 0, s_renderTargetContext.colorBufferMSAA.tex, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
+}
+
+void GPURenderTargetContext_Release()
+{
+	V6_ASSERT( s_renderTargetContext.initialized );
+
+	GPUColorRenderTarget_Release( &s_renderTargetContext.colorBuffers[0] );
+	if ( s_renderTargetContext.stereo )
+		GPUColorRenderTarget_Release( &s_renderTargetContext.colorBuffers[1] );
+	GPUDepthRenderTarget_Release( &s_renderTargetContext.depthBuffer );
+
+	GPUColorRenderTarget_Release( &s_renderTargetContext.colorBufferMSAA );
+	GPUDepthRenderTarget_Release( &s_renderTargetContext.depthBufferMSAA );
+
+	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateNoZ );
+	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateZRO );
+	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateZRW );
+	V6_RELEASE_D3D11( s_renderTargetContext.blendStateNoColor );
+	V6_RELEASE_D3D11( s_renderTargetContext.blendStateOpaque );
+	V6_RELEASE_D3D11( s_renderTargetContext.blendStateAlphaCoverage );
+	V6_RELEASE_D3D11( s_renderTargetContext.blendStateAdditif );
+	V6_RELEASE_D3D11( s_renderTargetContext.rasterState );
+
+	memset( &s_renderTargetContext, 0, sizeof( s_renderTargetContext ) );
+}
+
+void GPUShaderContext_Create()
+{
+	V6_ASSERT( !s_shaderContext.initialized );
+
+	{
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.MipLODBias = 0.0f;
+		samplerDesc.MaxAnisotropy = D3D11_REQ_MAXANISOTROPY;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+		samplerDesc.BorderColor[0] = 0;
+		samplerDesc.BorderColor[1] = 0;
+		samplerDesc.BorderColor[2] = 0;
+		samplerDesc.BorderColor[3] = 0;
+		samplerDesc.MinLOD = 0;
+		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		V6_ASSERT_D3D11( g_device->CreateSamplerState( &samplerDesc, &s_shaderContext.samplerState ) );
+	}
+
+	s_shaderContext.initialized = true;
+}
+
+void GPUShaderContext_Release()
+{
+	V6_ASSERT( s_shaderContext.initialized );
+
+	for ( u32 constantBufferID = 0; constantBufferID < GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT; ++constantBufferID )
+	{
+		if ( s_shaderContext.constantBuffers[constantBufferID ].buf )
+			GPUConstantBuffer_Release( &s_shaderContext.constantBuffers[constantBufferID ] );
+	}
+
+	for ( u32 computeID = 0; computeID < GPUShaderContext_s::COMPUTE_MAX_COUNT; ++computeID )
+		if ( s_shaderContext.computes[computeID].m_computeShader )
+			GPUCompute_Release( &s_shaderContext.computes[computeID] );
+
+	for ( u32 shaderID = 0; shaderID < GPUShaderContext_s::SHADER_MAX_COUNT; ++shaderID )
+		if ( s_shaderContext.shaders[shaderID].m_vertexShader )
+			GPUShader_Release( &s_shaderContext.shaders[shaderID] );
+
+	V6_RELEASE_D3D11( s_shaderContext.samplerState );
+
+	memset( &s_shaderContext, 0, sizeof( GPUShaderContext_s ) );
+}
+
+GPUShaderContext_s* GPUShaderContext_Get()
+{
+	V6_ASSERT( s_shaderContext.initialized );
+	return &s_shaderContext;
+}
+
+GPUSurfaceContext_s* GPUSurfaceContext_Get()
+{
+	V6_ASSERT( s_surfaceContext.initialized );
+	return &s_surfaceContext;
+}
+
+void GPUSurfaceContext_Present()
+{
+	V6_ASSERT( s_surfaceContext.initialized );
+	s_surfaceContext.swapChain->Present( 0, 0 );
 }
 
 END_V6_NAMESPACE

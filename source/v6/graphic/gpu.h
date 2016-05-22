@@ -11,14 +11,13 @@
 #include <v6/core/vec2i.h>
 #include <v6/core/vec3i.h>
 
-#define V6_GPU_PROFILING 1
-
 #define V6_ASSERT_D3D11( EXP )	{ HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 #define V6_RELEASE_D3D11( EXP )	{ V6_ASSERT( EXP ); EXP->Release(); EXP = nullptr; }
 
 BEGIN_V6_NAMESPACE
 
 class CFileSystem;
+class IAllocator;
 
 enum
 {
@@ -134,9 +133,7 @@ struct GPUMesh_s
 
 struct GPUQuery_s 
 {
-#if V6_GPU_PROFILING == 1
 	ID3D11Query*					query;
-#endif
 	u64								data;
 };
 
@@ -162,69 +159,167 @@ struct GPUShaderState_s
 	ID3D11UnorderedAccessView*		uavs[UAV_SLOT_COUNT_D3D_11_1];
 };
 
-void			GPU_SetDevice( ID3D11Device* device );
+struct GPUSurfaceContext_s
+{
+	GPUColorRenderTarget_s			surface;
 
-void			GPU_BeginEvent( const char* eventName );
-void			GPU_BeginEventW( const wchar_t* eventNameW );
-void			GPU_EndEvent();
+	IDXGISwapChain*					swapChain;
 
-void			GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, const char* name );
-void			GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void* data, u32 count, u32 flags, const char* name );
-void			GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count, u32 flags, const char* name );
-void			GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* data, u32 elementSize, u32 count, u32 flags, const char* name );
-void			GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, u32 flags, const char* name );
-const void*		GPUBuffer_MapReadBack( GPUBuffer_s* buffer );
-void			GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer );
-void			GPUBuffer_Release( GPUBuffer_s* buffer );
-void			GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount );
+	bool							initialized;
+};
+
+struct GPURenderTargetContextDesc_s
+{
+	bool							clear;
+	bool							disableZ;
+	bool							useMSAA;
+	bool							useAlphaCoverage;
+};
+
+struct GPURenderTargetContext_s
+{
+	GPUColorRenderTarget_s			colorBuffers[2];
+	GPUDepthRenderTarget_s			depthBuffer;
+	GPUColorRenderTarget_s			colorBufferMSAA;
+	GPUDepthRenderTarget_s			depthBufferMSAA;
+
+	ID3D11DepthStencilState*		depthStencilStateNoZ;
+	ID3D11DepthStencilState*		depthStencilStateZRO;
+	ID3D11DepthStencilState*		depthStencilStateZRW;
+	ID3D11BlendState*				blendStateNoColor;
+	ID3D11BlendState*				blendStateOpaque;
+	ID3D11BlendState*				blendStateAlphaCoverage;
+	ID3D11BlendState*				blendStateAdditif;
+	ID3D11RasterizerState*			rasterState;
+
+	u32								width;
+	u32								height;
+	bool							supportMSAA;
+	bool							stereo;
+	bool							initialized;
+
+	struct
+	{
+		u32							eye;
+		bool						resolve;
+	} drawState;
+};
+
+struct GPUShaderContext_s
+{
+	static const u32				CONSTANT_BUFFER_MAX_COUNT = 64;
+	static const u32				COMPUTE_MAX_COUNT = 64;
+	static const u32				SHADER_MAX_COUNT = 64;
+
+	GPUConstantBuffer_s				constantBuffers[CONSTANT_BUFFER_MAX_COUNT];
+	GPUCompute_s					computes[COMPUTE_MAX_COUNT];
+	GPUShader_s						shaders[SHADER_MAX_COUNT];
+
+	ID3D11SamplerState*				samplerState;
+
+	bool							initialized;
+};
+
+struct GPUQueryContext_s
+{	
+	static const u32				QUERY_MAX_COUNT = 64;
+
+	GPUQuery_s						queries[2][QUERY_MAX_COUNT];
+
+	bool							initialized;
+};
+
+void						GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, const char* name );
+void						GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void* data, u32 count, u32 flags, const char* name );
+void						GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count, u32 flags, const char* name );
+void						GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* data, u32 elementSize, u32 count, u32 flags, const char* name );
+void						GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, u32 flags, const char* name );
+const void*					GPUBuffer_MapReadBack( GPUBuffer_s* buffer );
+void						GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer );
+void						GPUBuffer_Release( GPUBuffer_s* buffer );
+void						GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount );
 template < typename T >
-void			GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, u32 srcCount );
+void						GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, u32 srcCount );
 
-void			GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize );
-bool			GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, CFileSystem* fileSystem, IAllocator* allocator );
-void			GPUCompute_Release( GPUCompute_s* compute );
+void						GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug );
+void						GPUDevice_Set( ID3D11Device* device );
+void						GPUDevice_Release();
 
-void			GPUConstantBuffer_Create( GPUConstantBuffer_s* buffer, u32 sizeOfStruct, const char* name );
-void*			GPUConstantBuffer_MapWrite( GPUConstantBuffer_s* buffer );
-void			GPUConstantBuffer_Release( GPUConstantBuffer_s* buffer );
-void			GPUConstantBuffer_UnmapWrite( GPUConstantBuffer_s* buffer );
+void						GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize );
+bool						GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, CFileSystem* fileSystem, IAllocator* allocator );
+void						GPUCompute_Dispatch( GPUCompute_s* compute, u32 groupX, u32 groupY, u32 groupZ );
+void						GPUCompute_DispatchIndirect( GPUCompute_s* compute, GPUBuffer_s* bufferArgs, u32 offsetArgs );
+void						GPUCompute_Release( GPUCompute_s* compute );
 
-void			GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name );
-void			GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget );
-void			GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name );
-void			GPUDepthRenderTarget_Release( GPUDepthRenderTarget_s* depthRenderTarget );
+void						GPUConstantBuffer_Create( GPUConstantBuffer_s* buffer, u32 sizeOfStruct, const char* name );
+void*						GPUConstantBuffer_MapWrite( GPUConstantBuffer_s* buffer );
+void						GPUConstantBuffer_Release( GPUConstantBuffer_s* buffer );
+void						GPUConstantBuffer_UnmapWrite( GPUConstantBuffer_s* buffer );
 
-void			GPUMesh_Create( GPUMesh_s* mesh, const void* vertices, u32 vertexCount, u32 vertexSize, u32 vertexFormat, const void* indices, u32 indexCount, u32 indexSize, D3D11_PRIMITIVE_TOPOLOGY topology );
-void			GPUMesh_Release( GPUMesh_s* mesh );
-void			GPUMesh_UpdateVertices( GPUMesh_s* mesh, const void* vertices );
+void						GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name );
+void						GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget );
+void						GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name );
+void						GPUDepthRenderTarget_Release( GPUDepthRenderTarget_s* depthRenderTarget );
 
-void			GPUQuery_BeginTimeStampDisjoint( GPUQuery_s* query );
-void			GPUQuery_CreateTimeStamp( GPUQuery_s* query );
-void			GPUQuery_CreateTimeStampDisjoint( GPUQuery_s* query );
-void			GPUQuery_EndTimeStampDisjoint( GPUQuery_s* query );
-float			GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* queryEnd, const GPUQuery_s* queryDisjoint );
-bool			GPUQuery_ReadTimeStamp( GPUQuery_s* query );
-bool			GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query );
-void			GPUQuery_Release( GPUQuery_s* query );
-void			GPUQuery_WriteTimeStamp( GPUQuery_s* query );
+void						GPUEvent_Begin( const char* eventName );
+void						GPUEvent_BeginW( const wchar_t* eventNameW );
+void						GPUEvent_End();
 
-void			GPUResource_LogMemory( const char* res, u32 size, const char* name );
-void			GPUResource_LogMemoryUsage();
+void						GPUMesh_Create( GPUMesh_s* mesh, const void* vertices, u32 vertexCount, u32 vertexSize, u32 vertexFormat, const void* indices, u32 indexCount, u32 indexSize, D3D11_PRIMITIVE_TOPOLOGY topology );
+void						GPUMesh_CreateTriangle( GPUMesh_s* mesh );
+void						GPUMesh_CreateBox( GPUMesh_s* mesh, const Color_s color, bool wireframe );
+void						GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color );
+void						GPUMesh_CreatePoint( GPUMesh_s* mesh );
+void						GPUMesh_CreateLine( GPUMesh_s* mesh, const Color_s color );
+void						GPUMesh_Draw( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader );
+void						GPUMesh_DrawIndirect( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader, GPUBuffer_s* bufferArgs, u32 offsetArgs );
+void						GPUMesh_Release( GPUMesh_s* mesh );
+void						GPUMesh_UpdateVertices( GPUMesh_s* mesh, const void* vertices );
 
-bool			GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, CFileSystem* fileSystem, IAllocator* allocator );
-void			GPUShader_Release( GPUShader_s* shader );
+void						GPUQuery_BeginTimeStampDisjoint( GPUQuery_s* query );
+void						GPUQuery_CreateTimeStamp( GPUQuery_s* query );
+void						GPUQuery_CreateTimeStampDisjoint( GPUQuery_s* query );
+void						GPUQuery_EndTimeStampDisjoint( GPUQuery_s* query );
+float						GPUQuery_GetElpasedTime( const GPUQuery_s* queryStart, const GPUQuery_s* queryEnd, const GPUQuery_s* queryDisjoint );
+bool						GPUQuery_ReadTimeStamp( GPUQuery_s* query );
+bool						GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query );
+void						GPUQuery_Release( GPUQuery_s* query );
+void						GPUQuery_WriteTimeStamp( GPUQuery_s* query );
 
-void			GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* pixels, bool mipmap, const char* name );
-void			GPUTexture2D_CreateRW( GPUTexture2D_s* tex, u32 width, u32 height, const char* name );
-void			GPUTexture2D_Release( GPUTexture2D_s* tex );
+void						GPUQueryContext_Create();
+GPUQueryContext_s*			GPUQueryContext_Get();
+void						GPUQueryContext_Release();
 
-void			GPURenderTargetState_Init( GPURenderTargetState_s* renderTargetState );
-void			GPURenderTargetState_Save( GPURenderTargetState_s* renderTargetState );
-void			GPURenderTargetState_Restore( GPURenderTargetState_s* renderTargetState );
+void						GPURenderTargetContext_Begin( const GPURenderTargetContextDesc_s* desc, u32 eye );
+void						GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, bool stereo );
+void						GPURenderTargetContext_End();
+GPURenderTargetContext_s*	GPURenderTargetContext_Get();
+void						GPURenderTargetContext_Release();
 
-void			GPUShaderState_Init( GPUShaderState_s* shaderState );
-void			GPUShaderState_Save( GPUShaderState_s* shaderState );
-void			GPUShaderState_Restore( GPUShaderState_s* shaderState );
+void						GPUResource_LogMemory( const char* res, u32 size, const char* name );
+void						GPUResource_LogMemoryUsage();
+
+bool						GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, CFileSystem* fileSystem, IAllocator* allocator );
+void						GPUShader_Release( GPUShader_s* shader );
+
+void						GPUShaderContext_Create();
+GPUShaderContext_s*			GPUShaderContext_Get();
+void						GPUShaderContext_Release();
+
+GPUSurfaceContext_s*		GPUSurfaceContext_Get();
+void						GPUSurfaceContext_Present();
+
+void						GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* pixels, bool mipmap, const char* name );
+void						GPUTexture2D_CreateRW( GPUTexture2D_s* tex, u32 width, u32 height, const char* name );
+void						GPUTexture2D_Release( GPUTexture2D_s* tex );
+
+void						GPURenderTargetState_Init( GPURenderTargetState_s* renderTargetState );
+void						GPURenderTargetState_Save( GPURenderTargetState_s* renderTargetState );
+void						GPURenderTargetState_Restore( GPURenderTargetState_s* renderTargetState );
+
+void						GPUShaderState_Init( GPUShaderState_s* shaderState );
+void						GPUShaderState_Save( GPUShaderState_s* shaderState );
+void						GPUShaderState_Restore( GPUShaderState_s* shaderState );
 
 // inline
 

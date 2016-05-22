@@ -27,9 +27,11 @@
 #include <v6/core/vec2i.h>
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
+#include <v6/core/win.h>
 
 #include <v6/graphic/capture.h>
 #include <v6/graphic/gpu.h>
+#include <v6/graphic/scene.h>
 
 #include <v6/viewer/scene_info.h>
 #include <v6/viewer/viewer_shared.h>
@@ -49,6 +51,9 @@
 #endif // #if HLSL_STEREO == 1
 
 BEGIN_V6_NAMESPACE
+
+extern ID3D11Device* g_device;
+extern ID3D11DeviceContext* g_deviceContext;
 
 static const u32 CUBE_SIZE						= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MAX_SCALE				= 2000.0f;
@@ -80,17 +85,10 @@ static const u32 HMD_FPS						= 75;
 static const u32 VIDEO_FRAME_MAX_COUNT			= 10;
 static const float VIDEO_FRAME_RATIO			= 25.0f / 75.0f;
 
-static const u32 MESH_MAX_COUNT					= 16384;
-static const u32 TEXTURE_MAX_COUNT				= 1024;
-static const u32 MATERIAL_MAX_COUNT				= 256;
-static const u32 ENTITY_MAX_COUNT				= 16384;
+static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
+static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 
-static const u32 ENTITY_TEXTURE_MAX_COUNT		= 4;
-static const u32 ENTITY_TEXTURE_INVALID			= (u32)-1;
-
-static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
-static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 80;
-
+static Win_s									s_win;
 #if V6_USE_HMD
 v6::u32		s_hmdState							= v6::HMD_TRACKING_STATE_OFF;
 #else
@@ -121,7 +119,6 @@ enum
 
 enum
 {
-	COMPUTE_PACKCOLOR,
 	COMPUTE_BLOCK_CULL4,
 	COMPUTE_BLOCK_CULL8,
 	COMPUTE_BLOCK_CULL16,
@@ -234,6 +231,12 @@ enum
 	PATH_COUNT
 };
 
+enum
+{
+	RENDER_FLAGS_IS_CAPTURING			= 1 << 0,
+	RENDER_FLAGS_USE_ALPHA_COVERAGE		= 1 << 1,
+};
+
 struct Path_s
 {
 	static const u32	MAX_POINT_COUNT = 128;
@@ -283,97 +286,28 @@ struct CubeFaceContext_s
 	GPUDepthRenderTarget_s		depth;
 };
 
-struct GPUContext_s
-{
-	IDXGISwapChain*					swapChain;
-	ID3D11Device*					device;
-	D3D_FEATURE_LEVEL				featureLevel;
-	ID3D11DeviceContext*			deviceContext;
-	ID3D11Texture2D*				surfaceBuffer;
-	ID3D11RenderTargetView*			surfaceView;
-	ID3D11UnorderedAccessView*		surfaceUAV;
-	GPUColorRenderTarget_s			colorBuffers[HLSL_EYE_COUNT];
-	GPUDepthRenderTarget_s			depthBuffer;
-	GPUColorRenderTarget_s			colorBufferMSAA;
-	GPUDepthRenderTarget_s			depthBufferMSAA;
-	ID3D11DepthStencilState*		depthStencilStateNoZ;
-	ID3D11DepthStencilState*		depthStencilStateZRO;
-	ID3D11DepthStencilState*		depthStencilStateZRW;
-	ID3D11BlendState*				blendStateNoColor;
-	ID3D11BlendState*				blendStateOpaque;
-	ID3D11BlendState*				blendStateAlphaCoverage;
-	ID3D11BlendState*				blendStateAdditif;
-	ID3D11RasterizerState*			rasterState;	
-	ID3D11SamplerState*				samplerState;
-
-	GPUConstantBuffer_s				constantBuffers[CONSTANT_BUFFER_COUNT];
-	GPUCompute_s					computes[COMPUTE_COUNT];
-	GPUShader_s						shaders[SHADER_COUNT];
-	GPUQuery_s						queries[2][QUERY_COUNT];
-	GPUQuery_s*						pendingQueries;
-};
-
 struct RenderingView_s
 {
-	ID3D11Texture2D*				texture2D;
-	ID3D11RenderTargetView*			rtv;
-	ID3D11UnorderedAccessView*		uav;
 	Vec3							org;
 	Vec3							forward;
 	Vec3							right;
 	Vec3							up;
-	Mat4x4							viewMatrix;
-	Mat4x4							projMatrix;
-	u32								eye; // neeeded?
+
+	View_s							view;
+	
 	float							tanHalfFOVLeft;
 	float							tanHalfFOVRight;
 	float							tanHalfFOVUp;
 	float							tanHalfFOVDown;
 };
 
-struct RenderingSettings_s
-{
-	bool							isCapturing;
-	bool							useAlphaCoverage;
-};
-
-struct Material_s;
-struct Entity_s;
-struct Scene_s;
-typedef void (*MaterialDraw_f)( Material_s* material, Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings );
-
-struct Material_s
-{
-	MaterialDraw_f	drawFunction;
-	u32				textureIDs[ENTITY_TEXTURE_MAX_COUNT];
-	Vec3			diffuse;
-};
-
-struct Entity_s
-{
-	char			name[64];
-	u32				materialID;
-	u32				meshID;
-	Vec3			pos;
-	float			scale;
-	bool			visible;
-};
-
-struct Scene_s
+struct SceneViewer_s : Scene_s
 {
 	char			filename[256];
 	SceneInfo_s		info;
-	GPUMesh_s		meshes[MESH_MAX_COUNT];	
-	GPUTexture2D_s	textures[TEXTURE_MAX_COUNT];
-	Material_s		materials[MATERIAL_MAX_COUNT];
-	Entity_s		entities[ENTITY_MAX_COUNT];
-	u32				meshCount;
-	u32				textureCount;
-	u32				materialCount;
-	u32				entityCount;
 };
 
-struct SceneDebug_s : Scene_s
+struct SceneDebug_s : SceneViewer_s
 {
 	u32				meshLineID;
 	u32				meshGridID;
@@ -386,7 +320,7 @@ struct SceneDebug_s : Scene_s
 	u32				entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
 };
 
-struct ScenePathGeo_s : Scene_s
+struct ScenePathGeo_s : SceneViewer_s
 {
 	u32				meshLineIDs[Path_s::MAX_POINT_COUNT-1];
 	u32				meshBoxID;
@@ -402,7 +336,6 @@ struct SceneContext_s
 	v6::IStack*		stack;
 	ObjScene_s		objScene;
 	Scene_s*		scene;
-	ID3D11Device*	device;
 	v6::Signal_s	deviceReady;
 	v6::Signal_s	loadDone;
 };
@@ -491,7 +424,7 @@ static Vec3 s_buildOrigin			= Vec3_Zero();
 
 static bool s_logReadBack			= false;
 
-static Scene_s* s_activeScene		= nullptr;
+static SceneViewer_s* s_activeScene	= nullptr;
 
 static Vec3 s_gridCenter = {};
 static float s_gridScale = 0;
@@ -503,8 +436,7 @@ static u32				s_activePath = PATH_CAMERA;
 static Path_s			s_paths[PATH_COUNT];
 static const float		s_defaultPathSpeed = 100.0f;
 static PathPlayer_s		s_pathPlayer;
-
-static u32 Scene_FindEntityByName( const Scene_s* scene, const char* entityName );
+static GPUQuery_s*		s_pendingQueries = nullptr;
 
 static void Path_Init( Path_s* path )
 {
@@ -553,7 +485,7 @@ static void Path_InsertKey( Path_s* path, const Vec3* position, u32 key )
 	path->dirty = true;
 }
 
-static void Path_Load( Path_s* paths, u32 maxPathCount, const Scene_s* scene )
+static void Path_Load( Path_s* paths, u32 maxPathCount, const SceneViewer_s* scene )
 {
 	V6_STATIC_ASSERT( SceneInfo_s::MAX_POSITION_COUNT == Path_s::MAX_POINT_COUNT );
 	V6_ASSERT( maxPathCount <= SceneInfo_s::MAX_PATH_COUNT );
@@ -569,7 +501,7 @@ static void Path_Load( Path_s* paths, u32 maxPathCount, const Scene_s* scene )
 	}
 }
 
-static void Path_Save( const Path_s* paths, u32 pathCount, Scene_s* scene )
+static void Path_Save( const Path_s* paths, u32 pathCount, SceneViewer_s* scene )
 {
 	V6_ASSERT( pathCount <= SceneInfo_s::MAX_PATH_COUNT );
 	SceneInfo_s* sceneInfo = &scene->info;
@@ -722,359 +654,176 @@ static bool PathPlayer_AddTimeStep( PathPlayer_s* pathPlayer, float dt )
 	return true;
 }
 
-static void Mouse_Capture( HWND hWnd )
+static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 {
-	GetCursorPos( &s_mouseCursorPos );
-	SetCapture( hWnd ) ;
-	ShowCursor( false );
-	g_mousePressed = true;
+	if ( g_keyPath )
+	{
+		if ( keyEvent->pressed )
+		{
+			switch( keyEvent->key )
+			{
+			case 'A':
+				s_activePath = (s_activePath + 1) % PATH_COUNT;
+				s_paths[s_activePath].dirty = true;
+				V6_MSG( "Path: %s#%d\n", s_activePath == PATH_CAMERA ? "camera" : "object", s_activePath );
+				break;
+			case 'C':
+				break;
+			case 'P':
+				PathPlayer_Play( &s_pathPlayer, s_pathPlayer.isPlaying ? false : s_paths[s_activePath].keyCount > 0 );
+				V6_MSG( "Path: %s\n", s_pathPlayer.isPlaying ? "play" : "stop" );
+				break;
+			case 'R':
+				if ( s_activePath == PATH_CAMERA && s_paths[PATH_CAMERA].keyCount > 0 )
+				{
+					PathPlayer_Play( &s_pathPlayer, true );
+					g_drawMode = DRAW_MODE_BLOCK;
+					g_sample = 0;
+					V6_MSG( "Path: record\n" );
+				}
+				break;
+			case 'S':
+				g_showPath = !g_showPath;
+				V6_MSG( "Path: %s\n", g_showPath ? "show" : "hide" );
+				break;
+			case 0x21:
+				Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey + 1 );
+				V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				break;
+			case 0x22:
+				Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey - 1 );
+				V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				break;
+			case 0x23:
+				Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].keyCount-1 );
+				V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				break;
+			case 0x24:
+				Path_SelectKey( &s_paths[s_activePath], 0 );
+				V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				break;
+			case 0x6A:
+				Path_Save( s_paths, PATH_COUNT, s_activeScene );
+				V6_MSG( "Path: saved.\n" );
+				break;
+			case 0x6B:
+				Path_InsertKey( &s_paths[s_activePath], &s_headOffset, s_paths[s_activePath].activeKey );
+				V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				break;
+			case 0x6D:
+				if ( s_paths[s_activePath].keyCount )
+				{
+					Path_DeleteKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey );
+					V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
+				}
+				break;
+			case 0x28:
+				PathPlayer_Pause( &s_pathPlayer, -1 );
+				V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
+				break;
+			case 0x26:
+				PathPlayer_Pause( &s_pathPlayer, +1 );
+				V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
+				break;
+			default:
+				V6_MSG( "Unknow path key: %04x\n", keyEvent->key );
+			}
+		}
+		else if ( keyEvent->key == 'C' )
+		{
+			g_keyPath = false;
+		}
+	}
+	else
+	{
+		switch( keyEvent->key )
+		{			
+		case 0x1B:
+			Win_Release( &s_win );
+			break;
+		case 'A': g_keyLeftPressed = keyEvent->pressed; break;
+		case 'B': g_drawMode = keyEvent->pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
+		case 'C': g_keyPath = keyEvent->pressed; break;
+		case 'D': g_keyRightPressed = keyEvent->pressed; break;
+		case 'E': g_useMSAA = keyEvent->pressed ? !g_useMSAA : g_useMSAA; break;
+		case 'F': g_showObjects = keyEvent->pressed ? !g_showObjects : g_showObjects; break;
+		case 'G': if ( keyEvent->pressed ) { g_debugBlocks = true; } break;
+		case 'H': g_showHistory = keyEvent->pressed ? !g_showHistory: g_showHistory; break;
+		case 'I': if ( keyEvent->pressed ) { s_logReadBack = true; } break;
+		case 'L': g_limit = keyEvent->pressed ? !g_limit : g_limit; break;
+		case 'M': g_showMip = keyEvent->pressed ? !g_showMip : g_showMip; break;
+		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
+		case 'O': g_showOverdraw = keyEvent->pressed ? !g_showOverdraw : g_showOverdraw; break;
+		case 'P': g_pixelMode = keyEvent->pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
+		case 'Q': if ( keyEvent->pressed ) { g_traceGrid = true; } break;
+		case 'R': if ( keyEvent->pressed ) { g_sample = 0; } break;
+		case 'S': g_keyDownPressed = keyEvent->pressed; break;
+		case 'U': if ( keyEvent->pressed ) { s_activeScene->info.dirty = false; }; break;
+		case 'W': g_keyUpPressed = keyEvent->pressed; break;
+		case 'X': g_randomBackground = keyEvent->pressed ? !g_randomBackground : g_randomBackground; break;
+		case 'Z': if ( keyEvent->pressed ) { g_reloadShaders = true; }; break;
+		case ' ':
+			if ( keyEvent->pressed ) 
+			{
+				s_yaw = DegToRad( s_activeScene->info.cameraYaw );
+				s_pitch = 0.0f;
+			}
+			break;
+		case '0':
+		case '1':
+		case '2':
+		case '3':
+		case '4':
+		case '5':
+		case '6':
+		case '7':
+		case '8':
+		case '9':
+			if ( keyEvent->pressed ) 
+			{
+				const int key = Min( keyEvent->key - '0', s_paths[PATH_CAMERA].keyCount-1 );
+				if ( s_paths[PATH_CAMERA].keyCount == 0 )
+					s_headOffset = Vec3_Zero();
+				else
+					s_headOffset = s_paths[PATH_CAMERA].positions[key];
+			}
+			break;
+		case 109:
+			if ( keyEvent->pressed ) 
+			{
+				g_translation_speed *= 0.5f;
+				V6_MSG( "Translation speed: %g\n", g_translation_speed );
+			}
+			break;
+		case 107:
+			if ( keyEvent->pressed ) 
+			{
+				g_translation_speed *= 2.0f;
+				V6_MSG( "Translation speed: %g\n", g_translation_speed );
+			}
+			break;
+		}
+	}
 }
 
-static void Mouse_Release()
+static void Viewer_OnMouseEvent( const MouseEvent_s* mouseEvent )
 {
-	if ( g_mousePressed )
+	if ( mouseEvent->rightButton == MOUSE_BUTTON_DOWN )
 	{
-		SetCursorPos( s_mouseCursorPos.x, s_mouseCursorPos.y );
-		ShowCursor( true );
-		ReleaseCapture();
+		Win_CaptureMouse( &s_win );
+		g_mousePressed = true;
+	}
+	else if ( mouseEvent->rightButton == MOUSE_BUTTON_UP )
+	{
+		Win_ReleaseMouse( &s_win );
 		g_mousePressed = false;
 	}
-}
 
-LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
-{
-	switch (message)
+	if ( g_mousePressed )
 	{
-	case WM_ACTIVATE:
-	case WM_KILLFOCUS:
-	case WM_SETFOCUS:
-		Mouse_Release();
-		//V6_MSG( "WM_ACTIVATE: wParam=%08x lParam=%08x\n", (u32)wParam, (u32)lParam );
-		break;
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		break;
-	case WM_KEYDOWN:
-	case WM_KEYUP:
-		{
-			
-		}
-		break;
-#if 0
-	case WM_LBUTTONDOWN:
-	case WM_LBUTTONUP:
-		{
-			g_mousePressed = message == WM_LBUTTONDOWN;
-			g_mousePosX = GET_X_LPARAM( lParam ); 
-			g_mousePosY = GET_Y_LPARAM( lParam );
-
-			if ( g_mousePressed )
-			{				
-				SetCapture( hWnd ) ;
-				ShowCursor( false );
-			}
-			else
-			{
-				ShowCursor( true );
-				ReleaseCapture();
-			}
-		}
-		break;
-	case WM_RBUTTONDOWN:
-		{
-			g_mousePickPosX = GET_X_LPARAM( lParam ); 
-			g_mousePickPosY = GET_Y_LPARAM( lParam );
-			g_mousePicked = true;
-			V6_MSG( "Pick %d, %d\n", g_mousePickPosX, g_mousePickPosY );
-		}
-		break;
-	case WM_MOUSEMOVE:
-		{
-			if ( g_mousePressed )
-			{
-				g_mousePosX = GET_X_LPARAM( lParam ); 
-				g_mousePosY = GET_Y_LPARAM( lParam );
-			}
-		}
-		break;
-#endif
-	case WM_INPUT: 
-	{		
-		UINT dwSize;
-		GetRawInputData( (HRAWINPUT)lParam, RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER));
-		
-		LPBYTE lpb[4096];
-		V6_ASSERT( dwSize <= sizeof( lpb ) );
-		GetRawInputData((HRAWINPUT)lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER) );
-
-		RAWINPUT* raw = (RAWINPUT*)lpb;
-
-		if ( raw->header.dwType == RIM_TYPEKEYBOARD ) 
-		{
-			const bool pressed = raw->data.keyboard.Message == 0x100;
-
-			if ( g_keyPath )
-			{
-				if ( pressed )
-				{
-					switch( raw->data.keyboard.VKey )
-					{
-					case 'A':
-						s_activePath = (s_activePath + 1) % PATH_COUNT;
-						s_paths[s_activePath].dirty = true;
-						V6_MSG( "Path: %s#%d\n", s_activePath == PATH_CAMERA ? "camera" : "object", s_activePath );
-						break;
-					case 'C':
-						break;
-					case 'P':
-						PathPlayer_Play( &s_pathPlayer, s_pathPlayer.isPlaying ? false : s_paths[s_activePath].keyCount > 0 );
-						V6_MSG( "Path: %s\n", s_pathPlayer.isPlaying ? "play" : "stop" );
-						break;
-					case 'R':
-						if ( s_activePath == PATH_CAMERA && s_paths[PATH_CAMERA].keyCount > 0 )
-						{
-							PathPlayer_Play( &s_pathPlayer, true );
-							g_drawMode = DRAW_MODE_BLOCK;
-							g_sample = 0;
-							V6_MSG( "Path: record\n" );
-						}
-						break;
-					case 'S':
-						g_showPath = !g_showPath;
-						V6_MSG( "Path: %s\n", g_showPath ? "show" : "hide" );
-						break;
-					case 0x21:
-						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey + 1 );
-						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						break;
-					case 0x22:
-						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey - 1 );
-						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						break;
-					case 0x23:
-						Path_SelectKey( &s_paths[s_activePath], s_paths[s_activePath].keyCount-1 );
-						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						break;
-					case 0x24:
-						Path_SelectKey( &s_paths[s_activePath], 0 );
-						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						break;
-					case 0x6A:
-						Path_Save( s_paths, PATH_COUNT, s_activeScene );
-						V6_MSG( "Path: saved.\n" );
-						break;
-					case 0x6B:
-						Path_InsertKey( &s_paths[s_activePath], &s_headOffset, s_paths[s_activePath].activeKey );
-						V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						break;
-					case 0x6D:
-						if ( s_paths[s_activePath].keyCount )
-						{
-							Path_DeleteKey( &s_paths[s_activePath], s_paths[s_activePath].activeKey );
-							V6_MSG( "Path: key #%03u/#%03u\n", s_paths[s_activePath].activeKey, s_paths[s_activePath].keyCount );
-						}
-						break;
-					case 0x28:
-						PathPlayer_Pause( &s_pathPlayer, -1 );
-						V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
-						break;
-					case 0x26:
-						PathPlayer_Pause( &s_pathPlayer, +1 );
-						V6_MSG( "Camera pause: frame %d\n", s_pathPlayer.pathFrame );
-						break;
-					default:
-						V6_MSG( "Unknow path key: %04x\n", raw->data.keyboard.VKey );
-					}
-				}
-				else if ( raw->data.keyboard.VKey == 'C' )
-				{
-					g_keyPath = false;
-				}
-			}
-			else
-			{
-				switch( raw->data.keyboard.VKey )
-				{			
-				case 0x1B:
-					DestroyWindow( hWnd );
-					break;
-				case 'A': g_keyLeftPressed = pressed; break;
-				case 'B': g_drawMode = pressed ? (g_drawMode == DRAW_MODE_BLOCK ? DRAW_MODE_DEFAULT : DRAW_MODE_BLOCK) : g_drawMode; break;
-				case 'C': g_keyPath = pressed; break;
-				case 'D': g_keyRightPressed = pressed; break;
-				case 'E': g_useMSAA = pressed ? !g_useMSAA : g_useMSAA; break;
-				case 'F': g_showObjects = pressed ? !g_showObjects : g_showObjects; break;
-				case 'G': if ( pressed ) { g_debugBlocks = true; } break;
-				case 'H': g_showHistory = pressed ? !g_showHistory: g_showHistory; break;
-				case 'I': if ( pressed ) { s_logReadBack = true; } break;
-				case 'L': g_limit = pressed ? !g_limit : g_limit; break;
-				case 'M': g_showMip = pressed ? !g_showMip : g_showMip; break;
-				case 'N': g_showBucket = pressed ? !g_showBucket : g_showBucket; break;
-				case 'O': g_showOverdraw = pressed ? !g_showOverdraw : g_showOverdraw; break;
-				case 'P': g_pixelMode = pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
-				case 'Q': if ( pressed ) { g_traceGrid = true; } break;
-				case 'R': if ( pressed ) { g_sample = 0; } break;
-				case 'S': g_keyDownPressed = pressed; break;
-				case 'U': if ( pressed ) { s_activeScene->info.dirty = false; }; break;
-				case 'W': g_keyUpPressed = pressed; break;
-				case 'X': g_randomBackground = pressed ? !g_randomBackground : g_randomBackground; break;
-				case 'Z': if ( pressed ) { g_reloadShaders = true; }; break;
-				case ' ':
-					if ( pressed ) 
-					{
-						s_yaw = DegToRad( s_activeScene->info.cameraYaw );
-						s_pitch = 0.0f;
-					}
-					break;
-				case '0':
-				case '1':
-				case '2':
-				case '3':
-				case '4':
-				case '5':
-				case '6':
-				case '7':
-				case '8':
-				case '9':
-					if ( pressed ) 
-					{
-						const int key = Min( raw->data.keyboard.VKey - '0', s_paths[PATH_CAMERA].keyCount-1 );
-						if ( s_paths[PATH_CAMERA].keyCount == 0 )
-							s_headOffset = Vec3_Zero();
-						else
-							s_headOffset = s_paths[PATH_CAMERA].positions[key];
-					}
-					break;
-				case 109:
-					if ( pressed ) 
-					{
-						g_translation_speed *= 0.5f;
-						V6_MSG( "Translation speed: %g\n", g_translation_speed );
-					}
-					break;
-				case 107:
-					if ( pressed ) 
-					{
-						g_translation_speed *= 2.0f;
-						V6_MSG( "Translation speed: %g\n", g_translation_speed );
-					}
-					break;
-				}
-			}
-#if 0
-			V6_MSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
-				raw->data.keyboard.MakeCode, 
-				raw->data.keyboard.Flags, 
-				raw->data.keyboard.Reserved, 
-				raw->data.keyboard.ExtraInformation, 
-				raw->data.keyboard.Message, 
-				raw->data.keyboard.VKey );
-#endif
-		}
-		else if ( raw->header.dwType == RIM_TYPEMOUSE ) 
-		{
-			
-			if ( raw->data.mouse.ulButtons & 4 )
-				Mouse_Capture( hWnd );
-			else if ( raw->data.mouse.ulButtons & 8 )
-				Mouse_Release();
-
-			if ( g_mousePressed )
-			{
-				g_mouseDeltaX += raw->data.mouse.lLastX; 
-				g_mouseDeltaY += raw->data.mouse.lLastY;
-			}
-
-#if 0
-			V6_MSG( "Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\n",
-				raw->data.mouse.usFlags, 
-				raw->data.mouse.ulButtons, 
-				raw->data.mouse.usButtonFlags, 
-				raw->data.mouse.usButtonData, 
-				raw->data.mouse.ulRawButtons, 
-				raw->data.mouse.lLastX, 
-				raw->data.mouse.lLastY, 
-				raw->data.mouse.ulExtraInformation );
-#endif
-		} 
-		break;
-	} 
-	default:
-		return DefWindowProcA(hWnd, message, wParam, lParam);
+		g_mouseDeltaX += mouseEvent->deltaX;
+		g_mouseDeltaY += mouseEvent->deltaY;
 	}
-
-	return 0;
-}
-
-static bool CaptureInputs( HWND hWnd )
-{
-	RAWINPUTDEVICE Rid[2];
-
-	Rid[0].usUsagePage = 0x01; 
-	Rid[0].usUsage = 0x02; 
-	Rid[0].dwFlags = RIDEV_NOLEGACY;   // adds HID mouse and also ignores legacy mouse messages
-	Rid[0].hwndTarget = hWnd;
-
-	Rid[1].usUsagePage = 0x01; 
-	Rid[1].usUsage = 0x06; 
-	Rid[1].dwFlags = RIDEV_NOLEGACY;   // adds HID keyboard and also ignores legacy keyboard messages
-	Rid[1].hwndTarget = hWnd;
-
-	if ( RegisterRawInputDevices( Rid, 2, sizeof( Rid[0] ) ) == false )
-	{
-		V6_ERROR( "Call to RegisterRawInputDevices failed!\n" );
-		return false;
-	}
-
-	SetCursor( LoadCursor( NULL, IDC_ARROW ) );
-
-	return true;
-}
-
-static HWND CreateMainWindow( const char * sTitle, int x, int y, int nWidth, int nHeight )
-{
-	WNDCLASSEXA wcex;
-
-	wcex.cbSize = sizeof(WNDCLASSEX);
-	wcex.style = CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc = WndProc;
-	wcex.cbClsExtra = 0;
-	wcex.cbWndExtra = 0;
-	wcex.hInstance = NULL;
-	wcex.hIcon = NULL;
-	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wcex.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	wcex.lpszMenuName = NULL;
-	wcex.lpszClassName = "v6";
-	wcex.hIconSm = NULL;
-
-	if (!RegisterClassExA(&wcex))
-	{
-		V6_ERROR( "Call to RegisterClassEx failed!\n" );
-		return 0;
-	}
-
-	const int style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU| WS_MINIMIZEBOX;
-		
-	RECT rect = { 0, 0, nWidth, nHeight };
-	AdjustWindowRect( &rect, style, false );
-	Vec2u dim = Vec2u_Make( rect.right - rect.left, rect.bottom - rect.top );
-
-	HWND hWnd = CreateWindowA(
-		"v6",
-		sTitle,
-		style,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		dim.x, dim.y,
-		NULL,
-		NULL,
-		NULL,
-		NULL
-		);
-
-	SetWindowPos( hWnd, nullptr, x - dim.x + nWidth, y - dim.y + nHeight, dim.x, dim.y, 0 );
-
-	return hWnd;
 }
 
 static const bool IsBakingMode( DrawMode_e drawMode )
@@ -1109,16 +858,12 @@ static const char* ModeToString( DrawMode_e drawMode )
 static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right, const u32 eye, float aspectRatio )
 {
 	const Vec3 eyeOffset = *right * 0.5f * IPD;
-	renderingView->texture2D = nullptr;
-	renderingView->rtv = nullptr;
-	renderingView->uav = nullptr;
 	renderingView->org = *org + (eye == 0 ? -eyeOffset : eyeOffset);
 	renderingView->forward = *forward;
 	renderingView->right = *right;
 	renderingView->up = *up;
-	renderingView->viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
-	renderingView->projMatrix = Mat4x4_Projection( ZNEAR, ZFAR, FOV, aspectRatio );
-	renderingView->eye = eye;
+	renderingView->view.viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
+	renderingView->view.projMatrix = Mat4x4_Projection( ZNEAR, ZFAR, FOV, aspectRatio );
 	renderingView->tanHalfFOVLeft = Tan( FOV * 0.5f );
 	renderingView->tanHalfFOVRight = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVUp = renderingView->tanHalfFOVLeft;
@@ -1129,9 +874,6 @@ static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const V
 
 static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdEyePose_s* eyePose, const Vec3* orgOffset, float yawOffset, u32 eye )
 {
-	renderingView->texture2D = nullptr;
-	renderingView->rtv = nullptr;
-	renderingView->uav = nullptr;
 	const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 	Mat4x4_Mul( &renderingView->viewMatrix, yawMatrix, eyePose->lookAt );
 	renderingView->org = *orgOffset + renderingView->viewMatrix.GetTranslation();
@@ -1209,293 +951,79 @@ static void CubeFace_Release( CubeFaceContext_s* cubeFaceContext )
 	GPUDepthRenderTarget_Release( &cubeFaceContext->depth );
 }
 
-static void GPUContext_CreateShaders( GPUContext_s* context, CFileSystem* fileSystem, IStack* stack )
+static void GPUContext_CreateShaders( CFileSystem* fileSystem, IStack* stack )
 {
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_PACKCOLOR], "octree_pack_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &context->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", fileSystem, stack );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	GPUShader_Create( &context->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
-	GPUShader_Create( &context->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
-	GPUShader_Create( &context->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
-	GPUShader_Create( &context->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( v6::hlsl::CBBasic ), "basic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL], sizeof( v6::hlsl::CBCull ), "cull" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "blockContext" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
+
+	static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", fileSystem, stack );
+
+	static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
+	GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
 }
 
-static void GPUContext_ReleaseShaders( GPUContext_s* context )
+static void GPUContext_Create( u32 width, u32 height, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
 {
-	for ( u32 computeID = 0; computeID < COMPUTE_COUNT; ++computeID )
-		GPUCompute_Release( &context->computes[computeID] );
-
-	for ( u32 shaderID = 0; shaderID < SHADER_COUNT; ++shaderID )
-		GPUShader_Release( &context->shaders[shaderID] );
-}
-
-static void GPUContext_Create( GPUContext_s* context, u32 width, u32 height, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
-{
-	memset( context, 0, sizeof( *context ) );
-
-	DXGI_SWAP_CHAIN_DESC oSwapChainDesc = {};
-
-	DXGI_MODE_DESC & oModeDesc = oSwapChainDesc.BufferDesc;
-	oModeDesc.Width = width * HLSL_EYE_COUNT;
-	oModeDesc.Height = height;
-	oModeDesc.RefreshRate.Numerator = 60;
-	oModeDesc.RefreshRate.Denominator = 1;
-	oModeDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	oModeDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	oModeDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-
-	DXGI_SAMPLE_DESC & oSampleDesc = oSwapChainDesc.SampleDesc;
-	oSampleDesc.Count = 1;
-	oSampleDesc.Quality = 0;
-
-	oSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
-	oSwapChainDesc.BufferCount = 2;
-	oSwapChainDesc.OutputWindow = hWnd;
-	oSwapChainDesc.Windowed = true;
-	oSwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-	oSwapChainDesc.Flags = 0;
-
-	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_1 };
-	
+	bool debug = false;
 #if V6_D3D_DEBUG == 1
-	const u32 createFlags = D3D11_CREATE_DEVICE_DEBUG;
-#else
-	const u32 createFlags = 0;
+	debug = true;
 #endif
-	V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
-		NULL,
-		D3D_DRIVER_TYPE_HARDWARE,
-		NULL,
-		createFlags | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
-		pFeatureLevels,
-		1,
-		D3D11_SDK_VERSION,
-		&oSwapChainDesc,
-		&context->swapChain,
-		&context->device,
-		&context->featureLevel,
-		&context->deviceContext ) );
+	GPUDevice_CreateWithSurfaceContext( width * HLSL_EYE_COUNT, height, hWnd, debug );
+	GPURenderTargetContext_Create( width, height, true, HLSL_STEREO );
+	GPUShaderContext_Create();
+	GPUQueryContext_Create();
 
-	V6_ASSERT( context->featureLevel == D3D_FEATURE_LEVEL_11_1 );
+	GPUContext_CreateShaders( fileSystem, stack );
 
-	ID3D11Device* device = context->device;
-	ID3D11DeviceContext* deviceContext = context->deviceContext;
-
-	GPU_SetDevice( device );
-
-#if 0
-	for ( u32 sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount++)
-	{
-		u32 maxQualityLevel;
-		HRESULT hr = m_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, MSAA_SAMPLE_QUALITY, &maxQualityLevel );
-		
-		if ( hr != S_OK )
-			break;
-		
-		if ( maxQualityLevel > 0 )
-			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
-	}
-#endif
-
-	V6_ASSERT_D3D11( context->swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&context->surfaceBuffer ) );
-
-	V6_ASSERT_D3D11( device->CreateRenderTargetView( context->surfaceBuffer, 0, &context->surfaceView ) );
-	V6_ASSERT_D3D11( device->CreateUnorderedAccessView( context->surfaceBuffer, 0, &context->surfaceUAV ) );
-	
-	for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-		GPUColorRenderTarget_Create( &context->colorBuffers[eye], width, height, 1, true, true, "mainColor" );
-	GPUDepthRenderTarget_Create( &context->depthBuffer, width, height, 1, false, "mainDepth" );
-
-	GPUColorRenderTarget_Create( &context->colorBufferMSAA, width, height, 8, false, false, "mainColorMSAA" );
-	GPUDepthRenderTarget_Create( &context->depthBufferMSAA, width, height, 8, false, "depthColorMSAA" );
-
-	{
-		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
-		depthStencilDesc.DepthEnable = false;
-		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilState( &depthStencilDesc, &context->depthStencilStateNoZ ) );
-	}
-
-	{
-		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
-		depthStencilDesc.DepthEnable = true;
-		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilState( &depthStencilDesc, &context->depthStencilStateZRO ) );
-	}
-
-	{
-		D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
-		depthStencilDesc.DepthEnable = true;
-		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
-
-		V6_ASSERT_D3D11( device->CreateDepthStencilState( &depthStencilDesc, &context->depthStencilStateZRW ) );
-	}
-
-	{
-		D3D11_BLEND_DESC blendState = {};
-		blendState.AlphaToCoverageEnable = false;
-		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = false;
-		blendState.RenderTarget[0].RenderTargetWriteMask = 0;
-		
-		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateNoColor ) );
-	}
-
-	{
-		D3D11_BLEND_DESC blendState = {};
-		blendState.AlphaToCoverageEnable = false;
-		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = false;
-		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-		
-		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateOpaque ) );
-	}
-
-	{
-		D3D11_BLEND_DESC blendState = {};
-		blendState.AlphaToCoverageEnable = true;
-		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = false;
-		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-		
-		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateAlphaCoverage ) );
-	}
-
-	{
-		D3D11_BLEND_DESC blendState = {};
-		blendState.AlphaToCoverageEnable = false;
-		blendState.IndependentBlendEnable = false;
-		blendState.RenderTarget[0].BlendEnable = true;
-		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-		blendState.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-		blendState.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-		
-		V6_ASSERT_D3D11( device->CreateBlendState( &blendState, &context->blendStateAdditif ) );
-	}
-
-	{
-		D3D11_RASTERIZER_DESC rasterDesc = {};
-		rasterDesc.FillMode = D3D11_FILL_SOLID;
-		rasterDesc.CullMode = D3D11_CULL_NONE;
-		rasterDesc.FrontCounterClockwise = false;
-		rasterDesc.DepthBias = 0;
-		rasterDesc.DepthBiasClamp = 0;
-		rasterDesc.SlopeScaledDepthBias = 0.0f;
-		rasterDesc.DepthClipEnable = true;
-		rasterDesc.ScissorEnable = false;
-		rasterDesc.MultisampleEnable = false;
-		rasterDesc.AntialiasedLineEnable = false;
-		
-		V6_ASSERT_D3D11( device->CreateRasterizerState( &rasterDesc, &context->rasterState ) );
-	}
-
-	{
-		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
-		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-		samplerDesc.MipLODBias = 0.0f;
-		samplerDesc.MaxAnisotropy = D3D11_REQ_MAXANISOTROPY;
-		samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-		samplerDesc.BorderColor[0] = 0;
-		samplerDesc.BorderColor[1] = 0;
-		samplerDesc.BorderColor[2] = 0;
-		samplerDesc.BorderColor[3] = 0;
-		samplerDesc.MinLOD = 0;
-		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-
-		V6_ASSERT_D3D11( device->CreateSamplerState( &samplerDesc, &context->samplerState ) );
-	}
-
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( v6::hlsl::CBBasic ), "basic" );
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_CULL], sizeof( v6::hlsl::CBCull ), "cull" );
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "blockContext" );
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
-	GPUConstantBuffer_Create( &context->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
-
-	GPUContext_CreateShaders( context, fileSystem, stack );	
+	GPUQueryContext_s* queryContext = GPUQueryContext_Get();
 
 	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
 	{
 		for ( u32 queryID = 0; queryID < QUERY_COUNT; ++queryID )
 		{
 			if ( queryID == QUERY_FREQUENCY )
-				GPUQuery_CreateTimeStampDisjoint( &context->queries[bufferID][queryID] );
+				GPUQuery_CreateTimeStampDisjoint( &queryContext->queries[bufferID][queryID] );
 			else
-				GPUQuery_CreateTimeStamp( &context->queries[bufferID][queryID] );
+				GPUQuery_CreateTimeStamp( &queryContext->queries[bufferID][queryID] );
 		}
 	}
 }
 
-void GPUContext_Release( GPUContext_s* context )
-{
-	context->deviceContext->ClearState();
-	
-	for ( u32 constantBufferID = 0; constantBufferID < CONSTANT_BUFFER_COUNT; ++constantBufferID )
-	{
-		if ( context->constantBuffers[constantBufferID ].buf )
-			GPUConstantBuffer_Release( &context->constantBuffers[constantBufferID ] );
-	}
-
-	GPUContext_ReleaseShaders( context );
-
-	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
-	{
-		for ( u32 queryID = 0; queryID < QUERY_COUNT; ++queryID )
-			GPUQuery_Release( &context->queries[bufferID][queryID] );
-	}
-		
-	V6_RELEASE_D3D11( context->surfaceBuffer );
-	V6_RELEASE_D3D11( context->surfaceView );
-	V6_RELEASE_D3D11( context->surfaceUAV );
-
-	for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-		GPUColorRenderTarget_Release( &context->colorBuffers[eye] );
-	GPUDepthRenderTarget_Release( &context->depthBuffer );
-
-	GPUColorRenderTarget_Release( &context->colorBufferMSAA );
-	GPUDepthRenderTarget_Release( &context->depthBufferMSAA );
-
-	V6_RELEASE_D3D11( context->swapChain );
-	V6_RELEASE_D3D11( context->deviceContext );
-	V6_RELEASE_D3D11( context->device );
-}
-
-static void SequenceContext_UpdateFrameData( ID3D11DeviceContext* context, SequenceContext_s* sequenceContext, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID, const Sequence_s* sequence, IStack* stack )
+static void SequenceContext_UpdateFrameData( SequenceContext_s* sequenceContext, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID, const Sequence_s* sequence, IStack* stack )
 {
 	ScopedStack scopedStack( stack );
 
@@ -1564,7 +1092,7 @@ static void SequenceContext_UpdateFrameData( ID3D11DeviceContext* context, Seque
 	GPUBuffer_Update( &sequenceContext->blockData, sequenceContext->frameBlockDataOffsets[frameID], sequence->frameDataArray[frameID].blockData, frameDataCount );
 }
 
-static void SequenceContext_CreateFromData( ID3D11Device* device, SequenceContext_s* sequenceContext, const Sequence_s* sequence )
+static void SequenceContext_CreateFromData( SequenceContext_s* sequenceContext, const Sequence_s* sequence )
 {
 	{
 		u32 rangeDefOffset = 0;
@@ -1684,7 +1212,7 @@ static void SequenceContext_CreateFromData( ID3D11Device* device, SequenceContex
 	GPUBuffer_CreateTyped( &sequenceContext->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockGroups1" );
 }
 
-static void SequenceContext_Release( ID3D11Device* device, SequenceContext_s* sequenceContext )
+static void SequenceContext_Release( SequenceContext_s* sequenceContext )
 {
 	GPUBuffer_Release( &sequenceContext->blockPos );
 	GPUBuffer_Release( &sequenceContext->blockData );
@@ -1694,7 +1222,7 @@ static void SequenceContext_Release( ID3D11Device* device, SequenceContext_s* se
 	GPUBuffer_Release( &sequenceContext->groups[1] );
 }
 
-static void TraceContext_Create( ID3D11Device* device, TraceContext_s* traceContext, u32 screenWidth, u32 screenHeight, u32 passedBlockCount, u32 cellItemCount )
+static void TraceContext_Create( TraceContext_s* traceContext, u32 screenWidth, u32 screenHeight, u32 passedBlockCount, u32 cellItemCount )
 {
 	V6_ASSERT( screenWidth > 0 );
 	V6_ASSERT( screenHeight > 0 );
@@ -1715,7 +1243,7 @@ static void TraceContext_Create( ID3D11Device* device, TraceContext_s* traceCont
 	GPUTexture2D_CreateRW( &traceContext->colors, screenWidth, screenHeight, "pixelColors" );
 }
 
-static void TraceContext_Release( ID3D11Device* device, TraceContext_s* traceContext )
+static void TraceContext_Release( TraceContext_s* traceContext )
 {
 	GPUBuffer_Release( &traceContext->traceCell );
 	GPUBuffer_Release( &traceContext->traceIndirectArgs );
@@ -1729,84 +1257,12 @@ static void TraceContext_Release( ID3D11Device* device, TraceContext_s* traceCon
 	GPUTexture2D_Release( &traceContext->colors );
 }
 
-static void Mesh_CreateTriangle( ID3D11Device* device, GPUMesh_s* mesh )
-{
-	const BasicVertex_s vertices[3] = 
-	{
-		{ Vec3_Make( 0.0f, 1.0f, 0.0f ), Color_Make( 255, 0, 0, 255) },
-		{ Vec3_Make( 1.0f, -1.0f, 0.0f ), Color_Make( 0, 255, 0, 255) },
-		{ Vec3_Make( -1.0f, -1.0f, 0.0f ), Color_Make( 0, 0, 255, 255) } 
-	};
-
-	const u16 indices[3] = { 0, 1, 2 };
-
-	GPUMesh_Create( mesh, vertices, 3, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 3, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
-}
-
-static void Mesh_CreateBox( ID3D11Device* device, GPUMesh_s* mesh, const Color_s color, bool wireframe )
-{
-	const BasicVertex_s vertices[8] = 
-	{
-		{ Vec3_Make( -1.0f, -1.0f,  1.0f ), color },
-		{ Vec3_Make(  1.0f, -1.0f,  1.0f ), color },
-		{ Vec3_Make( -1.0f,  1.0f,  1.0f ), color },
-		{ Vec3_Make(  1.0f,  1.0f,  1.0f ), color },
-		{ Vec3_Make( -1.0f, -1.0f, -1.0f ), color },
-		{ Vec3_Make(  1.0f, -1.0f, -1.0f ), color },
-		{ Vec3_Make( -1.0f,  1.0f, -1.0f ), color },
-		{ Vec3_Make(  1.0f,  1.0f, -1.0f ), color },
-	};
-
-	if ( wireframe )
-	{
-		const u16 indices[24] = { 
-			0, 1, 1, 3, 3, 2, 2, 0,
-			4, 5, 5, 7, 7, 6, 6, 4,
-			1, 5, 0, 4, 3, 7, 2, 6 };
-
-		GPUMesh_Create( mesh, vertices, 8, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 24, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINELIST );
-	}
-	else
-	{
-		const u16 indices[36] = { 
-			0, 2, 3,
-			0, 3, 1,
-			1, 3, 7, 
-			1, 7, 5, 
-			5, 7, 6,
-			5, 6, 4,
-			4, 6, 2,
-			4, 2, 0, 
-			2, 6, 7, 
-			2, 7, 3,
-			1, 5, 4,
-			1, 4, 0 };
-
-		GPUMesh_Create( mesh, vertices, 8, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 36, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
-	}
-}
-
-static void Mesh_CreateQuad( ID3D11Device* device, GPUMesh_s* mesh, const Color_s color )
-{
-	const BasicVertex_s vertices[8] = 
-	{
-		{ Vec3_Make( -1.0f, -1.0f, 0.0f ), color },
-		{ Vec3_Make(  1.0f, -1.0f, 0.0f ), color },
-		{ Vec3_Make( -1.0f,  1.0f, 0.0f ), color },
-		{ Vec3_Make(  1.0f,  1.0f, 0.0f ), color },
-	};
-
-	const u16 indices[4] = { 	0, 2, 1, 3 };
-
-	GPUMesh_Create( mesh, vertices, 4, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 4, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
-}
-
-static void Mesh_CreateVirtualQuad( ID3D11Device* device, GPUMesh_s* mesh )
+static void Mesh_CreateVirtualQuad( GPUMesh_s* mesh )
 {
 	GPUMesh_Create( mesh, nullptr, 4, 0, 0, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
 }
 
-static void Mesh_CreateVirtualBox( ID3D11Device* device, GPUMesh_s* mesh )
+static void Mesh_CreateVirtualBox( GPUMesh_s* mesh )
 {
 	const u16 indices[36] = { 
 		0, 2, 3,
@@ -1825,7 +1281,7 @@ static void Mesh_CreateVirtualBox( ID3D11Device* device, GPUMesh_s* mesh )
 	GPUMesh_Create( mesh, nullptr, 0, 0, 0, indices, 36, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );	
 }
 
-static void Mesh_CreateFakeCube( ID3D11Device* device, GPUMesh_s* mesh )
+static void Mesh_CreateFakeCube( GPUMesh_s* mesh )
 {
 #if 0
 	const u16 indices[36] = { 
@@ -1850,84 +1306,16 @@ static void Mesh_CreateFakeCube( ID3D11Device* device, GPUMesh_s* mesh )
 #endif
 }
 
-static void Mesh_CreatePoint( ID3D11Device* device, GPUMesh_s* mesh )
-{
-	GPUMesh_Create( mesh, nullptr, 0, 0, 0, nullptr, 0, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_POINTLIST );
-}
-
-static void Mesh_CreateLine( ID3D11Device* device, GPUMesh_s* mesh, const Color_s color )
-{
-	const BasicVertex_s vertices[2] = 
-	{
-		{ Vec3_Make( -1.0f, -1.0f, -1.0f ), color },
-		{ Vec3_Make(  1.0f,  1.0f,  1.0f ), color },
-	};
-
-	GPUMesh_Create( mesh, vertices, 2, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, nullptr, 0, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_LINELIST );
-}
-
-static void Mesh_Draw( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader, ID3D11DeviceContext* ctx, ID3D11Buffer* bufferArgs, u32 offsetArgs )
-{
-	V6_ASSERT( shader->m_vertexFormat == mesh->m_vertexFormat );
-	V6_ASSERT( instanceCount > 0 );
-
-	ctx->IASetInputLayout( shader->m_inputLayout );
-	ctx->VSSetShader( shader->m_vertexShader, nullptr, 0 );
-	ctx->PSSetShader( shader->m_pixelShader, nullptr, 0 );
-		
-	const u32 stride = mesh->m_vertexSize; 
-	const u32 offset = 0;
-			
-	ctx->IASetVertexBuffers( 0, mesh->m_vertexBuffer != nullptr ? 1 : 0, &mesh->m_vertexBuffer, &stride, &offset );	
-	ctx->IASetPrimitiveTopology( mesh->m_topology );
-
-	if ( mesh->m_indexCount )
-	{
-		switch ( mesh->m_indexSize )
-		{
-		case 2:
-			ctx->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R16_UINT, 0 );
-			break;
-		case 4:
-			ctx->IASetIndexBuffer( mesh->m_indexBuffer, DXGI_FORMAT_R32_UINT, 0 );
-			break;
-		default:
-			V6_ASSERT_NOT_SUPPORTED();
-		}
-
-		if ( bufferArgs )
-			ctx->DrawIndexedInstancedIndirect( bufferArgs, offsetArgs );
-		else if ( instanceCount == 1 )
-			ctx->DrawIndexed( mesh->m_indexCount, 0, 0 );
-		else
-			ctx->DrawIndexedInstanced( mesh->m_indexCount, instanceCount, 0, 0, 0 );
-	}
-	else
-	{
-		V6_ASSERT( mesh->m_indexBuffer == nullptr );
-		ctx->IASetIndexBuffer( nullptr, DXGI_FORMAT_R32_UINT, 0 );
-				
-		if ( bufferArgs )
-			ctx->DrawInstancedIndirect( bufferArgs, offsetArgs );
-		else 
-		{
-			V6_ASSERT( mesh->m_vertexCount > 0 );
-			if ( instanceCount == 1 )
-				ctx->Draw( mesh->m_vertexCount, 0 );
-			else
-				ctx->DrawInstanced( mesh->m_vertexCount, instanceCount, 0, 0 );
-		}
-	}
-}
-
-static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings )
+static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags )
 {
 #if V6_SIMPLE_SCENE == 0
-	if ( settings->isCapturing )
+	if ( (flags & RENDER_FLAGS_IS_CAPTURING) != 0 )
 		return;
 #endif // #if V6_SIMPLE_SCENE == 0
 
-	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
@@ -1935,24 +1323,26 @@ static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s*
 
 	// use this order because one matrix is "from" local space and the other is "to" local space
 	Mat4x4 objectToViewMatrix;
-	Mat4x4_Mul( &objectToViewMatrix, view->viewMatrix, worlMatrix );	
+	Mat4x4_Mul( &objectToViewMatrix, view->viewMatrix, worlMatrix );
 	
 	cbBasic->c_basicObjectToView = objectToViewMatrix;
 	cbBasic->c_basicViewToProj = view->projMatrix;
 	Mat4x4_Mul( &cbBasic->c_basicObjectToProj, objectToViewMatrix, view->projMatrix );
 
-	GPUConstantBuffer_UnmapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
-	ctx->deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_BASIC, 1, &ctx->constantBuffers[CONSTANT_BUFFER_BASIC].buf );
+	g_deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_BASIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC].buf );
 		
 	GPUMesh_s* mesh = &scene->meshes[entity->meshID];
-	GPUShader_s* shader = &ctx->shaders[SHADER_BASIC];
-	Mesh_Draw( mesh, 1, shader, ctx->deviceContext, nullptr, 0 );
+	GPUShader_s* shader = &shaderContext->shaders[SHADER_BASIC];
+	GPUMesh_Draw( mesh, 1, shader );
 }
 
-static void Material_DrawFakeCube( Material_s* material, Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings )
+static void Material_DrawFakeCube( Material_s* material, Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags )
 {
-	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
@@ -1962,26 +1352,28 @@ static void Material_DrawFakeCube( Material_s* material, Entity_s* entity, Scene
 	Mat4x4_Mul( &cbBasic->c_basicObjectToView, view->viewMatrix, worlMatrix );
 	cbBasic->c_basicViewToProj = view->projMatrix;
 
-	GPUConstantBuffer_UnmapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
-	ctx->deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_BASIC, 1, &ctx->constantBuffers[CONSTANT_BUFFER_BASIC].buf );
+	g_deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_BASIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC].buf );
 		
 	GPUMesh_s* mesh = &scene->meshes[entity->meshID];
-	GPUShader_s* shader = &ctx->shaders[SHADER_FAKE_CUBE];
-	Mesh_Draw( mesh, 1, shader, ctx->deviceContext, nullptr, 0 );
+	GPUShader_s* shader = &shaderContext->shaders[SHADER_FAKE_CUBE];
+	GPUMesh_Draw( mesh, 1, shader );
 }
 
-static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings )
+static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags )
 {
-	v6::hlsl::CBGeneric* cbGeneric = (v6::hlsl::CBGeneric*)GPUConstantBuffer_MapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC] );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	v6::hlsl::CBGeneric* cbGeneric = (v6::hlsl::CBGeneric*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
 	Mat4x4_SetTranslation( &worlMatrix, entity->pos );
 			
 	// use this order because one matrix is "from" local space and the other is "to" local space
-	const bool useAlbedo = material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != ENTITY_TEXTURE_INVALID;
-	const bool useAlpha = material->textureIDs[TEXTURE_GENERIC_ALPHA] != ENTITY_TEXTURE_INVALID;
+	const bool useAlbedo = material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != Material_s::TEXTURE_INVALID;
+	const bool useAlpha = material->textureIDs[TEXTURE_GENERIC_ALPHA] != Material_s::TEXTURE_INVALID;
 	cbGeneric->c_genericObjectToWorld = worlMatrix;
 	cbGeneric->c_genericWorldToView = view->viewMatrix;
 	cbGeneric->c_genericViewToProj = view->projMatrix;
@@ -1999,116 +1391,58 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 	}
 	cbGeneric->c_genericUseAlpha = useAlpha;
 
-	GPUConstantBuffer_UnmapWrite( &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC] );
+	GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC] );
 
-	ctx->deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
-	ctx->deviceContext->PSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &ctx->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
+	g_deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
+	g_deviceContext->PSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
 	
-	ctx->deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &ctx->samplerState );
+	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &shaderContext->samplerState );
 
-	if ( material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != ENTITY_TEXTURE_INVALID )
+	if ( material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != Material_s::TEXTURE_INVALID )
 	{
 		GPUTexture2D_s* texture = &scene->textures[material->textureIDs[TEXTURE_GENERIC_DIFFUSE]];
 		if ( texture->mipmapState == GPUTEXTURE_MIPMAP_STATE_REQUIRED )
 		{
-			ctx->deviceContext->GenerateMips( texture->srv );
+			g_deviceContext->GenerateMips( texture->srv );
 			texture->mipmapState = GPUTEXTURE_MIPMAP_STATE_GENERATED;
 		}
-		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, &texture->srv );
+		g_deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, &texture->srv );
 	}
 
-	if ( material->textureIDs[TEXTURE_GENERIC_ALPHA] != ENTITY_TEXTURE_INVALID )
+	if ( material->textureIDs[TEXTURE_GENERIC_ALPHA] != Material_s::TEXTURE_INVALID )
 	{
 		GPUTexture2D_s* texture = &scene->textures[material->textureIDs[TEXTURE_GENERIC_ALPHA]];
 		if ( texture->mipmapState == GPUTEXTURE_MIPMAP_STATE_REQUIRED )
 		{
-			ctx->deviceContext->GenerateMips( texture->srv );
+			g_deviceContext->GenerateMips( texture->srv );
 			texture->mipmapState = GPUTEXTURE_MIPMAP_STATE_GENERATED;
 		}
-		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, &texture->srv );
+		g_deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, &texture->srv );
 	}
-		
+
 	GPUMesh_s* mesh = &scene->meshes[entity->meshID];
-	GPUShader_s* shader = (useAlpha && !settings->useAlphaCoverage) ? &ctx->shaders[SHADER_GENERIC_ALPHA_TEST] : &ctx->shaders[SHADER_GENERIC];
-	Mesh_Draw( mesh, 1, shader, ctx->deviceContext, nullptr, 0 );
+	const bool useAlphaCoverage = (flags & RENDER_FLAGS_USE_ALPHA_COVERAGE) != 0;
+	GPUShader_s* shader = (useAlpha && !useAlphaCoverage) ? &shaderContext->shaders[SHADER_GENERIC_ALPHA_TEST] : &shaderContext->shaders[SHADER_GENERIC];
+	GPUMesh_Draw( mesh, 1, shader );
 
 	static const void* nulls[8] = {};
 	if ( material->textureIDs[TEXTURE_GENERIC_DIFFUSE] )
-		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->PSSetShaderResources( HLSL_GENERIC_ALBEDO_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	if ( material->textureIDs[TEXTURE_GENERIC_ALPHA] )
-		ctx->deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->PSSetShaderResources( HLSL_GENERIC_ALPHA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 }
 
-static void Material_Create( Material_s* material, MaterialDraw_f drawFunction )
-{
-	material->drawFunction = drawFunction;
-	memset( material->textureIDs, 0xFF, sizeof( material->textureIDs ) );
-}
-
-static void Material_SetTexture( Material_s* material, u32 textureID, u32 textureSlot )
-{
-	V6_ASSERT( textureSlot < ENTITY_TEXTURE_MAX_COUNT );
-	material->textureIDs[textureSlot] = textureID;
-}
-
-static void Entity_Create( Entity_s* entity, u32 materialID, u32 meshID, const Vec3& pos, float scale )
-{
-	memset( entity->name, 0, sizeof( entity->name ) );
-	entity->materialID = materialID;
-	entity->meshID = meshID;
-	entity->pos = pos;
-	entity->scale = scale;
-	entity->visible = true;
-}
-
-static void Entity_Draw( Entity_s* entity, Scene_s* scene, GPUContext_s* ctx, const RenderingView_s* view, const RenderingSettings_s* settings )
-{
-	if ( !entity->visible )
-		return;
-
-	Material_s* material = &scene->materials[entity->materialID];
-	material->drawFunction( material, entity, scene, ctx, view, settings );
-}
-
-static void Entity_SetName( Entity_s* entity, const char* name )
-{
-	if ( name )
-		strcpy_s( entity->name, sizeof( entity->name ), name );
-	else
-		entity->name[0] = 0;
-}
-
-static void Entity_SetVisible( Entity_s* entity, bool visible )
-{
-	entity->visible = visible;
-}
-
-static void Entity_SetPos( Entity_s* entity, const Vec3* pos )
-{
-	entity->pos = *pos;
-}
-
-static void Entity_SetScale( Entity_s* entity, float scale )
-{
-	entity->scale = scale;
-}
-
-static void Scene_Create( Scene_s* scene )
-{
-	memset( scene, 0, sizeof( *scene) );
-}
-
-static void Scene_SetFilename( Scene_s* scene, const char* filename )
+static void SceneViewer_SetFilename( SceneViewer_s* scene, const char* filename )
 {
 	strcpy_s( scene->filename, sizeof( scene->filename ), filename );
 }
 
-static void Scene_SetInfo( Scene_s* scene, const SceneInfo_s* sceneInfo )
+static void SceneViewer_SetInfo( SceneViewer_s* scene, const SceneInfo_s* sceneInfo )
 {
 	memcpy( &scene->info, sceneInfo, sizeof( scene->info ) );
 }
 
-static void Scene_SaveInfo( Scene_s* scene )
+static void SceneViewer_SaveInfo( SceneViewer_s* scene )
 {
 	if ( !scene->filename[0] )
 		return;
@@ -2120,14 +1454,14 @@ static void Scene_SaveInfo( Scene_s* scene )
 	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
-static void Scene_MakeSequenceFilename( const Scene_s* scene, char* path, u32 maxPathSize )
+static void SceneViewer_MakeSequenceFilename( const SceneViewer_s* scene, char* path, u32 maxPathSize )
 {
 	V6_ASSERT( scene->filename[0] );
 
 	FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6s" );
 }
 
-static void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, u32 maxPathSize )
+static void SceneViewer_MakeRawFrameFileTemplate( const SceneViewer_s* scene, char* path, u32 maxPathSize )
 {
 	V6_ASSERT( scene->filename[0] );
 
@@ -2144,7 +1478,7 @@ static void Scene_MakeRawFrameFileTemplate( const Scene_s* scene, char* path, u3
 	sprintf_s( path, maxPathSize, "%s_%s.v6f", path, "%06d" );
 }
 
-static void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, u32 maxPathSize, u32 frame  )
+static void SceneViewer_MakeRawFrameFilename( const SceneViewer_s* scene, char* path, u32 maxPathSize, u32 frame  )
 {
 	V6_ASSERT( scene->filename[0] );
 
@@ -2159,33 +1493,6 @@ static void Scene_MakeRawFrameFilename( const Scene_s* scene, char* path, u32 ma
 
 	FilePath_Make( path, maxPathSize, filepath, filenameWithoutExtension );
 	sprintf_s( path, maxPathSize, "%s_%06u.v6f", path, frame );
-}
-
-static u32 Scene_FindEntityByName( const Scene_s* scene, const char* entityName )
-{
-	if ( entityName != nullptr && entityName[0] != 0 )
-	{
-		for ( u32 entityID = 0; entityID < scene->entityCount; ++entityID )
-		{
-			if ( strcmp( scene->entities[entityID].name, entityName ) == 0 )
-				return entityID;
-		}
-	}
-
-	return (u32)-1;
-}
-
-static void Scene_Release( Scene_s* scene )
-{
-	for ( u32 meshID = 0; meshID < scene->meshCount; ++meshID )
-		GPUMesh_Release( &scene->meshes[meshID] );
-	for ( u32 textureID = 0; textureID < scene->textureCount; ++textureID )
-		GPUTexture2D_Release( &scene->textures[textureID] );
-	
-	scene->meshCount = 0;
-	scene->textureCount = 0;
-	scene->materialCount = 0;
-	scene->entityCount = 0;
 }
 
 static void SceneContext_Create( SceneContext_s* sceneContext, v6::IStack* stack )
@@ -2213,9 +1520,8 @@ static void SceneContext_Release( SceneContext_s* sceneContext )
 	sceneContext->stack->pop();
 }
 
-static void SceneContext_SetDevice( SceneContext_s* sceneContext, ID3D11Device* device )
+static void SceneContext_SetDeviceReady( SceneContext_s* sceneContext )
 {
-	sceneContext->device = device;
 	Signal_Emit( &sceneContext->deviceReady );
 }
 
@@ -2246,10 +1552,10 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	V6_MSG( "Init scene\n" );
 
 	ObjScene_s* objScene = &sceneContext->objScene;
-	Scene_s* scene = sceneContext->stack->newInstance< Scene_s >();
+	SceneViewer_s* scene = sceneContext->stack->newInstance< SceneViewer_s >();
 	Scene_Create( scene );
-	Scene_SetFilename( scene, sceneContext->filename );
-	Scene_SetInfo( scene, &info );
+	SceneViewer_SetFilename( scene, sceneContext->filename );
+	SceneViewer_SetInfo( scene, &info );
 
 	for ( u32 materialID = 0; materialID < objScene->materialCount; ++materialID )
 	{
@@ -2296,8 +1602,8 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 
 	for ( u32 meshID = 0; meshID < objScene->meshCount; ++meshID )
 	{
-		V6_ASSERT( meshID < MESH_MAX_COUNT );
-		V6_ASSERT( meshID < ENTITY_MAX_COUNT );
+		V6_ASSERT( meshID < Scene_s::MESH_MAX_COUNT );
+		V6_ASSERT( meshID < Scene_s::ENTITY_MAX_COUNT );
 
 		sceneContext->stack->push();
 
@@ -2362,13 +1668,13 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 
 		GPUMesh_Create( &scene->meshes[meshID], vertices, mesh->triangleCount * 3, sizeof( GenericVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, nullptr, 0, 0, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
 		++scene->meshCount;
+		
+		sceneContext->stack->pop();
 
 		Entity_Create( &scene->entities[meshID], mesh->materialID, meshID, meshCenter, 1.0f );
-		Entity_SetName( &scene->entities[meshID], mesh->name );
+		scene->entities[meshID].name = sceneContext->stack->copyString( mesh->name );
 		++scene->entityCount;
-
-		sceneContext->stack->pop();
-	}	
+	}
 
 	const u32 materialID = scene->materialCount;
 	Material_Create( &scene->materials[materialID], Material_DrawBasic );
@@ -2378,14 +1684,14 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	{
 		u32 meshID = scene->meshCount;
 	
-		V6_ASSERT( meshID < MESH_MAX_COUNT );
-		V6_ASSERT( meshID < ENTITY_MAX_COUNT );
+		V6_ASSERT( meshID < Scene_s::MESH_MAX_COUNT );
+		V6_ASSERT( meshID < Scene_s::ENTITY_MAX_COUNT );
 
 		switch ( boxID )
 		{
 		case 0:
 			{
-				Mesh_CreateBox( sceneContext->device, &scene->meshes[meshID], Color_Make( 127, 127, 127, 255 ), true );
+				GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( 127, 127, 127, 255 ), true );
 				++scene->meshCount;
 		
 				Entity_Create( &scene->entities[meshID], materialID, meshID, Vec3_Make( 0.0f, 0.0f, 0.0f), maxDim );
@@ -2394,7 +1700,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 			break;
 		case 1:
 			{
-				Mesh_CreateBox( sceneContext->device, &scene->meshes[meshID], Color_Make( 255, 0, 0, 255 ), true );
+				GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( 255, 0, 0, 255 ), true );
 				++scene->meshCount;
 		
 				Entity_Create( &scene->entities[meshID], materialID, meshID, Vec3_Make( 0.0f, 0.0f, 0.0f), GRID_MIN_SCALE );
@@ -2403,7 +1709,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 			break;
 		case 2:
 			{
-				Mesh_CreateBox( sceneContext->device, &scene->meshes[meshID], Color_Make( 0, 0, 255, 255 ), true );
+				GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( 0, 0, 255, 255 ), true );
 				++scene->meshCount;
 		
 				Entity_Create( &scene->entities[meshID], materialID, meshID, Vec3_Make( 0.0f, 0.0f, 0.0f), GRID_MAX_SCALE );
@@ -2427,23 +1733,24 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	for ( u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
 	{
 		if ( s_paths[pathID].keyCount && s_paths[pathID].entityID != (u32)-1 )
-			Entity_SetPos( &scene->entities[s_paths[pathID].entityID], &s_paths[pathID].positions[0] );
+			scene->entities[s_paths[pathID].entityID].pos = s_paths[pathID].positions[0];
 	}
 
 	Signal_Emit( &sceneContext->loadDone );
 }
 
-void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
+void Scene_CreateDebug( SceneDebug_s* scene )
 {
 	Scene_Create( scene );
 
-	scene->meshLineID = scene->meshCount;
-	Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], Color_Make( 255, 255, 255, 255 ) );
+	scene->meshLineID = Scene_GetNewMeshID( scene );
+	GPUMesh_CreateLine( &scene->meshes[scene->meshLineID], Color_Make( 255, 255, 255, 255 ) );
 	
-	scene->meshGridID = scene->meshCount;
-	Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], Color_Make( 255, 255, 255, 255 ), true );
-		
-	Material_Create( &scene->materials[scene->materialCount++], Material_DrawBasic );
+	scene->meshGridID = Scene_GetNewMeshID( scene );
+	GPUMesh_CreateBox( &scene->meshes[scene->meshGridID], Color_Make( 255, 255, 255, 255 ), true );
+
+	const u32 basicMaterialID = Scene_GetNewMaterialID( scene );
+	Material_Create( &scene->materials[basicMaterialID], Material_DrawBasic );
 	
 	u32 cellID = 0;
 	for ( int z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
@@ -2454,72 +1761,74 @@ void Scene_CreateDebug( SceneDebug_s* scene, ID3D11Device* device )
 			{						
 				for ( u32 cellType = 0; cellType < 2; ++cellType )
 				{
-					scene->meshCellIDs[cellID][cellType] = scene->meshCount;
-					Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], Color_Make( 0, (cellType == 0) * 255, (cellType == 1) * 255, 255 ), cellType == 0 );
+					const u32 meshID = Scene_GetNewMeshID( scene );
+					scene->meshCellIDs[cellID][cellType] = meshID;
+					GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( 0, (cellType == 0) * 255, (cellType == 1) * 255, 255 ), cellType == 0 );
 
-					scene->entityCellIDs[cellID][cellType] = scene->entityCount;
-					Entity_s* cellEntity = &scene->entities[scene->entityCount++];
-					Entity_Create( cellEntity, 0, scene->meshCellIDs[cellID][cellType], Vec3_Zero(), 1.0f );
-					Entity_SetVisible( cellEntity, false );
+					const u32 entityID = Scene_GetNewEntityID( scene );
+					scene->entityCellIDs[cellID][cellType] = entityID;
+					Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
+					scene->entities[entityID].visible = false;
 				}
 			}
 		}
 	}
 
-	scene->entityGridID = scene->entityCount;
-	Entity_Create( &scene->entities[scene->entityGridID], 0, scene->meshGridID, Vec3_Zero(), 1.0f );
-	Entity_SetVisible( &scene->entities[scene->entityGridID], false );
-	++scene->entityCount;
+	scene->entityGridID = Scene_GetNewEntityID( scene );
+	Entity_Create( &scene->entities[scene->entityGridID], basicMaterialID, scene->meshGridID, Vec3_Zero(), 1.0f );
+	scene->entities[scene->entityGridID].visible = false;
 
-	scene->entityLineID = scene->entityCount;
-	Entity_Create( &scene->entities[scene->entityLineID], 0, scene->meshLineID, Vec3_Zero(), 1.0f );
-	Entity_SetVisible( &scene->entities[scene->entityLineID], false );
-	++scene->entityCount;
+	scene->entityLineID = Scene_GetNewEntityID( scene );
+	Entity_Create( &scene->entities[scene->entityLineID], basicMaterialID, scene->meshLineID, Vec3_Zero(), 1.0f );
+	scene->entities[scene->entityLineID].visible = false;
 
 	for ( int debugBlockID = 0; debugBlockID < DEBUG_BLOCK_MAX_COUNT; ++debugBlockID )
 	{
 		for ( u32 cellType = 0; cellType < 2; ++cellType )
 		{
 			u32 hashColor = 1 + (debugBlockID%7);
-			scene->meshBlockIDs[debugBlockID][cellType] = scene->meshCount;
-			Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], Color_Make( (hashColor & 1) ? 255 : 0, (hashColor & 2) ? 255 : 0, (hashColor & 4) ? 255 : 0, 255 ), cellType == 0 );
+			const u32 meshID = Scene_GetNewMeshID( scene );
+			scene->meshBlockIDs[debugBlockID][cellType] = meshID;
+			GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( (hashColor & 1) ? 255 : 0, (hashColor & 2) ? 255 : 0, (hashColor & 4) ? 255 : 0, 255 ), cellType == 0 );
 
-			scene->entityBlockIDs[debugBlockID][cellType] = scene->entityCount;
-			Entity_s* blockEntity = &scene->entities[scene->entityCount++];
-			Entity_Create( blockEntity, 0, scene->meshBlockIDs[debugBlockID][cellType], Vec3_Zero(), 1.0f );
-			Entity_SetVisible( blockEntity, false );
+			const u32 entityID = Scene_GetNewEntityID( scene );
+			scene->entityBlockIDs[debugBlockID][cellType] = entityID;
+			Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
+			scene->entities[entityID].visible = false;
 		}
 
-		const u32 meshTraceID = scene->meshCount;
-		Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], Color_Make( 255, 255, 255, 255 ) );
+		{
+			const u32 meshID = Scene_GetNewMeshID( scene );
+			GPUMesh_CreateLine( &scene->meshes[meshID], Color_Make( 255, 255, 255, 255 ) );
 
-		scene->entityTraceIDs[debugBlockID] = scene->entityCount;
-		Entity_s* traceEntity = &scene->entities[scene->entityCount++];
-		Entity_Create( traceEntity, 0, meshTraceID, Vec3_Zero(), 1.0f );
-		Entity_SetVisible( traceEntity, false );
+			const u32 entityID = Scene_GetNewEntityID( scene );
+			scene->entityTraceIDs[debugBlockID] = entityID;
+			Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
+			scene->entities[entityID].visible = false;
+		}
 	}
 }
 
-void Scene_CreatePathGeo( ScenePathGeo_s* scene, ID3D11Device* device )
+void Scene_CreatePathGeo( ScenePathGeo_s* scene )
 {
 	Scene_Create( scene );
 
 	for ( u32 lineRank = 0; lineRank < Path_s::MAX_POINT_COUNT-1; ++lineRank )
 	{
 		scene->meshLineIDs[lineRank] = scene->meshCount;
-		Mesh_CreateLine( device, &scene->meshes[scene->meshCount++], Color_Make( 128, 128, 128, 255 ) );
+		GPUMesh_CreateLine( &scene->meshes[scene->meshCount++], Color_Make( 128, 128, 128, 255 ) );
 	}
 
 	scene->meshBoxID = scene->meshCount;
-	Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], Color_Make( 255, 255, 255, 255 ), true );
+	GPUMesh_CreateBox( &scene->meshes[scene->meshCount++], Color_Make( 255, 255, 255, 255 ), true );
 
 	scene->meshSelectedBoxID = scene->meshCount;
-	Mesh_CreateBox( device, &scene->meshes[scene->meshCount++], Color_Make( 255, 0, 0, 255 ), true );
+	GPUMesh_CreateBox( &scene->meshes[scene->meshCount++], Color_Make( 255, 0, 0, 255 ), true );
 
 	Material_Create( &scene->materials[scene->materialCount++], Material_DrawBasic );
 }
 
-void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path, ID3D11DeviceContext* context )
+void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path )
 {
 	if ( !path->dirty )
 		return;
@@ -2548,7 +1857,7 @@ void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path, ID3D11Devic
 
 #if V6_SIMPLE_SCENE == 1
 
-void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
+void Scene_CreateDefault( Scene_s* scene )
 {
 	const char* filename = "D:/media/obj/default/default.obj";
 
@@ -2561,11 +1870,11 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 		V6_WARNING( "Unable to read info file\n" );
 
 	Scene_Create( scene );
-	Scene_SetFilename( scene, filename );
-	Scene_SetInfo( scene, &info );
+	SceneViewer_SetFilename( scene, filename );
+	SceneViewer_SetInfo( scene, &info );
 
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	
@@ -2581,20 +1890,20 @@ void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
 
 #else
 
-void Scene_CreateDefault( Scene_s* scene, ID3D11Device* device )
+void Scene_CreateDefault( Scene_s* scene )
 {
 	Scene_Create( scene );
 
-	Mesh_CreateTriangle( device, &scene->meshes[MESH_TRIANGLE] );	
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_WIREFRAME], Color_Make( 255, 255, 255, 255 ), true );
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_GREEN], Color_Make( 0, 255, 0, 255 ), false );
-	Mesh_CreateBox( device, &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
-	Mesh_CreateVirtualQuad( device, &scene->meshes[MESH_VIRTUAL_QUAD] );
-	Mesh_CreateFakeCube( device, &scene->meshes[MESH_FAKE_CUBE] );
-	Mesh_CreatePoint( device, &scene->meshes[MESH_POINT] );
-	Mesh_CreateLine( device, &scene->meshes[MESH_LINE],  Color_Make( 255, 255, 255, 255 ) );
-	Mesh_CreateVirtualBox( device, &scene->meshes[MESH_VIRTUAL_BOX] );
+	GPUMesh_CreateTriangle( &scene->meshes[MESH_TRIANGLE] );	
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_WIREFRAME], Color_Make( 255, 255, 255, 255 ), true );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_GREEN], Color_Make( 0, 255, 0, 255 ), false );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
+	Mesh_CreateVirtualQuad( &scene->meshes[MESH_VIRTUAL_QUAD] );
+	Mesh_CreateFakeCube( &scene->meshes[MESH_FAKE_CUBE] );
+	GPUMesh_CreatePoint( &scene->meshes[MESH_POINT] );
+	GPUMesh_CreateLine( &scene->meshes[MESH_LINE],  Color_Make( 255, 255, 255, 255 ) );
+	Mesh_CreateVirtualBox( &scene->meshes[MESH_VIRTUAL_BOX] );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_FAKE_CUBE], Material_DrawFakeCube );
@@ -2706,7 +2015,7 @@ u32 Grid_Trace( const Vec3* gridCenter, float gridScale, u32 gridOccupancy, cons
 	return hitFound;
 }
 
-void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const Vec3* gridCenter, float gridScale, u32 gridOccupancy, const Vec3* rayOrg, const Vec3* rayEnd )
+void Block_TraceDisplay( SceneDebug_s* scene, const Vec3* gridCenter, float gridScale, u32 gridOccupancy, const Vec3* rayOrg, const Vec3* rayEnd )
 {
 	s_gridCenter = *gridCenter;
 	s_gridScale = gridScale;
@@ -2714,9 +2023,9 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const Ve
 	s_rayOrg = *rayOrg;
 	s_rayEnd = *rayEnd;
 
-	Entity_SetPos( &scene->entities[scene->entityGridID], gridCenter );
-	Entity_SetScale( &scene->entities[scene->entityGridID], gridScale );
-	Entity_SetVisible( &scene->entities[scene->entityGridID], true );
+	scene->entities[scene->entityGridID].pos = *gridCenter;
+	scene->entities[scene->entityGridID].scale = gridScale;
+	scene->entities[scene->entityGridID].visible = true;
 
 	const Vec3 rayDir = (*rayEnd - *rayOrg).Normalized();
 	
@@ -2726,7 +2035,7 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const Ve
 	vertices[1].position = *rayOrg + 1000000.0f * rayDir;
 	vertices[1].color = Color_Make( 0, 255, 0, 255 );
 	GPUMesh_UpdateVertices( &scene->meshes[scene->meshLineID], vertices );
-	Entity_SetVisible( &scene->entities[scene->entityLineID], true );
+	scene->entities[scene->entityLineID].visible = true;
 	
 	const float cellSize = (gridScale * 2.0f) / HLSL_CELL_SUPER_SAMPLING_WIDTH;
 	const Vec3 cellOrg = *gridCenter - gridScale + cellSize * 0.5f;
@@ -2741,14 +2050,14 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const Ve
 				const Vec3 cellCenter = cellOrg + Vec3_Make( (float)x, (float)y, (float)z ) * cellSize;
 				
 				Entity_s* cellEntity = &scene->entities[scene->entityCellIDs[cellID][0]];
-				Entity_SetVisible( cellEntity, (gridOccupancy & (1 << cellID)) != 0 );
-				Entity_SetPos( cellEntity, &cellCenter );
-				Entity_SetScale( cellEntity, cellSize * 0.5f );
+				cellEntity->visible = (gridOccupancy & (1 << cellID)) != 0;
+				cellEntity->pos = cellCenter;
+				cellEntity->scale = cellSize * 0.5f;
 				
 				cellEntity = &scene->entities[scene->entityCellIDs[cellID][1]];
-				Entity_SetVisible( cellEntity, false );
-				Entity_SetPos( cellEntity, &cellCenter );
-				Entity_SetScale( cellEntity, cellSize * 0.5f );
+				cellEntity->visible = false;
+				cellEntity->pos = cellCenter;
+				cellEntity->scale = cellSize * 0.5f;
 			}
 		}
 	}
@@ -2757,7 +2066,7 @@ void Block_TraceDisplay( GPUContext_s* gpuContext, SceneDebug_s* scene, const Ve
 
 	const u32 cellCount = HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 	for ( u32 cellID = 0; cellID < cellCount; ++cellID )
-		Entity_SetVisible( &scene->entities[scene->entityCellIDs[cellID][1]], (hitFound & (1 << cellID)) != 0 );
+		scene->entities[scene->entityCellIDs[cellID][1]].visible = (hitFound & (1 << cellID)) != 0;
 }
 
 class CRenderingDevice
@@ -2767,28 +2076,24 @@ public:
 	~CRenderingDevice();
 
 public:
-	void BlendPixel( const RenderingView_s* view );
+	void BlendPixel( const RenderingView_s* view, u32 eye );
 	bool BuildBlock( u32 frameID );
 	void Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* sampleOffset, u32 faceID );
-	bool Create(int nWidth, int nHeight, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack );
+	bool Create(int nWidth, int nHeight, CFileSystem* fileSystem, IAllocator* heap, IStack* stack );
 	void CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID );
 	void Draw( float dt );
-	void DrawCameraPath( const RenderingView_s* view );
-	void DrawDebug( const RenderingView_s* view );
-	void DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings );
-	void DrawWorld( const RenderingView_s* view );	
+	void DrawCameraPath( const RenderingView_s* view, u32 eye );
+	void DrawDebug( const RenderingView_s* view, u32 eye );
+	void DrawWorld( const RenderingView_s* view, u32 eye );
 	bool HasValidRawFrameFile( u32 frameID );
 	bool InitTraceMode( u32 frameCount );
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
-	void Present();
 	void Release();
 	void ReleaseTraceMode();
 	void ResetDrawMode();
 	void TraceBlock( const RenderingView_s* views, const Vec3* buildOrigin );
 	bool WriteRawFrameFile( CaptureContext_s* captureContext, u32 frame );
 
-	GPUContext_s		gpuContext;
-		
 	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
 	
 	CubeFaceContext_s	m_cubeFaceContext;
@@ -2799,7 +2104,7 @@ public:
 	int					m_bakedFrameCount;
 	u32					m_lastUpdatedFrameID;
 
-	Scene_s*			m_defaultScene;
+	SceneViewer_s*		m_defaultScene;
 	SceneDebug_s*		m_debugScene;
 	ScenePathGeo_s*		m_pathGeoScene;
 
@@ -2820,7 +2125,7 @@ CRenderingDevice::~CRenderingDevice()
 {
 }
 
-bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
+bool CRenderingDevice::Create( int nWidth, int nHeight, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
 {
 	m_heap = heap;
 	m_stack = stack;
@@ -2834,17 +2139,17 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, CFileSystem* 
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
 
-	GPUContext_Create( &gpuContext, nWidth, nHeight, hWnd, fileSystem, heap, stack );
+	GPUContext_Create( nWidth, nHeight, (HWND)s_win.hWnd, fileSystem, heap, stack );
 
-	m_defaultScene = heap->newInstance< Scene_s >();
-	Scene_CreateDefault( m_defaultScene, gpuContext.device );
+	m_defaultScene = heap->newInstance< SceneViewer_s >();
+	Scene_CreateDefault( m_defaultScene );
 	s_activeScene = m_defaultScene;
 
 	m_debugScene = heap->newInstance< SceneDebug_s >();
-	Scene_CreateDebug( m_debugScene, gpuContext.device );
+	Scene_CreateDebug( m_debugScene );
 
 	m_pathGeoScene = heap->newInstance< ScenePathGeo_s >();
-	Scene_CreatePathGeo( m_pathGeoScene, gpuContext.device );
+	Scene_CreatePathGeo( m_pathGeoScene );
 
 	g_sample = 0;
 	m_sampleOffsets[0] = Vec3_Make( 0.0f, 0.0f, 0.0f );
@@ -2868,160 +2173,61 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, HWND hWnd, CFileSystem* 
 	return true;
 }
 
-void CRenderingDevice::DrawScene( Scene_s* scene, const RenderingView_s* view, const RenderingSettings_s* settings )
+void CRenderingDevice::DrawWorld( const RenderingView_s* view, u32 eye )
 {
-	for ( u32 entityRank = 0; entityRank < scene->entityCount; ++entityRank )
-	{
-		Entity_s* entity = &scene->entities[entityRank];
-		Entity_Draw( entity, scene, &gpuContext, view, settings );		
-	}
+	u32 flags = 0;
+
+	GPURenderTargetContextDesc_s renderTargetContextDesc = {};
+	renderTargetContextDesc.clear = true;
+	renderTargetContextDesc.useMSAA = g_useMSAA;
+#if V6_USE_ALPHA_COVERAGE == 1
+	renderTargetContextDesc.useAlphaCoverage = true;
+	flags = RENDER_FLAGS_USE_ALPHA_COVERAGE;
+#endif
+
+	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
+
+	Scene_Draw( s_activeScene, &view->view, flags );
+
+	GPURenderTargetContext_End();
 }
 
-void CRenderingDevice::DrawWorld( const RenderingView_s* view )
-{	
-	// Rasterization state
-	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
-#if V6_USE_ALPHA_COVERAGE == 1
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );	
-#else
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );	
-#endif
-		
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
-
-		gpuContext.deviceContext->RSSetViewports( 1, &viewport );
-		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
-	}
-	
-	// RT
-	if ( g_useMSAA )
-		gpuContext.deviceContext->OMSetRenderTargets( 1, &gpuContext.colorBufferMSAA.rtv, gpuContext.depthBufferMSAA.dsv );
-	else
-		gpuContext.deviceContext->OMSetRenderTargets( 1, &view->rtv, gpuContext.depthBuffer.dsv );
-
-	// Clear
-	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	if ( g_useMSAA )
-	{
-		gpuContext.deviceContext->ClearRenderTargetView( gpuContext.colorBufferMSAA.rtv, pRGBA );
-		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthBufferMSAA.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
-	}
-	else
-	{
-		gpuContext.deviceContext->ClearRenderTargetView( view->rtv, pRGBA );
-		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthBuffer.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
-	}
-		
-	// Settings
-	RenderingSettings_s settings;
-#if V6_USE_ALPHA_COVERAGE == 1
-	settings.useAlphaCoverage = true;
-#else
-	settings.useAlphaCoverage = false;
-#endif
-	settings.isCapturing = false;
-
-	DrawScene( s_activeScene, view, &settings );
-
-	// un RT
-	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-
-	if ( g_useMSAA )
-		gpuContext.deviceContext->ResolveSubresource( view->texture2D, 0, gpuContext.colorBufferMSAA.tex, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
-}
-
-void CRenderingDevice::DrawCameraPath( const RenderingView_s* view )
+void CRenderingDevice::DrawCameraPath( const RenderingView_s* view, u32 eye )
 {
-	// Rasterization state
-	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
+	const GPURenderTargetContextDesc_s renderTargetContextDesc = {};
 
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
+	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
 
-		gpuContext.deviceContext->RSSetViewports( 1, &viewport );
-		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
-	}
+	Scene_Draw( m_pathGeoScene, &view->view, 0 );
 
-	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &view->rtv, gpuContext.depthBuffer.dsv );
-
-	// Settings
-	RenderingSettings_s settings;
-	settings.useAlphaCoverage = false;
-	settings.isCapturing = false;
-
-	DrawScene( m_pathGeoScene, view, &settings );
-
-	// un RT
-	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+	GPURenderTargetContext_End();
 }
 
-void CRenderingDevice::DrawDebug( const RenderingView_s* view )
+void CRenderingDevice::DrawDebug( const RenderingView_s* view, u32 eye )
 {	
 	if ( g_traceGrid )
 	{		
-		Block_TraceDisplay( &gpuContext, m_debugScene, &s_gridCenter, s_gridScale, s_gridOccupancy, &s_rayOrg, &s_rayEnd );
-		
+		Block_TraceDisplay( m_debugScene, &s_gridCenter, s_gridScale, s_gridOccupancy, &s_rayOrg, &s_rayEnd );
 		g_traceGrid = false;
 	}
 
-	// Rasterization state
-	gpuContext.deviceContext->OMSetDepthStencilState( g_transparentDebug ? gpuContext.depthStencilStateNoZ : gpuContext.depthStencilStateZRW, 0 );
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
-		
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)m_width;
-		viewport.Height = (float)m_height;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
+	GPURenderTargetContextDesc_s renderTargetContextDesc = {};
+	renderTargetContextDesc.disableZ = g_transparentDebug;
 
-		gpuContext.deviceContext->RSSetViewports( 1, &viewport );
-		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
-	}
-	
-	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &view->rtv, g_transparentDebug ? nullptr : gpuContext.depthBuffer.dsv );
+	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
 
-	// Clear
-	if ( !g_transparentDebug )
-		gpuContext.deviceContext->ClearDepthStencilView( gpuContext.depthBuffer.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
-				
-	// Settings
-	RenderingSettings_s settings;
-	settings.useAlphaCoverage = false;
-	settings.isCapturing = false;
+	Scene_Draw( m_debugScene, &view->view, 0 );
 
-	DrawScene( m_debugScene, view, &settings );
-
-	// un RT
-	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+	GPURenderTargetContext_End();
 }
 
 void CRenderingDevice::Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* samplePos, u32 faceID )
 {
+	GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
+
 	// Rasterization state
-	gpuContext.deviceContext->OMSetDepthStencilState( gpuContext.depthStencilStateZRW, 0 );
-	gpuContext.deviceContext->OMSetBlendState( gpuContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
+	g_deviceContext->OMSetDepthStencilState( renderTargetContext->depthStencilStateZRW, 0 );
+	g_deviceContext->OMSetBlendState( renderTargetContext->blendStateOpaque, nullptr, 0XFFFFFFFF );
 
 	// Viewport
 	{
@@ -3033,48 +2239,43 @@ void CRenderingDevice::Capture_Render( CubeFaceContext_s* cubeFaceContext, const
 		viewport.MinDepth = 0.0f;
 		viewport.MaxDepth = 1.0f;
 
-		gpuContext.deviceContext->RSSetViewports( 1, &viewport );
-		gpuContext.deviceContext->RSSetState( gpuContext.rasterState );
+		g_deviceContext->RSSetViewports( 1, &viewport );
+		g_deviceContext->RSSetState( renderTargetContext->rasterState );
 	}
 
-	GPU_BeginEvent( "Capture" );
+	GPUEvent_Begin( "Capture" );
 		
 	// RT
-	gpuContext.deviceContext->OMSetRenderTargets( 1, &cubeFaceContext->color.rtv, cubeFaceContext->depth.dsv );
+	g_deviceContext->OMSetRenderTargets( 1, &cubeFaceContext->color.rtv, cubeFaceContext->depth.dsv );
 
 	// Clear
 	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	gpuContext.deviceContext->ClearRenderTargetView( cubeFaceContext->color.rtv, pRGBA );
-	gpuContext.deviceContext->ClearDepthStencilView( cubeFaceContext->depth.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+	g_deviceContext->ClearRenderTargetView( cubeFaceContext->color.rtv, pRGBA );
+	g_deviceContext->ClearDepthStencilView( cubeFaceContext->depth.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 
 	// View
-	RenderingView_s view;
+	View_s view;
 	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
 	view.projMatrix = Mat4x4_Projection( ZNEAR, ZFAR, DegToRad( 90.0f ), 1.0f );
-		
-	// Settings
-	RenderingSettings_s settings;
-	settings.useAlphaCoverage = false;
-	settings.isCapturing = true;
 
-	DrawScene( s_activeScene, &view, &settings );
+	Scene_Draw( s_activeScene, &view, RENDER_FLAGS_IS_CAPTURING );
 
 	// un RT
-	gpuContext.deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-			
-	GPU_EndEvent();
+	g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+
+	GPUEvent_End();
 }
 
 void CRenderingDevice::CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID )
 {
 	static const void* nulls[8] = {};
 
-	GPU_BeginEvent( "Cull Blocks");
+	GPUEvent_Begin( "Cull Blocks");
 
 	u32 values[4] = {};
-	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceIndirectArgs.uav, values );
+	g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceIndirectArgs.uav, values );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cullStats.uav, values );
+		g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cullStats.uav, values );
 
 	v6::hlsl::CBCull cbCullData = {};
 	{
@@ -3109,25 +2310,27 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const Vec3* buil
 
 	// set
 
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
 	u32 bufferID = frameID & 1;
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBCullSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL].buf );	
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, &m_sequenceContext->groups[bufferID].srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, &m_sequenceContext->ranges[bufferID].srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_sequenceContext->blockPos.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.uav, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
+	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBCullSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL].buf );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, &m_sequenceContext->groups[bufferID].srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, &m_sequenceContext->ranges[bufferID].srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_sequenceContext->blockPos.srv );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &m_traceContext->cullStats.uav, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &m_traceContext->cullStats.uav, nullptr );
 
 	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		GPU_BeginEvent( "Cull Bucket");
+		GPUEvent_Begin( "Cull Bucket");
 
 		// update
 		{
-			v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
+			v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL] );
 			memcpy( cbCull, &cbCullData, sizeof( cbCullData ) );
-			GPUConstantBuffer_UnmapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_CULL] );
+			GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL] );
 
 			cbCullData.c_cullBlockGroupOffset += groupCounts[bucket];
 			cbCullData.c_cullBlockRangeOffset += m_sequence.frameDescArray[frameID].blockRangeCounts[bucket];
@@ -3135,24 +2338,23 @@ void CRenderingDevice::CullBlock( const RenderingView_s* views, const Vec3* buil
 
 		// dispach
 		if ( s_logReadBack || g_showHistory )
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL_STATS4+bucket].m_computeShader, nullptr, 0 );
+			GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4+bucket], groupCounts[bucket], 1, 1 );
 		else
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_CULL4+bucket].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->Dispatch( groupCounts[bucket], 1, 1 );
+			GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_CULL4+bucket], groupCounts[bucket], 1, 1 );
 
-		GPU_EndEvent();
+		GPUEvent_End();
 	}
 	
 	// Unset
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();
+	GPUEvent_End();
 
 	if ( s_logReadBack )
 	{
@@ -3185,8 +2387,8 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	char templateFilename[256];
 	char sequenceFilename[256];
 
-	Scene_MakeRawFrameFileTemplate( s_activeScene, templateFilename, sizeof( templateFilename ) );
-	Scene_MakeSequenceFilename( s_activeScene, sequenceFilename, sizeof( sequenceFilename ) );
+	SceneViewer_MakeRawFrameFileTemplate( s_activeScene, templateFilename, sizeof( templateFilename ) );
+	SceneViewer_MakeSequenceFilename( s_activeScene, sequenceFilename, sizeof( sequenceFilename ) );
 
 #if V6_USE_CACHE == 1
 	CodecSequenceDesc_s sequenceDesc;
@@ -3208,10 +2410,10 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	m_sequenceContext = m_heap->newInstance< SequenceContext_s >();
 	m_traceContext = m_heap->newInstance< TraceContext_s >();
 
-	SequenceContext_CreateFromData( gpuContext.device, m_sequenceContext, &m_sequence );
+	SequenceContext_CreateFromData( m_sequenceContext, &m_sequence );
 	const u32 passedBlockCount = m_sequenceContext->blockMaxCount / 3;
 	const u32 cellItemCount = (m_width * HLSL_EYE_COUNT * m_height) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT; 
-	TraceContext_Create( gpuContext.device, m_traceContext, m_width, m_height, passedBlockCount, cellItemCount );
+	TraceContext_Create( m_traceContext, m_width, m_height, passedBlockCount, cellItemCount );
 
 	m_lastUpdatedFrameID = (u32)-1;
 
@@ -3221,8 +2423,8 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 void CRenderingDevice::ReleaseTraceMode()
 {
 	Sequence_Release( &m_sequence, m_heap );
-	SequenceContext_Release( gpuContext.device, m_sequenceContext );
-	TraceContext_Release( gpuContext.device, m_traceContext );
+	SequenceContext_Release( m_sequenceContext );
+	TraceContext_Release( m_traceContext );
 
 	m_heap->deleteInstance( m_sequenceContext );
 	m_heap->deleteInstance( m_traceContext );
@@ -3232,17 +2434,19 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const Vec3* bui
 {		
 	static const void* nulls[8] = {};
 	
-	GPU_BeginEvent( "Trace Blocks");
+	GPUEvent_Begin( "Trace Blocks");
 
 	u32 values[4] = {};
-	gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cellItemCounters.uav, values );
+	g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cellItemCounters.uav, values );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceStats.uav, values );
+		g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceStats.uav, values );
 
 	float gridScale = GRID_MIN_SCALE;
 
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
 	{
-		v6::hlsl::CBBlock* cbBlock = (v6::hlsl::CBBlock*)GPUConstantBuffer_MapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
+		v6::hlsl::CBBlock* cbBlock = (v6::hlsl::CBBlock*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK] );
 
 		float gridScale = GRID_MIN_SCALE;
 		for ( u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID, gridScale *= 2.0f )
@@ -3262,8 +2466,8 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const Vec3* bui
 		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 		{	
 			hlsl::BlockPerEye blockPerEye;
-			blockPerEye.objectToView = views[eye].viewMatrix;
-			blockPerEye.viewToProj = views[eye].projMatrix;
+			blockPerEye.objectToView = views[eye].view.viewMatrix;
+			blockPerEye.viewToProj = views[eye].view.projMatrix;
 
 			const float scaleRight = (views[eye].tanHalfFOVLeft + views[eye].tanHalfFOVRight) / m_width;
 			const float scaleUp = (views[eye].tanHalfFOVUp + views[eye].tanHalfFOVDown) / m_height;
@@ -3284,65 +2488,63 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const Vec3* bui
 			cbBlock->c_blockShowFlag = (g_showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (g_showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0) | (g_showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
 		}
 
-		GPUConstantBuffer_UnmapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK] );
+		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK] );
 	}
 
 	// set
 
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_sequenceContext->blockData.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.uav, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.uav, nullptr );
+	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_sequenceContext->blockData.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.srv );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.uav, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_traceContext->traceStats.uav, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_traceContext->traceStats.uav, nullptr );
 	
 	{
-		GPU_BeginEvent( "Init Trace");
+		GPUEvent_Begin( "Init Trace");
 
 		// set
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
 				
 		// dispatch
-		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_INIT].m_computeShader, nullptr, 0 );				
-		gpuContext.deviceContext->Dispatch( 1, 1, 1 );
+		GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], 1, 1, 1 );
 
 		// unset
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-		GPU_EndEvent();
+		GPUEvent_End();
 	}
 
 	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		GPU_BeginEvent( "Trace Bucket");
+		GPUEvent_Begin( "Trace Bucket");
 
 		// set
 
-		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.srv );
+		g_deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.srv );
 
 		// dispach
 		if ( s_logReadBack || g_showMip || g_showBucket || g_showHistory )
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket].m_computeShader, nullptr, 0 );
+			GPUCompute_DispatchIndirect( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket], &m_traceContext->traceIndirectArgs, trace_cellGroupCountX_offset( bucket ) * sizeof( u32 ) );
 		else
-			gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLOCK_TRACE4+bucket].m_computeShader, nullptr, 0 );
-		gpuContext.deviceContext->DispatchIndirect( m_traceContext->traceIndirectArgs.buf, trace_cellGroupCountX_offset( bucket ) * sizeof( u32 ) );
+			GPUCompute_DispatchIndirect( &shaderContext->computes[COMPUTE_BLOCK_TRACE4+bucket], &m_traceContext->traceIndirectArgs, trace_cellGroupCountX_offset( bucket ) * sizeof( u32 ) );
 
 		// unset		
-		gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 
-		GPU_EndEvent();
+		GPUEvent_End();
 	}
 
 	// Unset
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( s_logReadBack )
-		gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	
-	GPU_EndEvent();
+	GPUEvent_End();
 
 	if ( s_logReadBack )
 	{			
@@ -3363,26 +2565,29 @@ void CRenderingDevice::TraceBlock( const RenderingView_s* views, const Vec3* bui
 	}
 }
 
-void CRenderingDevice::BlendPixel( const RenderingView_s* view )
+void CRenderingDevice::BlendPixel( const RenderingView_s* view, u32 eye )
 {
 	// Render
 
-	GPU_BeginEvent( "Blend Pixels");
+	GPUEvent_Begin( "Blend Pixels");
 	
 	// Set
 
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+	GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
 
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.srv );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.srv );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &view->uav, nullptr );
+	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
+
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.srv );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &renderTargetContext->colorBuffers[eye].uav, nullptr );
 	if ( g_showOverdraw	)
-		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
+		g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
 	else
-		gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
+		g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
 
 	{
-		v6::hlsl::CBPixel* cbPixel = (v6::hlsl::CBPixel*)GPUConstantBuffer_MapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL] );
+		v6::hlsl::CBPixel* cbPixel = (v6::hlsl::CBPixel*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL] );
 
 		cbPixel->c_pixelFrameSize.x = m_width;
 		cbPixel->c_pixelFrameSize.y = m_height;
@@ -3401,68 +2606,72 @@ void CRenderingDevice::BlendPixel( const RenderingView_s* view )
 			cbPixel->c_pixelBackColor.z = 0.0f; 
 		}
 
-		cbPixel->c_eye = view->eye;
+		cbPixel->c_eye = eye;
 
-		GPUConstantBuffer_UnmapWrite( &gpuContext.constantBuffers[CONSTANT_BUFFER_PIXEL]  );
+		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL]  );
 	}		
 
 	V6_ASSERT( (m_width & 0x7) == 0 );
 	V6_ASSERT( (m_height & 0x7) == 0 );
 	const u32 pixelGroupWidth = m_width >> 3;
 	const u32 pixelGroupHeight = m_height >> 3;
-	gpuContext.deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
 	// unset
 	static const void* nulls[8] = {};
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();	
+	GPUEvent_End();	
 }
 
 void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight )
 {
+	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
+
 #if HLSL_STEREO == 1
 	// Render
 
-	GPU_BeginEvent( "Compose Surface" );
+	GPUEvent_Begin( "Compose Surface" );
 
 	// set
 
-	gpuContext.deviceContext->CSSetConstantBuffers( v6::hlsl::CBComposeSlot, 1, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &srvLeft );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &srvRight );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &gpuContext.surfaceUAV, nullptr );
+	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+
+	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &srvLeft );
+	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &srvRight );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &surfaceContext->surface.uav, nullptr );
 		
-	gpuContext.deviceContext->CSSetShader( gpuContext.computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
+	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
 
 	{
-		v6::hlsl::CBCompose* cbCompose = ConstantBuffer_MapWrite< v6::hlsl::CBCompose >( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE] );
+		v6::hlsl::CBCompose* cbCompose = ConstantBuffer_MapWrite< v6::hlsl::CBCompose >( g_deviceContext, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 		
 		cbCompose->c_composeFrameWidth = m_config.screenWidth;
 
-		ConstantBuffer_UnmapWrite( gpuContext.deviceContext, &gpuContext.constantBuffers[CONSTANT_BUFFER_COMPOSE]  );
+		ConstantBuffer_UnmapWrite( g_deviceContext, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE]  );
 	}		
 
 	V6_ASSERT( (m_width & 0x7) == 0 );
 	V6_ASSERT( (m_height & 0x7) == 0 );
 	const u32 pixelGroupWidth = (m_width >> 3) * HLSL_EYE_COUNT;
 	const u32 pixelGroupHeight = m_height >> 3;
-	gpuContext.deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
 	// unset
 	static const void* nulls[8] = {};
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	gpuContext.deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
-	GPU_EndEvent();	
+	GPUEvent_End();
 #else	
 	ID3D11Resource* colorBuffer;
 	srvLeft->GetResource( &colorBuffer );
-	gpuContext.deviceContext->CopyResource( gpuContext.surfaceBuffer, colorBuffer );
+	g_deviceContext->CopyResource( surfaceContext->surface.tex, colorBuffer );
 #endif
 }
 
@@ -3475,7 +2684,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 	}
 
 	char path[256];
-	Scene_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
+	SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
 	CFileReader fileReader;
 	if ( !fileReader.Open( path ) )
@@ -3543,7 +2752,7 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 
 	{
 		char path[256];
-		Scene_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
+		SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
 		CFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
@@ -3627,7 +2836,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	++g_sample;
 
-	v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T1] );
+	v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
 
 	if ( g_sample == SAMPLE_MAX_COUNT )
 	{
@@ -3660,7 +2869,7 @@ void CRenderingDevice::Draw( float dt )
 	static int lastKeyPosZ = -1;
 
 	const u32 frameID = PathPlayer_GetFrame( &s_pathPlayer );
-	
+
 	int mouseDeltaX = 0;
 	int mouseDeltaY = 0;
 	int keyDeltaX = 0;
@@ -3731,7 +2940,7 @@ void CRenderingDevice::Draw( float dt )
 
 	if ( g_showPath || s_pathPlayer.isPlaying )
 	{
-		Scene_UpdatePathGeo( m_pathGeoScene, &s_paths[s_activePath], gpuContext.deviceContext );
+		Scene_UpdatePathGeo( m_pathGeoScene, &s_paths[s_activePath] );
 		PathPlayer_Compute( &s_pathPlayer, s_paths, PATH_COUNT );
 	}
 
@@ -3744,9 +2953,11 @@ void CRenderingDevice::Draw( float dt )
 			Vec3 entityPosition;
 			const u32 entityID = s_paths[pathID].entityID;
 			if ( entityID != (u32)-1 && PathPlayer_GetPosition( &entityPosition, &s_pathPlayer, pathID ) )
-				Entity_SetPos( &s_activeScene->entities[entityID], &entityPosition );
+				s_activeScene->entities[entityID].pos = entityPosition;
 		}
 	}
+
+	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
 	RenderingView_s views[HLSL_EYE_COUNT];
 #if V6_USE_HMD
@@ -3764,27 +2975,22 @@ void CRenderingDevice::Draw( float dt )
 #endif // #if V6_USE_HMD
 	{
 		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-		{
 			RenderingView_MakeForStereo( &views[eye], &s_headOffset, &forward, &up, &right, eye, m_aspectRatio );
-			views[eye].texture2D = gpuContext.colorBuffers[eye].tex;
-			views[eye].rtv = gpuContext.colorBuffers[eye].rtv;
-			views[eye].uav = gpuContext.colorBuffers[eye].uav;
-		}
-	}
+}
 
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
 		// draw mode
 
-		v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T0] );
+		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 
 		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-			DrawWorld( &views[eye] );
+			DrawWorld( &views[eye], eye );
 		
-		v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T1] );
-		v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T2] );
-		v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T3] );
-		v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T4] );
+		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
+		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
+		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
+		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 
 		PathPlayer_AddTimeStep( &s_pathPlayer, dt );
 	}	
@@ -3802,7 +3008,7 @@ void CRenderingDevice::Draw( float dt )
 
 			V6_ASSERT( m_bakedFrameCount == frameID );
 
-			v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T0] );
+			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 
 			if ( BuildBlock( frameID ) )
 			{
@@ -3819,9 +3025,9 @@ void CRenderingDevice::Draw( float dt )
 				ResetDrawMode();
 			}
 
-			v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T2] );
-			v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T3] );
-			v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T4] );
+			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
+			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
+			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 		}
 		else
 		{
@@ -3842,26 +3048,26 @@ void CRenderingDevice::Draw( float dt )
 					frameDesc = &m_sequence.frameDescArray[frameDesc->frameID];
 
 				static u32 groupCounts[CODEC_BUCKET_COUNT] = {};
-				v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T0] );
+				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 				if ( m_lastUpdatedFrameID != frameDesc->frameID )
 				{
-					SequenceContext_UpdateFrameData( gpuContext.deviceContext, m_sequenceContext, groupCounts, frameDesc->frameID, &m_sequence, m_stack );
+					SequenceContext_UpdateFrameData( m_sequenceContext, groupCounts, frameDesc->frameID, &m_sequence, m_stack );
 					m_lastUpdatedFrameID = frameDesc->frameID;
 				}
-				v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T1] );
+				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
 				{
 					CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameDesc->frameID );
 				}
-				v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T2] );
+				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
 				{
 					TraceBlock( views, &frameDesc->origin );
 				}
-				v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T3] );
+				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
 				{
 					for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-						BlendPixel( &views[eye] );
+						BlendPixel( &views[eye], eye );
 				}
-				v6::GPUQuery_WriteTimeStamp( &gpuContext.pendingQueries[v6::QUERY_T4] );
+				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 
 				s_logReadBack = false;
 				g_mousePicked = false;
@@ -3876,7 +3082,7 @@ void CRenderingDevice::Draw( float dt )
 	{
 		HmdOuput_s output;
 		if ( Hmd_EndRendering( &output ) )
-			gpuContext.deviceContext->CopyResource( gpuContext.surfaceBuffer, (ID3D11Texture2D*)output.texture2D );
+			g_deviceContext->CopyResource( surfaceContext->surface.buf, (ID3D11Texture2D*)output.texture2D );
 	}
 	else
 #endif // #if V6_USE_HMD
@@ -3884,19 +3090,15 @@ void CRenderingDevice::Draw( float dt )
 		if ( g_showPath )
 		{
 			for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-				DrawCameraPath( &views[eye] );
+				DrawCameraPath( &views[eye], eye );
 		}
 
 		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-			DrawDebug( &views[eye] );
+			DrawDebug( &views[eye], eye );
 
-		Output( gpuContext.colorBuffers[LEFT_EYE].srv, gpuContext.colorBuffers[RIGHT_EYE].srv );
+		GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
+		Output( renderTargetContext->colorBuffers[LEFT_EYE].srv, renderTargetContext->colorBuffers[RIGHT_EYE].srv );
 	}
-}
-
-void CRenderingDevice::Present()
-{
-	gpuContext.swapChain->Present( 0, 0 );
 }
 
 void CRenderingDevice::Release()
@@ -3916,7 +3118,7 @@ void CRenderingDevice::Release()
 	for ( u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
 		Path_Release( &s_paths[pathID] );
 
-	GPUContext_Release( &gpuContext );
+	GPUDevice_Release();
 }
 
 END_V6_NAMESPACE
@@ -3977,28 +3179,18 @@ int main()
 	v6::Vec2i renterTargerSize = v6::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	HWND hWnd = v6::CreateMainWindow( title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y );
-	if (!hWnd)
-	{
-		V6_ERROR( "Call to CreateWindow failed!\n" );
-		return -1;
-	}
-
-	if ( !v6::CaptureInputs( hWnd ) )
-	{
-		V6_ERROR( "Call to CaptureInputs failed!\n" );
-		return -1;
-	}
+	if ( !v6::Win_Create( &v6::s_win, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y, true ) )
+		return 1;
 
 	v6::CRenderingDevice oRenderingDevice;
-	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, hWnd, &filesystem, &heap, &stack ) )
+	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, &filesystem, &heap, &stack ) )
 	{
 		V6_ERROR( "Call to CRenderingDevice::Create failed!\n" );
 		return -1;
 	}
 
 #if V6_USE_HMD
-	if ( !v6::Hmd_CreateResources( oRenderingDevice.gpuContext.device, &renterTargerSize ) )
+	if ( !v6::Hmd_CreateResources( v6::g_device, &renterTargerSize ) )
 	{
 		V6_ERROR( "Call to Hmd_CreateResources failed!\n" );
 		return -1;
@@ -4006,23 +3198,25 @@ int main()
 #endif // #if V6_USE_HMD
 
 #if V6_LOAD_EXTERNAL == 1
-	SceneContext_SetDevice( &sceneContext, oRenderingDevice.gpuContext.device );
+	SceneContext_SetDeviceReady( &sceneContext );
 #endif
 
-	ShowWindow(hWnd, SW_SHOWNORMAL);
-	UpdateWindow(hWnd);
+	v6::Win_Show( &v6::s_win, true );
+	v6::Win_RegisterKeyEvent( &v6::s_win, v6::Viewer_OnKeyEvent );
+	v6::Win_RegisterMouseEvent( &v6::s_win, v6::Viewer_OnMouseEvent );
 
 	__int64 frameTickLast = GetTickCount(); 
-	for ( __int64 frameId = 0; ; ++frameId )
+	__int64 frameId = 0;
+	while ( !Win_ProcessMessagesAndShouldQuit( &v6::s_win ) )
 	{
 		const v6::u32 bufferID = frameId & 1;
 
-		v6::GPUQuery_s* pendingQueries = oRenderingDevice.gpuContext.queries[bufferID];
+		v6::GPUQuery_s* pendingQueries = v6::GPUQueryContext_Get()->queries[bufferID];
 		static const int tMaxCount = 64;
 		static float dts[tMaxCount] = {};
 		static float tfTimes[tMaxCount] = {};
 		static float tbTimes[v6::QUERY_TIME_COUNT][tMaxCount] = {};
-	static int tID = 0;
+		static int tID = 0;
 		
 		if ( v6::GPUQuery_ReadTimeStampDisjoint( &pendingQueries[v6::QUERY_FREQUENCY] ) )
 		{
@@ -4035,7 +3229,7 @@ int main()
 			tID = (tID + 1) & (tMaxCount-1);
 		}
 		
-		oRenderingDevice.gpuContext.pendingQueries = pendingQueries;
+		v6::s_pendingQueries = pendingQueries;
 		
 		const __int64 frameTick = v6::GetTickCount();
 		
@@ -4087,33 +3281,14 @@ int main()
 				v6::ModeToString( v6::g_drawMode ),
 				v6::s_hmdState,
 				v6::s_activeScene->info.dirty ? "| *" : "" );
-			SetWindowTextA( hWnd, text );
+			Win_SetTitle( &v6::s_win, text );
 		}
 		
-		MSG msg;
-		while ( PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) )
-		{
-			TranslateMessage(&msg);
-			DispatchMessageA(&msg);
-
-			if ( msg.message == WM_QUIT )
-			{
-#if V6_LOAD_EXTERNAL == 1
-				v6::Signal_Wait( &sceneContext.loadDone );
-				Scene_SaveInfo( v6::s_activeScene );
-				SceneContext_Release( &sceneContext );
-#else
-				Scene_SaveInfo( v6::s_activeScene );
-#endif
-				oRenderingDevice.Release();
-				return 0;
-			}
-		}
-
 		if ( v6::g_reloadShaders )
 		{
-			v6::GPUContext_ReleaseShaders( &oRenderingDevice.gpuContext );
-			v6::GPUContext_CreateShaders( &oRenderingDevice.gpuContext, &filesystem, &stack );
+			v6::GPUShaderContext_Release();
+			v6::GPUShaderContext_Create();
+			v6::GPUContext_CreateShaders( &filesystem, &stack );
 			v6::g_reloadShaders = false;
 		}
 
@@ -4125,7 +3300,9 @@ int main()
 		v6::GPUQuery_WriteTimeStamp( &pendingQueries[v6::QUERY_FRAME_END] );
 		v6::GPUQuery_EndTimeStampDisjoint( &pendingQueries[v6::QUERY_FREQUENCY] );
 
-		oRenderingDevice.Present();
+		v6::GPUSurfaceContext_Present();
+
+		++frameId;
 	}
 
 #if V6_USE_HMD
@@ -4133,4 +3310,13 @@ int main()
 
 	v6::Hmd_Shutdown();
 #endif // #if V6_USE_HMD
+
+#if V6_LOAD_EXTERNAL == 1
+	v6::Signal_Wait( &sceneContext.loadDone );
+	SceneViewer_SaveInfo( v6::s_activeScene );
+	SceneContext_Release( &sceneContext );
+#else
+	SceneViewer_SaveInfo( v6::s_activeScene );
+#endif
+	oRenderingDevice.Release();
 }

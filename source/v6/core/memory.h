@@ -34,6 +34,16 @@ public:
 		return t;
 	}
 
+	char*			copyString( const char* str )
+	{
+		const u32 l = (u32)strlen( str );
+		char* p = (char*)alloc( l + 1 );
+		for ( u32 c = 0; c < l; ++c )
+			p[c] = str[c];
+		p[l] = 0;
+		return p;
+	}
+
 	template <typename T>
 	void			deleteArray( T * p )
 	{
