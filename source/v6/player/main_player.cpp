@@ -209,11 +209,17 @@ void PlayerDevice_Release( Player_s* player )
 
 static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 {
+	Player_s* player = (Player_s*)keyEvent->win->owner;
+
 	switch( keyEvent->key )
 	{
 	case 0x1B:
-		Win_Release( keyEvent->win );
+		Win_Release( &player->win );
 		break;
+	case 'A': player->keyLeftPressed = keyEvent->pressed; break;
+	case 'D': player->keyRightPressed = keyEvent->pressed; break;
+	case 'S': player->keyDownPressed = keyEvent->pressed; break;
+	case 'W': player->keyUpPressed = keyEvent->pressed; break;
 	}
 }
 

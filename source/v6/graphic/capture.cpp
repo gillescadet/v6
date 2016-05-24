@@ -358,7 +358,6 @@ static void PackColor( CaptureContext_s* captureContext )
 	GPUBuffer_UnmapReadBack( &res->blockIndirectArgs );
 }
 
-
 void Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc )
 {
 	V6_ASSERT( s_gpuCaptureResourcesCreated == false );
