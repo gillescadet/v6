@@ -19,14 +19,14 @@ double GetTickFrequency()
 	return double( li.QuadPart );
 }
 
-__int64 GetTickCount()
+u64 GetTickCount()
 {
 	LARGE_INTEGER li;
 	QueryPerformanceCounter(&li);
 	return li.QuadPart;
 }
 
-float ConvertTicksToSeconds(__int64 nTickCount)
+float ConvertTicksToSeconds( u64 nTickCount )
 {	
 	return (float)( nTickCount * s_dInvFrequency );
 }

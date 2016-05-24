@@ -30,7 +30,6 @@ static ID3DUserDefinedAnnotation*	s_userDefinedAnnotation = nullptr;
 
 GPUSurfaceContext_s					s_surfaceContext = {};
 GPUQueryContext_s					s_queryContext = {};
-GPURenderTargetContext_s			s_renderTargetContext = {};
 GPUShaderContext_s					s_shaderContext = {};
 
 static u32 s_gpuMemory = 0;
@@ -154,9 +153,6 @@ void GPUDevice_Release()
 	if ( s_queryContext.initialized )
 		GPUQueryContext_Release();
 
-	if ( s_renderTargetContext.initialized )
-		GPURenderTargetContext_Release();
-
 	if ( s_surfaceContext.initialized )
 		GPUShaderContext_Release();
 
@@ -190,13 +186,13 @@ void GPUEvent_End()
 void GPUResource_LogMemory( const char* res, u32 size, const char* name )
 {
 	if ( DivMB( size ) >= 1 )
-		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, String_FormatInteger_Unsafe( DivMB( size ) ) );
+		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, String_FormatInteger( DivMB( size ) ) );
 	Atomic_Add( &s_gpuMemory, size );
 }
 
 void GPUResource_LogMemoryUsage()
 {
-	V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger_Unsafe( DivMB( s_gpuMemory ) ) );
+	V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger( DivMB( s_gpuMemory ) ) );
 }
 
 void GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize )
@@ -204,12 +200,12 @@ void GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32
 	V6_ASSERT_D3D11( g_device->CreateComputeShader( source, sourceSize, nullptr, &compute->m_computeShader ) );
 }
 
-bool GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, CFileSystem* fileSystem, IAllocator* allocator )
+bool GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, IAllocator* allocator )
 {
 	Stack stack( allocator, 64 * 1024 );
 
 	void* csBytecode = nullptr;
-	const int csBytecodeSize = fileSystem->ReadFile( cs, &csBytecode, &stack );
+	const int csBytecodeSize = FileSystem_ReadFile( cs, &csBytecode, &stack );
 	if ( csBytecodeSize <= 0 )
 	{
 		V6_ERROR( "File %s not found!\n", cs );
@@ -238,12 +234,12 @@ void GPUCompute_DispatchIndirect( GPUCompute_s* compute, GPUBuffer_s* bufferArgs
 	g_deviceContext->DispatchIndirect( bufferArgs->buf, offsetArgs );
 }
 
-bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, CFileSystem* fileSystem, IAllocator* allocator )
+bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, IAllocator* allocator )
 {
 	Stack stack( allocator, 64 * 1024 );
 
 	void* vsBytecode = nullptr;
-	const int vsBytecodeSize = fileSystem->ReadFile( vs, &vsBytecode, &stack );
+	const int vsBytecodeSize = FileSystem_ReadFile( vs, &vsBytecode, &stack );
 	if ( vsBytecodeSize <= 0 )
 	{
 		V6_ERROR( "Unable to read file %s!\n", vs );
@@ -261,7 +257,7 @@ bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 
 	}
 
 	void* psBytecode = nullptr;
-	const int psBytecodeSize = fileSystem->ReadFile( ps, &psBytecode, &stack );
+	const int psBytecodeSize = FileSystem_ReadFile( ps, &psBytecode, &stack );
 	if ( psBytecodeSize <= 0 )
 	{
 		V6_ERROR( "Unable to read file %s!\n", ps );
@@ -801,6 +797,11 @@ void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32
 	}
 }
 
+void GPUColorRenderTarget_Copy( GPUColorRenderTarget_s* dstColorRenderTarget, GPUColorRenderTarget_s* srcColorRenderTarget )
+{
+	g_deviceContext->CopyResource( dstColorRenderTarget->tex, srcColorRenderTarget->tex );
+}
+
 void GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget )
 {
 	V6_RELEASE_D3D11( colorRenderTarget->tex );
@@ -832,7 +833,7 @@ void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32
 		texDesc.MiscFlags = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateTexture2D( &texDesc, nullptr, &depthRenderTarget->tex ) );
-		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, "cubeDepth" );
+		GPUResource_LogMemory( "Texture2D", texDesc.Width * texDesc.Height * texDesc.ArraySize * DXGIFormat_Size( texDesc.Format ) * texDesc.SampleDesc.Count, name );
 	}
 
 	{
@@ -1367,7 +1368,7 @@ void GPUShaderState_Restore( GPUShaderState_s* shaderState )
 		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1, shaderState->uavs, nullptr );
 }
 
-void GPUQueryContext_Create()
+void GPUQueryContext_CreateEmpty()
 {
 	V6_ASSERT( !s_queryContext.initialized );
 
@@ -1397,19 +1398,27 @@ void GPUQueryContext_Release()
 	memset( &s_queryContext, 0, sizeof( s_queryContext ) );
 }
 
-void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, bool stereo )
+void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetCreationDesc_s* desc )
 {
-	V6_ASSERT( !s_renderTargetContext.initialized );
+	memset( renderTargetSet, 0, sizeof(*renderTargetSet) );
 
-	GPUColorRenderTarget_Create( &s_renderTargetContext.colorBuffers[0], width, height, 1, true, true, stereo ? "mainLeftColor" : "mainColor" );
-	if ( stereo )
-		GPUColorRenderTarget_Create( &s_renderTargetContext.colorBuffers[1], width, height, 1, true, true, "mainRightColor" );
-	GPUDepthRenderTarget_Create( &s_renderTargetContext.depthBuffer, width, height, 1, false, "mainDepth" );
+	GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[0], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( desc->stereo ? "%sLeftColor" : "%sColor", desc->name ) );
+	renderTargetSet->width = desc->width;
+	renderTargetSet->height = desc->height;
 
-	if ( supportMSAA )
+	if ( desc->stereo )
 	{
-		GPUColorRenderTarget_Create( &s_renderTargetContext.colorBufferMSAA, width, height, 8, false, false, "mainColorMSAA" );
-		GPUDepthRenderTarget_Create( &s_renderTargetContext.depthBufferMSAA, width, height, 8, false, "depthColorMSAA" );
+		GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[1], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( "%sRightColor", desc->name ) );
+		renderTargetSet->stereo = true;
+	}
+
+	GPUDepthRenderTarget_Create( &renderTargetSet->depthBuffer, desc->width, desc->height, 1, false, String_Format( "%sDepth", desc->name ) );
+
+	if ( desc->supportMSAA )
+	{
+		GPUColorRenderTarget_Create( &renderTargetSet->colorBufferMSAA, desc->width, desc->height, 8, false, false, String_Format( "%sColorMSAA", desc->name ) );
+		GPUDepthRenderTarget_Create( &renderTargetSet->depthBufferMSAA, desc->width, desc->height, 8, false, String_Format( "%sDepthMSAA", desc->name ) );
+		renderTargetSet->supportMSAA = true;
 	}
 
 	{
@@ -1417,7 +1426,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		depthStencilDesc.DepthEnable = false;
 		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
 
-		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateNoZ ) );
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &renderTargetSet->depthStencilStateNoZ ) );
 	}
 
 	{
@@ -1426,7 +1435,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
 		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
 
-		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateZRO ) );
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &renderTargetSet->depthStencilStateZRO ) );
 	}
 
 	{
@@ -1435,7 +1444,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 		depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
 
-		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &s_renderTargetContext.depthStencilStateZRW ) );
+		V6_ASSERT_D3D11( g_device->CreateDepthStencilState( &depthStencilDesc, &renderTargetSet->depthStencilStateZRW ) );
 	}
 
 	{
@@ -1445,7 +1454,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = 0;
 		
-		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateNoColor ) );
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &renderTargetSet->blendStateNoColor ) );
 	}
 
 	{
@@ -1455,7 +1464,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
-		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateOpaque ) );
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &renderTargetSet->blendStateOpaque ) );
 	}
 
 	{
@@ -1465,7 +1474,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		blendState.RenderTarget[0].BlendEnable = false;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
-		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateAlphaCoverage ) );
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &renderTargetSet->blendStateAlphaCoverage ) );
 	}
 
 	{
@@ -1482,7 +1491,7 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		blendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
-		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &s_renderTargetContext.blendStateAdditif ) );
+		V6_ASSERT_D3D11( g_device->CreateBlendState( &blendState, &renderTargetSet->blendStateAdditif ) );
 	}
 
 	{
@@ -1498,59 +1507,47 @@ void GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, boo
 		rasterDesc.MultisampleEnable = false;
 		rasterDesc.AntialiasedLineEnable = false;
 		
-		V6_ASSERT_D3D11( g_device->CreateRasterizerState( &rasterDesc, &s_renderTargetContext.rasterState ) );
+		V6_ASSERT_D3D11( g_device->CreateRasterizerState( &rasterDesc, &renderTargetSet->rasterState ) );
 	}
-
-	s_renderTargetContext.width = width;
-	s_renderTargetContext.height = height;
-	s_renderTargetContext.supportMSAA = supportMSAA;
-	s_renderTargetContext.stereo = stereo;
-	s_renderTargetContext.initialized = true;
 }
 
-GPURenderTargetContext_s* GPURenderTargetContext_Get()
+void GPURenderTargetSet_Bind( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetBindingDesc_s* desc, u32 eye )
 {
-	V6_ASSERT( s_renderTargetContext.initialized );
-	return &s_renderTargetContext;
-}
-
-void GPURenderTargetContext_Begin( const GPURenderTargetContextDesc_s* desc, u32 eye )
-{
-	V6_ASSERT( s_renderTargetContext.supportMSAA || !desc->useMSAA );
-
 	// Rasterization state
-	g_deviceContext->OMSetDepthStencilState( desc->disableZ ? s_renderTargetContext.depthStencilStateNoZ : s_renderTargetContext.depthStencilStateZRW, 0 );
+	g_deviceContext->OMSetDepthStencilState( desc->noZ ? renderTargetSet->depthStencilStateNoZ : renderTargetSet->depthStencilStateZRW, 0 );
 	if ( desc->useAlphaCoverage )
-		g_deviceContext->OMSetBlendState( s_renderTargetContext.blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );
+		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );
 	else
-		g_deviceContext->OMSetBlendState( s_renderTargetContext.blendStateOpaque, nullptr, 0XFFFFFFFF );
+		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateOpaque, nullptr, 0XFFFFFFFF );
 		
 	// Viewport
 	{
 		D3D11_VIEWPORT viewport = {};
 		viewport.TopLeftX = 0;
 		viewport.TopLeftY = 0;
-		viewport.Width = (float)s_renderTargetContext.width;
-		viewport.Height = (float)s_renderTargetContext.height;
+		viewport.Width = (float)renderTargetSet->width;
+		viewport.Height = (float)renderTargetSet->height;
 		viewport.MinDepth = 0.0f;
 		viewport.MaxDepth = 1.0f;
 
 		g_deviceContext->RSSetViewports( 1, &viewport );
-		g_deviceContext->RSSetState( s_renderTargetContext.rasterState );
+		g_deviceContext->RSSetState( renderTargetSet->rasterState );
 	}
 	
 	// RT
-	s_renderTargetContext.drawState.eye = eye;
 	if ( desc->useMSAA )
 	{
-		g_deviceContext->OMSetRenderTargets( 1, &s_renderTargetContext.colorBufferMSAA.rtv, desc->disableZ ? nullptr : s_renderTargetContext.depthBufferMSAA.dsv );
-		s_renderTargetContext.drawState.resolve = true;
+		V6_ASSERT( renderTargetSet->supportMSAA );
+		g_deviceContext->OMSetRenderTargets( 1, &renderTargetSet->colorBufferMSAA.rtv, desc->noZ ? nullptr : renderTargetSet->depthBufferMSAA.dsv );
+		renderTargetSet->bindingState.resolve = true;
 	}
 	else
 	{
-		g_deviceContext->OMSetRenderTargets( 1, &s_renderTargetContext.colorBuffers[eye].rtv, desc->disableZ ? nullptr : s_renderTargetContext.depthBuffer.dsv );
-		s_renderTargetContext.drawState.resolve = false;
+		g_deviceContext->OMSetRenderTargets( 1, &renderTargetSet->colorBuffers[eye].rtv, desc->noZ ? nullptr : renderTargetSet->depthBuffer.dsv );
+		renderTargetSet->bindingState.eye = eye;
+		renderTargetSet->bindingState.resolve = false;
 	}
+	renderTargetSet->bindingState.eye = eye;
 
 	// Clear
 	if ( desc->clear )
@@ -1558,53 +1555,52 @@ void GPURenderTargetContext_Begin( const GPURenderTargetContextDesc_s* desc, u32
 		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		if ( desc->useMSAA )
 		{
-			g_deviceContext->ClearRenderTargetView( s_renderTargetContext.colorBufferMSAA.rtv, pRGBA );
-			if ( !desc->disableZ )
-				g_deviceContext->ClearDepthStencilView( s_renderTargetContext.depthBufferMSAA.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+			g_deviceContext->ClearRenderTargetView( renderTargetSet->colorBufferMSAA.rtv, pRGBA );
+			if ( !desc->noZ )
+				g_deviceContext->ClearDepthStencilView( renderTargetSet->depthBufferMSAA.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 		}
 		else
 		{
-			g_deviceContext->ClearRenderTargetView( s_renderTargetContext.colorBuffers[eye].rtv, pRGBA );
-			if ( !desc->disableZ )
-				g_deviceContext->ClearDepthStencilView( s_renderTargetContext.depthBuffer.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+			g_deviceContext->ClearRenderTargetView( renderTargetSet->colorBuffers[eye].rtv, pRGBA );
+			if ( !desc->noZ )
+				g_deviceContext->ClearDepthStencilView( renderTargetSet->depthBuffer.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
 		}
 	}
 }
 
-void GPURenderTargetContext_End()
+void GPURenderTargetSet_Unbind( GPURenderTargetSet_s* renderTargetSet )
 {
 	// un RT
 	g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 
-	if ( s_renderTargetContext.drawState.resolve )
-		g_deviceContext->ResolveSubresource( s_renderTargetContext.colorBuffers[s_renderTargetContext.drawState.eye].tex, 0, s_renderTargetContext.colorBufferMSAA.tex, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
+	if ( renderTargetSet->bindingState.resolve )
+		g_deviceContext->ResolveSubresource( renderTargetSet->colorBuffers[renderTargetSet->bindingState.eye].tex, 0, renderTargetSet->colorBufferMSAA.tex, 0, DXGI_FORMAT_R8G8B8A8_UNORM );
 }
 
-void GPURenderTargetContext_Release()
+void GPURenderTargetSet_Release( GPURenderTargetSet_s* renderTargetSet )
 {
-	V6_ASSERT( s_renderTargetContext.initialized );
+	GPUColorRenderTarget_Release( &renderTargetSet->colorBuffers[0] );
+	if ( renderTargetSet->stereo )
+		GPUColorRenderTarget_Release( &renderTargetSet->colorBuffers[1] );
+	GPUDepthRenderTarget_Release( &renderTargetSet->depthBuffer );
 
-	GPUColorRenderTarget_Release( &s_renderTargetContext.colorBuffers[0] );
-	if ( s_renderTargetContext.stereo )
-		GPUColorRenderTarget_Release( &s_renderTargetContext.colorBuffers[1] );
-	GPUDepthRenderTarget_Release( &s_renderTargetContext.depthBuffer );
+	if ( renderTargetSet->supportMSAA )
+	{
+		GPUColorRenderTarget_Release( &renderTargetSet->colorBufferMSAA );
+		GPUDepthRenderTarget_Release( &renderTargetSet->depthBufferMSAA );
+	}
 
-	GPUColorRenderTarget_Release( &s_renderTargetContext.colorBufferMSAA );
-	GPUDepthRenderTarget_Release( &s_renderTargetContext.depthBufferMSAA );
-
-	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateNoZ );
-	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateZRO );
-	V6_RELEASE_D3D11( s_renderTargetContext.depthStencilStateZRW );
-	V6_RELEASE_D3D11( s_renderTargetContext.blendStateNoColor );
-	V6_RELEASE_D3D11( s_renderTargetContext.blendStateOpaque );
-	V6_RELEASE_D3D11( s_renderTargetContext.blendStateAlphaCoverage );
-	V6_RELEASE_D3D11( s_renderTargetContext.blendStateAdditif );
-	V6_RELEASE_D3D11( s_renderTargetContext.rasterState );
-
-	memset( &s_renderTargetContext, 0, sizeof( s_renderTargetContext ) );
+	V6_RELEASE_D3D11( renderTargetSet->depthStencilStateNoZ );
+	V6_RELEASE_D3D11( renderTargetSet->depthStencilStateZRO );
+	V6_RELEASE_D3D11( renderTargetSet->depthStencilStateZRW );
+	V6_RELEASE_D3D11( renderTargetSet->blendStateNoColor );
+	V6_RELEASE_D3D11( renderTargetSet->blendStateOpaque );
+	V6_RELEASE_D3D11( renderTargetSet->blendStateAlphaCoverage );
+	V6_RELEASE_D3D11( renderTargetSet->blendStateAdditif );
+	V6_RELEASE_D3D11( renderTargetSet->rasterState );
 }
 
-void GPUShaderContext_Create()
+void GPUShaderContext_CreateEmpty()
 {
 	V6_ASSERT( !s_shaderContext.initialized );
 

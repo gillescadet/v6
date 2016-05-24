@@ -49,6 +49,7 @@
 #include <math.h>
 #include <memory.h>
 #include <new>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

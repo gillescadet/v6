@@ -159,8 +159,8 @@ void GrowingAllocator_Extend( GrowingAllocator_s* allocator, u32 size )
 	{
 		void* data = allocator->data;
 		allocator->capacity = Max( allocator->size + size, allocator->capacity * 2 );
-		allocator->data = allocator->heap->alloc( (int)allocator->capacity );		
-		memcpy( allocator->data, data, allocator->size );		
+		allocator->data = allocator->heap->alloc( (int)allocator->capacity );
+		memcpy( allocator->data, data, allocator->size );
 		allocator->heap->free( data );
 	}
 	allocator->size += size;

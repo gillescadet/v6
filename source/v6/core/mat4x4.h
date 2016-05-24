@@ -30,10 +30,10 @@ public:
 		Vec4 m_rows[4];
 	};	
 
-	const Vec3* GetXAxis() const { return (Vec3*)&m_row0; }
-	const Vec3* GetYAxis() const { return (Vec3*)&m_row1; }
-	const Vec3* GetZAxis() const { return (Vec3*)&m_row2; }
-	const Vec3 GetTranslation() const { return Vec3_Make( m_row0.w, m_row1.w, m_row2.w ); }
+	void GetXAxis( Vec3* v ) const { Vec3_Make( v, m_row0.x, m_row1.x, m_row2.x ); }
+	void GetYAxis( Vec3* v ) const { Vec3_Make( v, m_row0.y, m_row1.y, m_row2.y ); }
+	void GetZAxis( Vec3* v ) const { Vec3_Make( v, m_row0.z, m_row1.z, m_row2.z ); }
+	const void GetTranslation( Vec3* v ) const { return Vec3_Make( v, m_row0.w, m_row1.w, m_row2.w ); }
 };
 
 V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
@@ -251,30 +251,16 @@ V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* forward, const Vec3* 
 	return m;
 }
 
-V6_INLINE Mat4x4 Mat4x4_Projection( float n, float f, float fov, float aspectRatio )
+V6_INLINE Mat4x4 Mat4x4_Projection( float n, float fov, float aspectRatio )
 {
-	// [ w,	0, 0, 0 ]
-	// [ 0,	h, 0, 0 ]
-	// [ 0,	0, f/(n-f), n*f/(n-f) ]
-	// [ 0,	0, -1, 0 ]
-	//
-	// h = cot( fovY / 2.0 )
-	// w = h / aspectRatio
-
 	const float tanHalf = Tan( fov * 0.5f );
 	const float h = 1.0f / tanHalf;
 	const float w = h / aspectRatio;
-	const float q = f / (n - f);
 
 	Mat4x4 m;
 	m.m_row0 = Vec4_Make(  w, 0, 0, 0 );
 	m.m_row1 = Vec4_Make(  0, h, 0, 0 );
-#if 0
-	m.m_row2 = Vec4_Make(  0, 0, q, n * q );
-#else
-	// Infinite far
 	m.m_row2 = Vec4_Make(  0, 0, -1, -n );
-#endif
 	m.m_row3 = Vec4_Make(  0, 0, -1,  0 );
 
 	return m;

@@ -16,7 +16,6 @@
 
 BEGIN_V6_NAMESPACE
 
-class CFileSystem;
 class IAllocator;
 
 enum
@@ -168,15 +167,26 @@ struct GPUSurfaceContext_s
 	bool							initialized;
 };
 
-struct GPURenderTargetContextDesc_s
+struct GPURenderTargetSetCreationDesc_s
+{
+	const char*						name;
+	u32								width;
+	u32								height;
+	bool							supportMSAA;
+	bool							bindable;
+	bool							writable;
+	bool							stereo;
+};
+
+struct GPURenderTargetSetBindingDesc_s
 {
 	bool							clear;
-	bool							disableZ;
+	bool							noZ;
 	bool							useMSAA;
 	bool							useAlphaCoverage;
 };
 
-struct GPURenderTargetContext_s
+struct GPURenderTargetSet_s
 {
 	GPUColorRenderTarget_s			colorBuffers[2];
 	GPUDepthRenderTarget_s			depthBuffer;
@@ -196,13 +206,12 @@ struct GPURenderTargetContext_s
 	u32								height;
 	bool							supportMSAA;
 	bool							stereo;
-	bool							initialized;
 
 	struct
 	{
 		u32							eye;
 		bool						resolve;
-	} drawState;
+	} bindingState;
 };
 
 struct GPUShaderContext_s
@@ -246,7 +255,7 @@ void						GPUDevice_Set( ID3D11Device* device );
 void						GPUDevice_Release();
 
 void						GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize );
-bool						GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, CFileSystem* fileSystem, IAllocator* allocator );
+bool						GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, IAllocator* allocator );
 void						GPUCompute_Dispatch( GPUCompute_s* compute, u32 groupX, u32 groupY, u32 groupZ );
 void						GPUCompute_DispatchIndirect( GPUCompute_s* compute, GPUBuffer_s* bufferArgs, u32 offsetArgs );
 void						GPUCompute_Release( GPUCompute_s* compute );
@@ -256,6 +265,7 @@ void*						GPUConstantBuffer_MapWrite( GPUConstantBuffer_s* buffer );
 void						GPUConstantBuffer_Release( GPUConstantBuffer_s* buffer );
 void						GPUConstantBuffer_UnmapWrite( GPUConstantBuffer_s* buffer );
 
+void						GPUColorRenderTarget_Copy( GPUColorRenderTarget_s* dstColorRenderTarget, GPUColorRenderTarget_s* srcColorRenderTarget  );
 void						GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name );
 void						GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget );
 void						GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name );
@@ -286,23 +296,22 @@ bool						GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query );
 void						GPUQuery_Release( GPUQuery_s* query );
 void						GPUQuery_WriteTimeStamp( GPUQuery_s* query );
 
-void						GPUQueryContext_Create();
+void						GPUQueryContext_CreateEmpty();
 GPUQueryContext_s*			GPUQueryContext_Get();
 void						GPUQueryContext_Release();
 
-void						GPURenderTargetContext_Begin( const GPURenderTargetContextDesc_s* desc, u32 eye );
-void						GPURenderTargetContext_Create( u32 width, u32 height, bool supportMSAA, bool stereo );
-void						GPURenderTargetContext_End();
-GPURenderTargetContext_s*	GPURenderTargetContext_Get();
-void						GPURenderTargetContext_Release();
+void						GPURenderTargetSet_Bind( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetBindingDesc_s* desc, u32 eye );
+void						GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetCreationDesc_s* desc );
+void						GPURenderTargetSet_Release( GPURenderTargetSet_s* renderTargetSet );
+void						GPURenderTargetSet_Unbind( GPURenderTargetSet_s* renderTargetSet );
 
 void						GPUResource_LogMemory( const char* res, u32 size, const char* name );
 void						GPUResource_LogMemoryUsage();
 
-bool						GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, CFileSystem* fileSystem, IAllocator* allocator );
+bool						GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, IAllocator* allocator );
 void						GPUShader_Release( GPUShader_s* shader );
 
-void						GPUShaderContext_Create();
+void						GPUShaderContext_CreateEmpty();
 GPUShaderContext_s*			GPUShaderContext_Get();
 void						GPUShaderContext_Release();
 

@@ -114,7 +114,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, UINT message, WPARAM wParam, LPARAM
 			{
 				if ( win->onKeyEvent )
 				{
-					KeyEvent_s keyEvent = {};
+					KeyEvent_s keyEvent = { win };
 
 					keyEvent.key = raw->data.keyboard.VKey & 0xFF;
 					keyEvent.pressed = raw->data.keyboard.Message == 0x100;
@@ -136,7 +136,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, UINT message, WPARAM wParam, LPARAM
 			{
 				if ( win->onMouseEvent )
 				{
-					MouseEvent_s mouseEvent = {};
+					MouseEvent_s mouseEvent = { win };
 				
 					if ( (raw->data.mouse.ulButtons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0 )
 						mouseEvent.leftButton = MOUSE_BUTTON_DOWN;
@@ -176,7 +176,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, UINT message, WPARAM wParam, LPARAM
 	return 0;
 }
 
-bool Win_Create( Win_s* win, const char* title, int x, int y, int width, int height, bool isMain )
+bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int width, int height, bool isMain )
 {
 	if ( s_windowCount == WINDOW_MAX_COUNT )
 	{
@@ -213,6 +213,7 @@ bool Win_Create( Win_s* win, const char* title, int x, int y, int width, int hei
 	AdjustWindowRect( &rect, style, false );
 	const Vec2u dim = Vec2u_Make( rect.right - rect.left, rect.bottom - rect.top );
 
+	win->owner = owner;
 	win->isMain = isMain;
 	s_windowToRegister = win;
 

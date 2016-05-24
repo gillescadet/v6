@@ -34,6 +34,19 @@ struct Entity_s
 	bool			visible;
 };
 
+struct Camera_s
+{
+	Vec3			pos;
+	Vec3			forward;
+	Vec3			right;
+	Vec3			up;
+	float			znear;
+	float			fov;
+	float			aspectRatio;
+	float			yaw;
+	float			pitch;
+};
+
 struct Scene_s
 {
 	static const u32 MESH_MAX_COUNT		= 4096;
@@ -57,6 +70,10 @@ struct View_s
 	Mat4x4			projMatrix;
 };
 
+void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio );
+void	Camera_MakeView( Camera_s* camera, View_s* view );
+void	Camera_UpdateBasis( Camera_s* camera );
+
 void	Entity_Create( Entity_s* entity, u32 materialID, u32 meshID, const Vec3& pos, float scale );
 void	Entity_Draw( Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags );
 
@@ -71,7 +88,6 @@ u32		Scene_GetNewMaterialID( Scene_s* scene );
 u32		Scene_GetNewMeshID( Scene_s* scene );
 u32		Scene_GetNewTextureID( Scene_s* scene );
 void	Scene_Release( Scene_s* scene );
-
 
 END_V6_NAMESPACE
 

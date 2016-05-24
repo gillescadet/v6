@@ -6,6 +6,7 @@
 #include <d3d11_1.h>
 #include <v6/core/windows_end.h>
 
+#include <v6/core/mat4x4.h>
 #include <v6/core/vec3.h>
 #include <v6/graphic/gpu.h>
 #include <v6/graphic/scene.h>
@@ -72,28 +73,32 @@ void Scene_Draw( Scene_s* scene, const View_s* view, u32 flags )
 u32 Scene_GetNewMeshID( Scene_s* scene )
 {
 	V6_ASSERT( scene->meshCount < Scene_s::MESH_MAX_COUNT );
-	const u32 meshID = ++scene->meshCount;
+	const u32 meshID = scene->meshCount;
+	++scene->meshCount;
 	return meshID;
 }
 
 u32 Scene_GetNewTextureID( Scene_s* scene )
 {
 	V6_ASSERT( scene->textureCount < Scene_s::TEXTURE_MAX_COUNT );
-	const u32 textureID = ++scene->textureCount;
+	const u32 textureID = scene->textureCount;
+	++scene->textureCount;
 	return textureID;
 }
 
 u32 Scene_GetNewMaterialID( Scene_s* scene )
 {
 	V6_ASSERT( scene->materialCount < Scene_s::MATERIAL_MAX_COUNT );
-	const u32 materialID = ++scene->materialCount;
+	const u32 materialID = scene->materialCount;
+	++scene->materialCount;
 	return materialID;
 }
 
 u32 Scene_GetNewEntityID( Scene_s* scene )
 {
 	V6_ASSERT( scene->entityCount < Scene_s::ENTITY_MAX_COUNT );
-	const u32 entityID = ++scene->entityCount;
+	const u32 entityID = scene->entityCount;
+	++scene->entityCount;
 	return entityID;
 }
 
@@ -109,6 +114,36 @@ void Scene_Release( Scene_s* scene )
 	scene->textureCount = 0;
 	scene->materialCount = 0;
 	scene->entityCount = 0;
+}
+
+void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio )
+{
+	camera->pos = *pos;
+	camera->znear = znear;
+	camera->fov = fov;
+	camera->aspectRatio = aspectRatio;
+	camera->yaw = 0.0f;
+	camera->pitch = 0.0f;
+	Camera_UpdateBasis( camera );
+}
+
+void Camera_MakeView( Camera_s* camera, View_s* view )
+{
+	view->viewMatrix = Mat4x4_View( &camera->pos, &camera->forward, &camera->up, &camera->right );
+	view->projMatrix = Mat4x4_Projection( camera->znear, camera->fov, camera->aspectRatio );
+}
+
+void Camera_UpdateBasis( Camera_s* camera )
+{
+	Mat4x4 orientationMatrix;
+	const Mat4x4 yawMatrix = Mat4x4_RotationY( camera->yaw );
+	const Mat4x4 pitchMatrix = Mat4x4_RotationX( camera->pitch );
+	Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
+
+	orientationMatrix.GetZAxis( &camera->forward );
+	camera->forward = -camera->forward;
+	orientationMatrix.GetXAxis( &camera->right );
+	orientationMatrix.GetYAxis( &camera->up );
 }
 
 END_V6_NAMESPACE

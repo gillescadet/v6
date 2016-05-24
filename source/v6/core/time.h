@@ -7,8 +7,8 @@
 
 BEGIN_V6_NAMESPACE
 
-float		ConvertTicksToSeconds( __int64 nTickCount );
-__int64		GetTickCount();
+float		ConvertTicksToSeconds( u64 nTickCount );
+u64			GetTickCount();
 double		GetTickFrequency();
 
 END_V6_NAMESPACE

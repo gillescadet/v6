@@ -210,8 +210,7 @@ void Parse( const char* className, const char* filenameSrc, IAllocator* allocato
 {
 	void* data;
 
-	CFileSystem fileSystem;
-	if ( fileSystem.ReadFile( filenameSrc, &data, allocator ) <= 0 )
+	if ( FileSystem_ReadFile( filenameSrc, &data, allocator ) <= 0 )
 		exit( 1 );
 
 	char* cursor = (char*)data;

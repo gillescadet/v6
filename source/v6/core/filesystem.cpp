@@ -155,15 +155,7 @@ void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename )
 	strcat_s( filePath, maxSize - pathLen, filename );
 }
 
-CFileSystem::CFileSystem()
-{
-}
-
-CFileSystem::~CFileSystem()
-{
-}
-
-bool CFileSystem::GetFileList(const char * pFilter, FileCallback pFileCallback, void * pCallbackData) const
+bool FileSystem_GetFileList( const char * pFilter, FileCallback pFileCallback, void * pCallbackData )
 {
 	if (pFilter == NULL)
 	{
@@ -199,7 +191,7 @@ bool CFileSystem::GetFileList(const char * pFilter, FileCallback pFileCallback, 
 	return true;
 }
 
-int CFileSystem::ReadFile( const char* filename, void** data, IAllocator* allocator )
+int FileSystem_ReadFile( const char* filename, void** data, IAllocator* allocator )
 {
 	FILE * file = NULL;
 

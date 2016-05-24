@@ -70,7 +70,6 @@ static const u32 RIGHT_EYE						= 0;
 static const float IPD							= 0.0f;
 #endif
 static const float ZNEAR						= GRID_MIN_SCALE * 0.5f;
-static const float ZFAR							= 10000.0f;
 #if V6_SIMPLE_SCENE == 1
 static const float FOV							= DegToRad( 90.0f );
 #else
@@ -280,12 +279,6 @@ struct CubeVertex_s
 	Vec2 uv;
 };
 
-struct CubeFaceContext_s
-{
-	GPUColorRenderTarget_s		color;
-	GPUDepthRenderTarget_s		depth;
-};
-
 struct RenderingView_s
 {
 	Vec3							org;
@@ -432,11 +425,13 @@ static u32 s_gridOccupancy = 0;
 static Vec3 s_rayOrg = {};
 static Vec3 s_rayEnd = {};
 
-static u32				s_activePath = PATH_CAMERA;
-static Path_s			s_paths[PATH_COUNT];
-static const float		s_defaultPathSpeed = 100.0f;
-static PathPlayer_s		s_pathPlayer;
-static GPUQuery_s*		s_pendingQueries = nullptr;
+static u32						s_activePath = PATH_CAMERA;
+static Path_s					s_paths[PATH_COUNT];
+static const float				s_defaultPathSpeed = 100.0f;
+static PathPlayer_s				s_pathPlayer;
+
+static GPURenderTargetSet_s		s_mainRenderTargetSet;
+static GPUQuery_s*				s_pendingQueries = nullptr;
 
 static void Path_Init( Path_s* path )
 {
@@ -863,7 +858,7 @@ static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const V
 	renderingView->right = *right;
 	renderingView->up = *up;
 	renderingView->view.viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
-	renderingView->view.projMatrix = Mat4x4_Projection( ZNEAR, ZFAR, FOV, aspectRatio );
+	renderingView->view.projMatrix = Mat4x4_Projection( ZNEAR, FOV, aspectRatio );
 	renderingView->tanHalfFOVLeft = Tan( FOV * 0.5f );
 	renderingView->tanHalfFOVRight = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVUp = renderingView->tanHalfFOVLeft;
@@ -936,22 +931,7 @@ static void Cube_MakeViewMatrix( Mat4x4* matrix, const Vec3& center, CubeAxis_e 
 	Mat4x4_AffineInverse( matrix );
 }
 
-static void CubeFace_Create( CubeFaceContext_s* cubeFaceContext, u32 gridMacroShift )
-{
-	const u32 gridWidth = 1 << (gridMacroShift + 2);
-	const u32 renderTargetSize = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
-
-	GPUColorRenderTarget_Create( &cubeFaceContext->color, renderTargetSize, renderTargetSize, 1, true, false, "cubeColor" );
-	GPUDepthRenderTarget_Create( &cubeFaceContext->depth, renderTargetSize, renderTargetSize, 1, true, "cubeDepth" );
-}
-
-static void CubeFace_Release( CubeFaceContext_s* cubeFaceContext )
-{
-	GPUColorRenderTarget_Release( &cubeFaceContext->color );
-	GPUDepthRenderTarget_Release( &cubeFaceContext->depth );
-}
-
-static void GPUContext_CreateShaders( CFileSystem* fileSystem, IStack* stack )
+static void GPUContext_CreateShaders( IStack* stack )
 {
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
@@ -964,50 +944,61 @@ static void GPUContext_CreateShaders( CFileSystem* fileSystem, IStack* stack )
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
 
 	static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", fileSystem, stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", fileSystem, stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", stack );
 
 	static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
-	GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "basic_vs.cso", "basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, fileSystem, stack );
-	GPUShader_Create( &shaderContext->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, fileSystem, stack );
-	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
-	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, fileSystem, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "viewer_basic_vs.cso", "viewer_basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_FAKE_CUBE], "fake_cube_vs.cso", "fake_cube_ps.cso", 0, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC], "generic_vs.cso", "generic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, stack );
+	GPUShader_Create( &shaderContext->shaders[SHADER_GENERIC_ALPHA_TEST], "generic_vs.cso", "generic_alpha_test_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F3 | VERTEX_FORMAT_USER1_F2, stack );
 }
 
-static void GPUContext_Create( u32 width, u32 height, HWND hWnd, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
+static void GPUContext_Create( u32 width, u32 height, HWND hWnd, IAllocator* heap, IStack* stack )
 {
 	bool debug = false;
 #if V6_D3D_DEBUG == 1
 	debug = true;
 #endif
 	GPUDevice_CreateWithSurfaceContext( width * HLSL_EYE_COUNT, height, hWnd, debug );
-	GPURenderTargetContext_Create( width, height, true, HLSL_STEREO );
-	GPUShaderContext_Create();
-	GPUQueryContext_Create();
+	
+	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
+	renderTargetSetCreationDesc.name = "main";
+	renderTargetSetCreationDesc.width = width;
+	renderTargetSetCreationDesc.height = height;
+	renderTargetSetCreationDesc.supportMSAA = true;
+	renderTargetSetCreationDesc.bindable = true;
+	renderTargetSetCreationDesc.writable = true;
+	renderTargetSetCreationDesc.stereo = HLSL_STEREO;
 
-	GPUContext_CreateShaders( fileSystem, stack );
+	GPURenderTargetSet_Create( &s_mainRenderTargetSet, &renderTargetSetCreationDesc );
+	
+	GPUShaderContext_CreateEmpty();
+	GPUQueryContext_CreateEmpty();
+
+	GPUContext_CreateShaders( stack );
 
 	GPUQueryContext_s* queryContext = GPUQueryContext_Get();
 
@@ -1021,6 +1012,12 @@ static void GPUContext_Create( u32 width, u32 height, HWND hWnd, CFileSystem* fi
 				GPUQuery_CreateTimeStamp( &queryContext->queries[bufferID][queryID] );
 		}
 	}
+}
+
+static void GPUContext_Release()
+{
+	GPURenderTargetSet_Release( &s_mainRenderTargetSet );
+	GPUDevice_Release();
 }
 
 static void SequenceContext_UpdateFrameData( SequenceContext_s* sequenceContext, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID, const Sequence_s* sequence, IStack* stack )
@@ -1066,7 +1063,7 @@ static void SequenceContext_UpdateFrameData( SequenceContext_s* sequenceContext,
 			dstBlockRange->firstThreadID = firstThreadID;
 
 			const u32 blockCount = srcBlockRange->blockCount;
-			const u32 groupCount = GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+			const u32 groupCount = HLSL_GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 
 			for ( u32 groupRank = 0; groupRank < groupCount; ++groupRank )
 				blockGroups[bucketGroupCount + groupRank] = rangeRank;
@@ -1184,7 +1181,7 @@ static void SequenceContext_CreateFromData( SequenceContext_s* sequenceContext, 
 				const u32 rangeID = rangeIDs[rangeRank];
 				const u32 blockCount = sequenceContext->rangeDefs[bucket][rangeID].frameID8_mip4_blockCount20 & 0xFFFFF;
 				frameBlockCount += blockCount;
-				frameBlockGroupCount += GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+				frameBlockGroupCount += HLSL_GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 			}
 
 			rangeIDs += bucketBlockRangeCount;
@@ -2078,8 +2075,8 @@ public:
 public:
 	void BlendPixel( const RenderingView_s* view, u32 eye );
 	bool BuildBlock( u32 frameID );
-	void Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* sampleOffset, u32 faceID );
-	bool Create(int nWidth, int nHeight, CFileSystem* fileSystem, IAllocator* heap, IStack* stack );
+	void Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* sampleOffset, u32 faceID );
+	bool Create(int nWidth, int nHeight, IAllocator* heap, IStack* stack );
 	void CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID );
 	void Draw( float dt );
 	void DrawCameraPath( const RenderingView_s* view, u32 eye );
@@ -2096,7 +2093,6 @@ public:
 
 	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
 	
-	CubeFaceContext_s	m_cubeFaceContext;
 	CaptureContext_s	m_captureContext;
 	SequenceContext_s*	m_sequenceContext;
 	TraceContext_s*		m_traceContext;
@@ -2125,7 +2121,7 @@ CRenderingDevice::~CRenderingDevice()
 {
 }
 
-bool CRenderingDevice::Create( int nWidth, int nHeight, CFileSystem* fileSystem, IAllocator* heap, IStack* stack )
+bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack* stack )
 {
 	m_heap = heap;
 	m_stack = stack;
@@ -2139,7 +2135,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, CFileSystem* fileSystem,
 	m_height = nHeight;
 	m_aspectRatio = (float)nWidth / nHeight;
 
-	GPUContext_Create( nWidth, nHeight, (HWND)s_win.hWnd, fileSystem, heap, stack );
+	GPUContext_Create( nWidth, nHeight, (HWND)s_win.hWnd, heap, stack );
 
 	m_defaultScene = heap->newInstance< SceneViewer_s >();
 	Scene_CreateDefault( m_defaultScene );
@@ -2177,30 +2173,30 @@ void CRenderingDevice::DrawWorld( const RenderingView_s* view, u32 eye )
 {
 	u32 flags = 0;
 
-	GPURenderTargetContextDesc_s renderTargetContextDesc = {};
-	renderTargetContextDesc.clear = true;
-	renderTargetContextDesc.useMSAA = g_useMSAA;
+	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
+	renderTargetSetBindingDesc.clear = true;
+	renderTargetSetBindingDesc.useMSAA = g_useMSAA;
 #if V6_USE_ALPHA_COVERAGE == 1
-	renderTargetContextDesc.useAlphaCoverage = true;
+	renderTargetSetBindingDesc.useAlphaCoverage = true;
 	flags = RENDER_FLAGS_USE_ALPHA_COVERAGE;
 #endif
 
-	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
+	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( s_activeScene, &view->view, flags );
 
-	GPURenderTargetContext_End();
+	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
 void CRenderingDevice::DrawCameraPath( const RenderingView_s* view, u32 eye )
 {
-	const GPURenderTargetContextDesc_s renderTargetContextDesc = {};
+	const GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 
-	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
+	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( m_pathGeoScene, &view->view, 0 );
 
-	GPURenderTargetContext_End();
+	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
 void CRenderingDevice::DrawDebug( const RenderingView_s* view, u32 eye )
@@ -2211,57 +2207,33 @@ void CRenderingDevice::DrawDebug( const RenderingView_s* view, u32 eye )
 		g_traceGrid = false;
 	}
 
-	GPURenderTargetContextDesc_s renderTargetContextDesc = {};
-	renderTargetContextDesc.disableZ = g_transparentDebug;
+	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
+	renderTargetSetBindingDesc.noZ = g_transparentDebug;
 
-	GPURenderTargetContext_Begin( &renderTargetContextDesc, eye );
+	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( m_debugScene, &view->view, 0 );
 
-	GPURenderTargetContext_End();
+	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
-void CRenderingDevice::Capture_Render( CubeFaceContext_s* cubeFaceContext, const Vec3* samplePos, u32 faceID )
+void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* samplePos, u32 faceID )
 {
-	GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
-
-	// Rasterization state
-	g_deviceContext->OMSetDepthStencilState( renderTargetContext->depthStencilStateZRW, 0 );
-	g_deviceContext->OMSetBlendState( renderTargetContext->blendStateOpaque, nullptr, 0XFFFFFFFF );
-
-	// Viewport
-	{
-		D3D11_VIEWPORT viewport = {};
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = (float)CUBE_SIZE;
-		viewport.Height = (float)CUBE_SIZE;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
-
-		g_deviceContext->RSSetViewports( 1, &viewport );
-		g_deviceContext->RSSetState( renderTargetContext->rasterState );
-	}
-
 	GPUEvent_Begin( "Capture" );
 		
-	// RT
-	g_deviceContext->OMSetRenderTargets( 1, &cubeFaceContext->color.rtv, cubeFaceContext->depth.dsv );
+	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
+	renderTargetSetBindingDesc.clear = true;
 
-	// Clear
-	float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	g_deviceContext->ClearRenderTargetView( cubeFaceContext->color.rtv, pRGBA );
-	g_deviceContext->ClearDepthStencilView( cubeFaceContext->depth.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0 );
+	GPURenderTargetSet_Bind( cubeFaceRenderTargetSet, &renderTargetSetBindingDesc, 0 );
 
 	// View
 	View_s view;
 	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
-	view.projMatrix = Mat4x4_Projection( ZNEAR, ZFAR, DegToRad( 90.0f ), 1.0f );
+	view.projMatrix = Mat4x4_Projection( ZNEAR, DegToRad( 90.0f ), 1.0f );
 
 	Scene_Draw( s_activeScene, &view, RENDER_FLAGS_IS_CAPTURING );
 
-	// un RT
-	g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
+	GPURenderTargetSet_Unbind( cubeFaceRenderTargetSet );
 
 	GPUEvent_End();
 }
@@ -2574,13 +2546,12 @@ void CRenderingDevice::BlendPixel( const RenderingView_s* view, u32 eye )
 	// Set
 
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
-	GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
 
 	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
 
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &renderTargetContext->colorBuffers[eye].uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &s_mainRenderTargetSet.colorBuffers[eye].uav, nullptr );
 	if ( g_showOverdraw	)
 		g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
 	else
@@ -2787,6 +2758,8 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 
 bool CRenderingDevice::BuildBlock( u32 frameID )
 {
+	static GPURenderTargetSet_s s_cubeFaceRenderTargetSet;
+
 	static u32 lastSumLeafCount = 0;
 
 	if ( g_sample == 0 )
@@ -2809,7 +2782,19 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
 		captureDesc.logReadBack = s_logReadBack;
 
-		CubeFace_Create( &m_cubeFaceContext, HLSL_GRID_MACRO_SHIFT );
+		const u32 gridWidth = 1 << (HLSL_GRID_MACRO_SHIFT + 2);
+		const u32 renderTargetSize = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+
+		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
+		renderTargetSetCreationDesc.name = "cubeFace";
+		renderTargetSetCreationDesc.width = renderTargetSize;
+		renderTargetSetCreationDesc.height = renderTargetSize;
+		renderTargetSetCreationDesc.supportMSAA = false;
+		renderTargetSetCreationDesc.bindable = true;
+		renderTargetSetCreationDesc.writable = false;
+		
+		GPURenderTargetSet_Create( &s_cubeFaceRenderTargetSet, &renderTargetSetCreationDesc );
+
 		Capture_Create( &m_captureContext, &captureDesc );
 
 		lastSumLeafCount = 0;
@@ -2824,15 +2809,15 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	for ( u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
-		Capture_Render( &m_cubeFaceContext, &samplePos, faceID );
-		sumLeafCount += Capture_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, m_cubeFaceContext.color.srv, m_cubeFaceContext.depth.srv );
+		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, faceID );
+		sumLeafCount += Capture_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
 	lastSumLeafCount = sumLeafCount;
 
 	V6_MSG( "\r" );
-	V6_MSG( "Captured  sample #%03d: %13s cells added\n", g_sample, String_FormatInteger_Unsafe( newLeafCount ) );
+	V6_MSG( "Captured  sample #%03d: %13s cells added\n", g_sample, String_FormatInteger( newLeafCount ) );
 
 	++g_sample;
 
@@ -2847,13 +2832,13 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		const bool written = WriteRawFrameFile( &m_captureContext, frameID );
 
 		Capture_Release( &m_captureContext );
-		CubeFace_Release( &m_cubeFaceContext );
+		GPURenderTargetSet_Release( &s_cubeFaceRenderTargetSet );
 
 		if ( !written )
 			return false;
 
 		V6_MSG( "\r" );
-		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", String_FormatInteger_Unsafe( sumLeafCount ), frameID );
+		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", String_FormatInteger( sumLeafCount ), frameID );
 		s_logReadBack = false;
 #if 0
 		g_sample = 0;
@@ -2916,12 +2901,13 @@ void CRenderingDevice::Draw( float dt )
 		const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 		const Mat4x4 pitchMatrix = Mat4x4_RotationX( s_pitch );
 		Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
-		Mat4x4_Transpose( &orientationMatrix );
 	}
 
-	const Vec3 forward = -orientationMatrix.GetZAxis()->Normalized();
-	const Vec3 right = orientationMatrix.GetXAxis()->Normalized();
-	const Vec3 up = orientationMatrix.GetYAxis()->Normalized();
+	Vec3 forward, right, up;
+	orientationMatrix.GetZAxis( &forward );
+	forward = -forward;
+	orientationMatrix.GetXAxis( &right );
+	orientationMatrix.GetYAxis( &up );
 
 	if ( keyDeltaX || keyDeltaZ )
 	{
@@ -3096,8 +3082,7 @@ void CRenderingDevice::Draw( float dt )
 		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
 			DrawDebug( &views[eye], eye );
 
-		GPURenderTargetContext_s* renderTargetContext = GPURenderTargetContext_Get();
-		Output( renderTargetContext->colorBuffers[LEFT_EYE].srv, renderTargetContext->colorBuffers[RIGHT_EYE].srv );
+		Output( s_mainRenderTargetSet.colorBuffers[LEFT_EYE].srv, s_mainRenderTargetSet.colorBuffers[RIGHT_EYE].srv );
 	}
 }
 
@@ -3118,7 +3103,7 @@ void CRenderingDevice::Release()
 	for ( u32 pathID = 0; pathID < PATH_COUNT; ++pathID )
 		Path_Release( &s_paths[pathID] );
 
-	GPUDevice_Release();
+	GPUContext_Release();
 }
 
 END_V6_NAMESPACE
@@ -3129,7 +3114,6 @@ int main()
 
 	v6::CHeap heap;
 	v6::Stack stack( &heap, 100 * 1024 * 1024 );
-	v6::CFileSystem filesystem;
 		
 #if V6_LOAD_EXTERNAL == 1
 	v6::Stack stackScene( &heap, 400 * 1024 * 1024 );
@@ -3179,11 +3163,11 @@ int main()
 	v6::Vec2i renterTargerSize = v6::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	if ( !v6::Win_Create( &v6::s_win, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y, true ) )
+	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y, true ) )
 		return 1;
 
 	v6::CRenderingDevice oRenderingDevice;
-	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, &filesystem, &heap, &stack ) )
+	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, &heap, &stack ) )
 	{
 		V6_ERROR( "Call to CRenderingDevice::Create failed!\n" );
 		return -1;
@@ -3209,6 +3193,8 @@ int main()
 	__int64 frameId = 0;
 	while ( !Win_ProcessMessagesAndShouldQuit( &v6::s_win ) )
 	{
+		v6::String_ResetInternalBuffer();
+
 		const v6::u32 bufferID = frameId & 1;
 
 		v6::GPUQuery_s* pendingQueries = v6::GPUQueryContext_Get()->queries[bufferID];
@@ -3287,8 +3273,8 @@ int main()
 		if ( v6::g_reloadShaders )
 		{
 			v6::GPUShaderContext_Release();
-			v6::GPUShaderContext_Create();
-			v6::GPUContext_CreateShaders( &filesystem, &stack );
+			v6::GPUShaderContext_CreateEmpty();
+			v6::GPUContext_CreateShaders( &stack );
 			v6::g_reloadShaders = false;
 		}
 

@@ -301,10 +301,19 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/string.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/thread.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/time.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/vec2i.h",							PROJECT_PLAYER },
 	{ "source/v6/core/win.cpp",							PROJECT_PLAYER },
 	{ "source/v6/graphic/gpu.cpp",						PROJECT_PLAYER },
+	{ "source/v6/graphic/scene.cpp",					PROJECT_PLAYER },
 	{ "source/v6/player/main_player.cpp",				PROJECT_PLAYER },
+
+	// player - HLSL
+	{ "source/v6/graphic/common_shared.h",				PROJECT_PLAYER },
+	{ "source/v6/player/player_basic.hlsli",			PROJECT_PLAYER },
+	{ "source/v6/player/player_basic_ps.hlsl",			PROJECT_PLAYER },
+	{ "source/v6/player/player_basic_vs.hlsl",			PROJECT_PLAYER },
+	{ "source/v6/player/player_shared.h",				PROJECT_PLAYER },
 
 	// viewer
 	{ "source/v6/codec/codec.cpp",						PROJECT_VIEWER },
@@ -346,9 +355,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },
 	{ "source/v6/graphic/sample_pack.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/viewer/basic.hlsli",					PROJECT_VIEWER },
-	{ "source/v6/viewer/basic_ps.hlsl",					PROJECT_VIEWER },
-	{ "source/v6/viewer/basic_vs.hlsl",					PROJECT_VIEWER },
 	{ "source/v6/viewer/block_cell.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/block_cull_cs_impl.hlsli",		PROJECT_VIEWER },
 	{ "source/v6/viewer/block_cull_stats_x16_cs.hlsl",	PROJECT_VIEWER },
@@ -383,7 +389,10 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/generic_vs.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/pixel_blend_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },	
+	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic.hlsli",			PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic_ps.hlsl",			PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic_vs.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/surface_compose_cs.hlsl",		PROJECT_VIEWER },
 	{ "source/v6/viewer/viewer_shared.h",				PROJECT_VIEWER },
 };

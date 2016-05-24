@@ -8,7 +8,6 @@
 BEGIN_V6_HLSL_NAMESPACE
 
 #define CONCAT( X, Y )								X ## Y
-#define GROUP_COUNT( C, S )							(((C) + (S) - 1)) / (S)
 
 #define HLSL_ENCODE_DATA							0
 #define HLSL_STEREO									0

@@ -11,7 +11,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	{
 		const uint gridCellCount = 1 << (bucket+2);
 		const uint cellCount = trace_blockCount( bucket ) * gridCellCount;
-		const uint cellGroupCount = GROUP_COUNT( cellCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
+		const uint cellGroupCount = HLSL_GROUP_COUNT( cellCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
 		trace_cellGroupCountX( bucket ) = cellGroupCount;
 		trace_cellGroupCountY( bucket ) = 1;
 		trace_cellGroupCountZ( bucket ) = 1;

@@ -1,4 +1,4 @@
-#include "basic.hlsli"
+#include "viewer_basic.hlsli"
 
 float4 main( PixelInput i ) : SV_TARGET
 {

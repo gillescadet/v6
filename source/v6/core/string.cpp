@@ -6,43 +6,69 @@
 
 BEGIN_V6_NAMESPACE
 
-const char* String_FormatInteger_Unsafe( u32 n )
+thread_local char	s_strBuffer[16 * 1024];
+thread_local char*	const s_strEnd = s_strBuffer + sizeof( s_strBuffer );
+thread_local char*	s_str = s_strBuffer;
+
+void String_ResetInternalBuffer()
 {
-	static char buffer[10+3+1];
-	char* s = buffer;
+	s_str = s_strBuffer;
+}
+
+const char* String_Format( const char* format, ... )
+{
+	char* const sBegin = s_str;
+
+	va_list argptr;
+	va_start( argptr, format );
+	s_str += vsprintf_s( s_str, s_strEnd - s_str, format, argptr ) + 1;
+	va_end( argptr );
+
+	V6_ASSERT( s_str < s_strEnd );
+	
+	return sBegin;
+}
+
+const char* String_FormatInteger( u32 n )
+{
+	char* const sBegin = s_str;
+
 	if ( n > 1000000000 )
 	{
 		const u32 billion = n / 1000000000;
-		s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%d,", billion );
+		s_str += sprintf_s( s_str, s_strEnd - s_str, "%d,", billion );
 		n -= billion * 1000000000;
 	}
 	if ( n > 1000000 )
 	{
 		const u32 million = n / 1000000;
-		if ( s == buffer )
-			s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%d,", million );
+		if ( s_str == sBegin )
+			s_str += sprintf_s( s_str, s_strEnd - s_str, "%d,", million );
 		else
-			s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%03d,", million );
+			s_str += sprintf_s( s_str, s_strEnd - s_str, "%03d,", million );
 		n -= million * 1000000;
 	}
 	if ( n > 1000 )
 	{
 		const u32 thousand = n / 1000;
-		if ( s == buffer )
-			s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%d,", thousand );
+		if ( s_str == sBegin )
+			s_str += sprintf_s( s_str, s_strEnd - s_str, "%d,", thousand );
 		else
-			s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%03d,", thousand );
+			s_str += sprintf_s( s_str, s_strEnd - s_str, "%03d,", thousand );
 		n -= thousand * 1000;
 	}
 
-	if ( s == buffer )
-		s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%d", n );
+	if ( s_str == sBegin )
+		s_str += sprintf_s( s_str, s_strEnd - s_str, "%d", n );
 	else
-		s += sprintf_s( s, sizeof( buffer ) + buffer - s, "%03d", n );
+		s_str += sprintf_s( s_str, s_strEnd - s_str, "%03d", n );
 
-	*s = 0;
+	*s_str = 0;
+	s_str += 1;
 
-	return buffer;
+	V6_ASSERT( s_str < s_strEnd );
+
+	return sBegin;
 }
 
 END_V6_NAMESPACE

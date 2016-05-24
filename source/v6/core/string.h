@@ -7,7 +7,9 @@
 
 BEGIN_V6_NAMESPACE
 
-const char* String_FormatInteger_Unsafe( u32 n );
+const char* String_Format( const char* format, ... );
+const char* String_FormatInteger( u32 n );
+void		String_ResetInternalBuffer();
 
 END_V6_NAMESPACE
 

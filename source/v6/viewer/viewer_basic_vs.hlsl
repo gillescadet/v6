@@ -1,4 +1,4 @@
-#include "basic.hlsli"
+#include "viewer_basic.hlsli"
 
 PixelInput main( VertexInput i )
 {

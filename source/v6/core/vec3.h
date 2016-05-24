@@ -164,6 +164,13 @@ V6_INLINE Vec3 Vec3_Make( float x, float y, float z )
 	return v;
 }
 
+V6_INLINE void Vec3_Make( Vec3* v, float x, float y, float z )
+{
+	v->x = x;
+	v->y = y;
+	v->z = z;
+}
+
 V6_INLINE Vec3 Vec3_Rand()
 {
 	static const float s_invRandSize = 2.0f / RAND_MAX;
