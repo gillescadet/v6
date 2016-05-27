@@ -1412,7 +1412,7 @@ void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPU
 		renderTargetSet->stereo = true;
 	}
 
-	GPUDepthRenderTarget_Create( &renderTargetSet->depthBuffer, desc->width, desc->height, 1, false, String_Format( "%sDepth", desc->name ) );
+	GPUDepthRenderTarget_Create( &renderTargetSet->depthBuffer, desc->width, desc->height, 1, desc->bindable, String_Format( "%sDepth", desc->name ) );
 
 	if ( desc->supportMSAA )
 	{

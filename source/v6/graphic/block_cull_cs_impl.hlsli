@@ -47,7 +47,7 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 		const uint blockPosX = range.macroGridOffset.x + ((blockPos >> (c_cullGridMacroShift*0)) & gridMacroMask);
 		const uint blockPosY = range.macroGridOffset.y + ((blockPos >> (c_cullGridMacroShift*1)) & gridMacroMask);
 		const uint blockPosZ = range.macroGridOffset.z + ((blockPos >> (c_cullGridMacroShift*2)) & gridMacroMask);
-		const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << c_cullGridMacroShift;
+		const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
 		const float gridScale = c_cullCentersAndGridScales[mip].w;
 		const float cellSize = gridScale * 2.0f * c_cullInvGridWidth;
 		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_cullCentersAndGridScales[mip].xyz;

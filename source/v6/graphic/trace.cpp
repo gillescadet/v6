@@ -578,8 +578,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	traceContext->desc = *traceDesc;
 	
 	const u32 eyeCount = traceDesc->stereo ? 2 : 1;
-	//traceContext->resPassedBlockCount = Max( 1u, traceDesc->blockMaxCount / 3 );
-	traceContext->resPassedBlockCount = Max( 1u, traceDesc->blockMaxCount );
+	traceContext->resPassedBlockCount = Max( 1u, traceDesc->blockMaxCount / 2 );
 	traceContext->resCellItemCount = Max( 1u, (traceDesc->screenWidth * eyeCount * traceDesc->screenHeight) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
 
 	GPUConstantBuffer_Create( &res->cbCull, sizeof( v6::hlsl::CBCull ), "cull" );
