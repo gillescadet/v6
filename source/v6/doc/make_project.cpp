@@ -80,6 +80,7 @@ TEMPLATE projectSourceCPP					= TEXT(				<ClCompile Include="%s/%s" />\n );
 TEMPLATE projectSourceH						= TEXT(				<ClInclude Include="%s/%s" />\n );
 TEMPLATE projectSourceHLSL					= TEXT(				<FxCompile Include="%s/%s" >\n
 																	<ShaderType>%s</ShaderType>\n
+																	<EntryPointName>main_%s</EntryPointName>\n
 																	%s
 																	%s
 																</FxCompile>\n );
@@ -292,21 +293,28 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/codec/encoder.cpp",					PROJECT_ENCODER },
 	{ "source/v6/core/memory.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
+	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_ENCODER },
-	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
 	
 	// player
+	{ "source/v6/codec/codec.cpp",						PROJECT_PLAYER },
+	{ "source/v6/codec/compression.cpp",				PROJECT_PLAYER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_PLAYER },
 	{ "source/v6/core/memory.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/string.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/stream.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/thread.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/time.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/vec2i.h",							PROJECT_PLAYER },
 	{ "source/v6/core/win.cpp",							PROJECT_PLAYER },
 	{ "source/v6/graphic/gpu.cpp",						PROJECT_PLAYER },
 	{ "source/v6/graphic/scene.cpp",					PROJECT_PLAYER },
+	{ "source/v6/graphic/trace.cpp",					PROJECT_PLAYER },
+	{ "source/v6/graphic/view.cpp",						PROJECT_PLAYER },
 	{ "source/v6/player/main_player.cpp",				PROJECT_PLAYER },
+	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_PLAYER },
+	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_PLAYER },
 
 	// player - HLSL
 	{ "source/v6/graphic/common_shared.h",				PROJECT_PLAYER },
@@ -340,12 +348,38 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/gpu.cpp",						PROJECT_VIEWER },
 	{ "source/v6/graphic/hmd.cpp",						PROJECT_VIEWER },
 	{ "source/v6/graphic/scene.cpp",					PROJECT_VIEWER },
+	{ "source/v6/graphic/trace.cpp",					PROJECT_VIEWER },
+	{ "source/v6/graphic/view.cpp",						PROJECT_VIEWER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_VIEWER },
 	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_VIEWER },
 	{ "source/v6/viewer/main_viewer.cpp",				PROJECT_VIEWER },
 	{ "source/v6/viewer/scene_info.cpp",				PROJECT_VIEWER },
 
 	// viewer - HLSL
+	{ "source/v6/graphic/block_cull_cs_impl.hlsli",		PROJECT_VIEWER },
+	{ "source/v6/graphic/block_cull_stats_x4_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_x8_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_x16_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_x32_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_x64_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_x4_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_x8_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_x16_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_x32_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_x64_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_cs_impl.hlsli",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_x4_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_x8_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_x16_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_x32_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_x64_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_init_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_x4_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_x8_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_x32_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_x16_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_x64_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/capture_shaders.h",			PROJECT_VIEWER },
 	{ "source/v6/graphic/capture_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/graphic/common_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/graphic/octree_build_inner_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
@@ -353,32 +387,13 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
 	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/pixel_blend_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/pixel_blend_cs_impl.hlsli",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },
 	{ "source/v6/graphic/sample_pack.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cell.hlsli",				PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_stats_x16_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_stats_x32_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_stats_x4_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_stats_x64_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_stats_x8_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_x16_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_x32_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_x4_cs.hlsl",			PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_cull_x8_cs.hlsl",			PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_debug_x16_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_debug_x32_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_debug_x4_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_debug_x64_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_debug_x8_cs.hlsl",	PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_init_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x32_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x16_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x4_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x64_cs.hlsl",		PROJECT_VIEWER },
-	{ "source/v6/viewer/block_trace_x8_cs.hlsl",		PROJECT_VIEWER },
+	{ "source/v6/graphic/trace_shaders.h",				PROJECT_VIEWER },
+	{ "source/v6/graphic/trace_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_ps.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/fake_cube_vs.hlsl",				PROJECT_VIEWER },
@@ -387,9 +402,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/viewer/generic_ps.hlsl",				PROJECT_VIEWER },
 	{ "source/v6/viewer/generic_ps.hlsli",				PROJECT_VIEWER },
 	{ "source/v6/viewer/generic_vs.hlsl",				PROJECT_VIEWER },
-	{ "source/v6/viewer/pixel_blend_cs.hlsl",			PROJECT_VIEWER },
-	{ "source/v6/viewer/pixel_blend_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/viewer/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER },
 	{ "source/v6/viewer/viewer_basic.hlsli",			PROJECT_VIEWER },
 	{ "source/v6/viewer/viewer_basic_ps.hlsl",			PROJECT_VIEWER },
 	{ "source/v6/viewer/viewer_basic_vs.hlsl",			PROJECT_VIEWER },
@@ -432,6 +444,26 @@ static void FilePath_SplitFilenameAndExtension( char* filePathWithoutExtension, 
 	const u32 count = (u32)(lastDot - filePath);
 	strncpy_s( filePathWithoutExtension, maxFileSize, filePath, count );
 	strcpy_s( extension, maxExtensionsSize, lastDot+1 );
+}
+
+static void FilePath_ExtractFilename( char* filename, u32 maxSize, const char* filePath )
+{
+	const char *c = filePath;
+	const char* lastSeparator = filename; 
+	while ( *c )
+	{
+		if ( *c == '/' || *c == '\\' )
+			lastSeparator = c;
+		++c;
+	}
+
+	if ( !lastSeparator )
+	{
+		strcpy_s( filename, maxSize, filePath );
+		return;
+	}
+	
+	strcpy_s( filename, maxSize, lastSeparator+1 );
 }
 
 const char* Project_GetName( const Project_s* project )
@@ -536,9 +568,9 @@ static void Project_Write( FILE* f, const Project_s* project )
 	{
 		if ( s_projectFiles[projectFileID].projects & project->id )
 		{
-			char filename[256];
-			sprintf( filename, "%s/%s/%s", s_solutionPath, s_sourcePath, s_projectFiles[projectFileID].name );
-			if ( !FilePath_Exist( filename ) )
+			char fullFilename[256];
+			sprintf( fullFilename, "%s/%s/%s", s_solutionPath, s_sourcePath, s_projectFiles[projectFileID].name );
+			if ( !FilePath_Exist( fullFilename ) )
 				printf( "Warning: source file %s not found.\n", s_projectFiles[projectFileID].name );
 
 			char filenameWithoutExtension[256];
@@ -581,15 +613,18 @@ static void Project_Write( FILE* f, const Project_s* project )
 					}
 					else
 					{
-						fprintf( f, projectSourceHLSL, s_sourcePath, s_projectFiles[projectFileID].name, shaderType, 
+						char filename[256];
+						FilePath_ExtractFilename( filename, sizeof( filename ), filenameWithoutExtension );
+						fprintf( f, projectSourceHLSL, s_sourcePath, s_projectFiles[projectFileID].name, shaderType, filename,
 							s_projectFiles[projectFileID].specialCase1 ? s_projectFiles[projectFileID].specialCase1 : "",
 							s_projectFiles[projectFileID].specialCase2 ? s_projectFiles[projectFileID].specialCase2 : "" );
 					}
 				}
-				
+#if 0
 				char headerFile[256];
 				sprintf( headerFile, "%s_bytecode.h", filenameWithoutExtension );
 				Project_AddHeaderFile( f, project, headerFile );
+#endif
 			}
 			else if ( stricmp( extension, "txt" ) == 0 )
 			{

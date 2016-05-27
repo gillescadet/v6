@@ -1,6 +1,6 @@
 #include "generic.hlsli"
 
-SamplerState trilinearSampler	: register( HLSL_TRILINEAR_SAMPLER );
+SamplerState trilinearSampler	: REGISTER_SAMPLER( HLSL_TRILINEAR_SLOT );
 
 Texture2D texAlbedo				: REGISTER_SRV( HLSL_GENERIC_ALBEDO_SLOT );
 Texture2D texAlpha				: REGISTER_SRV( HLSL_GENERIC_ALPHA_SLOT );

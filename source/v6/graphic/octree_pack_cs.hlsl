@@ -10,7 +10,7 @@ RWBuffer< uint > blockData						: REGISTER_UAV( HLSL_BLOCK_DATA_SLOT );
 RWBuffer< uint > blockIndirectArgs 				: REGISTER_UAV( HLSL_BLOCK_INDIRECT_ARGS_SLOT );
 
 [ numthreads( HLSL_OCTREE_THREAD_GROUP_SIZE, 1, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID )
+void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint leafID = DTid.x;
 	if ( leafID >= octree_leafCount )

@@ -7,7 +7,7 @@ Texture2D< float4 > rightColors : REGISTER_SRV( HLSL_RCOLOR_SLOT );
 RWTexture2D< float4 > surfaceColors : REGISTER_UAV( HLSL_SURFACE_SLOT );
 
 [numthreads(8, 8, 1)]
-void main( uint3 DTid : SV_DispatchThreadID )
+void main_surface_compose_cs( uint3 DTid : SV_DispatchThreadID )
 {
 #if 1
 	if ( DTid.x < c_composeFrameWidth )

@@ -189,7 +189,7 @@ ret
 // Approximately 108 instruction slots used
 #endif
 
-const BYTE g_main[] =
+const BYTE g_main_sample_collect_cs[] =
 {
      68,  88,  66,  67, 237, 133, 
     126,  15,  85, 151,  17, 146, 

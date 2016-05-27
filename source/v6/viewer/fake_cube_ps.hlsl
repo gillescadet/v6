@@ -1,6 +1,6 @@
 #include "fake_cube.hlsli"
 
-float4 main( PixelInput i ) : SV_TARGET
+float4 main_fake_cube_ps( PixelInput i ) : SV_TARGET
 {		
 	return float4( i.color, 1.0 );
 }

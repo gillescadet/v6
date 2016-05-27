@@ -50,7 +50,7 @@ struct PixelSample
 };
 
 [ numthreads( 8, 8, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID )
+void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 {	
 	const float3 lookAt = lookAts[c_sampleFaceID];
 	const float3 up = ups[c_sampleFaceID];

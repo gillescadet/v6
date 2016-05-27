@@ -220,7 +220,7 @@ ret
 // Approximately 141 instruction slots used
 #endif
 
-const BYTE g_main[] =
+const BYTE g_main_octree_pack_cs[] =
 {
      68,  88,  66,  67, 184,   8, 
      80,  74,  16, 214, 169, 124, 

@@ -1,6 +1,6 @@
 #include "viewer_basic.hlsli"
 
-PixelInput main( VertexInput i )
+PixelInput main_viewer_basic_vs( VertexInput i )
 {
 	PixelInput o;
 

@@ -32,6 +32,8 @@
 #include <v6/graphic/capture.h>
 #include <v6/graphic/gpu.h>
 #include <v6/graphic/scene.h>
+#include <v6/graphic/trace.h>
+#include <v6/graphic/view.h>
 
 #include <v6/viewer/scene_info.h>
 #include <v6/viewer/viewer_shared.h>
@@ -42,8 +44,9 @@
 #define V6_LOAD_EXTERNAL		1
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
+#define V6_STEREO				0
 #define V6_ENABLE_HMD			1
-#define V6_USE_HMD				(V6_ENABLE_HMD == 1 && HLSL_STEREO == 1)
+#define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			0
 
 #if V6_USE_HMD == 1
@@ -55,18 +58,22 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 CUBE_SIZE						= HLSL_GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
-static const float GRID_MAX_SCALE				= 2000.0f;
+static const u32 GRID_MACRO_SHIFT				= 8;
+static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
+static const u32 CUBE_SIZE						= GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
+static const float GRID_MAX_SCALE				= 2000.0f;
 
 static const u32 ANY_EYE						= 0;
 #if HLSL_STEREO == 1
 static const u32 LEFT_EYE						= 0;
 static const u32 RIGHT_EYE						= 1;
+static const u32 EYE_COUNT						= 2;
 static const float IPD							= 6.5f;
 #else
 static const u32 LEFT_EYE						= 0;
 static const u32 RIGHT_EYE						= 0;
+static const u32 EYE_COUNT						= 1;
 static const float IPD							= 0.0f;
 #endif
 static const float ZNEAR						= GRID_MIN_SCALE * 0.5f;
@@ -108,9 +115,6 @@ enum
 {
 	CONSTANT_BUFFER_BASIC		=	hlsl::CBBasicSlot,
 	CONSTANT_BUFFER_GENERIC		=	hlsl::CBGenericSlot,
-	CONSTANT_BUFFER_CULL		=	hlsl::CBCullSlot,
-	CONSTANT_BUFFER_BLOCK		=	hlsl::CBBlockSlot,
-	CONSTANT_BUFFER_PIXEL		=	hlsl::CBPixelSlot,
 	CONSTANT_BUFFER_COMPOSE		=	hlsl::CBComposeSlot,
 
 	CONSTANT_BUFFER_COUNT
@@ -118,29 +122,6 @@ enum
 
 enum
 {
-	COMPUTE_BLOCK_CULL4,
-	COMPUTE_BLOCK_CULL8,
-	COMPUTE_BLOCK_CULL16,
-	COMPUTE_BLOCK_CULL32,
-	COMPUTE_BLOCK_CULL64,
-	COMPUTE_BLOCK_CULL_STATS4,
-	COMPUTE_BLOCK_CULL_STATS8,
-	COMPUTE_BLOCK_CULL_STATS16,
-	COMPUTE_BLOCK_CULL_STATS32,
-	COMPUTE_BLOCK_CULL_STATS64,
-	COMPUTE_BLOCK_TRACE_INIT,
-	COMPUTE_BLOCK_TRACE4,
-	COMPUTE_BLOCK_TRACE8,
-	COMPUTE_BLOCK_TRACE16,
-	COMPUTE_BLOCK_TRACE32,
-	COMPUTE_BLOCK_TRACE64,
-	COMPUTE_BLOCK_TRACE_DEBUG4,
-	COMPUTE_BLOCK_TRACE_DEBUG8,
-	COMPUTE_BLOCK_TRACE_DEBUG16,
-	COMPUTE_BLOCK_TRACE_DEBUG32,
-	COMPUTE_BLOCK_TRACE_DEBUG64,
-	COMPUTE_BLENDPIXEL,
-	COMPUTE_BLENDPIXEL_OVERDRAW,
 	COMPUTE_COMPOSESURFACE,
 
 	COMPUTE_COUNT
@@ -279,21 +260,6 @@ struct CubeVertex_s
 	Vec2 uv;
 };
 
-struct RenderingView_s
-{
-	Vec3							org;
-	Vec3							forward;
-	Vec3							right;
-	Vec3							up;
-
-	View_s							view;
-	
-	float							tanHalfFOVLeft;
-	float							tanHalfFOVRight;
-	float							tanHalfFOVUp;
-	float							tanHalfFOVDown;
-};
-
 struct SceneViewer_s : Scene_s
 {
 	char			filename[256];
@@ -331,38 +297,6 @@ struct SceneContext_s
 	Scene_s*		scene;
 	v6::Signal_s	deviceReady;
 	v6::Signal_s	loadDone;
-};
-
-struct SequenceContext_s
-{	
-	static const u32	GROUP_MAX_COUNT = 65536;
-
-	CodecRange_s*		rangeDefs[CODEC_BUCKET_COUNT];
-	hlsl::BlockRange	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
-	u32					frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
-	u32					frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
-	u32					blockMaxCount;
-	GPUBuffer_s			blockPos;
-	GPUBuffer_s			blockData;
-	GPUBuffer_s			ranges[2];
-	GPUBuffer_s			groups[2];
-};
-
-struct TraceContext_s
-{
-	GPUBuffer_s		traceCell;
-	GPUBuffer_s		traceIndirectArgs;
-	
-	GPUBuffer_s		cellItems;
-	GPUBuffer_s		cellItemCounters;
-
-	GPUTexture2D_s	colors;
-
-	GPUBuffer_s		cullStats;
-	GPUBuffer_s		traceStats;
-
-	u32				passedBlockCount;
-	u32				cellItemCount;
 };
 
 struct TraceData_s
@@ -850,15 +784,15 @@ static const char* ModeToString( DrawMode_e drawMode )
 	return "unknown";
 }
 
-static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right, const u32 eye, float aspectRatio )
+static void RenderingView_MakeForStereo( View_s* renderingView, const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right, const u32 eye, float aspectRatio )
 {
 	const Vec3 eyeOffset = *right * 0.5f * IPD;
 	renderingView->org = *org + (eye == 0 ? -eyeOffset : eyeOffset);
 	renderingView->forward = *forward;
 	renderingView->right = *right;
 	renderingView->up = *up;
-	renderingView->view.viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
-	renderingView->view.projMatrix = Mat4x4_Projection( ZNEAR, FOV, aspectRatio );
+	renderingView->viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
+	renderingView->projMatrix = Mat4x4_Projection( ZNEAR, FOV, aspectRatio );
 	renderingView->tanHalfFOVLeft = Tan( FOV * 0.5f );
 	renderingView->tanHalfFOVRight = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVUp = renderingView->tanHalfFOVLeft;
@@ -867,16 +801,16 @@ static void RenderingView_MakeForStereo( RenderingView_s* renderingView, const V
 
 #if V6_USE_HMD
 
-static void RenderingView_MakeForHMD( RenderingView_s* renderingView, const HmdEyePose_s* eyePose, const Vec3* orgOffset, float yawOffset, u32 eye )
+static void RenderingView_MakeForHMD( View_s* renderingView, const HmdEyePose_s* eyePose, const Vec3* orgOffset, float yawOffset, u32 eye )
 {
 	const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 	Mat4x4_Mul( &renderingView->viewMatrix, yawMatrix, eyePose->lookAt );
 	renderingView->org = *orgOffset + renderingView->viewMatrix.GetTranslation();
-	Mat4x4_SetTranslation( &renderingView->viewMatrix, renderingView->org );
-	Mat4x4_AffineInverse( &renderingView->viewMatrix );
 	renderingView->forward = -renderingView->viewMatrix.GetZAxis()->Normalized();
 	renderingView->right = renderingView->viewMatrix.GetXAxis()->Normalized();
 	renderingView->up = renderingView->viewMatrix.GetYAxis()->Normalized();
+	Mat4x4_SetTranslation( &renderingView->viewMatrix, renderingView->org );
+	Mat4x4_AffineInverse( &renderingView->viewMatrix );
 	renderingView->projMatrix = eyePose->projection;
 	renderingView->eye = eye;
 	renderingView->tanHalfFOVLeft = eyePose->tanHalfFOVLeft;
@@ -938,35 +872,9 @@ static void GPUContext_CreateShaders( IStack* stack )
 	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( v6::hlsl::CBBasic ), "basic" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL], sizeof( v6::hlsl::CBCull ), "cull" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK], sizeof( v6::hlsl::CBBlock ), "blockContext" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL], sizeof( v6::hlsl::CBPixel), "pixel" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
 
 	static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL4], "block_cull_x4_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL8], "block_cull_x8_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL16], "block_cull_x16_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL32], "block_cull_x32_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL64], "block_cull_x64_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4], "block_cull_stats_x4_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS8], "block_cull_stats_x8_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS16], "block_cull_stats_x16_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS32], "block_cull_stats_x32_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS64], "block_cull_stats_x64_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], "block_trace_init_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE4], "block_trace_x4_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE8], "block_trace_x8_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE16], "block_trace_x16_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE32], "block_trace_x32_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE64], "block_trace_x64_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4], "block_trace_debug_x4_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG8], "block_trace_debug_x8_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG16], "block_trace_debug_x16_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG32], "block_trace_debug_x32_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG64], "block_trace_debug_x64_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL], "pixel_blend_cs.cso", stack );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW], "pixel_blend_overdraw_cs.cso", stack );
 	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", stack );
 
 	static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
@@ -982,7 +890,7 @@ static void GPUContext_Create( u32 width, u32 height, HWND hWnd, IAllocator* hea
 #if V6_D3D_DEBUG == 1
 	debug = true;
 #endif
-	GPUDevice_CreateWithSurfaceContext( width * HLSL_EYE_COUNT, height, hWnd, debug );
+	GPUDevice_CreateWithSurfaceContext( width * EYE_COUNT, height, hWnd, debug );
 	
 	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 	renderTargetSetCreationDesc.name = "main";
@@ -991,7 +899,7 @@ static void GPUContext_Create( u32 width, u32 height, HWND hWnd, IAllocator* hea
 	renderTargetSetCreationDesc.supportMSAA = true;
 	renderTargetSetCreationDesc.bindable = true;
 	renderTargetSetCreationDesc.writable = true;
-	renderTargetSetCreationDesc.stereo = HLSL_STEREO;
+	renderTargetSetCreationDesc.stereo = V6_STEREO;
 
 	GPURenderTargetSet_Create( &s_mainRenderTargetSet, &renderTargetSetCreationDesc );
 	
@@ -1018,240 +926,6 @@ static void GPUContext_Release()
 {
 	GPURenderTargetSet_Release( &s_mainRenderTargetSet );
 	GPUDevice_Release();
-}
-
-static void SequenceContext_UpdateFrameData( SequenceContext_s* sequenceContext, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID, const Sequence_s* sequence, IStack* stack )
-{
-	ScopedStack scopedStack( stack );
-
-	Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
-	float gridScale = sequence->desc.gridScaleMin;
-	u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
-	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-		macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
-
-	const u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
-	hlsl::BlockRange* const blockRangeBuffer = stack->newArray< hlsl::BlockRange >( CODEC_BUCKET_COUNT * CODEC_RANGE_MAX_COUNT );
-	hlsl::BlockRange* blockRanges = blockRangeBuffer;
-	u32 blockGroupBuffer[SequenceContext_s::GROUP_MAX_COUNT];
-	u32* blockGroups = blockGroupBuffer;
-	u32 framePosCount = 0;
-	u32 frameDataCount = 0;
-	u32 frameBlockRangeCount = 0;
-	u32 frameGroupCount = 0;
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		const u32 cellPerBucketCount = 1 << (bucket + 2);
-		const u32 bucketBlockCount = sequence->frameDescArray[frameID].blockCounts[bucket];
-		const u32 bucketBlockRangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
-		u32 firstThreadID = 0;
-		u32 bucketGroupCount = 0;
-
-		for ( u32 rangeRank = 0; rangeRank < bucketBlockRangeCount; ++rangeRank )
-		{
-			const u32 rangeID = rangeIDs[rangeRank];
-
-			const CodecRange_s* codecRange = &sequenceContext->rangeDefs[bucket][rangeID];
-			const u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
-			const u32 rangeMip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
-			const hlsl::BlockRange* srcBlockRange = &sequenceContext->blockRanges[bucket][rangeID];
-			
-			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];
-			memcpy( dstBlockRange, srcBlockRange, sizeof( hlsl::BlockRange ) );
-			dstBlockRange->macroGridOffset -= macroGridCoords[rangeMip];
-			dstBlockRange->frameDistance = frameID - rangeFrameID;
-			dstBlockRange->firstThreadID = firstThreadID;
-
-			const u32 blockCount = srcBlockRange->blockCount;
-			const u32 groupCount = HLSL_GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
-
-			for ( u32 groupRank = 0; groupRank < groupCount; ++groupRank )
-				blockGroups[bucketGroupCount + groupRank] = rangeRank;
-
-			firstThreadID += groupCount * HLSL_BLOCK_THREAD_GROUP_SIZE;
-			bucketGroupCount += groupCount;
-		}
-
-		groupCounts[bucket] = bucketGroupCount;
-		rangeIDs += bucketBlockRangeCount;
-		blockRanges += bucketBlockRangeCount;
-		blockGroups += bucketGroupCount;
-		framePosCount += bucketBlockCount;
-		frameDataCount += bucketBlockCount * cellPerBucketCount;
-		frameBlockRangeCount += bucketBlockRangeCount;
-		frameGroupCount += bucketGroupCount;
-	}
-
-	u32 bufferID = frameID & 1;
-	GPUBuffer_Update( &sequenceContext->ranges[bufferID], 0, blockRangeBuffer, frameBlockRangeCount );
-	GPUBuffer_Update( &sequenceContext->groups[bufferID], 0, blockGroupBuffer, frameGroupCount );
-	GPUBuffer_Update( &sequenceContext->blockPos, sequenceContext->frameBlockPosOffsets[frameID], sequence->frameDataArray[frameID].blockPos, framePosCount );
-	GPUBuffer_Update( &sequenceContext->blockData, sequenceContext->frameBlockDataOffsets[frameID], sequence->frameDataArray[frameID].blockData, frameDataCount );
-}
-
-static void SequenceContext_CreateFromData( SequenceContext_s* sequenceContext, const Sequence_s* sequence )
-{
-	{
-		u32 rangeDefOffset = 0;
-		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		{
-			sequenceContext->rangeDefs[bucket] = sequence->data.rangeDefs + rangeDefOffset;
-			rangeDefOffset += sequence->desc.rangeDefCounts[bucket];
-		}
-	}
-
-	u32 nextRangeIDs[CODEC_BUCKET_COUNT] = {};
-	u32 blockPosCount = 0;
-	u32 blockDataCount = 0;
-	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
-	{
-		if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
-			continue;
-
-		sequenceContext->frameBlockPosOffsets[frameID] = blockPosCount;
-		sequenceContext->frameBlockDataOffsets[frameID] = blockDataCount;
-
-		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
-		float gridScale = sequence->desc.gridScaleMin;
-		u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
-		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
-		
-		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
-		{
-			const u32 rangeID = nextRangeIDs[bucket];
-
-			if ( rangeID == sequence->desc.rangeDefCounts[bucket] )
-			{
-				++bucket;
-				continue;
-			}
-			
-			const CodecRange_s* codecRange = &sequenceContext->rangeDefs[bucket][rangeID];
-			u32 rangeFrameID = codecRange->frameID8_mip4_blockCount20 >> 24;
-			if ( frameID != rangeFrameID )
-			{
-				++bucket;
-				continue;
-			}
-
-			const u32 blockCount = codecRange->frameID8_mip4_blockCount20 & 0xFFFFF;
-			const u32 mip = (codecRange->frameID8_mip4_blockCount20 >> 20) & 0xF;
-
-			hlsl::BlockRange* blockRange = &sequenceContext->blockRanges[bucket][rangeID];
-			
-			blockRange->macroGridOffset = macroGridCoords[mip]; // patched per frame
-			blockRange->firstThreadID = 0; // patched per frame
-			blockRange->blockCount = blockCount;
-			blockRange->blockPosOffset = blockPosCount;
-			blockRange->blockDataOffset = blockDataCount;
-
-			const u32 cellPerBucketCount = 1 << (2 + bucket);
-			blockPosCount += blockCount;
-			blockDataCount += blockCount * cellPerBucketCount;
-
-			++nextRangeIDs[bucket];
-		}
-	}
-
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		V6_ASSERT( nextRangeIDs[bucket] == sequence->desc.rangeDefCounts[bucket] );
-
-	u32 maxBlockRangeCount = 0;
-	u32 maxBlockCount = 0;
-	u32 maxBlockGroupCount = 0;
-
-	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
-	{
-		if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
-			continue;
-
-		const u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
-
-		u32 frameBlockRangeCount = 0;
-		u32 frameBlockCount = 0;
-		u32 frameBlockGroupCount = 0;
-		
-		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		{
-			u32 bucketBlockRangeCount = sequence->frameDescArray[frameID].blockRangeCounts[bucket];
-
-			for ( u32 rangeRank = 0; rangeRank < bucketBlockRangeCount; ++rangeRank )
-			{
-				const u32 rangeID = rangeIDs[rangeRank];
-				const u32 blockCount = sequenceContext->rangeDefs[bucket][rangeID].frameID8_mip4_blockCount20 & 0xFFFFF;
-				frameBlockCount += blockCount;
-				frameBlockGroupCount += HLSL_GROUP_COUNT( blockCount, HLSL_BLOCK_THREAD_GROUP_SIZE );
-			}
-
-			rangeIDs += bucketBlockRangeCount;
-			frameBlockRangeCount += bucketBlockRangeCount;
-		}
-		maxBlockRangeCount = Max( maxBlockRangeCount, frameBlockRangeCount );
-		maxBlockCount = Max( maxBlockCount, frameBlockCount );
-		maxBlockGroupCount = Max( maxBlockGroupCount, frameBlockGroupCount );
-	}
-
-	sequenceContext->blockMaxCount = maxBlockCount;
-
-	blockPosCount = Max( 1u, blockPosCount );
-	blockDataCount = Max( 1u, blockDataCount );
-	maxBlockRangeCount = Max( 1u, maxBlockRangeCount );
-	maxBlockGroupCount = Max( 1u, maxBlockGroupCount );
-
-	V6_ASSERT( maxBlockGroupCount <= SequenceContext_s::GROUP_MAX_COUNT );
-
-	GPUBuffer_CreateTyped( &sequenceContext->blockPos, DXGI_FORMAT_R32_UINT, blockPosCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockPositions" );
-	GPUBuffer_CreateTyped( &sequenceContext->blockData, DXGI_FORMAT_R32_UINT, blockDataCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockData" );
-	GPUBuffer_CreateStructured( &sequenceContext->ranges[0], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockRanges0" );
-	GPUBuffer_CreateStructured( &sequenceContext->ranges[1], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockRanges1" );
-	GPUBuffer_CreateTyped( &sequenceContext->groups[0], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockGroups0" );
-	GPUBuffer_CreateTyped( &sequenceContext->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockGroups1" );
-}
-
-static void SequenceContext_Release( SequenceContext_s* sequenceContext )
-{
-	GPUBuffer_Release( &sequenceContext->blockPos );
-	GPUBuffer_Release( &sequenceContext->blockData );
-	GPUBuffer_Release( &sequenceContext->ranges[0] );
-	GPUBuffer_Release( &sequenceContext->ranges[1] );
-	GPUBuffer_Release( &sequenceContext->groups[0] );
-	GPUBuffer_Release( &sequenceContext->groups[1] );
-}
-
-static void TraceContext_Create( TraceContext_s* traceContext, u32 screenWidth, u32 screenHeight, u32 passedBlockCount, u32 cellItemCount )
-{
-	V6_ASSERT( screenWidth > 0 );
-	V6_ASSERT( screenHeight > 0 );
-	passedBlockCount = Max( 1u, passedBlockCount );
-	cellItemCount = Max( 1u, cellItemCount );
-
-	GPUBuffer_CreateTyped( &traceContext->traceCell, DXGI_FORMAT_R32_UINT, passedBlockCount * 2, 0, "traceCell" );
-	traceContext->passedBlockCount = passedBlockCount;
-	GPUBuffer_CreateIndirectArgs( &traceContext->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
-
-	GPUBuffer_CreateStructured( &traceContext->cellItems, sizeof( hlsl::BlockCellItem ), cellItemCount, 0, "blockCellItems" );
-	traceContext->cellItemCount = cellItemCount;
-	GPUBuffer_CreateTyped( &traceContext->cellItemCounters, DXGI_FORMAT_R32_UINT, screenWidth * HLSL_EYE_COUNT * screenHeight, 0, "blockCellItemCounters" );	
-	
-	GPUBuffer_CreateStructured( &traceContext->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
-	GPUBuffer_CreateStructured( &traceContext->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
-
-	GPUTexture2D_CreateRW( &traceContext->colors, screenWidth, screenHeight, "pixelColors" );
-}
-
-static void TraceContext_Release( TraceContext_s* traceContext )
-{
-	GPUBuffer_Release( &traceContext->traceCell );
-	GPUBuffer_Release( &traceContext->traceIndirectArgs );
-
-	GPUBuffer_Release( &traceContext->cellItems );
-	GPUBuffer_Release( &traceContext->cellItemCounters );
-
-	GPUBuffer_Release( &traceContext->cullStats );
-	GPUBuffer_Release( &traceContext->traceStats );
-	
-	GPUTexture2D_Release( &traceContext->colors );
 }
 
 static void Mesh_CreateVirtualQuad( GPUMesh_s* mesh )
@@ -2073,22 +1747,19 @@ public:
 	~CRenderingDevice();
 
 public:
-	void BlendPixel( const RenderingView_s* view, u32 eye );
 	bool BuildBlock( u32 frameID );
 	void Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* sampleOffset, u32 faceID );
 	bool Create(int nWidth, int nHeight, IAllocator* heap, IStack* stack );
-	void CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID );
 	void Draw( float dt );
-	void DrawCameraPath( const RenderingView_s* view, u32 eye );
-	void DrawDebug( const RenderingView_s* view, u32 eye );
-	void DrawWorld( const RenderingView_s* view, u32 eye );
+	void DrawCameraPath( const View_s* view, u32 eye );
+	void DrawDebug( const View_s* view, u32 eye );
+	void DrawWorld( const View_s* view, u32 eye );
 	bool HasValidRawFrameFile( u32 frameID );
 	bool InitTraceMode( u32 frameCount );
 	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
 	void Release();
 	void ReleaseTraceMode();
 	void ResetDrawMode();
-	void TraceBlock( const RenderingView_s* views, const Vec3* buildOrigin );
 	bool WriteRawFrameFile( CaptureContext_s* captureContext, u32 frame );
 
 	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
@@ -2169,7 +1840,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 	return true;
 }
 
-void CRenderingDevice::DrawWorld( const RenderingView_s* view, u32 eye )
+void CRenderingDevice::DrawWorld( const View_s* view, u32 eye )
 {
 	u32 flags = 0;
 
@@ -2183,23 +1854,23 @@ void CRenderingDevice::DrawWorld( const RenderingView_s* view, u32 eye )
 
 	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
-	Scene_Draw( s_activeScene, &view->view, flags );
+	Scene_Draw( s_activeScene, view, flags );
 
 	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
-void CRenderingDevice::DrawCameraPath( const RenderingView_s* view, u32 eye )
+void CRenderingDevice::DrawCameraPath( const View_s* view, u32 eye )
 {
 	const GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 
 	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
-	Scene_Draw( m_pathGeoScene, &view->view, 0 );
+	Scene_Draw( m_pathGeoScene, view, 0 );
 
 	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
-void CRenderingDevice::DrawDebug( const RenderingView_s* view, u32 eye )
+void CRenderingDevice::DrawDebug( const View_s* view, u32 eye )
 {	
 	if ( g_traceGrid )
 	{		
@@ -2212,7 +1883,7 @@ void CRenderingDevice::DrawDebug( const RenderingView_s* view, u32 eye )
 
 	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
-	Scene_Draw( m_debugScene, &view->view, 0 );
+	Scene_Draw( m_debugScene, view, 0 );
 
 	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
@@ -2236,114 +1907,6 @@ void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTarge
 	GPURenderTargetSet_Unbind( cubeFaceRenderTargetSet );
 
 	GPUEvent_End();
-}
-
-void CRenderingDevice::CullBlock( const RenderingView_s* views, const Vec3* buildOrigin, float gridMinScale, u32 groupCounts[CODEC_BUCKET_COUNT], u32 frameID )
-{
-	static const void* nulls[8] = {};
-
-	GPUEvent_Begin( "Cull Blocks");
-
-	u32 values[4] = {};
-	g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceIndirectArgs.uav, values );
-	if ( s_logReadBack )
-		g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cullStats.uav, values );
-
-	v6::hlsl::CBCull cbCullData = {};
-	{
-		float gridScale = gridMinScale;
-		for ( u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID, gridScale *= 2.0f )
-		{
-			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
-			cbCullData.c_cullGridScales[gridID] = Vec4_Make( gridScale, 0.0f, 0.0f, 0.0f );
-			const Vec3 center = Codec_ComputeGridCenter( buildOrigin, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
-			cbCullData.c_cullCenters[gridID] = Vec4_Make( &center, 0.0f );
-		}
-
-		V6_ASSERT( views[LEFT_EYE].forward == views[RIGHT_EYE].forward );
-		V6_ASSERT( views[LEFT_EYE].right == views[RIGHT_EYE].right );
-		V6_ASSERT( views[LEFT_EYE].up == views[RIGHT_EYE].up );
-
-		const float tanHalfFOVLeft = Max( views[LEFT_EYE].tanHalfFOVLeft, views[RIGHT_EYE].tanHalfFOVLeft );
-		const float tanHalfFOVRight = Max( views[LEFT_EYE].tanHalfFOVRight, views[RIGHT_EYE].tanHalfFOVRight );
-		const float tanHalfFOVUp = Max( views[LEFT_EYE].tanHalfFOVUp, views[RIGHT_EYE].tanHalfFOVUp );
-		const float tanHalfFOVDown = Max( views[LEFT_EYE].tanHalfFOVDown, views[RIGHT_EYE].tanHalfFOVDown );
-
-		Vec3 leftPlane = (views[ANY_EYE].forward * tanHalfFOVLeft + views[ANY_EYE].right).Normalized();
-		Vec3 rightPlane = (views[ANY_EYE].forward * tanHalfFOVRight - views[ANY_EYE].right).Normalized();
-		Vec3 upPlane = (views[ANY_EYE].forward * tanHalfFOVUp - views[ANY_EYE].up).Normalized();
-		Vec3 bottomPlane = (views[ANY_EYE].forward * tanHalfFOVDown + views[ANY_EYE].up).Normalized();
-		
-		cbCullData.c_cullFrustumPlanes[0] = Vec4_Make( &leftPlane, -Dot( leftPlane, views[LEFT_EYE].org ) );
-		cbCullData.c_cullFrustumPlanes[1] = Vec4_Make( &rightPlane, -Dot( rightPlane, views[RIGHT_EYE].org ) );
-		cbCullData.c_cullFrustumPlanes[2] = Vec4_Make( &upPlane, -Dot( upPlane, views[ANY_EYE].org ) );
-		cbCullData.c_cullFrustumPlanes[3] = Vec4_Make( &bottomPlane, -Dot( bottomPlane, views[ANY_EYE].org ) );
-	}
-
-	// set
-
-	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
-
-	u32 bufferID = frameID & 1;
-	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBCullSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL].buf );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, &m_sequenceContext->groups[bufferID].srv );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, &m_sequenceContext->ranges[bufferID].srv );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, &m_sequenceContext->blockPos.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.uav, nullptr );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
-	if ( s_logReadBack )
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &m_traceContext->cullStats.uav, nullptr );
-
-	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
-	{
-		GPUEvent_Begin( "Cull Bucket");
-
-		// update
-		{
-			v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL] );
-			memcpy( cbCull, &cbCullData, sizeof( cbCullData ) );
-			GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_CULL] );
-
-			cbCullData.c_cullBlockGroupOffset += groupCounts[bucket];
-			cbCullData.c_cullBlockRangeOffset += m_sequence.frameDescArray[frameID].blockRangeCounts[bucket];
-		}
-
-		// dispach
-		if ( s_logReadBack || g_showHistory )
-			GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_CULL_STATS4+bucket], groupCounts[bucket], 1, 1 );
-		else
-			GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_CULL4+bucket], groupCounts[bucket], 1, 1 );
-
-		GPUEvent_End();
-	}
-	
-	// Unset
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_GROUP_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_RANGE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_POS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	if ( s_logReadBack )
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-
-	GPUEvent_End();
-
-	if ( s_logReadBack )
-	{
-		V6_MSG( "\n" );
-
-		{
-			const hlsl::BlockCullStats* blockCullStats = (hlsl::BlockCullStats*)GPUBuffer_MapReadBack( &m_traceContext->cullStats );
-
-			ReadBack_Log( "blockCull", blockCullStats->blockInputCount, "blockInputCount" );
-			ReadBack_Log( "blockCull", blockCullStats->blockProcessedCount, "blockProcessedCount" );
-			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
-			V6_ASSERT( blockCullStats->blockPassedCount <= m_traceContext->passedBlockCount );
-			ReadBack_Log( "blockCull", blockCullStats->cellOutputCount, "cellOutputCount" );
-
-			GPUBuffer_UnmapReadBack( &m_traceContext->cullStats );
-		}
-	}
 }
 
 void CRenderingDevice::ResetDrawMode()
@@ -2383,9 +1946,16 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	m_traceContext = m_heap->newInstance< TraceContext_s >();
 
 	SequenceContext_CreateFromData( m_sequenceContext, &m_sequence );
-	const u32 passedBlockCount = m_sequenceContext->blockMaxCount / 3;
-	const u32 cellItemCount = (m_width * HLSL_EYE_COUNT * m_height) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT; 
-	TraceContext_Create( m_traceContext, m_width, m_height, passedBlockCount, cellItemCount );
+	
+	TraceDesc_s traceDesc = {};
+	traceDesc.screenWidth = m_width;
+	traceDesc.screenHeight = m_height;
+	traceDesc.gridMacroShift = GRID_MACRO_SHIFT;
+	traceDesc.gridScaleMin = GRID_MIN_SCALE;
+	traceDesc.gridScaleMax = GRID_MAX_SCALE;
+	traceDesc.blockMaxCount = m_sequenceContext->blockMaxCount;
+	traceDesc.stereo = V6_STEREO;
+	TraceContext_Create( m_traceContext, &traceDesc );
 
 	m_lastUpdatedFrameID = (u32)-1;
 
@@ -2400,201 +1970,6 @@ void CRenderingDevice::ReleaseTraceMode()
 
 	m_heap->deleteInstance( m_sequenceContext );
 	m_heap->deleteInstance( m_traceContext );
-}
-
-void CRenderingDevice::TraceBlock( const RenderingView_s* views, const Vec3* buildOrigin )
-{		
-	static const void* nulls[8] = {};
-	
-	GPUEvent_Begin( "Trace Blocks");
-
-	u32 values[4] = {};
-	g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->cellItemCounters.uav, values );
-	if ( s_logReadBack )
-		g_deviceContext->ClearUnorderedAccessViewUint( m_traceContext->traceStats.uav, values );
-
-	float gridScale = GRID_MIN_SCALE;
-
-	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
-
-	{
-		v6::hlsl::CBBlock* cbBlock = (v6::hlsl::CBBlock*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK] );
-
-		float gridScale = GRID_MIN_SCALE;
-		for ( u32 gridID = 0; gridID < HLSL_MIP_MAX_COUNT; ++gridID, gridScale *= 2.0f )
-		{
-			const float cellScale = gridScale * HLSL_GRID_INV_WIDTH;
-			cbBlock->c_blockGridScales[gridID] = Vec4_Make( gridScale, cellScale, ((1 << 21) - 1) / gridScale, 0.0f );
-			const Vec3 center = Codec_ComputeGridCenter( buildOrigin, gridScale, HLSL_GRID_MACRO_HALF_WIDTH );
-			cbBlock->c_blockGridCenters[gridID] = Vec4_Make( &center, 0.0f );
-		}
-
-		const Vec2 frameSize = Vec2_Make( (float)m_width, (float)m_height );
-		cbBlock->c_blockFrameSize = frameSize;
-				
-		cbBlock->c_blockFrameSize.x = (float)m_width;
-		cbBlock->c_blockFrameSize.y = (float)m_height;
-
-		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-		{	
-			hlsl::BlockPerEye blockPerEye;
-			blockPerEye.objectToView = views[eye].view.viewMatrix;
-			blockPerEye.viewToProj = views[eye].view.projMatrix;
-
-			const float scaleRight = (views[eye].tanHalfFOVLeft + views[eye].tanHalfFOVRight) / m_width;
-			const float scaleUp = (views[eye].tanHalfFOVUp + views[eye].tanHalfFOVDown) / m_height;
-
-			const Vec3 forward = views[eye].forward;
-			const Vec3 right = views[eye].right * scaleRight;
-			const Vec3 up = views[eye].up * scaleUp;
-				
-			blockPerEye.org = views[eye].org;
-
-			blockPerEye.rayDirBase = forward - views[eye].up * views[eye].tanHalfFOVDown + 0.5f * up - views[eye].right * views[eye].tanHalfFOVLeft + 0.5f * right;
-			blockPerEye.rayDirUp = up;
-			blockPerEye.rayDirRight = right;
-
-			cbBlock->c_blockEyes[eye] = blockPerEye;
-
-			cbBlock->c_blockGetStats = s_logReadBack;
-			cbBlock->c_blockShowFlag = (g_showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (g_showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0) | (g_showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
-		}
-
-		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK] );
-	}
-
-	// set
-
-	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBBlockSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_BLOCK].buf );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, &m_sequenceContext->blockData.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, &m_traceContext->traceCell.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.uav, nullptr );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.uav, nullptr );
-	if ( s_logReadBack )
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &m_traceContext->traceStats.uav, nullptr );
-	
-	{
-		GPUEvent_Begin( "Init Trace");
-
-		// set
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.uav, nullptr );
-				
-		// dispatch
-		GPUCompute_Dispatch( &shaderContext->computes[COMPUTE_BLOCK_TRACE_INIT], 1, 1, 1 );
-
-		// unset
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-
-		GPUEvent_End();
-	}
-
-	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
-	{
-		GPUEvent_Begin( "Trace Bucket");
-
-		// set
-
-		g_deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &m_traceContext->traceIndirectArgs.srv );
-
-		// dispach
-		if ( s_logReadBack || g_showMip || g_showBucket || g_showHistory )
-			GPUCompute_DispatchIndirect( &shaderContext->computes[COMPUTE_BLOCK_TRACE_DEBUG4+bucket], &m_traceContext->traceIndirectArgs, trace_cellGroupCountX_offset( bucket ) * sizeof( u32 ) );
-		else
-			GPUCompute_DispatchIndirect( &shaderContext->computes[COMPUTE_BLOCK_TRACE4+bucket], &m_traceContext->traceIndirectArgs, trace_cellGroupCountX_offset( bucket ) * sizeof( u32 ) );
-
-		// unset		
-		g_deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-
-		GPUEvent_End();
-	}
-
-	// Unset
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_DATA_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_TRACE_CELLS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	if ( s_logReadBack )
-		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-	
-	GPUEvent_End();
-
-	if ( s_logReadBack )
-	{			
-		V6_MSG( "\n" );
-
-		{
-			const hlsl::BlockTraceStats* blockTraceStats = (hlsl::BlockTraceStats*)GPUBuffer_MapReadBack( &m_traceContext->traceStats );
-
-			ReadBack_Log( "blockTrace", blockTraceStats->cellInputCount, "cellInputCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCount, "cellProcessedCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellItemCount, "cellItemCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
-			V6_ASSERT( blockTraceStats->cellItemCount < m_traceContext->cellItemCount );
-
-			GPUBuffer_UnmapReadBack( &m_traceContext->traceStats );
-		}
-	}
-}
-
-void CRenderingDevice::BlendPixel( const RenderingView_s* view, u32 eye )
-{
-	// Render
-
-	GPUEvent_Begin( "Blend Pixels");
-	
-	// Set
-
-	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
-
-	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBPixelSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL].buf );
-
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &m_traceContext->cellItems.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &m_traceContext->cellItemCounters.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, &s_mainRenderTargetSet.colorBuffers[eye].uav, nullptr );
-	if ( g_showOverdraw	)
-		g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_BLENDPIXEL_OVERDRAW].m_computeShader, nullptr, 0 );
-	else
-		g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_BLENDPIXEL].m_computeShader, nullptr, 0 );
-
-	{
-		v6::hlsl::CBPixel* cbPixel = (v6::hlsl::CBPixel*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL] );
-
-		cbPixel->c_pixelFrameSize.x = m_width;
-		cbPixel->c_pixelFrameSize.y = m_height;
-
-		if ( g_randomBackground )
-		{
-			const float r = RandFloat();
-			cbPixel->c_pixelBackColor.x = 1.0f; 
-			cbPixel->c_pixelBackColor.y = r;
-			cbPixel->c_pixelBackColor.z = r;
-		}
-		else
-		{
-			cbPixel->c_pixelBackColor.x = 0.0f; 
-			cbPixel->c_pixelBackColor.y = 0.0f; 
-			cbPixel->c_pixelBackColor.z = 0.0f; 
-		}
-
-		cbPixel->c_eye = eye;
-
-		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_PIXEL]  );
-	}		
-
-	V6_ASSERT( (m_width & 0x7) == 0 );
-	V6_ASSERT( (m_height & 0x7) == 0 );
-	const u32 pixelGroupWidth = m_width >> 3;
-	const u32 pixelGroupHeight = m_height >> 3;
-	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
-
-	// unset
-	static const void* nulls[8] = {};
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_LCOLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-
-	GPUEvent_End();	
 }
 
 void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight )
@@ -2690,7 +2065,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 	
-	if ( frameDesc.gridMacroShift != HLSL_GRID_MACRO_SHIFT )
+	if ( frameDesc.gridMacroShift != GRID_MACRO_SHIFT )
 	{
 		V6_ERROR( "Stream gridMacroShift is not compatible.\n" );
 		return false;
@@ -2732,16 +2107,16 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 			frameDesc.origin = s_buildOrigin;
 			frameDesc.frameID = frameID;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
-			frameDesc.gridMacroShift = HLSL_GRID_MACRO_SHIFT;
+			frameDesc.gridMacroShift = GRID_MACRO_SHIFT;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
 			
 			CodecRawFrameData_s frameData = {};
 
 			{
-				Capture_MapBlocksForRead( captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
+				CaptureContext_MapBlocksForRead( captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
 				Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
-				Capture_UnmapBlocksForRead( captureContext );
+				CaptureContext_UnmapBlocksForRead( captureContext );
 			}
 
 			V6_MSG( "Stream saved to file %s.\n", path );
@@ -2775,15 +2150,14 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 #endif // #if V6_USE_CACHE == 1
 
 		CaptureDesc_s captureDesc;
-		captureDesc.gridMacroShift = HLSL_GRID_MACRO_SHIFT;
+		captureDesc.gridMacroShift = GRID_MACRO_SHIFT;
 		captureDesc.gridScaleMin = GRID_MIN_SCALE;
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
 		captureDesc.depthLinearScale = -1.0f / ZNEAR;
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
 		captureDesc.logReadBack = s_logReadBack;
 
-		const u32 gridWidth = 1 << (HLSL_GRID_MACRO_SHIFT + 2);
-		const u32 renderTargetSize = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+		const u32 renderTargetSize = GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 
 		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 		renderTargetSetCreationDesc.name = "cubeFace";
@@ -2795,10 +2169,10 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		
 		GPURenderTargetSet_Create( &s_cubeFaceRenderTargetSet, &renderTargetSetCreationDesc );
 
-		Capture_Create( &m_captureContext, &captureDesc );
+		CaptureContext_Create( &m_captureContext, &captureDesc );
 
 		lastSumLeafCount = 0;
-		Capture_Begin( &m_captureContext );
+		CaptureContext_Begin( &m_captureContext );
 	}
 
 	V6_MSG( "Capturing sample #%03d...", g_sample );
@@ -2810,7 +2184,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 	for ( u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
 		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, faceID );
-		sumLeafCount += Capture_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
+		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
@@ -2827,11 +2201,11 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 	{
 		V6_MSG( "Packing all samples..." );
 
-		Capture_End( &m_captureContext );
+		CaptureContext_End( &m_captureContext );
 
 		const bool written = WriteRawFrameFile( &m_captureContext, frameID );
 
-		Capture_Release( &m_captureContext );
+		CaptureContext_Release( &m_captureContext );
 		GPURenderTargetSet_Release( &s_cubeFaceRenderTargetSet );
 
 		if ( !written )
@@ -2945,11 +2319,11 @@ void CRenderingDevice::Draw( float dt )
 
 	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
-	RenderingView_s views[HLSL_EYE_COUNT];
+	View_s views[EYE_COUNT];
 #if V6_USE_HMD
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
-		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 		{
 			RenderingView_MakeForHMD( &views[eye], &eyePoses[eye], &s_headOffset, s_yaw, eye );
 			views[eye].texture2D = (ID3D11Texture2D*)renderTargets[eye].texture2D;
@@ -2960,7 +2334,7 @@ void CRenderingDevice::Draw( float dt )
 	else
 #endif // #if V6_USE_HMD
 	{
-		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			RenderingView_MakeForStereo( &views[eye], &s_headOffset, &forward, &up, &right, eye, m_aspectRatio );
 }
 
@@ -2970,7 +2344,7 @@ void CRenderingDevice::Draw( float dt )
 
 		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 
-		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			DrawWorld( &views[eye], eye );
 		
 		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
@@ -3033,26 +2407,26 @@ void CRenderingDevice::Draw( float dt )
 				if ( frameDesc->flags & CODEC_FRAME_FLAG_MOTION )
 					frameDesc = &m_sequence.frameDescArray[frameDesc->frameID];
 
-				static u32 groupCounts[CODEC_BUCKET_COUNT] = {};
+				static GPUSequenceFrameData_s sequenceFrameData = {};
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 				if ( m_lastUpdatedFrameID != frameDesc->frameID )
 				{
-					SequenceContext_UpdateFrameData( m_sequenceContext, groupCounts, frameDesc->frameID, &m_sequence, m_stack );
+					SequenceContext_UpdateFrameData( m_sequenceContext, &sequenceFrameData, frameDesc->frameID, &m_sequence, m_stack );
 					m_lastUpdatedFrameID = frameDesc->frameID;
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
 				{
-					CullBlock( views, &frameDesc->origin, m_sequence.desc.gridScaleMin, groupCounts, frameDesc->frameID );
+					TraceOption_s options = {};
+					options.logReadBack = s_logReadBack;
+					options.showHistory = g_showHistory;
+					options.showMip = g_showMip;
+					options.showBucket = g_showBucket;
+					options.showOverdraw = g_showOverdraw;
+					options.randomBackground = g_randomBackground;
+					TraceContext_Draw( m_traceContext, &s_mainRenderTargetSet, &sequenceFrameData, views, &options );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
-				{
-					TraceBlock( views, &frameDesc->origin );
-				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
-				{
-					for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
-						BlendPixel( &views[eye], eye );
-				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 
 				s_logReadBack = false;
@@ -3075,11 +2449,11 @@ void CRenderingDevice::Draw( float dt )
 	{
 		if ( g_showPath )
 		{
-			for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 				DrawCameraPath( &views[eye], eye );
 		}
 
-		for ( u32 eye = 0; eye < HLSL_EYE_COUNT; ++eye )
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			DrawDebug( &views[eye], eye );
 
 		Output( s_mainRenderTargetSet.colorBuffers[LEFT_EYE].srv, s_mainRenderTargetSet.colorBuffers[RIGHT_EYE].srv );
@@ -3144,8 +2518,8 @@ int main()
 		return -1;
 	}
 
-	v6::Vec2i renterTargerSize = v6::Hmd_GetRecommendedRenderTargetSize();
-	v6::u32 maxRenderTargetSize = HLSL_GRID_WIDTH >> 1;
+	const v6::Vec2i renterTargerSize = v6::Hmd_GetRecommendedRenderTargetSize();
+	v6::u32 maxRenderTargetSize = v6::GRID_WIDTH >> 1;
 	if ( renterTargerSize.x > (int)maxRenderTargetSize )
 	{
 		renterTargerSize.y = (renterTargerSize.y * maxRenderTargetSize) / renterTargerSize.x;
@@ -3160,10 +2534,10 @@ int main()
 	renterTargerSize.x = (renterTargerSize.x + 7) & ~7;
 	renterTargerSize.y = (renterTargerSize.y + 7) & ~7;
 #else
-	v6::Vec2i renterTargerSize = v6::Vec2i_Make( HLSL_GRID_WIDTH >> 1, HLSL_GRID_WIDTH >> 1 );
+	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::GRID_WIDTH >> 1, v6::GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * HLSL_EYE_COUNT, renterTargerSize.y, true ) )
+	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
 		return 1;
 
 	v6::CRenderingDevice oRenderingDevice;

@@ -13,6 +13,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BUCKET_COUNT							5
 #define HLSL_CELL_SUPER_SAMPLING_WIDTH				1
 
+#define REGISTER_SAMPLER( SLOT )					register( s ## SLOT )
 #define REGISTER_SRV( SLOT )						register( t ## SLOT )
 #define REGISTER_UAV( SLOT )						register( u ## SLOT )
 

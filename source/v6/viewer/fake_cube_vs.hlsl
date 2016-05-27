@@ -1,6 +1,6 @@
 #include "fake_cube.hlsli"
 
-PixelInput main( uint cornerID : SV_VertexID )
+PixelInput main_fake_cube_vs( uint cornerID : SV_VertexID )
 {		
 	PixelInput o = (PixelInput)0;
 

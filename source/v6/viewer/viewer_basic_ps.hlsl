@@ -1,6 +1,6 @@
 #include "viewer_basic.hlsli"
 
-float4 main( PixelInput i ) : SV_TARGET
+float4 main_viewer_basic_ps( PixelInput i ) : SV_TARGET
 {
 #if 1
 	return i.color;

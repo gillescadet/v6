@@ -9,28 +9,9 @@
 #include <v6/codec/codec.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shared.h>
+#include <v6/graphic/capture_shaders.h>
 
 BEGIN_V6_NAMESPACE
-
-BEGIN_HLSL_BYTECODE( sample_collect_cs )
-#include <v6/graphic/sample_collect_cs_bytecode.h>
-END_HLSL_BYTECODE
-
-BEGIN_HLSL_BYTECODE( octree_build_inner_cs )
-#include <v6/graphic/octree_build_inner_cs_bytecode.h>
-END_HLSL_BYTECODE
-
-BEGIN_HLSL_BYTECODE( octree_build_leaf_cs )
-#include <v6/graphic/octree_build_leaf_cs_bytecode.h>
-END_HLSL_BYTECODE
-
-BEGIN_HLSL_BYTECODE( octree_fill_leaf_cs )
-#include <v6/graphic/octree_fill_leaf_cs_bytecode.h>
-END_HLSL_BYTECODE
-
-BEGIN_HLSL_BYTECODE( octree_pack_cs )
-#include <v6/graphic/octree_pack_cs_bytecode.h>
-END_HLSL_BYTECODE
 
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
@@ -120,7 +101,6 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 
 	GPUEvent_End();
 
-#if 1
 	if ( captureContext->desc.logReadBack )
 	{
 		// Read back
@@ -150,7 +130,6 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 
 		GPUBuffer_UnmapReadBack( &res->sampleIndirectArgs );
 	}
-#endif
 }
 
 static u32 BuildNode( CaptureContext_s* captureContext )
@@ -201,7 +180,6 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 
 	const u32* octreeIndirectArgs = (u32*)GPUBuffer_MapReadBack( &res->octreeIndirectArgs );
 
-#if 1
 	if ( captureContext->desc.logReadBack )
 	{
 		V6_MSG( "\n" );
@@ -212,7 +190,6 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 		V6_ASSERT( octreeIndirectArgs[octree_leafGroupCountZ_offset] == 1 );
 		ReadBack_Log( "octreeContext", octreeIndirectArgs[octree_leafCount_offset], "leafCount" );
 	}
-#endif
 
 	const u32 addedLeafCount = octreeIndirectArgs[octree_leafCount_offset];
 	V6_ASSERT( addedLeafCount <= captureContext->resLeafCount );
@@ -320,7 +297,6 @@ static void PackColor( CaptureContext_s* captureContext )
 		static const u32 cellPerBucketCounts[] = { 4, 8, 16, 32, 64 };
 		const u32 maxCellCount = block_count( bucket ) * cellPerBucketCounts[bucket];
 
-#if 1
 		if ( captureContext->desc.logReadBack )
 		{
 			V6_MSG( "\n" );
@@ -339,7 +315,6 @@ static void PackColor( CaptureContext_s* captureContext )
 			ReadBack_Log( "blockContext", block_slotOccupancyCount( bucket ) / (float)block_cellCount( bucket ), "avgOccupancySlot" );
 #endif // #if HLSL_DEBUG_OCCUPANCY == 1
 		}
-#endif
 
 		allBlockCount += block_count( bucket );
 		allRealCellCount += block_cellCount( bucket );
@@ -358,7 +333,7 @@ static void PackColor( CaptureContext_s* captureContext )
 	GPUBuffer_UnmapReadBack( &res->blockIndirectArgs );
 }
 
-void Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc )
+void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc )
 {
 	V6_ASSERT( s_gpuCaptureResourcesCreated == false );
 	GPUCaptureResources_s* res = &s_gpuCaptureResources;
@@ -397,17 +372,18 @@ void Capture_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc
 	GPUBuffer_CreateTyped( &res->blockData, DXGI_FORMAT_R32_UINT, captureContext->resBlockDataCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockData" );
 	GPUBuffer_CreateIndirectArgs( &res->blockIndirectArgs, block_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockIndirectArgs" );
 
-	GPUCompute_CreateFromSource( &res->computeCollect, hlsl::sample_collect_cs::g_main, sizeof( hlsl::sample_collect_cs::g_main ) );
-	GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::octree_build_inner_cs::g_main, sizeof( hlsl::octree_build_inner_cs::g_main ) );
-	GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::octree_build_leaf_cs::g_main, sizeof( hlsl::octree_build_leaf_cs::g_main ) );
-	GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::octree_fill_leaf_cs::g_main, sizeof( hlsl::octree_fill_leaf_cs::g_main ) );
-	GPUCompute_CreateFromSource( &res->computePackColor, hlsl::octree_pack_cs::g_main, sizeof( hlsl::octree_pack_cs::g_main ) );
+	GPUCompute_CreateFromSource( &res->computeCollect, hlsl::g_main_sample_collect_cs, sizeof( hlsl::g_main_sample_collect_cs ) );
+	GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::g_main_octree_build_inner_cs, sizeof( hlsl::g_main_octree_build_inner_cs ) );
+	GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::g_main_octree_build_leaf_cs, sizeof( hlsl::g_main_octree_build_leaf_cs ) );
+	GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::g_main_octree_fill_leaf_cs, sizeof( hlsl::g_main_octree_fill_leaf_cs ) );
+	GPUCompute_CreateFromSource( &res->computePackColor, hlsl::g_main_octree_pack_cs, sizeof( hlsl::g_main_octree_pack_cs ) );
 
 	s_gpuCaptureResourcesCreated = true;
 }
 
-void Capture_Release( CaptureContext_s* captureContext )
+void CaptureContext_Release( CaptureContext_s* captureContext )
 {
+	V6_ASSERT( s_gpuCaptureResourcesCreated == true );
 	GPUCaptureResources_s* res = captureContext->res;
 
 	GPUConstantBuffer_Release( &res->cbCollect );
@@ -433,17 +409,17 @@ void Capture_Release( CaptureContext_s* captureContext )
 	s_gpuCaptureResourcesCreated = false;
 }
 
-void Capture_Begin( CaptureContext_s* captureContext )
+void CaptureContext_Begin( CaptureContext_s* captureContext )
 {
 	ClearNode( captureContext );
 }
 
-void Capture_End( CaptureContext_s* captureContext )
+void CaptureContext_End( CaptureContext_s* captureContext )
 {
 	PackColor( captureContext );
 }
 
-u32 Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView )
+u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView )
 {
 	Collect( captureContext, origin, samplePos, faceID, (ID3D11ShaderResourceView*)colorView, (ID3D11ShaderResourceView*)depthView );
 	const u32 sumLeafCount = BuildNode( captureContext );
@@ -451,7 +427,7 @@ u32 Capture_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3
 	return sumLeafCount;
 }
 
-void Capture_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData )
+void CaptureContext_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData )
 {
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -468,7 +444,7 @@ void Capture_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCount
 	*blockData = (void*)GPUBuffer_MapReadBack( &res->blockData );
 }
 
-void Capture_UnmapBlocksForRead( CaptureContext_s* captureContext )
+void CaptureContext_UnmapBlocksForRead( CaptureContext_s* captureContext )
 {
 	GPUCaptureResources_s* res = captureContext->res;
 

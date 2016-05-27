@@ -11,7 +11,7 @@ Buffer< uint > firstChildOffsets				: REGISTER_SRV( HLSL_OCTREE_FIRST_CHILD_OFFS
 RWStructuredBuffer< OctreeLeaf > octreeLeaves	: REGISTER_UAV( HLSL_OCTREE_LEAF_SLOT );
 
 [ numthreads( HLSL_SAMPLE_THREAD_GROUP_SIZE, 1, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID )
+void main_octree_fill_leaf_cs( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint sampleID = DTid.x;
 	

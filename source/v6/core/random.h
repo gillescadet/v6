@@ -5,6 +5,8 @@
 #ifndef __V6_CORE_RANDOM_H__
 #define __V6_CORE_RANDOM_H__
 
+#include <v6/core/vec3.h>
+
 BEGIN_V6_NAMESPACE
 
 inline float RandFloat()

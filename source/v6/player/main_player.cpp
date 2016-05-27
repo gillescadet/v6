@@ -14,6 +14,7 @@
 #include <v6/core/win.h>
 #include <v6/graphic/gpu.h>
 #include <v6/graphic/scene.h>
+#include <v6/graphic/view.h>
 #include <v6/player/player_shared.h>
 
 #pragma comment( lib, "d3d11.lib" )

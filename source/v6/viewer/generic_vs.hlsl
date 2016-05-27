@@ -1,6 +1,6 @@
 #include "generic.hlsli"
 
-PixelInput main( VertexInput i )
+PixelInput main_generic_vs( VertexInput i )
 {
 	PixelInput o;
 
