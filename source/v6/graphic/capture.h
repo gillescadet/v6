@@ -5,6 +5,7 @@
 #ifndef __V6_GRAPHIC_CAPTURE_H__
 #define __V6_GRAPHIC_CAPTURE_H__
 
+#include <v6/core/mat3x3.h>
 #include <v6/graphic/gpu.h>
 
 BEGIN_V6_NAMESPACE
@@ -13,6 +14,7 @@ struct GPUCaptureResources_s;
 
 struct CaptureDesc_s
 {
+	Mat3x3						appWorldToV6World;
 	u32							gridMacroShift;
 	float						gridScaleMin;
 	float						gridScaleMax;

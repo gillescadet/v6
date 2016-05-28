@@ -73,7 +73,11 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 	
 			const float2 scale = (pixelCoords.xy + 0.5f) * c_sampleInvCubeSize * 2.0f - 1.0f;
 			const float3 dir = lookAt + right * scale.x - up * scale.y;
-			const float3 pos = mad( dir, cubeDepth, c_samplePos );
+			const float3 appPos = mad( dir, cubeDepth, c_samplePos );
+			float3 pos;
+			pos.x = dot( appPos, c_sampleAppWorldToV6WorldX.xyz );
+			pos.y = dot( appPos, c_sampleAppWorldToV6WorldY.xyz );
+			pos.z = dot( appPos, c_sampleAppWorldToV6WorldZ.xyz );
 			const uint mip = GetMip( pos );
 
 			if ( mip < HLSL_MIP_MAX_COUNT )

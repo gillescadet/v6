@@ -72,6 +72,9 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 		cbSample->c_sampleInvCubeSize = 1.0f / cubeWidth;
 		cbSample->c_samplePos = *samplePos;
 		cbSample->c_sampleFaceID = faceID;
+		cbSample->c_sampleAppWorldToV6WorldX = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row0, 0.0f );
+		cbSample->c_sampleAppWorldToV6WorldY = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row1, 0.0f );
+		cbSample->c_sampleAppWorldToV6WorldZ = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row2, 0.0f );
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
 			cbSample->c_sampleMipBoundaries[gridID] = Vec4_Make( &gridCenters[gridID], gridScales[gridID] );
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )

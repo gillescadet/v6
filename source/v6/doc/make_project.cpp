@@ -300,6 +300,7 @@ static ProjectFile_s s_projectFiles[] =
 	// player
 	{ "source/v6/codec/codec.cpp",						PROJECT_PLAYER },
 	{ "source/v6/codec/compression.cpp",				PROJECT_PLAYER },
+	{ "source/v6/codec/decoder.cpp",					PROJECT_PLAYER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_PLAYER },
 	{ "source/v6/core/memory.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/string.cpp",						PROJECT_PLAYER },
@@ -330,6 +331,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/codec/encoder.cpp",					PROJECT_VIEWER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_VIEWER },
 	{ "source/v6/core/image.cpp",						PROJECT_VIEWER },
+	{ "source/v6/core/mat3x3.h",						PROJECT_VIEWER },
 	{ "source/v6/core/mat4x4.h",						PROJECT_VIEWER },
 	{ "source/v6/core/memory.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/obj_reader.cpp",					PROJECT_VIEWER },

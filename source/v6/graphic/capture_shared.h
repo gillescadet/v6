@@ -47,6 +47,9 @@ CBUFFER( CBSample, 0 )
 	float				c_sampleInvCubeSize;
 	float3				c_samplePos;
 	uint				c_sampleFaceID;
+	float4				c_sampleAppWorldToV6WorldX;
+	float4				c_sampleAppWorldToV6WorldY;
+	float4				c_sampleAppWorldToV6WorldZ;
 	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };

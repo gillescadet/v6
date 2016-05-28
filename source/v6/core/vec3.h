@@ -12,9 +12,16 @@ BEGIN_V6_NAMESPACE
 struct Vec3
 {
 public:
-	float x;
-	float y;
-	float z;
+	union
+	{
+		struct
+		{
+			float x;
+			float y;
+			float z;
+		};
+		float values[3];
+	};
 
 public:
 	Vec3 Abs() const

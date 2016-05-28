@@ -1765,7 +1765,6 @@ public:
 	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
 	
 	CaptureContext_s	m_captureContext;
-	SequenceContext_s*	m_sequenceContext;
 	TraceContext_s*		m_traceContext;
 	Sequence_s			m_sequence;
 	int					m_bakedFrameCount;
@@ -1942,20 +1941,14 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	if ( !Sequence_Load( sequenceFilename, &m_sequence, m_heap, m_stack ) )
 		return false;
 	
-	m_sequenceContext = m_heap->newInstance< SequenceContext_s >();
 	m_traceContext = m_heap->newInstance< TraceContext_s >();
 
-	SequenceContext_CreateFromData( m_sequenceContext, &m_sequence );
-	
 	TraceDesc_s traceDesc = {};
 	traceDesc.screenWidth = m_width;
 	traceDesc.screenHeight = m_height;
-	traceDesc.gridMacroShift = GRID_MACRO_SHIFT;
-	traceDesc.gridScaleMin = GRID_MIN_SCALE;
-	traceDesc.gridScaleMax = GRID_MAX_SCALE;
-	traceDesc.blockMaxCount = m_sequenceContext->blockMaxCount;
 	traceDesc.stereo = V6_STEREO;
-	TraceContext_Create( m_traceContext, &traceDesc );
+
+	TraceContext_Create( m_traceContext, &traceDesc, &m_sequence );
 
 	m_lastUpdatedFrameID = (u32)-1;
 
@@ -1965,10 +1958,8 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 void CRenderingDevice::ReleaseTraceMode()
 {
 	Sequence_Release( &m_sequence, m_heap );
-	SequenceContext_Release( m_sequenceContext );
 	TraceContext_Release( m_traceContext );
 
-	m_heap->deleteInstance( m_sequenceContext );
 	m_heap->deleteInstance( m_traceContext );
 }
 
@@ -2150,6 +2141,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 #endif // #if V6_USE_CACHE == 1
 
 		CaptureDesc_s captureDesc;
+		Mat3x3_Identity( &captureDesc.appWorldToV6World );
 		captureDesc.gridMacroShift = GRID_MACRO_SHIFT;
 		captureDesc.gridScaleMin = GRID_MIN_SCALE;
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
@@ -2407,23 +2399,23 @@ void CRenderingDevice::Draw( float dt )
 				if ( frameDesc->flags & CODEC_FRAME_FLAG_MOTION )
 					frameDesc = &m_sequence.frameDescArray[frameDesc->frameID];
 
-				static GPUSequenceFrameData_s sequenceFrameData = {};
+				static TraceFrameData_s traceFrameData = {};
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
 				if ( m_lastUpdatedFrameID != frameDesc->frameID )
 				{
-					SequenceContext_UpdateFrameData( m_sequenceContext, &sequenceFrameData, frameDesc->frameID, &m_sequence, m_stack );
+					TraceContext_UpdateFrame( m_traceContext, &traceFrameData, frameDesc->frameID, m_stack );
 					m_lastUpdatedFrameID = frameDesc->frameID;
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
 				{
-					TraceOption_s options = {};
+					TraceOptions_s options = {};
 					options.logReadBack = s_logReadBack;
 					options.showHistory = g_showHistory;
 					options.showMip = g_showMip;
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
-					TraceContext_Draw( m_traceContext, &s_mainRenderTargetSet, &sequenceFrameData, views, &options );
+					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, &traceFrameData, views, &options );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );

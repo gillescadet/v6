@@ -230,6 +230,9 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, IImageWrapper
 	TArray< FColor > colors;
 
 	v6::CaptureDesc_s captureDesc;
+	captureDesc.appWorldToV6World.m_row0 = Vec3_Make( 1.0f, 0.0f, 0.0f );
+	captureDesc.appWorldToV6World.m_row1 = Vec3_Make( 0.0f, 0.0f, 1.0f );
+	captureDesc.appWorldToV6World.m_row2 = Vec3_Make( 0.0f, 1.0f, 0.0f );
 	captureDesc.gridMacroShift = s_gridMacroShift;
 	captureDesc.gridScaleMin = s_gridMinScale;
 	captureDesc.gridScaleMax = s_gridMaxScale;
