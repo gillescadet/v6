@@ -146,6 +146,7 @@ bool Sequence_Load( const char* sequenceFilename, Sequence_s* sequence, IAllocat
 void Sequence_Release( Sequence_s* sequence, IAllocator* allocator )
 {
 	allocator->free( sequence->buffer );
+	sequence->buffer = nullptr;
 	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
 		allocator->free( sequence->frameBufferArray[frameID] );
 	allocator->deleteArray( sequence->frameDescArray );
@@ -163,6 +164,7 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 	float gridScale = sequence->desc.gridScaleMin;
 	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
 		gridScales[mip] = gridScale;
+	
 
 	u32* rangeBlockPosOffsets[CODEC_BUCKET_COUNT];
 	u32* rangeBlockDataOffsets[CODEC_BUCKET_COUNT];
@@ -192,9 +194,10 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 
 			Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 			float gridScale = sequence->desc.gridScaleMin;
-			u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+			const u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+			const Vec3 gridOrigin = sequence->frameDescArray[frameID].transform.GetTranslation();
 			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-				macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
+				macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &gridOrigin, gridScale, gridMacroHalfWidth ); // patched per frame
 
 			for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
 			{
@@ -277,6 +280,8 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 			return false;
 		}
 
+		const Vec3 gridOrigin = sequence->frameDescArray[frameID].transform.GetTranslation();
+
 		u16* rangeIDs = sequence->frameDataArray[frameID].rangeIDs;
 		u32* rawFrameBlockPos = (u32*)rawFrameData.blockPos;
 		u32* rawFrameBlockData = (u32*)rawFrameData.blockData;
@@ -318,9 +323,10 @@ bool Sequence_Validate( const char* templateFilename, const char* sequenceFilena
 					const u32 rangeBlockCount = range->frameID8_mip4_blockCount20 & 0xFFFFF;
 					const u32 frameBlockPosOffset = rangeBlockPosOffsets[bucket][rangeID];
 					const u32 frameBlockDataOffset = rangeBlockDataOffsets[bucket][rangeID];
+					const Vec3 rangeGridOrigin = sequence->frameDescArray[rangeFrameID].transform.GetTranslation();
 					const Vec3i gridOffset = 
-						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameID].origin, gridScales[rangeMip], gridMacroHalfWidth ) -
-						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScales[rangeMip], gridMacroHalfWidth );
+						Codec_ComputeMacroGridCoords( &rangeGridOrigin, gridScales[rangeMip], gridMacroHalfWidth ) -
+						Codec_ComputeMacroGridCoords( &gridOrigin, gridScales[rangeMip], gridMacroHalfWidth );
 					for ( u32 blockRank = 0; blockRank < rangeBlockCount; ++blockRank )
 					{
 						const u32 sequencePackedBlockPos = sequence->frameDataArray[rangeFrameID].blockPos[frameBlockPosOffset + blockRank];

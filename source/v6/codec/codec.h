@@ -5,6 +5,7 @@
 #ifndef __V6_CORE_CODEC_H__
 #define __V6_CORE_CODEC_H__
 
+#include <v6/core/mat4x4.h> 
 #include <v6/core/vec3.h> 
 #include <v6/core/vec3i.h> 
 
@@ -34,6 +35,8 @@ BEGIN_V6_NAMESPACE
 #else
 #define CODEC_FRAME_COMPRESS			1
 #endif
+
+#include <v6/core/mat4x4.h>
 
 class IAllocator;
 class IStack;
@@ -67,7 +70,7 @@ struct CodecSequenceData_s
 
 struct CodecRawFrameDesc_s
 {
-	Vec3			origin;
+	Mat4x4			transform;
 	u32				frameID;
 	u32				sampleCount;
 	u32				gridMacroShift;
@@ -84,7 +87,7 @@ struct CodecRawFrameData_s
 
 struct CodecFrameDesc_s
 {
-	Vec3			origin;
+	Mat4x4			transform;
 	u16				frameID;
 	u16				flags;
 	u32				blockCounts[CODEC_BUCKET_COUNT];

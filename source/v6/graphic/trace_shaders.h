@@ -1,7 +1,7 @@
 /*V6*/
 
-#ifndef __V6_HLSL_CAPTURE_SHADERS_H__
-#define __V6_HLSL_CAPTURE_SHADERS_H__
+#ifndef __V6_HLSL_TRACE_SHADERS_H__
+#define __V6_HLSL_TRACE_SHADERS_H__
 
 #include "../graphic/common_shared.h"
 
@@ -123,4 +123,4 @@ static const u32 g_sizeof_pixel_blend_cs_options[2] =
 
 END_V6_HLSL_NAMESPACE
 
-#endif // __V6_HLSL_CAPTURE_SHADERS_H__
+#endif // __V6_HLSL_TRACE_SHADERS_H__

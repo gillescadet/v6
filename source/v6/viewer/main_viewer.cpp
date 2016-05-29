@@ -347,7 +347,7 @@ static bool g_reloadShaders			= false;
 static float s_yaw					= 0.0f;
 static float s_pitch				= 0.0f;
 static Vec3 s_headOffset			= Vec3_Zero();
-static Vec3 s_buildOrigin			= Vec3_Zero();
+static Mat4x4 s_buildTransform		= Mat4x4_Identity();
 
 static bool s_logReadBack			= false;
 
@@ -854,13 +854,9 @@ static void Cube_GetLookAt( Vec3& lookAt, Vec3& up, CubeAxis_e axis )
     }
 }
 
-static void Cube_MakeViewMatrix( Mat4x4* matrix, const Vec3& center, CubeAxis_e axis )
+static void Cube_MakeViewMatrix( Mat4x4* matrix, const Vec3& center, const Vec3 basis[3] )
 {
-	Vec3 lookAt;
-	Vec3 up;
-	Cube_GetLookAt( lookAt, up, axis );
-	
-	*matrix = Mat4x4_Rotation( lookAt, up );
+	*matrix = Mat4x4_Rotation( basis[2], basis[1] );
 	Mat4x4_SetTranslation( matrix, center );
 	Mat4x4_AffineInverse( matrix );
 }
@@ -1748,7 +1744,7 @@ public:
 
 public:
 	bool BuildBlock( u32 frameID );
-	void Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* sampleOffset, u32 faceID );
+	void Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* sampleOffset, const Vec3 basis[3] );
 	bool Create(int nWidth, int nHeight, IAllocator* heap, IStack* stack );
 	void Draw( float dt );
 	void DrawCameraPath( const View_s* view, u32 eye );
@@ -1887,7 +1883,7 @@ void CRenderingDevice::DrawDebug( const View_s* view, u32 eye )
 	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
 }
 
-void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* samplePos, u32 faceID )
+void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* samplePos, const Vec3 basis[3] )
 {
 	GPUEvent_Begin( "Capture" );
 		
@@ -1898,7 +1894,7 @@ void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTarge
 
 	// View
 	View_s view;
-	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, (CubeAxis_e)faceID );
+	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, basis );
 	view.projMatrix = Mat4x4_Projection( ZNEAR, DegToRad( 90.0f ), 1.0f );
 
 	Scene_Draw( s_activeScene, &view, RENDER_FLAGS_IS_CAPTURING );
@@ -2038,9 +2034,9 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 			
-	if ( frameDesc.origin != s_buildOrigin )
+	if ( frameDesc.transform != s_buildTransform )
 	{
-		V6_ERROR( "Stream origin is not compatible.\n" );
+		V6_ERROR( "Stream transform is not compatible.\n" );
 		return false;
 	}
 	
@@ -2095,7 +2091,7 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 		if ( fileWriter.Open( path ) )
 		{
 			CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.origin = s_buildOrigin;
+			frameDesc.transform = s_buildTransform;
 			frameDesc.frameID = frameID;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
 			frameDesc.gridMacroShift = GRID_MACRO_SHIFT;
@@ -2130,7 +2126,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	if ( g_sample == 0 )
 	{
-		s_buildOrigin = s_headOffset;
+		s_buildTransform = Mat4x4_Translation( &s_headOffset );
 
 #if V6_USE_CACHE == 1
 		if ( HasValidRawFrameFile( frameID ) )
@@ -2141,7 +2137,6 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 #endif // #if V6_USE_CACHE == 1
 
 		CaptureDesc_s captureDesc;
-		Mat3x3_Identity( &captureDesc.appWorldToV6World );
 		captureDesc.gridMacroShift = GRID_MACRO_SHIFT;
 		captureDesc.gridScaleMin = GRID_MIN_SCALE;
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
@@ -2164,19 +2159,24 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		CaptureContext_Create( &m_captureContext, &captureDesc );
 
 		lastSumLeafCount = 0;
-		CaptureContext_Begin( &m_captureContext );
+		const Vec3 buildOrigin = s_buildTransform.GetTranslation();
+		CaptureContext_Begin( &m_captureContext, &buildOrigin );
 	}
 
 	V6_MSG( "Capturing sample #%03d...", g_sample );
 
-	const Vec3 samplePos = s_buildOrigin + m_sampleOffsets[g_sample];
+	const Vec3 samplePos = s_buildTransform.GetTranslation() + m_sampleOffsets[g_sample];
 
 	u32 sumLeafCount = 0;
 
 	for ( u32 faceID = 0; faceID < CUBE_AXIS_COUNT; ++faceID )
 	{
-		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, faceID );
-		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &s_buildOrigin, &samplePos, faceID, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
+		Vec3 basis[3];
+		Cube_GetLookAt( basis[2], basis[1], (CubeAxis_e)faceID );
+		basis[0] = Cross( basis[2], basis[1] );
+
+		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, basis );
+		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
@@ -2256,7 +2256,6 @@ void CRenderingDevice::Draw( float dt )
 	{
 		const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 		Mat4x4_Mul3x3( &orientationMatrix, yawMatrix, eyePoses[0].lookAt );
-		Mat4x4_Transpose( &orientationMatrix );
 	}
 	else
 #endif // #if V6_USE_HMD
@@ -2283,11 +2282,11 @@ void CRenderingDevice::Draw( float dt )
 	
 	if ( g_limit )
 	{
-		Vec3 distanceToCenter = s_headOffset - s_buildOrigin;
+		Vec3 distanceToCenter = s_headOffset - s_buildTransform.GetTranslation();
 		distanceToCenter.x = Clamp( distanceToCenter.x, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.y = Clamp( distanceToCenter.y, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.z = Clamp( distanceToCenter.z, -FREE_SCALE, FREE_SCALE );
-		s_headOffset = s_buildOrigin + distanceToCenter;
+		s_headOffset = s_buildTransform.GetTranslation() + distanceToCenter;
 	}
 
 	if ( g_showPath || s_pathPlayer.isPlaying )

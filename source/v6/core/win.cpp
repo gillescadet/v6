@@ -56,7 +56,7 @@ void Win_ReleaseMouse( Win_s* win )
 	}
 }
 
-static LRESULT CALLBACK Win_Proc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam )
+static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM lParam )
 {
 	Win_s* win = Win_FindWindowByHandle( hWnd );
 
@@ -101,7 +101,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, UINT message, WPARAM wParam, LPARAM
 		{
 			V6_ASSERT( win );
 
-			UINT dwSize;
+			u32 dwSize;
 			GetRawInputData( (HRAWINPUT)lParam, RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER));
 		
 			LPBYTE lpb[4096];

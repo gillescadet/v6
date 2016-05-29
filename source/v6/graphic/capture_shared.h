@@ -41,15 +41,15 @@ BEGIN_V6_HLSL_NAMESPACE
 
 CBUFFER( CBSample, 0 )
 {
+	float4				c_sampleRight;
+	float4				c_sampleUp;
+	float4				c_sampleForward;
 	float				c_sampleDepthLinearScale;
 	float				c_sampleDepthLinearBias;
 	uint				c_sampleGridWidth;
 	float				c_sampleInvCubeSize;
 	float3				c_samplePos;
-	uint				c_sampleFaceID;
-	float4				c_sampleAppWorldToV6WorldX;
-	float4				c_sampleAppWorldToV6WorldY;
-	float4				c_sampleAppWorldToV6WorldZ;
+	uint				c_samplePad;
 	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };

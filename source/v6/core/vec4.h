@@ -117,19 +117,19 @@ V6_INLINE Vec4 Vec4_Make( const Vec3* xyz, float w )
 {
 	Vec4 v;
 	v.x = xyz->x;
-	v.y = xyz->y;	
+	v.y = xyz->y;
 	v.z = xyz->z;
 	v.w = w;
 
 	return v;
 }
 
-V6_INLINE float Dot( Vec4 const & v1, Vec4 const & v2 )
+V6_INLINE float Vec4_Dot( Vec4 const & v1, Vec4 const & v2 )
 {
 	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z + v1.w * v2.w;
 }
 
-V6_INLINE Vec4 Min( Vec4 const & v1, Vec4 const & v2 )
+V6_INLINE Vec4 Vec4_Min( Vec4 const & v1, Vec4 const & v2 )
 {
 	Vec4 v;
 	v.x = Min( v1.x, v2.x );
@@ -139,14 +139,14 @@ V6_INLINE Vec4 Min( Vec4 const & v1, Vec4 const & v2 )
 	return v;
 }
 
-V6_INLINE Vec4 Max( Vec4 const & v1, Vec4 const & v2)
+V6_INLINE Vec4 Vec4_Max( Vec4 const & v1, Vec4 const & v2)
 {
 	Vec4 v;
 	v.x = Max( v1.x, v2.x );
 	v.y = Max( v1.y, v2.y );
 	v.z = Max( v1.z, v2.z );
 	v.w = Max( v1.w, v2.w );
-	return v;					   
+	return v;
 }
 
 V6_INLINE Vec4 operator*( Vec4 const & v1, float f)

@@ -275,7 +275,7 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			}
 			else
 			{
-				player->camera.pos = player->sequence.frameDescArray[0].origin;
+				player->camera.pos = player->sequence.frameDescArray[0].transform.GetTranslation();
 				player->camera.yaw = 0.0f;
 				player->camera.pitch = 0.0f;
 				V6_MSG( "Loaded sequence %s\n", player->commandBuffer.arg );
@@ -310,14 +310,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_SEQUENCE;
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6s" ); break;
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6s" ); break;
+			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6s" );
 		}
 		break;
 	case 'S': player->keyDownPressed = keyEvent->pressed; break;
 	case 'U':
-		{
-			player->commandBuffer.action = COMMAND_ACTION_UNLOAD_SEQUENCE;
-		}
+		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_SEQUENCE;
 		break;
 	case 'W': player->keyUpPressed = keyEvent->pressed; break;
 	}
@@ -380,9 +378,6 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 			player->camera.pos += player->camera.forward * (float)keyDeltaZ * KEY_TRANSLATION_SPEED * dt;
 		}
 	}
-
-	Camera_UpdateBasis( &player->camera );
-
 }
 
 static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
@@ -393,7 +388,17 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 	Player_ProcessInputs( player, dt );
 
-	Camera_UpdateBasis( &player->camera );
+	Mat4x4* lookAt = nullptr;
+	if ( PlayerSequence_IsValid( player ) )
+	{
+		static Mat4x4 m;
+		m.m_row0 = Vec4_Make( 1, 0, 0, 0 );
+		m.m_row1 = Vec4_Make( 0, 0, 1, 0 );
+		m.m_row2 = Vec4_Make( 0, 1, 0, 0 );
+		m.m_row3 = Vec4_Make( 0, 0, 0, 1 );
+		lookAt = &m;
+	}
+	Camera_UpdateBasis( &player->camera, lookAt );
 
 	View_s view;
 	Camera_MakeView( &player->camera, &view );
@@ -448,7 +453,7 @@ END_V6_NAMESPACE
 
 //----------------------------------------------------------------------------------------------------
 
-int main()
+int main( int argc, char** argv )
 {
 	v6::CHeap heap;
 	v6::Stack stack( &heap, 100 * 1024 * 1024 );
@@ -460,6 +465,13 @@ int main()
 
 	if ( !v6::Player_Create( player, width, height, &heap, &stack ) )
 		return -1;
+
+	if ( argc >= 2 )
+	{
+		player->commandBuffer.action = v6::COMMAND_ACTION_LOAD_SEQUENCE;
+		strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), argv[1] );
+	}
+
 	v6::Win_Show( &player->win, true );
 	
 	v6::FrameTimer_s frameTimer;

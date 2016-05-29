@@ -14,7 +14,7 @@ void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, f
 	camera->aspectRatio = aspectRatio;
 	camera->yaw = 0.0f;
 	camera->pitch = 0.0f;
-	Camera_UpdateBasis( camera );
+	Camera_UpdateBasis( camera, nullptr );
 }
 
 void Camera_MakeView( Camera_s* camera, View_s* view )
@@ -35,12 +35,17 @@ void Camera_MakeView( Camera_s* camera, View_s* view )
 	view->tanHalfFOVDown = tanHalfFovV;
 }
 
-void Camera_UpdateBasis( Camera_s* camera )
+void Camera_UpdateBasis( Camera_s* camera, const Mat4x4* lookAt )
 {
+	static const Mat4x4 s_identityMatrix = Mat4x4_Identity();
+	const Mat4x4* const poseMatrix = lookAt ? lookAt : &s_identityMatrix;
+
+	Mat4x4 poseYawMatrix;
 	Mat4x4 orientationMatrix;
 	const Mat4x4 yawMatrix = Mat4x4_RotationY( camera->yaw );
 	const Mat4x4 pitchMatrix = Mat4x4_RotationX( camera->pitch );
-	Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
+	Mat4x4_Mul( &poseYawMatrix, *poseMatrix, yawMatrix );
+	Mat4x4_Mul( &orientationMatrix, poseYawMatrix, pitchMatrix );	
 
 	orientationMatrix.GetZAxis( &camera->forward );
 	camera->forward = -camera->forward;

@@ -16,11 +16,12 @@
 #include "ScenePrivate.h"
 #include "Video6DOFWrapper.h"
 
+#include <v6/core/vec3.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shared.h>
 #include <v6/graphic/gpu.h>
 
-static const uint32			s_gridMacroShift	= 8;
+static const uint32			s_gridMacroShift	= 9;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
 static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);
@@ -30,6 +31,7 @@ FDynamicRHIWrap				s_dynamicRHIWrap;
 FRHICommandContextWrap		s_rhiCommandContextWrap;
 v6::CaptureContext_s		s_captureContext;
 v6::u32						s_captureFaceID;
+v6::Vec3					s_captureFaceBasis[3];
 v6::Vec3					s_captureOrigin;
 FD3D11TextureBase*			s_captureRenderTarget;
 FD3D11TextureBase*			s_colorRenderTarget;
@@ -62,13 +64,13 @@ static void Scene_End()
 	else
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-		s_capturedSampleCount = v6::Capture_AddSamplesFromCubeFace( &s_captureContext, &s_captureOrigin, &s_captureOrigin, s_captureFaceID, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
+		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureOrigin, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
 		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured %d samples" ), s_capturedSampleCount );
 	}
 
 	if ( s_captureFaceID == 5 )
 	{
-		v6::Capture_End( &s_captureContext );
+		v6::CaptureContext_End( &s_captureContext );
 		
 		const uint32 frameID = 0;
 
@@ -82,7 +84,7 @@ static void Scene_End()
 		else
 		{
 			v6::CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.origin = s_captureOrigin;
+			frameDesc.transform = Mat4x4_Translation( &s_captureOrigin );
 			frameDesc.frameID = frameID;
 			frameDesc.sampleCount = 1;
 			frameDesc.gridMacroShift = s_gridMacroShift;
@@ -92,16 +94,16 @@ static void Scene_End()
 			v6::CodecRawFrameData_s frameData = {};
 
 			{
-				v6::Capture_MapBlocksForRead( &s_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
+				v6::CaptureContext_MapBlocksForRead( &s_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
 				v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
-				v6::Capture_UnmapBlocksForRead( &s_captureContext );
+				v6::CaptureContext_UnmapBlocksForRead( &s_captureContext );
 			}
 
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Stream saved to file." ) );
 		}
 	}
 
-	v6::GPU_EndEvent();
+	v6::GPUEvent_End();
 
 	v6::GPUShaderState_Restore( &gpuShaderState );
 	v6::GPURenderTargetState_Restore( &gpuRenderTargetState );
@@ -109,7 +111,7 @@ static void Scene_End()
 
 static void Scene_Begin( FSceneViewFamily* viewFamily )
 {
-	v6::GPU_BeginEvent( "Video6DOF Capture" );
+	v6::GPUEvent_Begin( "Video6DOF Capture" );
 	s_dynamicRHIOriginal->RHIBindDebugLabelName( viewFamily->RenderTarget->GetRenderTargetTexture(), TEXT( "SceneColorVideo6DOF" ) );
 	s_captureRenderTarget = __GetD3D11TextureFromRHITexture( viewFamily->RenderTarget->GetRenderTargetTexture() );
 	s_colorRenderTarget = nullptr;
@@ -119,7 +121,7 @@ static void Scene_Begin( FSceneViewFamily* viewFamily )
 	s_rhiCommandContextWrap.m_setRenderTargetCallback = Scene_SetRenderTarget;
 
 	if ( s_captureFaceID == 0 )
-		v6::Capture_Begin( &s_captureContext );
+		v6::CaptureContext_Begin( &s_captureContext, &s_captureOrigin );
 }
 
 class FSceneViewExtension : public ISceneViewExtension
@@ -147,7 +149,7 @@ public:
 	}
 };
 
-static FMatrix ComputeOrientationMatrixFromFace( uint32 faceID )
+static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* up, FVector* lookAt )
 {
 	static const FVector lookAts[6] = 
 	{
@@ -169,10 +171,9 @@ static FMatrix ComputeOrientationMatrixFromFace( uint32 faceID )
 		FVector( 0.0f,  1.0f,  0.0f )
 	};
 
-	const FVector& lookAt = lookAts[faceID];
-	const FVector& up = ups[faceID];
-	const FVector right = up ^ lookAt;
-	return FBasisVectorMatrix( right, up, lookAt, FVector::ZeroVector );
+	*lookAt = lookAts[faceID];
+	*up = ups[faceID];
+	*right = *up ^ *lookAt;
 }
 
 static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVector& origin, uint32 faceID )
@@ -195,11 +196,14 @@ static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVec
 
 	//static_assert( ERHIZBuffer::IsInverted );
 
+	FVector right, up, lookAt;
+	ComputeOrthoBasisFromFace( faceID, &right, &up, &lookAt );
+
 	FSceneViewInitOptions viewInitOptions;
 	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, size, size ) );
 	viewInitOptions.ViewFamily = &viewFamily;
 	viewInitOptions.ViewOrigin = origin;
-	viewInitOptions.ViewRotationMatrix = ComputeOrientationMatrixFromFace( faceID );
+	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( right, up, lookAt, FVector::ZeroVector );
 	viewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix( v6::DegToRad( 90.0f ) * 0.5f, 1.0f, 1.0f, GNearClippingPlane );
 
 	FSceneView* newView = new FSceneView( viewInitOptions );
@@ -208,6 +212,9 @@ static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVec
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
 
 	s_captureFaceID = faceID;
+	s_captureFaceBasis[0] = v6::Vec3_Make( right.X, right.Y, right.Z );
+	s_captureFaceBasis[1] = v6::Vec3_Make( up.X, up.Y, up.Z );
+	s_captureFaceBasis[2] = v6::Vec3_Make( lookAt.X, lookAt.Y, lookAt.Z );
 	s_captureOrigin = v6::Vec3_Make( origin.X, origin.Y, origin.Z );
 	s_captureRenderTarget = nullptr;
 
@@ -230,16 +237,13 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, IImageWrapper
 	TArray< FColor > colors;
 
 	v6::CaptureDesc_s captureDesc;
-	captureDesc.appWorldToV6World.m_row0 = Vec3_Make( 1.0f, 0.0f, 0.0f );
-	captureDesc.appWorldToV6World.m_row1 = Vec3_Make( 0.0f, 0.0f, 1.0f );
-	captureDesc.appWorldToV6World.m_row2 = Vec3_Make( 0.0f, 1.0f, 0.0f );
 	captureDesc.gridMacroShift = s_gridMacroShift;
 	captureDesc.gridScaleMin = s_gridMinScale;
 	captureDesc.gridScaleMax = s_gridMaxScale;
 	captureDesc.depthLinearScale = 1.0f / GNearClippingPlane;
 	captureDesc.depthLinearBias = 0.0f;
 	captureDesc.logReadBack = false;
-	v6::Capture_Create( &s_captureContext, &captureDesc );
+	v6::CaptureContext_Create( &s_captureContext, &captureDesc );
 	
 	for ( uint32 faceID = 0; faceID < 6; ++faceID )
 	{
@@ -255,7 +259,7 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, IImageWrapper
 #endif
 	}
 
-	v6::Capture_Release( &s_captureContext );
+	v6::CaptureContext_Release( &s_captureContext );
 
 	imageWrapper.Reset();
 }
@@ -265,7 +269,7 @@ static void Device_Override()
 	check( s_dynamicRHIOriginal == nullptr );
 
 	FD3D11DynamicRHI* d3d11DynamicRHI = static_cast< FD3D11DynamicRHI* >( GDynamicRHI );
-	v6::GPU_SetDevice( d3d11DynamicRHI->GetDevice() );
+	v6::GPUDevice_Set( d3d11DynamicRHI->GetDevice() );
 	
 	s_dynamicRHIOriginal = GDynamicRHI;
 	s_rhiCommandContextWrap.m_wrapped = d3d11DynamicRHI->RHIGetDefaultContext();
@@ -281,6 +285,8 @@ static void Device_Override()
 static void Device_Restore()
 {
 	check( s_dynamicRHIOriginal != nullptr );
+
+	v6::GPUDevice_Release();
 
 	GDynamicRHI = s_dynamicRHIOriginal;
 	s_dynamicRHIOriginal = nullptr;

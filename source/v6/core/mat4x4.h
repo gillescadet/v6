@@ -33,7 +33,8 @@ public:
 	void GetXAxis( Vec3* v ) const { Vec3_Make( v, m_row0.x, m_row1.x, m_row2.x ); }
 	void GetYAxis( Vec3* v ) const { Vec3_Make( v, m_row0.y, m_row1.y, m_row2.y ); }
 	void GetZAxis( Vec3* v ) const { Vec3_Make( v, m_row0.z, m_row1.z, m_row2.z ); }
-	const void GetTranslation( Vec3* v ) const { return Vec3_Make( v, m_row0.w, m_row1.w, m_row2.w ); }
+	const Vec3 GetTranslation() const { return Vec3_Make( m_row0.w, m_row1.w, m_row2.w ); }
+	const void GetTranslation( Vec3* v ) const { Vec3_Make( v, m_row0.w, m_row1.w, m_row2.w ); }
 };
 
 V6_INLINE void Mat4x4_TransformDir( Vec3* r, const Mat4x4& m, const Vec3& v)
@@ -169,6 +170,16 @@ V6_INLINE void Mat4x4_AffineInverse( Mat4x4* r )
 	Mat4x4_SetTranslation( r, invT);
 }
 
+V6_INLINE Mat4x4 Mat4x4_Identity()
+{
+	Mat4x4 r;
+	r.m_row0 = Vec4_Make( 1.0, 0.0, 0.0, 0.0 );
+	r.m_row1 = Vec4_Make( 0.0, 1.0, 0.0, 0.0 );
+	r.m_row2 = Vec4_Make( 0.0, 0.0, 1.0, 0.0 );
+	r.m_row3 = Vec4_Make( 0.0, 0.0, 0.0, 1.0 );
+	return r;
+}
+
 V6_INLINE void Mat4x4_Identity( Mat4x4* r )
 {
 	r->m_row0 = Vec4_Make( 1.0, 0.0, 0.0, 0.0 );
@@ -236,6 +247,25 @@ V6_INLINE Mat4x4 Mat4x4_RotationZ( float a )
 	return m;
 }
 
+V6_INLINE Mat4x4 Mat4x4_Translation( const Vec3* v )
+{
+	Mat4x4 m;
+	m.m_row0 = Vec4_Make(  0,  0, 0,  v->x );
+	m.m_row1 = Vec4_Make(  0,  0, 0,  v->y );
+	m.m_row2 = Vec4_Make(  0,  0, 0,  v->z );
+	m.m_row3 = Vec4_Make(  0,  0, 0,  1 );
+
+	return m;
+}
+
+V6_INLINE void Mat4x4_Translation( Mat4x4* r, const Vec3* v )
+{
+	r->m_row0 = Vec4_Make(  0,  0, 0,  v->x );
+	r->m_row1 = Vec4_Make(  0,  0, 0,  v->y );
+	r->m_row2 = Vec4_Make(  0,  0, 0,  v->z );
+	r->m_row3 = Vec4_Make(  0,  0, 0,  1 );
+}
+
 V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right )
 {	
 	Mat4x4 m;
@@ -264,6 +294,16 @@ V6_INLINE Mat4x4 Mat4x4_Projection( float n, float fov, float aspectRatio )
 	m.m_row3 = Vec4_Make(  0, 0, -1,  0 );
 
 	return m;
+}
+
+V6_INLINE bool operator==( const Mat4x4& ma, const Mat4x4& mb )
+{
+	return memcmp( &ma, &mb, sizeof( ma ) ) == 0;
+}
+
+V6_INLINE bool operator!=( const Mat4x4& ma, const Mat4x4& mb )
+{
+	return memcmp( &ma, &mb, sizeof( ma ) ) != 0;
 }
 
 END_V6_NAMESPACE

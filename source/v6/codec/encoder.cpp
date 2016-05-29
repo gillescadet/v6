@@ -48,7 +48,7 @@ struct RawFrame_s
 	Block_s*	blocks;
 	u32			blockCount;
 	u32*		blockIDs;
-	Vec3		origin;
+	Mat4x4		transform;
 	u32			refFrameID;
 	Vec3i		gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i		gridMax[CODEC_MIP_MAX_COUNT];
@@ -425,13 +425,15 @@ static bool RawFrame_LoadFromFile( u32 frameID, const char* filename, Context_s*
 		}
 	}
 
-	frame->origin = desc.origin;
+	frame->transform = desc.transform;
 	frame->refFrameID = (u32)-1;
+
+	const Vec3 origin = desc.transform.GetTranslation();
 
 	float gridScale = context->gridScaleMin;
 	for ( u32 mip = 0; mip < context->mipCount; ++mip, gridScale *= 2.0f )
 	{
-		const Vec3i gridCoord = Codec_ComputeMacroGridCoords( &desc.origin, gridScale, context->gridMacroHalfWidth );
+		const Vec3i gridCoord = Codec_ComputeMacroGridCoords( &origin, gridScale, context->gridMacroHalfWidth );
 		frame->gridMin[mip] = gridCoord - (int)context->gridMacroHalfWidth;
 		frame->gridMax[mip] = gridCoord + (int)context->gridMacroHalfWidth;
 
@@ -1030,7 +1032,7 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 	if ( refFrame )
 	{
 		CodecFrameDesc_s desc = {};
-		desc.origin = frame->origin;
+		desc.transform = frame->transform;
 		desc.flags = refFrame ? 0 : CODEC_FRAME_FLAG_MOTION;
 		desc.frameID = frameID;
 		memcpy( desc.blockCounts, blockCounts, sizeof( desc.blockCounts ) );
@@ -1047,7 +1049,7 @@ static bool RawFrame_Write( u32 frameID, IStreamWriter* streamWriter, Context_s*
 	else
 	{
 		CodecFrameDesc_s desc = {};
-		desc.origin = frame->origin;
+		desc.transform = frame->transform;
 		desc.flags = refFrame ? 0 : CODEC_FRAME_FLAG_MOTION;
 		desc.frameID = frame->refFrameID;
 

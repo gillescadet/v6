@@ -8,8 +8,8 @@
 
 #include <v6/codec/codec.h>
 #include <v6/graphic/capture.h>
-#include <v6/graphic/capture_shared.h>
 #include <v6/graphic/capture_shaders.h>
+#include <v6/graphic/capture_shared.h>
 
 BEGIN_V6_NAMESPACE
 
@@ -35,7 +35,7 @@ static void ClearNode( CaptureContext_s* captureContext )
 	g_deviceContext->ClearUnorderedAccessViewUint( res->firstChildOffsetsLimitedUAV, values );
 }
 
-static void Collect( const CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
+static void Collect( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
 {
 	GPUEvent_Begin( "Collect" );
 
@@ -59,22 +59,21 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* origin,
 		for ( u32 gridID = 0;  gridID < CODEC_MIP_MAX_COUNT; ++gridID )
 		{
 			gridScales[gridID] = gridScale;
-			gridCenters[gridID] = Codec_ComputeGridCenter( origin, gridScale, gridMacroHalfWidth );
+			gridCenters[gridID] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
 			if ( gridScale < captureContext->desc.gridScaleMax )
 				gridScale *= 2;
 		}
 
 		hlsl::CBSample* cbSample = (hlsl::CBSample*)GPUConstantBuffer_MapWrite( &res->cbCollect );
 
+		cbSample->c_sampleRight = Vec4_Make( &basis[0], 0.0f );
+		cbSample->c_sampleUp = Vec4_Make( &basis[1], 0.0f );
+		cbSample->c_sampleForward = Vec4_Make( &basis[2], 0.0f );
 		cbSample->c_sampleDepthLinearScale = captureContext->desc.depthLinearScale; // -1.0f / ZNEAR;
 		cbSample->c_sampleDepthLinearBias = captureContext->desc.depthLinearBias; // 1.0f / ZNEAR;
 		cbSample->c_sampleGridWidth = gridWidth;
 		cbSample->c_sampleInvCubeSize = 1.0f / cubeWidth;
 		cbSample->c_samplePos = *samplePos;
-		cbSample->c_sampleFaceID = faceID;
-		cbSample->c_sampleAppWorldToV6WorldX = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row0, 0.0f );
-		cbSample->c_sampleAppWorldToV6WorldY = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row1, 0.0f );
-		cbSample->c_sampleAppWorldToV6WorldZ = Vec4_Make( &captureContext->desc.appWorldToV6World.m_row2, 0.0f );
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
 			cbSample->c_sampleMipBoundaries[gridID] = Vec4_Make( &gridCenters[gridID], gridScales[gridID] );
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
@@ -412,9 +411,10 @@ void CaptureContext_Release( CaptureContext_s* captureContext )
 	s_gpuCaptureResourcesCreated = false;
 }
 
-void CaptureContext_Begin( CaptureContext_s* captureContext )
+void CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin )
 {
 	ClearNode( captureContext );
+	captureContext->frameState.origin = *origin;
 }
 
 void CaptureContext_End( CaptureContext_s* captureContext )
@@ -422,9 +422,9 @@ void CaptureContext_End( CaptureContext_s* captureContext )
 	PackColor( captureContext );
 }
 
-u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView )
+u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView )
 {
-	Collect( captureContext, origin, samplePos, faceID, (ID3D11ShaderResourceView*)colorView, (ID3D11ShaderResourceView*)depthView );
+	Collect( captureContext, samplePos, basis, (ID3D11ShaderResourceView*)colorView, (ID3D11ShaderResourceView*)depthView );
 	const u32 sumLeafCount = BuildNode( captureContext );
 	FillLeaf( captureContext );
 	return sumLeafCount;

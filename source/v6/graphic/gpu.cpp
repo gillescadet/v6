@@ -65,6 +65,7 @@ void GPUDevice_Set( ID3D11Device* device )
 	V6_ASSERT( g_device == nullptr );
 
 	g_device = device;
+	g_device->AddRef();
 	g_device->GetImmediateContext( &g_deviceContext );
 	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
 }
@@ -139,10 +140,10 @@ void GPUDevice_Release()
 {
 	V6_ASSERT( g_device );
 
-	g_deviceContext->ClearState();
-
 	if ( s_surfaceContext.initialized )
 	{
+		g_deviceContext->ClearState();
+
 		V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
 		V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
 		V6_RELEASE_D3D11( s_surfaceContext.surface.uav );

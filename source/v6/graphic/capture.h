@@ -14,7 +14,6 @@ struct GPUCaptureResources_s;
 
 struct CaptureDesc_s
 {
-	Mat3x3						appWorldToV6World;
 	u32							gridMacroShift;
 	float						gridScaleMin;
 	float						gridScaleMax;
@@ -50,6 +49,10 @@ struct CaptureContext_s
 {
 	CaptureDesc_s				desc;
 	GPUCaptureResources_s*		res;
+	struct
+	{
+		Vec3					origin;
+	}							frameState;
 	u32							resSampleCount;
 	u32							resNodeCount;
 	u32							resLeafCount;
@@ -62,8 +65,8 @@ void	CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 void	CaptureContext_Release( CaptureContext_s* captureContext );
 
 // render thread
-u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* origin, const Vec3* samplePos, u32 faceID, void* colorView, void* depthView );
-void	CaptureContext_Begin( CaptureContext_s* captureContext );
+u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView );
+void	CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin );
 void	CaptureContext_End( CaptureContext_s* captureContext );
 void	CaptureContext_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );
 void	CaptureContext_UnmapBlocksForRead( CaptureContext_s* captureContext );

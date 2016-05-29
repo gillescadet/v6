@@ -379,9 +379,10 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 
 		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 		float gridScale = sequence->desc.gridScaleMin;
-		u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+		const u32 gridMacroHalfWidth = 1 << (sequence->desc.gridMacroShift-1);
+		const Vec3 gridOrigin = sequence->frameDescArray[frameID].transform.GetTranslation();
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
+			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &gridOrigin, gridScale, gridMacroHalfWidth ); // patched per frame
 		
 		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; )
 		{
@@ -570,9 +571,10 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, TraceFrameData_s* f
 
 	Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 	float gridScale = traceContext->sequence->desc.gridScaleMin;
-	u32 gridMacroHalfWidth = 1 << (traceContext->sequence->desc.gridMacroShift-1);
+	const u32 gridMacroHalfWidth = 1 << (traceContext->sequence->desc.gridMacroShift-1);
+	const Vec3 gridOrigin = traceContext->sequence->frameDescArray[frameID].transform.GetTranslation();
 	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-		macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &traceContext->sequence->frameDescArray[frameID].origin, gridScale, gridMacroHalfWidth ); // patched per frame
+		macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &gridOrigin, gridScale, gridMacroHalfWidth ); // patched per frame
 
 	const u16* rangeIDs = traceContext->sequence->frameDataArray[frameID].rangeIDs;
 	hlsl::BlockRange* const blockRangeBuffer = stack->newArray< hlsl::BlockRange >( CODEC_BUCKET_COUNT * CODEC_RANGE_MAX_COUNT );
@@ -629,7 +631,7 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, TraceFrameData_s* f
 		frameGroupCount += bucketGroupCount;
 	}
 
-	frameData->origin = traceContext->sequence->frameDescArray[frameID].origin;
+	frameData->origin = traceContext->sequence->frameDescArray[frameID].transform.GetTranslation();
 	frameData->bufferID = frameID & 1;
 	
 	GPUTraceResources_s* traceRes = traceContext->res;
