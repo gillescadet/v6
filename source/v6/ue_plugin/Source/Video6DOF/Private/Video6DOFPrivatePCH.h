@@ -4,7 +4,6 @@
 
 #include "Engine.h"
 #include "ModuleManager.h"
-#include "ImageWrapper.h"
 #include "Tickable.h"
 
 DECLARE_LOG_CATEGORY_EXTERN( LogVideo6DOF, Verbose, All );
@@ -13,4 +12,3 @@ DECLARE_LOG_CATEGORY_EXTERN( LogVideo6DOF, Verbose, All );
 #include "Video6DOFCapturer.h"
 #include "Video6DOFManager.h"
 #include "Video6DOFPawn.h"
-

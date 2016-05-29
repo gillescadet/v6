@@ -8,16 +8,22 @@ public:
 
 							FVideo6DOFManager();
 	virtual					~FVideo6DOFManager();
-public:
 
+public:
 	void					CreateCapturer();
-	void					Screenshot( const TArray<FString>& Args );
+	void					CaptureScreenshot( const TArray<FString>& Args );
+	void					CaptureSequence( const TArray<FString>& Args );
+	void					CaptureStop( const TArray<FString>& Args );
 
 public:
 	UPROPERTY()
 	class					UVideo6DOFCapturer*	m_capturer;
 
 private:
+	void					Capture( uint32 frameCount );
+private:
 
 	FAutoConsoleCommand		m_screenshotCommand;
+	FAutoConsoleCommand		m_sequenceCommand;
+	FAutoConsoleCommand		m_stopCommand;
 };

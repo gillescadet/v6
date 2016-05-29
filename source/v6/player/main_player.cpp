@@ -59,6 +59,8 @@ enum CommandAction_e
 	COMMAND_ACTION_NONE,
 	COMMAND_ACTION_LOAD_SEQUENCE,
 	COMMAND_ACTION_UNLOAD_SEQUENCE,
+	COMMAND_ACTION_PREV_FRAME,
+	COMMAND_ACTION_NEXT_FRAME
 };
 
 struct CommandBuffer_s
@@ -80,6 +82,7 @@ struct Player_s
 	TraceContext_s			traceContext;
 	TraceFrameData_s		traceFrameData;
 	u32						traceFrameID;
+	u32						targetFrameID;
 
 	// inputs
 	bool					mousePressed;
@@ -243,6 +246,7 @@ static bool PlayerSequence_Create( Player_s* player, const char* sequenceFilenam
 	TraceContext_Create( &player->traceContext, &traceDesc, &player->sequence );
 
 	player->traceFrameID = 0;
+	player->targetFrameID = player->sequence.desc.frameCount-1;
 
 	return true;
 }
@@ -288,6 +292,20 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 				PlayerSequence_Release( player );
 		}
 		break;
+	case COMMAND_ACTION_PREV_FRAME:
+		if ( PlayerSequence_IsValid( player ) && player->targetFrameID > 0 )
+		{
+			--player->targetFrameID;
+			V6_MSG( "Target frame %d\n", player->targetFrameID );
+		}
+		break;
+	case COMMAND_ACTION_NEXT_FRAME:
+		if ( PlayerSequence_IsValid( player ) && player->targetFrameID < player->sequence.desc.frameCount-1 )
+		{
+			++player->targetFrameID;
+			V6_MSG( "Target frame %d\n", player->targetFrameID );
+		}
+		break;
 	}
 
 	player->commandBuffer.action = COMMAND_ACTION_NONE;
@@ -303,6 +321,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	{
 	case 0x1B:
 		Win_Release( &player->win );
+		break;
+	case 0x22:
+		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
+		break;
+	case 0x21:
+		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
 		break;
 	case 'A': player->keyLeftPressed = keyEvent->pressed; break;
 	case 'D': player->keyRightPressed = keyEvent->pressed; break;
@@ -388,25 +412,23 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 	Player_ProcessInputs( player, dt );
 
-	Mat4x4* lookAt = nullptr;
+	Mat4x4 lookAt = Mat4x4_Identity();
 	if ( PlayerSequence_IsValid( player ) )
 	{
-		static Mat4x4 m;
-		m.m_row0 = Vec4_Make( 1, 0, 0, 0 );
-		m.m_row1 = Vec4_Make( 0, 0, 1, 0 );
-		m.m_row2 = Vec4_Make( 0, 1, 0, 0 );
-		m.m_row3 = Vec4_Make( 0, 0, 0, 1 );
-		lookAt = &m;
+		lookAt = player->sequence.frameDescArray[player->traceFrameID].transform;
+		Mat4x4_ClearTranslation( &lookAt );
 	}
-	Camera_UpdateBasis( &player->camera, lookAt );
+	Camera_UpdateBasis( &player->camera, &lookAt );
 
 	View_s view;
 	Camera_MakeView( &player->camera, &view );
 
 	if ( PlayerSequence_IsValid( player ) )
 	{
-		if ( player->traceFrameID == 0 )
+		if ( player->traceFrameID != player->targetFrameID+1 )
 		{
+			if ( player->targetFrameID < player->traceFrameID )
+				player->traceFrameID = player->targetFrameID;
 			TraceContext_UpdateFrame( &player->traceContext, &player->traceFrameData, player->traceFrameID, player->stack );
 			++player->traceFrameID;
 		}

@@ -11,7 +11,7 @@ enum EVideo6DOFCapturerState
 {
 	NONE,
 	CAPTURE,
-	READBACK,
+	STOP,
 	DONE,
 
 	COUNT
@@ -44,7 +44,8 @@ public:
 
 public:
 	
-	void														Capture( const FVector& position, const FQuat& orientation );
+	void														Capture( const FVector& position, const FQuat& orientation, uint32 frameCount );
+	void														Stop();
 
 private:
 	
@@ -56,5 +57,7 @@ private:
 	EVideo6DOFCapturerState										m_state;
 	FVector														m_capturePosition;
 	FQuat														m_captureOrientation;
+	uint32														m_captureFrameID;
+	uint32														m_captureFrameCount;
 	TArray< FColor >											m_colors;
 };

@@ -21,6 +21,7 @@
 #include <v6/graphic/capture_shared.h>
 #include <v6/graphic/gpu.h>
 
+static const uint32			s_targetFPS			= 25;
 static const uint32			s_gridMacroShift	= 9;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
@@ -30,6 +31,7 @@ FDynamicRHI*				s_dynamicRHIOriginal = nullptr;
 FDynamicRHIWrap				s_dynamicRHIWrap;
 FRHICommandContextWrap		s_rhiCommandContextWrap;
 v6::CaptureContext_s		s_captureContext;
+v6::u32						s_captureFrameID;
 v6::u32						s_captureFaceID;
 v6::Vec3					s_captureFaceBasis[3];
 v6::Vec3					s_captureOrigin;
@@ -65,16 +67,13 @@ static void Scene_End()
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
 		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureOrigin, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
-		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured %d samples" ), s_capturedSampleCount );
 	}
 
 	if ( s_captureFaceID == 5 )
 	{
 		v6::CaptureContext_End( &s_captureContext );
 		
-		const uint32 frameID = 0;
-
-		FString path = FString::Printf( TEXT( "%s_%06u.v6f" ), TEXT( "d:/tmp/v6/ue" ), frameID );
+		FString path = FString::Printf( TEXT( "%s_%06u.v6f" ), TEXT( "d:/tmp/v6/ue" ), s_captureFrameID );
 
 		v6::CFileWriter fileWriter;
 		if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
@@ -83,9 +82,15 @@ static void Scene_End()
 		}
 		else
 		{
+			v6::Mat4x4 transform;
+			transform.m_row0 = v6::Vec4_Make( 1, 0, 0, s_captureOrigin.x );
+			transform.m_row1 = v6::Vec4_Make( 0, 0, 1, s_captureOrigin.y );
+			transform.m_row2 = v6::Vec4_Make( 0, 1, 0, s_captureOrigin.z );
+			transform.m_row3 = v6::Vec4_Make( 0, 0, 0, 1 );
+
 			v6::CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.transform = Mat4x4_Translation( &s_captureOrigin );
-			frameDesc.frameID = frameID;
+			frameDesc.transform = transform;
+			frameDesc.frameID = s_captureFrameID;
 			frameDesc.sampleCount = 1;
 			frameDesc.gridMacroShift = s_gridMacroShift;
 			frameDesc.gridScaleMin = s_gridMinScale;
@@ -98,8 +103,6 @@ static void Scene_End()
 				v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
 				v6::CaptureContext_UnmapBlocksForRead( &s_captureContext );
 			}
-
-			UE_LOG( LogVideo6DOF, Log, TEXT( "Stream saved to file." ) );
 		}
 	}
 
@@ -176,15 +179,8 @@ static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* u
 	*right = *up ^ *lookAt;
 }
 
-static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVector& origin, uint32 faceID )
+static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& origin, uint32 frameID, uint32 faceID )
 {
-	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
-	renderTargetTexture->AddToRoot();
-	renderTargetTexture->ClearColor = FLinearColor::Black;
-	renderTargetTexture->InitCustomFormat( size, size, PF_B8G8R8A8, false );
-	
-	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
-
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetMotionBlur( 0 ); // motion blur doesn't work correctly with scene captures.
 	showFlags.SetSeparateTranslucency( 0 );
@@ -194,13 +190,11 @@ static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVec
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
 
-	//static_assert( ERHIZBuffer::IsInverted );
-
 	FVector right, up, lookAt;
 	ComputeOrthoBasisFromFace( faceID, &right, &up, &lookAt );
 
 	FSceneViewInitOptions viewInitOptions;
-	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, size, size ) );
+	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, renderTargetResource->GetSizeXY().X, renderTargetResource->GetSizeXY().Y ) );
 	viewInitOptions.ViewFamily = &viewFamily;
 	viewInitOptions.ViewOrigin = origin;
 	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( right, up, lookAt, FVector::ZeroVector );
@@ -211,6 +205,7 @@ static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVec
 	viewFamily.Views.Add( newView );
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
 
+	s_captureFrameID = frameID;
 	s_captureFaceID = faceID;
 	s_captureFaceBasis[0] = v6::Vec3_Make( right.X, right.Y, right.Z );
 	s_captureFaceBasis[1] = v6::Vec3_Make( up.X, up.Y, up.Z );
@@ -222,19 +217,17 @@ static void Scene_CaptureFace( TArray< FColor >& colors, uint32 size, const FVec
 	canvas.Clear( FLinearColor::Transparent );
 	GetRendererModule().BeginRenderingViewFamily( &canvas, &viewFamily );
 
-#if 0
-	renderTargetResource->ReadPixels( colors, FReadSurfaceDataFlags(), FIntRect( 0, 0, 0, 0 ) );
-#endif
 	FlushRenderingCommands();
-
-	renderTargetTexture->RemoveFromRoot();
-	renderTargetTexture = nullptr;
 }
 
-static void Scene_CaptureCube( uint32 size, const FVector& origin, IImageWrapperModule* imageWrapperModule )
+static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameID )
 {
-	IImageWrapperPtr imageWrapper = imageWrapperModule->CreateImageWrapper( EImageFormat::PNG );
-	TArray< FColor > colors;
+	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
+	renderTargetTexture->AddToRoot();
+	renderTargetTexture->ClearColor = FLinearColor::Black;
+	renderTargetTexture->InitCustomFormat( size, size, PF_B8G8R8A8, false );
+	
+	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
 
 	v6::CaptureDesc_s captureDesc;
 	captureDesc.gridMacroShift = s_gridMacroShift;
@@ -246,22 +239,12 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, IImageWrapper
 	v6::CaptureContext_Create( &s_captureContext, &captureDesc );
 	
 	for ( uint32 faceID = 0; faceID < 6; ++faceID )
-	{
-		Scene_CaptureFace( colors, size, origin, faceID );
-#if 0
-		imageWrapper->SetRaw( colors.GetData(), colors.GetAllocatedSize(), size, size, ERGBFormat::BGRA, 8 );
-		const TArray< uint8 >& pngData = imageWrapper->GetCompressed( 100 );
-		const FString filename = TEXT( "d:/tmp/ue_color" ) + FString::FromInt( faceID ) + TEXT( ".png" );
-		FFileHelper::SaveArrayToFile( pngData, *filename );
-		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured %d pixels" ), colors.Num() );
-#else
-		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured face %d" ), faceID );
-#endif
-	}
+		Scene_CaptureFace( renderTargetResource, origin, frameID, faceID );
 
 	v6::CaptureContext_Release( &s_captureContext );
 
-	imageWrapper.Reset();
+	renderTargetTexture->RemoveFromRoot();
+	renderTargetTexture = nullptr;
 }
 
 static void Device_Override()
@@ -315,16 +298,27 @@ void UVideo6DOFCapturer::Shutdown()
 
 void UVideo6DOFCapturer::Init()
 {
-	m_imageWrapperModule = &FModuleManager::LoadModuleChecked< IImageWrapperModule >( FName("ImageWrapper") );
-
 	m_state = EVideo6DOFCapturerState::NONE;
 }
 
-void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientation )
+void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientation, uint32 frameCount )
 {
+#if PLATFORM_SUPPORTS_TEXTURE_STREAMING
+	if( !FParse::Param( FCommandLine::Get(), TEXT( "NoTextureStreaming" ) ) )
+		UE_LOG( LogVideo6DOF, Warning, TEXT( "Texture streaming should be disable while capturing. Add \"-notexturestreaming\" on the command line and restart tthe editor." ) );
+#endif // #if PLATFORM_SUPPORTS_TEXTURE_STREAMING
 	m_capturePosition = position;
 	m_captureOrientation = orientation;
+	m_captureFrameID = 0;
+	m_captureFrameCount = frameCount;
 	m_state = EVideo6DOFCapturerState::CAPTURE;
+	FApp::SetFixedDeltaTime( 1.0f / s_targetFPS );
+	FApp::SetUseFixedTimeStep( true );
+}
+
+void UVideo6DOFCapturer::Stop()
+{
+	m_state = EVideo6DOFCapturerState::STOP;
 }
 
 void UVideo6DOFCapturer::Tick( float DeltaTime )
@@ -333,11 +327,22 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 	{
 	case EVideo6DOFCapturerState::NONE:
 		return;
+	
 	case EVideo6DOFCapturerState::CAPTURE:
-		Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_imageWrapperModule );
-		m_state = EVideo6DOFCapturerState::DONE;
+		Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureFrameID );
+		++m_captureFrameID;
+		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameCount );
+
+		if ( m_captureFrameID == m_captureFrameCount )
+			m_state = EVideo6DOFCapturerState::DONE;
 		break;
+	
+	case EVideo6DOFCapturerState::STOP:
+		UE_LOG( LogVideo6DOF, Log, TEXT( "Stopped capture" ) );
+		// no break
+	
 	case EVideo6DOFCapturerState::DONE:
+		FApp::SetUseFixedTimeStep( false );
 		break;
 	}
 }

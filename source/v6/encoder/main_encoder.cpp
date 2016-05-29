@@ -29,7 +29,7 @@ int main()
 	const char* sequenceFilename = "D:/tmp/v6/ue.v6s";
 #endif
 
-	if ( !v6::Sequence_Encode( templateFilename, 1, sequenceFilename, 75.0f / 75.0f, &heap ) )
+	if ( !v6::Sequence_Encode( templateFilename, 10, sequenceFilename, 25.0f / 25.0f, &heap ) )
 		return 1;
 
 #if VALIDATE
