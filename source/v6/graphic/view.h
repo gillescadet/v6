@@ -12,9 +12,9 @@ BEGIN_V6_NAMESPACE
 struct Camera_s
 {
 	Vec3			pos;
-	Vec3			forward;
 	Vec3			right;
 	Vec3			up;
+	Vec3			forward;
 	float			znear;
 	float			fov;
 	float			aspectRatio;
@@ -28,9 +28,9 @@ struct View_s
 	Mat4x4			projMatrix;
 
 	Vec3			org;
-	Vec3			forward;
 	Vec3			right;
 	Vec3			up;
+	Vec3			forward;
 	
 	float			tanHalfFOVLeft;
 	float			tanHalfFOVRight;
@@ -40,7 +40,7 @@ struct View_s
 
 void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio );
 void	Camera_MakeView( Camera_s* camera, View_s* view );
-void	Camera_UpdateBasis( Camera_s* camera, const Mat4x4* lookAt );
+void	Camera_UpdateBasis( Camera_s* camera );
 
 END_V6_NAMESPACE
 

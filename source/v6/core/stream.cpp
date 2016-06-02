@@ -72,6 +72,12 @@ void CFileReader::Read( int nSize, void * pData )
 	V6_ASSERT( elementCount == 1 );
 }
 
+void CFileReader::SetPos( int pos )
+{
+	V6_ASSERT( m_file != nullptr );
+	fseek( (FILE*)m_file, pos, SEEK_SET );
+}
+
 void CFileReader::Skip( int nSize )
 {
 	V6_ASSERT( m_file != nullptr );
@@ -82,8 +88,6 @@ void CFileReader::Skip( int nSize )
 
 CFileWriter::CFileWriter()
 : m_pFile(nullptr)
-, m_nPos(0)
-, m_nSize(0)
 {
 }
 
@@ -114,18 +118,34 @@ bool CFileWriter::Open(const char * pFilename)
 void CFileWriter::Close()
 {
 	if (m_pFile != nullptr)
-	{
 		fclose((FILE*)m_pFile);
-		m_nPos = 0;
-		m_nSize = 0;
-	}
+}
+
+void CFileWriter::SetPos( int pos )
+{
+	V6_ASSERT( m_pFile != nullptr );
+	fseek( (FILE*)m_pFile, pos, SEEK_SET );
 }
 
 void CFileWriter::Write( const void * pData, int nSize )
 {
 	fwrite( pData, (size_t)nSize, 1, (FILE *)m_pFile );
-	m_nPos += nSize;
-	m_nSize += nSize;
+}
+
+int CFileWriter::GetPos() const
+{
+	V6_ASSERT( m_pFile != nullptr );
+	return ftell( (FILE*)m_pFile );
+}
+
+int CFileWriter::GetSize() const
+{
+	V6_ASSERT( m_pFile != nullptr );
+	const long cur = ftell( (FILE*)m_pFile );
+	fseek( (FILE*)m_pFile, 0, SEEK_END );
+	const long size = ftell( (FILE*)m_pFile );
+	fseek( (FILE*)m_pFile, cur, SEEK_SET );
+	return (int)size;
 }
 
 /// CBufferReader
@@ -148,6 +168,16 @@ void CBufferReader::Read( int nSize, void * pData )
 	m_nPos += nSize;
 }
 
+void CBufferReader::SetPos( int pos )
+{
+	if ( pos > m_nPos )
+	{
+		V6_ASSERT(!"Buffer overrun");
+		return;
+	}
+	m_nPos = pos;
+}
+
 void CBufferReader::Skip( int nSize )
 {
 	if ( m_nPos + nSize > m_nSize )
@@ -165,6 +195,16 @@ CBufferWriter::CBufferWriter(void * pBuffer, int nSize)
 	, m_nPos(0)
 	, m_nSize(nSize)
 {
+}
+
+void CBufferWriter::SetPos( int pos )
+{
+	if ( pos > m_nSize )
+	{
+		V6_ASSERT( !"Buffer overflow" );
+		return;
+	}
+	m_nPos = pos;
 }
 
 void CBufferWriter::Write( const void * pData, int nSize)

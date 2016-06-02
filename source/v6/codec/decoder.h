@@ -2,8 +2,8 @@
 
 #pragma once
 
-#ifndef __V6_CORE_DECODER_H__
-#define __V6_CORE_DECODER_H__
+#ifndef __V6_CODEC_DECODER_H__
+#define __V6_CODEC_DECODER_H__
 
 #include <v6/codec/codec.h>
 
@@ -12,7 +12,7 @@ BEGIN_V6_NAMESPACE
 class IAllocator;
 class IStack;
 
-struct Sequence_s
+struct VideoSequence_s
 {
 	CodecSequenceDesc_s		desc;
 	CodecSequenceData_s		data;
@@ -22,11 +22,22 @@ struct Sequence_s
 	void**					frameBufferArray;
 };
 
-bool Sequence_Load( const char* streamFilename, Sequence_s* sequence, IAllocator* allocator, IStack* stack );
-bool Sequence_LoadDesc( const char* sequenceFilename, CodecSequenceDesc_s* sequenceDesc, IStack* stack );
-void Sequence_Release( Sequence_s* sequence, IAllocator* allocator );
-bool Sequence_Validate( const char* templateFilename, const char* sequenceFilename, const Sequence_s* sequence, IAllocator* allocator );
+struct VideoStream_s
+{
+	CodecStreamDesc_s		desc;
+	CodecStreamData_s		data;
+	void*					buffer;
+	VideoSequence_s*		sequences;
+};
+
+bool VideoSequence_Load( VideoSequence_s* sequence, IStreamReader* streamReader, u32 sequenceID, IAllocator* allocator, IStack* stack );
+void VideoSequence_Release( VideoSequence_s* sequence, IAllocator* allocator );
+
+bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* streamDesc, IStack* stack );
+bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAllocator* allocator, IStack* stack );
+void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator );
+bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFilename, u32 frameOffset, IAllocator* allocator );
 
 END_V6_NAMESPACE
 
-#endif // __V6_CORE_DECODER_H__
+#endif // __V6_CODEC_DECODER_H__

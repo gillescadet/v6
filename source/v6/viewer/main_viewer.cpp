@@ -83,13 +83,13 @@ static const float FOV							= DegToRad( 90.0f );
 static const float FOV							= DegToRad( 90.0f );
 #endif
 static const u32 GRID_COUNT						= Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
-static const int SAMPLE_MAX_COUNT				= 1;
+static const int SAMPLE_MAX_COUNT				= 9;
 static const float FREE_SCALE					= 50.0f;
 static const u32 RANDOM_CUBE_COUNT				= 100;
 
 static const u32 HMD_FPS						= 75;
 static const u32 VIDEO_FRAME_MAX_COUNT			= 10;
-static const float VIDEO_FRAME_RATIO			= 25.0f / 75.0f;
+static const u32 VIDEO_FPS						= 25;
 
 static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
@@ -347,7 +347,8 @@ static bool g_reloadShaders			= false;
 static float s_yaw					= 0.0f;
 static float s_pitch				= 0.0f;
 static Vec3 s_headOffset			= Vec3_Zero();
-static Mat4x4 s_buildTransform		= Mat4x4_Identity();
+static Vec3 s_buildOrigin			= Vec3_Zero();
+static Vec3 s_buildBasis[3]			= { Vec3_Make( 1, 0, 0 ), Vec3_Make( 0, 1, 0 ), Vec3_Make( 0, 0, 1 ) };
 
 static bool s_logReadBack			= false;
 
@@ -791,7 +792,7 @@ static void RenderingView_MakeForStereo( View_s* renderingView, const Vec3* org,
 	renderingView->forward = *forward;
 	renderingView->right = *right;
 	renderingView->up = *up;
-	renderingView->viewMatrix = Mat4x4_View( &renderingView->org, forward, up, right );
+	renderingView->viewMatrix = Mat4x4_View( &renderingView->org, right, up, forward );
 	renderingView->projMatrix = Mat4x4_Projection( ZNEAR, FOV, aspectRatio );
 	renderingView->tanHalfFOVLeft = Tan( FOV * 0.5f );
 	renderingView->tanHalfFOVRight = renderingView->tanHalfFOVLeft;
@@ -1121,11 +1122,11 @@ static void SceneViewer_SaveInfo( SceneViewer_s* scene )
 	SceneInfo_WriteToFile( &scene->info, fileinfo );
 }
 
-static void SceneViewer_MakeSequenceFilename( const SceneViewer_s* scene, char* path, u32 maxPathSize )
+static void SceneViewer_MakeStreamFilename( const SceneViewer_s* scene, char* path, u32 maxPathSize )
 {
 	V6_ASSERT( scene->filename[0] );
 
-	FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6s" );
+	FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6" );
 }
 
 static void SceneViewer_MakeRawFrameFileTemplate( const SceneViewer_s* scene, char* path, u32 maxPathSize )
@@ -1758,13 +1759,10 @@ public:
 	void ResetDrawMode();
 	bool WriteRawFrameFile( CaptureContext_s* captureContext, u32 frame );
 
-	Vec3				m_sampleOffsets[SAMPLE_MAX_COUNT];
-	
 	CaptureContext_s	m_captureContext;
 	TraceContext_s*		m_traceContext;
-	Sequence_s			m_sequence;
+	VideoStream_s		m_stream;
 	int					m_bakedFrameCount;
-	u32					m_lastUpdatedFrameID;
 
 	SceneViewer_s*		m_defaultScene;
 	SceneDebug_s*		m_debugScene;
@@ -1814,21 +1812,6 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 	Scene_CreatePathGeo( m_pathGeoScene );
 
 	g_sample = 0;
-	m_sampleOffsets[0] = Vec3_Make( 0.0f, 0.0f, 0.0f );
-	for ( u32 sample = 1; sample < SAMPLE_MAX_COUNT; ++sample )
-	{
-		if ( sample <= 8 )
-		{
-			u32 vertexID = sample-1;
-			m_sampleOffsets[sample].x = (vertexID&1) == 0 ? -FREE_SCALE : FREE_SCALE;
-			m_sampleOffsets[sample].y = (vertexID&2) == 0 ? -FREE_SCALE : FREE_SCALE;
-			m_sampleOffsets[sample].z = (vertexID&4) == 0 ? -FREE_SCALE : FREE_SCALE;
-		}
-		else
-		{
-			m_sampleOffsets[sample] = Vec3_Rand() * FREE_SCALE;
-		}
-	}
 
 	GPUResource_LogMemoryUsage();
 
@@ -1915,26 +1898,28 @@ void CRenderingDevice::ResetDrawMode()
 bool CRenderingDevice::InitTraceMode( u32 frameCount )
 {
 	char templateFilename[256];
-	char sequenceFilename[256];
+	char streamFilename[256];
 
 	SceneViewer_MakeRawFrameFileTemplate( s_activeScene, templateFilename, sizeof( templateFilename ) );
-	SceneViewer_MakeSequenceFilename( s_activeScene, sequenceFilename, sizeof( sequenceFilename ) );
+	SceneViewer_MakeStreamFilename( s_activeScene, streamFilename, sizeof( streamFilename ) );
 
 #if V6_USE_CACHE == 1
-	CodecSequenceDesc_s sequenceDesc;
-	if ( !Sequence_LoadDesc( sequenceFilename, &sequenceDesc, m_stack ) ||
-		sequenceDesc.frameCount != frameCount ||
-		sequenceDesc.sampleCount != SAMPLE_MAX_COUNT ||
-		sequenceDesc.gridMacroShift != HLSL_GRID_MACRO_SHIFT ||
-		sequenceDesc.gridScaleMin != GRID_MIN_SCALE ||
-		sequenceDesc.gridScaleMax != GRID_MAX_SCALE )
+	CodecStreamDesc_s codecDesc;
+	if ( !VideoStream_LoadDesc( streamFilename, &codecDesc, m_stack ) ||
+		codecDesc.frameCount != frameCount ||
+		codecDesc.frameRate != HMD_FPS ||
+		codecDesc.playRate != VIDEO_FPS ||
+		codecDesc.sampleCount != SAMPLE_MAX_COUNT ||
+		codecDesc.gridMacroShift != HLSL_GRID_MACRO_SHIFT ||
+		codecDesc.gridScaleMin != GRID_MIN_SCALE ||
+		codecDesc.gridScaleMax != GRID_MAX_SCALE )
 #endif // #if V6_USE_CACHE == 1
 	{
-		if ( !Sequence_Encode( templateFilename, frameCount, sequenceFilename, VIDEO_FRAME_RATIO, m_heap ) )
+		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, m_heap ) )
 			return false;
 	}
 		
-	if ( !Sequence_Load( sequenceFilename, &m_sequence, m_heap, m_stack ) )
+	if ( !VideoStream_Load( &m_stream, streamFilename, m_heap, m_stack ) )
 		return false;
 	
 	m_traceContext = m_heap->newInstance< TraceContext_s >();
@@ -1944,17 +1929,15 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	traceDesc.screenHeight = m_height;
 	traceDesc.stereo = V6_STEREO;
 
-	TraceContext_Create( m_traceContext, &traceDesc, &m_sequence );
-
-	m_lastUpdatedFrameID = (u32)-1;
+	TraceContext_Create( m_traceContext, &traceDesc, &m_stream );
 
 	return true;
 }
 
 void CRenderingDevice::ReleaseTraceMode()
 {
-	Sequence_Release( &m_sequence, m_heap );
 	TraceContext_Release( m_traceContext );
+	VideoStream_Release( &m_stream, m_heap );
 
 	m_heap->deleteInstance( m_traceContext );
 }
@@ -2033,19 +2016,31 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		V6_ERROR( "Unable to read file %s.\n", path );
 		return false;
 	}
-			
-	if ( frameDesc.transform != s_buildTransform )
+
+	if ( frameDesc.gridOrigin != s_buildOrigin )
 	{
-		V6_ERROR( "Stream transform is not compatible.\n" );
+		V6_ERROR( "Stream origin is not compatible.\n" );
 		return false;
 	}
-	
+
+	if ( frameDesc.gridBasis[0] != s_buildBasis[0] || frameDesc.gridBasis[1] != s_buildBasis[1] || frameDesc.gridBasis[2] != s_buildBasis[2] )
+	{
+		V6_ERROR( "Stream basis is not compatible.\n" );
+		return false;
+	}
+
 	if ( frameDesc.frameID != frameID )
 	{
-		V6_ERROR( "Stream frame is not compatible.\n" );
+		V6_ERROR( "Stream frame ID is not compatible.\n" );
 		return false;
 	}
-	
+
+	if ( frameDesc.frameRate != VIDEO_FPS )
+	{
+		V6_ERROR( "Stream frame rate is not compatible.\n" );
+		return false;
+	}
+
 	if ( frameDesc.sampleCount != SAMPLE_MAX_COUNT )
 	{
 		V6_ERROR( "Stream sampleCount is not compatible.\n" );
@@ -2091,8 +2086,12 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 		if ( fileWriter.Open( path ) )
 		{
 			CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.transform = s_buildTransform;
+			frameDesc.gridOrigin = s_buildOrigin;
+			frameDesc.gridBasis[0] = s_buildBasis[0];
+			frameDesc.gridBasis[1] = s_buildBasis[1];
+			frameDesc.gridBasis[2] = s_buildBasis[2];
 			frameDesc.frameID = frameID;
+			frameDesc.frameRate = VIDEO_FPS;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
 			frameDesc.gridMacroShift = GRID_MACRO_SHIFT;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
@@ -2126,7 +2125,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	if ( g_sample == 0 )
 	{
-		s_buildTransform = Mat4x4_Translation( &s_headOffset );
+		s_buildOrigin = s_headOffset;
 
 #if V6_USE_CACHE == 1
 		if ( HasValidRawFrameFile( frameID ) )
@@ -2137,6 +2136,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 #endif // #if V6_USE_CACHE == 1
 
 		CaptureDesc_s captureDesc;
+		captureDesc.sampleCount = SAMPLE_MAX_COUNT;
 		captureDesc.gridMacroShift = GRID_MACRO_SHIFT;
 		captureDesc.gridScaleMin = GRID_MIN_SCALE;
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
@@ -2159,13 +2159,12 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		CaptureContext_Create( &m_captureContext, &captureDesc );
 
 		lastSumLeafCount = 0;
-		const Vec3 buildOrigin = s_buildTransform.GetTranslation();
-		CaptureContext_Begin( &m_captureContext, &buildOrigin );
+		CaptureContext_Begin( &m_captureContext, &s_buildOrigin );
 	}
 
 	V6_MSG( "Capturing sample #%03d...", g_sample );
 
-	const Vec3 samplePos = s_buildTransform.GetTranslation() + m_sampleOffsets[g_sample];
+	const Vec3 samplePos = CaptureContext_ComputeSamplePos( &m_captureContext, &s_buildOrigin, g_sample );
 
 	u32 sumLeafCount = 0;
 
@@ -2282,11 +2281,11 @@ void CRenderingDevice::Draw( float dt )
 	
 	if ( g_limit )
 	{
-		Vec3 distanceToCenter = s_headOffset - s_buildTransform.GetTranslation();
+		Vec3 distanceToCenter = s_headOffset - s_buildOrigin;
 		distanceToCenter.x = Clamp( distanceToCenter.x, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.y = Clamp( distanceToCenter.y, -FREE_SCALE, FREE_SCALE );
 		distanceToCenter.z = Clamp( distanceToCenter.z, -FREE_SCALE, FREE_SCALE );
-		s_headOffset = s_buildTransform.GetTranslation() + distanceToCenter;
+		s_headOffset = s_buildOrigin + distanceToCenter;
 	}
 
 	if ( g_showPath || s_pathPlayer.isPlaying )
@@ -2394,16 +2393,9 @@ void CRenderingDevice::Draw( float dt )
 
 			if ( m_bakedFrameCount == -1 )
 			{
-				const CodecFrameDesc_s* frameDesc = &m_sequence.frameDescArray[frameID];
-				if ( frameDesc->flags & CODEC_FRAME_FLAG_MOTION )
-					frameDesc = &m_sequence.frameDescArray[frameDesc->frameID];
-
-				static TraceFrameData_s traceFrameData = {};
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
-				if ( m_lastUpdatedFrameID != frameDesc->frameID )
 				{
-					TraceContext_UpdateFrame( m_traceContext, &traceFrameData, frameDesc->frameID, m_stack );
-					m_lastUpdatedFrameID = frameDesc->frameID;
+					TraceContext_UpdateFrame( m_traceContext, frameID, m_stack );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
 				{
@@ -2414,7 +2406,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
-					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, &traceFrameData, views, &options );
+					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );

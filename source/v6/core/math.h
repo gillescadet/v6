@@ -13,6 +13,9 @@ BEGIN_V6_NAMESPACE
 template< typename T >
 V6_INLINE T Abs( T x ) { return abs( x ); }
 
+template<>
+V6_INLINE float Abs( float x ) { return fabsf( x ); }
+
 template<typename T>
 V6_INLINE T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }
 

@@ -28,9 +28,10 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const float ZNEAR					= 10.0f;
-static const float MOUSE_ROTATION_SPEED		= 0.5f;
-static const float KEY_TRANSLATION_SPEED	= 200.0f;
+static const u32	PLAY_RATE				= 75; 
+static const float	ZNEAR					= 10.0f;
+static const float	MOUSE_ROTATION_SPEED	= 0.5f;
+static const float	KEY_TRANSLATION_SPEED	= 200.0f;
 
 enum
 {
@@ -57,10 +58,13 @@ struct FrameTimer_s
 enum CommandAction_e
 {
 	COMMAND_ACTION_NONE,
-	COMMAND_ACTION_LOAD_SEQUENCE,
-	COMMAND_ACTION_UNLOAD_SEQUENCE,
+	COMMAND_ACTION_LOAD_STREAM,
+	COMMAND_ACTION_UNLOAD_STREAM,
+	COMMAND_ACTION_PLAY,
+	COMMAND_ACTION_BEGIN_FRAME,
+	COMMAND_ACTION_END_FRAME,
 	COMMAND_ACTION_PREV_FRAME,
-	COMMAND_ACTION_NEXT_FRAME
+	COMMAND_ACTION_NEXT_FRAME,
 };
 
 struct CommandBuffer_s
@@ -78,10 +82,9 @@ struct Player_s
 	GPURenderTargetSet_s	mainRenderTargetSet;
 	Camera_s				camera;
 	Scene_s					scene;
-	Sequence_s				sequence;
+	VideoStream_s			stream;
 	TraceContext_s			traceContext;
-	TraceFrameData_s		traceFrameData;
-	u32						traceFrameID;
+	float					curFrameID;
 	u32						targetFrameID;
 
 	// inputs
@@ -233,9 +236,9 @@ static void PlayerDevice_Release( Player_s* player )
 
 //----------------------------------------------------------------------------------------------------
 
-static bool PlayerSequence_Create( Player_s* player, const char* sequenceFilename )
+static bool PlayerStream_Create( Player_s* player, const char* streamFilename )
 {
-	if ( !Sequence_Load( sequenceFilename, &player->sequence, player->heap, player->stack ) )
+	if ( !VideoStream_Load( &player->stream, streamFilename, player->heap, player->stack ) )
 		return false;
 	
 	TraceDesc_s traceDesc = {};
@@ -243,24 +246,24 @@ static bool PlayerSequence_Create( Player_s* player, const char* sequenceFilenam
 	traceDesc.screenHeight = player->mainRenderTargetSet.height;
 	traceDesc.stereo = false;
 
-	TraceContext_Create( &player->traceContext, &traceDesc, &player->sequence );
+	TraceContext_Create( &player->traceContext, &traceDesc, &player->stream );
 
-	player->traceFrameID = 0;
-	player->targetFrameID = player->sequence.desc.frameCount-1;
+	player->curFrameID = 0.0f;
+	player->targetFrameID = 0;
 
 	return true;
 }
 
-static void PlayerSequence_Release( Player_s* player )
+static void PlayerStream_Release( Player_s* player )
 {
 	TraceContext_Release( &player->traceContext );
-	Sequence_Release( &player->sequence, player->heap );
-	player->sequence.buffer = nullptr;
+	VideoStream_Release( &player->stream, player->heap );
+	player->stream.buffer = nullptr;
 }
 
-static bool PlayerSequence_IsValid( Player_s* player )
+static bool PlayerStream_IsValid( Player_s* player )
 {
-	return player->sequence.buffer != nullptr;
+	return player->stream.buffer != nullptr;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -269,41 +272,78 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 {
 	switch ( player->commandBuffer.action )
 	{
-	case COMMAND_ACTION_LOAD_SEQUENCE:
+	case COMMAND_ACTION_LOAD_STREAM:
 		{
-			if ( PlayerSequence_IsValid( player ) )
-				PlayerSequence_Release( player );
-			if ( !PlayerSequence_Create( player, player->commandBuffer.arg ) )
+			if ( PlayerStream_IsValid( player ) )
+				PlayerStream_Release( player );
+			if ( !PlayerStream_Create( player, player->commandBuffer.arg ) )
 			{
-				V6_ERROR( "Unable to load sequence %s\n", player->commandBuffer.arg );
+				V6_ERROR( "Unable to load stream %s\n", player->commandBuffer.arg );
 			}
 			else
 			{
-				player->camera.pos = player->sequence.frameDescArray[0].transform.GetTranslation();
+				player->camera.pos = player->stream.desc.sequenceCount > 0 ? player->stream.sequences[0].frameDescArray[0].gridOrigin : Vec3_Zero();
 				player->camera.yaw = 0.0f;
 				player->camera.pitch = 0.0f;
-				V6_MSG( "Loaded sequence %s\n", player->commandBuffer.arg );
+				V6_MSG( "Loaded stream %s\n", player->commandBuffer.arg );
 			}
 		}
 		break;
-	case COMMAND_ACTION_UNLOAD_SEQUENCE:
+	case COMMAND_ACTION_UNLOAD_STREAM:
 		{
-			if ( PlayerSequence_IsValid( player ) )
-				PlayerSequence_Release( player );
+			if ( PlayerStream_IsValid( player ) )
+				PlayerStream_Release( player );
+		}
+		break;
+	case COMMAND_ACTION_PLAY:
+		if ( PlayerStream_IsValid( player ) )
+		{
+			player->targetFrameID = (u32)-1;
+			V6_MSG( "Target frame loop\n" );
+		}
+		break;
+	case COMMAND_ACTION_BEGIN_FRAME:
+		if ( PlayerStream_IsValid( player ) && player->targetFrameID > 0 )
+		{
+			player->targetFrameID = 0;
+			V6_MSG( "Target frame %d\n", player->targetFrameID );
+		}
+		break;
+	case COMMAND_ACTION_END_FRAME:
+		if ( PlayerStream_IsValid( player ) && (player->targetFrameID < player->stream.desc.frameCount-1 || player->targetFrameID == (u32)-1) )
+		{
+			player->targetFrameID = player->stream.desc.frameCount-1;
+			V6_MSG( "Target frame %d\n", player->targetFrameID );
 		}
 		break;
 	case COMMAND_ACTION_PREV_FRAME:
-		if ( PlayerSequence_IsValid( player ) && player->targetFrameID > 0 )
+		if ( PlayerStream_IsValid( player ) )
 		{
-			--player->targetFrameID;
-			V6_MSG( "Target frame %d\n", player->targetFrameID );
+			if ( player->targetFrameID == (u32)-1 )
+			{
+				player->targetFrameID = (u32)player->curFrameID;
+				V6_MSG( "Target frame %d\n", player->targetFrameID );
+			}
+			else if ( player->targetFrameID > 0 )
+			{
+				--player->targetFrameID;
+				V6_MSG( "Target frame %d\n", player->targetFrameID );
+			}
 		}
 		break;
 	case COMMAND_ACTION_NEXT_FRAME:
-		if ( PlayerSequence_IsValid( player ) && player->targetFrameID < player->sequence.desc.frameCount-1 )
+		if ( PlayerStream_IsValid( player ) )
 		{
-			++player->targetFrameID;
-			V6_MSG( "Target frame %d\n", player->targetFrameID );
+			if ( player->targetFrameID == (u32)-1 )
+			{
+				player->targetFrameID = (u32)player->curFrameID;
+				V6_MSG( "Target frame %d\n", player->targetFrameID );
+			}
+			else if ( player->targetFrameID < player->stream.desc.frameCount-1 )
+			{
+				++player->targetFrameID;
+				V6_MSG( "Target frame %d\n", player->targetFrameID );
+			}
 		}
 		break;
 	}
@@ -322,24 +362,39 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 0x1B:
 		Win_Release( &player->win );
 		break;
-	case 0x22:
-		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
-		break;
 	case 0x21:
 		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
 		break;
-	case 'A': player->keyLeftPressed = keyEvent->pressed; break;
-	case 'D': player->keyRightPressed = keyEvent->pressed; break;
+	case 0x22:
+		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
+		break;
+	case 0x23:
+		player->commandBuffer.action = COMMAND_ACTION_END_FRAME;
+		break;
+	case 0x24:
+		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
+		break;
+	case 'A':
+		player->keyLeftPressed = keyEvent->pressed;
+		break;
+	case 'D':
+		player->keyRightPressed = keyEvent->pressed;
+		break;
 	case 'L':
 		{
-			player->commandBuffer.action = COMMAND_ACTION_LOAD_SEQUENCE;
+			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6s" ); break;
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6s" );
+			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
 		}
 		break;
-	case 'S': player->keyDownPressed = keyEvent->pressed; break;
+	case 'P':
+		player->commandBuffer.action = COMMAND_ACTION_PLAY;
+		break;
+	case 'S':
+		player->keyDownPressed = keyEvent->pressed;
+		break;
 	case 'U':
-		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_SEQUENCE;
+		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
 	case 'W': player->keyUpPressed = keyEvent->pressed; break;
 	}
@@ -412,28 +467,25 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 	Player_ProcessInputs( player, dt );
 
-	Mat4x4 lookAt = Mat4x4_Identity();
-	if ( PlayerSequence_IsValid( player ) )
-	{
-		lookAt = player->sequence.frameDescArray[player->traceFrameID].transform;
-		Mat4x4_ClearTranslation( &lookAt );
-	}
-	Camera_UpdateBasis( &player->camera, &lookAt );
+	Camera_UpdateBasis( &player->camera );
 
 	View_s view;
 	Camera_MakeView( &player->camera, &view );
 
-	if ( PlayerSequence_IsValid( player ) )
+	if ( PlayerStream_IsValid( player ) )
 	{
-		if ( player->traceFrameID != player->targetFrameID+1 )
-		{
-			if ( player->targetFrameID < player->traceFrameID )
-				player->traceFrameID = player->targetFrameID;
-			TraceContext_UpdateFrame( &player->traceContext, &player->traceFrameData, player->traceFrameID, player->stack );
-			++player->traceFrameID;
-		}
+		if ( player->targetFrameID < player->curFrameID )
+			player->curFrameID = (float)player->targetFrameID;
+		
+		const u32 frameID = (u32)(player->curFrameID + FLT_EPSILON);
+		
+		TraceContext_UpdateFrame( &player->traceContext, frameID, player->stack );
+
 		TraceOptions_s traceOptions = {};
-		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &player->traceFrameData, &view, &traceOptions );
+		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &traceOptions );
+
+		if ( frameID < player->targetFrameID )
+			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
 	}
 	else
 	{
@@ -465,8 +517,8 @@ static bool Player_Create( Player_s* player, u32 width, u32 height, IAllocator* 
 
 static void Player_Release( Player_s* player )
 {
-	if ( PlayerSequence_IsValid( player ) )
-		PlayerSequence_Release( player );
+	if ( PlayerStream_IsValid( player ) )
+		PlayerStream_Release( player );
 	PlayerScene_Release( player );
 	PlayerDevice_Release( player );
 }
@@ -490,14 +542,14 @@ int main( int argc, char** argv )
 
 	if ( argc >= 2 )
 	{
-		player->commandBuffer.action = v6::COMMAND_ACTION_LOAD_SEQUENCE;
+		player->commandBuffer.action = v6::COMMAND_ACTION_LOAD_STREAM;
 		strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), argv[1] );
 	}
 
 	v6::Win_Show( &player->win, true );
 	
 	v6::FrameTimer_s frameTimer;
-	v6::FrameTimer_Init( &frameTimer, 100.0f, 0.1f );
+	v6::FrameTimer_Init( &frameTimer, (float)v6::PLAY_RATE, 0.1f );
 	v6::u32 frameID = 0;
 	while ( !Win_ProcessMessagesAndShouldQuit( &player->win ) )
 	{

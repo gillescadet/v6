@@ -14,6 +14,7 @@ struct GPUCaptureResources_s;
 
 struct CaptureDesc_s
 {
+	u32							sampleCount;;
 	u32							gridMacroShift;
 	float						gridScaleMin;
 	float						gridScaleMax;
@@ -47,7 +48,10 @@ struct GPUCaptureResources_s
 
 struct CaptureContext_s
 {
+	static const u32			SAMPLE_MAX_COUNT = 32;
+
 	CaptureDesc_s				desc;
+	Vec3						sampleOffsets[SAMPLE_MAX_COUNT];
 	GPUCaptureResources_s*		res;
 	struct
 	{
@@ -61,6 +65,7 @@ struct CaptureContext_s
 };
 
 // any thread
+Vec3	CaptureContext_ComputeSamplePos( CaptureContext_s* captureContext, const Vec3* origin, u32 sampleID );
 void	CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc );
 void	CaptureContext_Release( CaptureContext_s* captureContext );
 

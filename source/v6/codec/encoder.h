@@ -12,7 +12,7 @@ BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
-bool Sequence_Encode( const char* templateFilename, u32 fileCount, const char* sequenceFilename, float frameToWriteRatio, IAllocator* heap );
+bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, IAllocator* heap );
 
 END_V6_NAMESPACE
 

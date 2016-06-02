@@ -15,6 +15,14 @@
 
 BEGIN_V6_NAMESPACE
 
+struct CodecStreamHeader_s
+{
+	char					magic[4];
+	u32						version;
+	u32						size;
+	CodecStreamDesc_s		desc;
+};
+
 struct CodecSequenceHeader_s
 {
 	char					magic[4];
@@ -62,7 +70,64 @@ u32 Codec_GetMipCount( float gridScaleMin, float gridScaleMax )
 	return 1 + u32( ceil( log2f( gridScaleMax / gridScaleMin ) ) );
 }
 
-void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, IAllocator* allocator )
+void* Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator )
+{
+	const u32 beginPos = streamReader->GetPos();
+
+	CodecStreamHeader_s streamHeader = {};
+
+	if ( streamReader->GetRemaining() < sizeof( streamHeader ) )
+	{
+		V6_ERROR( "Stream is too small to contain the stream header.\n" );
+		return false;
+	}
+
+	streamReader->Read( sizeof( streamHeader ), &streamHeader );
+
+	if ( memcmp( streamHeader.magic, CODEC_STREAM_MAGIC, 4 ) != 0 )
+	{
+		V6_ERROR( "Invalid magic '%c%c%c%c' for stream header.\n", streamHeader.magic[0], streamHeader.magic[1], streamHeader.magic[2], streamHeader.magic[3] );
+		return false;
+	}
+
+	if ( streamHeader.version != CODEC_STREAM_VERSION )
+	{
+		V6_ERROR( "Incompatible version %d for stream header.\n", streamHeader.version );
+		return false;
+	}
+
+	const u32 frameOffsetSize = streamHeader.desc.sequenceCount * 4;
+	const u32 sequenceByteOffsetSize = streamHeader.desc.sequenceCount * 4;
+
+	if ( streamHeader.size != sizeof( streamHeader ) + frameOffsetSize + sequenceByteOffsetSize )
+	{
+		V6_ERROR( "Bad file size of %d bytes for stream header.\n", streamHeader.size );
+		return false;
+	}
+
+	if ( (u32)streamReader->GetRemaining() < frameOffsetSize + sequenceByteOffsetSize )
+	{
+		V6_ERROR( "Bad stream size of %d bytes for stream header.\n", streamReader->GetRemaining() );
+		return nullptr;
+	}
+
+	memcpy( desc, &streamHeader.desc, sizeof( streamHeader.desc ) );
+
+	// todo: aligned alloc
+	u8* buffer = (u8*)allocator->alloc( frameOffsetSize + sequenceByteOffsetSize );
+
+	data->frameOffsets = (u32*)buffer;
+	streamReader->Read( frameOffsetSize, data->frameOffsets );
+
+	data->sequenceByteOffsets = data->frameOffsets + frameOffsetSize;
+	streamReader->Read( sequenceByteOffsetSize, data->sequenceByteOffsets );
+
+	V6_ASSERT( streamReader->GetPos() - beginPos == streamHeader.size );
+
+	return buffer;
+}
+
+void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* allocator )
 {	
 	const u32 beginPos = streamReader->GetPos();
 
@@ -87,6 +152,12 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 		return false;
 	}
 
+	if ( sequenceHeader.desc.sequenceID != sequenceID )
+	{
+		V6_ERROR( "Incompatible sequence ID %d for sequence desc.\n", sequenceHeader.desc.sequenceID );
+		return nullptr;
+	}
+
 	u32 rangeDefSize = 0;
 
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
@@ -100,7 +171,7 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 
 	if ( (u32)streamReader->GetRemaining() < rangeDefSize )
 	{
-		V6_ERROR( "Bad stream size of %d bytes for frame header.\n", streamReader->GetRemaining() );
+		V6_ERROR( "Bad stream size of %d bytes for sequence header.\n", streamReader->GetRemaining() );
 		return nullptr;
 	}
 
@@ -115,6 +186,26 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 	V6_ASSERT( streamReader->GetPos() - beginPos == sequenceHeader.size );
 
 	return buffer;
+}
+
+void Codec_WriteStream( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data )
+{
+	const u32 beginPos = streamWriter->GetPos();
+
+	const u32 frameOffsetSize = desc->sequenceCount * 4;
+	const u32 sequenceByteOffsetSize = desc->sequenceCount * 4;
+
+	CodecStreamHeader_s streamHeader = {};
+	memcpy( streamHeader.magic, CODEC_STREAM_MAGIC, 4 );
+	streamHeader.version = CODEC_STREAM_VERSION;
+	streamHeader.size = sizeof( streamHeader ) + frameOffsetSize + sequenceByteOffsetSize;
+	memcpy( &streamHeader.desc, desc, sizeof( streamHeader.desc ) );
+
+	streamWriter->Write( &streamHeader, sizeof( streamHeader ) );
+	streamWriter->Write( data->frameOffsets, frameOffsetSize );
+	streamWriter->Write( data->sequenceByteOffsets, sequenceByteOffsetSize );
+
+	V6_ASSERT( streamWriter->GetPos() - beginPos == streamHeader.size );
 }
 
 void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data )
@@ -270,7 +361,7 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 	return true;
 }
 
-void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameID, IAllocator* allocator, IStack* stack )
+void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack )
 {
 	ScopedStack scopedStack( stack );
 
@@ -299,9 +390,9 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	if ( frameHeader.desc.flags & CODEC_FRAME_FLAG_MOTION )
 	{
-		if ( frameHeader.desc.frameID >= frameID )
+		if ( frameHeader.desc.frameRank >= frameRank )
 		{
-			V6_ERROR( "Incompatible ref frame ID %d for frame desc.\n", frameHeader.desc.frameID );
+			V6_ERROR( "Incompatible ref frame Rank %d for frame desc.\n", frameHeader.desc.frameRank );
 			return nullptr;
 		}
 
@@ -309,9 +400,9 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		return (void*)1;
 	}
 
-	if ( frameHeader.desc.frameID != frameID )
+	if ( frameHeader.desc.frameRank != frameRank )
 	{
-		V6_ERROR( "Incompatible frame ID %d for frame desc.\n", frameHeader.desc.frameID );
+		V6_ERROR( "Incompatible frame ID %d for frame desc.\n", frameHeader.desc.frameRank );
 		return nullptr;
 	}
 

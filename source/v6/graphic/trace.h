@@ -12,6 +12,22 @@ BEGIN_V6_NAMESPACE
 
 struct View_s;
 
+struct SequenceBlockRange_s
+{
+	Vec3i					macroGridCoords;
+	u32						blockCount;
+	u32						blockPosOffset;
+	u32						blockDataOffset;
+};
+
+struct SequenceContext_s
+{
+	CodecRange_s*			rangeDefs[CODEC_BUCKET_COUNT];
+	SequenceBlockRange_s	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
+	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
+	u32						frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
+};
+
 struct GPUTraceResources_s
 {
 	GPUConstantBuffer_s		cbCull;
@@ -40,14 +56,6 @@ struct GPUTraceResources_s
 	GPUCompute_s			computeBlend[2];
 };
 
-struct SequenceBlockRange_s
-{
-	Vec3i					macroGridCoords;
-	u32						blockCount;
-	u32						blockPosOffset;
-	u32						blockDataOffset;
-};
-
 struct TraceDesc_s
 {
 	u32						screenWidth;
@@ -65,31 +73,32 @@ struct TraceOptions_s
 	bool					randomBackground;
 };
 
+struct TraceFrameState_s
+{
+	Vec3					origin;
+	Vec3					basis[3];
+	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
+	u32						groupCounts[CODEC_BUCKET_COUNT];
+	u32						sequenceID;
+	u32						frameRank;
+	u32						bufferID;
+};
+
 struct TraceContext_s
 {
 	TraceDesc_s				desc;
-	const Sequence_s*		sequence;
+	const VideoStream_s*	stream;
 	GPUTraceResources_s*	res;
-	CodecRange_s*			rangeDefs[CODEC_BUCKET_COUNT];
-	SequenceBlockRange_s	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
-	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
-	u32						frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
+	SequenceContext_s		sequenceContext;
+	TraceFrameState_s		frameState;
 	u32						resPassedBlockCount;
 	u32						resCellItemCount;
 };
 
-struct TraceFrameData_s
-{
-	Vec3					origin;
-	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
-	u32						groupCounts[CODEC_BUCKET_COUNT];
-	u32						bufferID;
-};
-
-void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const Sequence_s* sequence );
-void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const TraceFrameData_s* frameData, const View_s* views, const TraceOptions_s* options );
+void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );
+void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options );
 void TraceContext_Release( TraceContext_s* traceContext );
-void TraceContext_UpdateFrame( TraceContext_s* traceContext, TraceFrameData_s* frameData, u32 frameID, IStack* stack );
+void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack );
 
 END_V6_NAMESPACE
 

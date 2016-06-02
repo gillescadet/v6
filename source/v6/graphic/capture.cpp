@@ -338,6 +338,7 @@ static void PackColor( CaptureContext_s* captureContext )
 void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc )
 {
 	V6_ASSERT( s_gpuCaptureResourcesCreated == false );
+	V6_ASSERT( desc->sampleCount > 0 && desc->sampleCount <= CaptureContext_s::SAMPLE_MAX_COUNT );
 	GPUCaptureResources_s* res = &s_gpuCaptureResources;
 
 	const u32 gridWidth = 1 << (desc->gridMacroShift + 2);
@@ -350,6 +351,24 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 	captureContext->resNodeCount = captureContext->resLeafCount * 3;
 	captureContext->resBlockDataCount = captureContext->resLeafCount * 33 / 16;
 	captureContext->resBlockPosCount = captureContext->resBlockDataCount / 8;
+	
+	const float cellScaleMin = desc->gridScaleMin / gridWidth;
+	const float freeScale = desc->gridScaleMin - cellScaleMin;
+	captureContext->sampleOffsets[0] = Vec3_Make( 0.0f, 0.0f, 0.0f );
+	for ( u32 sample = 1; sample < desc->sampleCount; ++sample )
+	{
+		if ( sample <= 8 )
+		{
+			u32 vertexID = sample-1;
+			captureContext->sampleOffsets[sample].x = (vertexID&1) == 0 ? -freeScale : freeScale;
+			captureContext->sampleOffsets[sample].y = (vertexID&2) == 0 ? -freeScale : freeScale;
+			captureContext->sampleOffsets[sample].z = (vertexID&4) == 0 ? -freeScale : freeScale;
+		}
+		else
+		{
+			captureContext->sampleOffsets[sample] = Vec3_Rand() * freeScale;
+		}
+	}
 
 	GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSample ), "sample" );
 	GPUConstantBuffer_Create( &res->cbOctree, sizeof( hlsl::CBOctree ), "octree" );
@@ -420,6 +439,13 @@ void CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin 
 void CaptureContext_End( CaptureContext_s* captureContext )
 {
 	PackColor( captureContext );
+}
+
+Vec3 CaptureContext_ComputeSamplePos( CaptureContext_s* captureContext, const Vec3* origin, u32 sampleID )
+{
+	const u32 gridMacroHalfWidth = 1 << (captureContext->desc.gridMacroShift-1);
+	const Vec3 gridCenter = Codec_ComputeGridCenter( origin, captureContext->desc.gridScaleMin, gridMacroHalfWidth );
+	return gridCenter + captureContext->sampleOffsets[sampleID];
 }
 
 u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView )

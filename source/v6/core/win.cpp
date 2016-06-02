@@ -284,10 +284,10 @@ void Win_Show( Win_s* win, bool show )
 bool Win_ProcessMessagesAndShouldQuit( Win_s* win )
 {
 	MSG msg;
-	while ( PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) )
+	while ( PeekMessage( &msg, NULL, 0, 0, PM_REMOVE ) )
 	{
-		TranslateMessage(&msg);
-		DispatchMessageA(&msg);
+		TranslateMessage( &msg );
+		DispatchMessageA( &msg );
 
 		if ( msg.message == WM_QUIT )
 			return true;

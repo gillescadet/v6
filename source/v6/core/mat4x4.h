@@ -29,11 +29,17 @@ public:
 		};
 		Vec4 m_rows[4];
 	};	
-
+	
+	Vec3 GetXAxis() const { return Vec3_Make( m_row0.x, m_row1.x, m_row2.x ); }
 	void GetXAxis( Vec3* v ) const { Vec3_Make( v, m_row0.x, m_row1.x, m_row2.x ); }
+	
+	Vec3 GetYAxis() const { return Vec3_Make( m_row0.y, m_row1.y, m_row2.y ); }
 	void GetYAxis( Vec3* v ) const { Vec3_Make( v, m_row0.y, m_row1.y, m_row2.y ); }
+	
+	Vec3 GetZAxis() const { return Vec3_Make( m_row0.z, m_row1.z, m_row2.z ); }
 	void GetZAxis( Vec3* v ) const { Vec3_Make( v, m_row0.z, m_row1.z, m_row2.z ); }
-	const Vec3 GetTranslation() const { return Vec3_Make( m_row0.w, m_row1.w, m_row2.w ); }
+
+	Vec3 GetTranslation() const { return Vec3_Make( m_row0.w, m_row1.w, m_row2.w ); }
 	const void GetTranslation( Vec3* v ) const { Vec3_Make( v, m_row0.w, m_row1.w, m_row2.w ); }
 };
 
@@ -142,6 +148,14 @@ V6_INLINE void Mat4x4_AddTranslation( Mat4x4* r, const Vec3& v )
 	r->m_row0.w += v.x;
 	r->m_row1.w += v.y;
 	r->m_row2.w += v.z;
+}
+
+V6_INLINE void Mat4x4_Basis( Mat4x4* r, const Vec3* vx, const Vec3* vy, const Vec3* vz )
+{
+	Vec4_Make( &r->m_row0,	vx->x,	vy->x,	vz->x,	0.0f );
+	Vec4_Make( &r->m_row1,	vx->y,	vy->y,	vz->y,	0.0f );
+	Vec4_Make( &r->m_row2,	vx->z,	vy->z,	vz->z,	0.0f );
+	Vec4_Make( &r->m_row3,	0.0f,	0.0f,	0.0f,	1.0f );
 }
 
 V6_INLINE void Mat4x4_SetTranslation( Mat4x4* r, const Vec3& v )
@@ -266,7 +280,7 @@ V6_INLINE void Mat4x4_Translation( Mat4x4* r, const Vec3* v )
 	r->m_row3 = Vec4_Make(  0,  0, 0,  1 );
 }
 
-V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right )
+V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* right, const Vec3* up, const Vec3* forward )
 {	
 	Mat4x4 m;
 	m.m_row0 = Vec4_Make( right->x, right->y, right->z, 0 );

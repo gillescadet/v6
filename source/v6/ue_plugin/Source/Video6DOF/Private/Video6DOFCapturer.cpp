@@ -21,20 +21,29 @@
 #include <v6/graphic/capture_shared.h>
 #include <v6/graphic/gpu.h>
 
-static const uint32			s_targetFPS			= 25;
-static const uint32			s_gridMacroShift	= 9;
+static const uint32			s_targetFPS			= 75;
+static const uint32			s_sampleCount		= 9;
+static const uint32			s_gridMacroShift	= 8;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
 static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);
+
+enum CaptureState_e
+{
+	CAPTURE_STATE_BEGIN,
+	CAPTURE_STATE_MIDDLE,
+	CAPTURE_STATE_END,
+};
 
 FDynamicRHI*				s_dynamicRHIOriginal = nullptr;
 FDynamicRHIWrap				s_dynamicRHIWrap;
 FRHICommandContextWrap		s_rhiCommandContextWrap;
 v6::CaptureContext_s		s_captureContext;
+CaptureState_e				s_captureState;
 v6::u32						s_captureFrameID;
-v6::u32						s_captureFaceID;
-v6::Vec3					s_captureFaceBasis[3];
 v6::Vec3					s_captureOrigin;
+v6::Vec3					s_captureSamplePos;
+v6::Vec3					s_captureFaceBasis[3];
 FD3D11TextureBase*			s_captureRenderTarget;
 FD3D11TextureBase*			s_colorRenderTarget;
 FD3D11TextureBase*			s_depthRenderTarget;
@@ -66,10 +75,10 @@ static void Scene_End()
 	else
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureOrigin, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
+		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
 	}
 
-	if ( s_captureFaceID == 5 )
+	if ( s_captureState == CAPTURE_STATE_END )
 	{
 		v6::CaptureContext_End( &s_captureContext );
 		
@@ -82,16 +91,14 @@ static void Scene_End()
 		}
 		else
 		{
-			v6::Mat4x4 transform;
-			transform.m_row0 = v6::Vec4_Make( 1, 0, 0, s_captureOrigin.x );
-			transform.m_row1 = v6::Vec4_Make( 0, 0, 1, s_captureOrigin.y );
-			transform.m_row2 = v6::Vec4_Make( 0, 1, 0, s_captureOrigin.z );
-			transform.m_row3 = v6::Vec4_Make( 0, 0, 0, 1 );
-
 			v6::CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.transform = transform;
+			frameDesc.gridOrigin = s_captureOrigin;
+			frameDesc.gridBasis[0] = v6::Vec3_Make( 1, 0, 0 );
+			frameDesc.gridBasis[1] = v6::Vec3_Make( 0, 0, 1 );
+			frameDesc.gridBasis[2] = v6::Vec3_Make( 0, 1, 0 );
 			frameDesc.frameID = s_captureFrameID;
-			frameDesc.sampleCount = 1;
+			frameDesc.frameRate = s_targetFPS;
+			frameDesc.sampleCount = s_sampleCount;
 			frameDesc.gridMacroShift = s_gridMacroShift;
 			frameDesc.gridScaleMin = s_gridMinScale;
 			frameDesc.gridScaleMax = s_gridMaxScale;
@@ -123,7 +130,7 @@ static void Scene_Begin( FSceneViewFamily* viewFamily )
 	s_rhiCommandContextWrap.m_endSceneCallback = Scene_End;
 	s_rhiCommandContextWrap.m_setRenderTargetCallback = Scene_SetRenderTarget;
 
-	if ( s_captureFaceID == 0 )
+	if ( s_captureState == CAPTURE_STATE_BEGIN )
 		v6::CaptureContext_Begin( &s_captureContext, &s_captureOrigin );
 }
 
@@ -179,14 +186,17 @@ static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* u
 	*right = *up ^ *lookAt;
 }
 
-static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& origin, uint32 frameID, uint32 faceID )
+static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& origin, const FVector& samplePos, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
-	showFlags.SetMotionBlur( 0 ); // motion blur doesn't work correctly with scene captures.
-	showFlags.SetSeparateTranslucency( 0 );
-	showFlags.SetHMDDistortion( 0 );
+	showFlags.SetMotionBlur( false ); // motion blur doesn't work correctly with scene captures.
+	showFlags.SetSeparateTranslucency( false );
+	showFlags.SetHMDDistortion( false );
 	showFlags.SetAntiAliasing( false );
 	showFlags.SetTranslucency( false );
+	showFlags.SetCameraImperfections( false );
+	showFlags.SetDepthOfField( false );
+	showFlags.SetGrain( false );
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
 
@@ -196,7 +206,7 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	FSceneViewInitOptions viewInitOptions;
 	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, renderTargetResource->GetSizeXY().X, renderTargetResource->GetSizeXY().Y ) );
 	viewInitOptions.ViewFamily = &viewFamily;
-	viewInitOptions.ViewOrigin = origin;
+	viewInitOptions.ViewOrigin = samplePos;
 	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( right, up, lookAt, FVector::ZeroVector );
 	viewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix( v6::DegToRad( 90.0f ) * 0.5f, 1.0f, 1.0f, GNearClippingPlane );
 
@@ -205,8 +215,9 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	viewFamily.Views.Add( newView );
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
 
+	s_captureState = captureState;
 	s_captureFrameID = frameID;
-	s_captureFaceID = faceID;
+	s_captureSamplePos = v6::Vec3_Make( samplePos.X, samplePos.Y, samplePos.Z );
 	s_captureFaceBasis[0] = v6::Vec3_Make( right.X, right.Y, right.Z );
 	s_captureFaceBasis[1] = v6::Vec3_Make( up.X, up.Y, up.Z );
 	s_captureFaceBasis[2] = v6::Vec3_Make( lookAt.X, lookAt.Y, lookAt.Z );
@@ -230,6 +241,7 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameI
 	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
 
 	v6::CaptureDesc_s captureDesc;
+	captureDesc.sampleCount = s_sampleCount;
 	captureDesc.gridMacroShift = s_gridMacroShift;
 	captureDesc.gridScaleMin = s_gridMinScale;
 	captureDesc.gridScaleMax = s_gridMaxScale;
@@ -237,9 +249,25 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameI
 	captureDesc.depthLinearBias = 0.0f;
 	captureDesc.logReadBack = false;
 	v6::CaptureContext_Create( &s_captureContext, &captureDesc );
-	
-	for ( uint32 faceID = 0; faceID < 6; ++faceID )
-		Scene_CaptureFace( renderTargetResource, origin, frameID, faceID );
+
+	for ( uint32 sampleID = 0; sampleID < s_sampleCount; ++sampleID )
+	{
+		const v6::Vec3 gridOrigin = v6::Vec3_Make( origin.X, origin.Y, origin.Z );
+		const v6::Vec3 samplePos = v6::CaptureContext_ComputeSamplePos( &s_captureContext, &gridOrigin, sampleID );
+
+		for ( uint32 faceID = 0; faceID < 6; ++faceID )
+		{
+			CaptureState_e captureState;
+			if ( sampleID == 0 && faceID == 0)
+				captureState = CAPTURE_STATE_BEGIN;
+			else if ( sampleID == s_sampleCount-1 && faceID == 5 )
+				captureState = CAPTURE_STATE_END;
+			else
+				captureState = CAPTURE_STATE_MIDDLE;
+
+			Scene_CaptureFace( renderTargetResource, origin, FVector( samplePos.x, samplePos.y, samplePos.z ), frameID, faceID, captureState );
+		}
+	}
 
 	v6::CaptureContext_Release( &s_captureContext );
 
@@ -338,11 +366,15 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 		break;
 	
 	case EVideo6DOFCapturerState::STOP:
-		UE_LOG( LogVideo6DOF, Log, TEXT( "Stopped capture" ) );
-		// no break
+		UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped by user." ) );
+		m_state = EVideo6DOFCapturerState::DONE;
+		break;
 	
 	case EVideo6DOFCapturerState::DONE:
 		FApp::SetUseFixedTimeStep( false );
+		if ( m_captureFrameID == m_captureFrameCount )
+			UE_LOG( LogVideo6DOF, Log, TEXT( "Capture done." ) );
+		m_state = EVideo6DOFCapturerState::NONE;
 		break;
 	}
 }

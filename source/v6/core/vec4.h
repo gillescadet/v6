@@ -6,6 +6,7 @@
 #define __V6_CORE_VEC4_H__
 
 #include <v6/core/math.h>
+#include <v6/core/vec3.h>
 
 BEGIN_V6_NAMESPACE
 
@@ -22,6 +23,7 @@ public:
 			float w;
 		};
 		float m_fValues[4];
+		Vec3 xyz;
 	};	
 
 public:
@@ -113,6 +115,14 @@ V6_INLINE Vec4 Vec4_Make( float x, float y, float z, float w )
 	return v;
 }
 
+V6_INLINE void Vec4_Make( Vec4* v, float x, float y, float z, float w )
+{
+	v->x = x;
+	v->y = y;
+	v->z = z;
+	v->w = w;
+}
+
 V6_INLINE Vec4 Vec4_Make( const Vec3* xyz, float w )
 {
 	Vec4 v;
@@ -122,6 +132,14 @@ V6_INLINE Vec4 Vec4_Make( const Vec3* xyz, float w )
 	v.w = w;
 
 	return v;
+}
+
+V6_INLINE Vec4 Vec4_Make( Vec4* v, const Vec3* xyz, float w )
+{
+	v->x = xyz->x;
+	v->y = xyz->y;
+	v->z = xyz->z;
+	v->w = w;
 }
 
 V6_INLINE float Vec4_Dot( Vec4 const & v1, Vec4 const & v2 )
