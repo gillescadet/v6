@@ -196,7 +196,7 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 	wcex.hInstance = nullptr;
 	wcex.hIcon = nullptr;
 	wcex.hCursor = LoadCursor( nullptr, IDC_ARROW );
-	wcex.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	wcex.hbrBackground = (HBRUSH)GetStockObject( BLACK_BRUSH );
 	wcex.lpszMenuName = nullptr;
 	wcex.lpszClassName = "v6";
 	wcex.hIconSm = nullptr;
@@ -236,7 +236,8 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 
 	rid[0].usUsagePage = 0x01; 
 	rid[0].usUsage = 0x02; 
-	rid[0].dwFlags = RIDEV_NOLEGACY;   // adds HID mouse and also ignores legacy mouse messages
+	//rid[0].dwFlags = RIDEV_NOLEGACY;   // adds HID mouse and also ignores legacy mouse messages
+	rid[0].dwFlags = 0;
 	rid[0].hwndTarget = hWnd;
 
 	rid[1].usUsagePage = 0x01; 
@@ -249,11 +250,6 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		V6_ERROR( "Call to RegisterRawInputDevices failed!\n" );
 		return false;
 	}
-
-	SetCursor( LoadCursor( NULL, IDC_ARROW ) );
-
-	return true;
-
 
 	return true;
 }

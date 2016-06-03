@@ -23,7 +23,7 @@
 
 static const uint32			s_targetFPS			= 75;
 static const uint32			s_sampleCount		= 9;
-static const uint32			s_gridMacroShift	= 8;
+static const uint32			s_gridMacroShift	= 7;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
 static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);

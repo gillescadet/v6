@@ -66,6 +66,7 @@ struct GPUBuffer_s
 	ID3D11Buffer*					staging;
 	ID3D11ShaderResourceView*		srv;
 	ID3D11UnorderedAccessView*		uav;
+	u32								size;
 };
 
 enum GPUTextureMipMapState_e

@@ -412,9 +412,11 @@ void GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, co
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * sizeof( u32 );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * sizeof( u32 );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -422,13 +424,13 @@ void GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, co
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * sizeof( u32 );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_STAGING;
 		bufferDesc.BindFlags = 0;
 		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -436,7 +438,7 @@ void GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, co
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	{
@@ -465,9 +467,11 @@ void GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * sizeof( u32 );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * sizeof( u32 );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -480,7 +484,7 @@ void GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void
 		dataDesc.SysMemSlicePitch = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, &dataDesc, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	V6_ASSERT( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) == 0 );
@@ -500,9 +504,11 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * DXGIFormat_Size( format );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * DXGIFormat_Size( format );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -513,13 +519,13 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * DXGIFormat_Size( format );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_STAGING;
 		bufferDesc.BindFlags = 0;
 		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -527,7 +533,7 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 		bufferDesc.StructureByteStride = 0;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	{
@@ -557,9 +563,11 @@ void GPUBuffer_CreateTypedWithStaticData( GPUBuffer_s* buffer, const void* data,
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * DXGIFormat_Size( format );
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * DXGIFormat_Size( format );
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -572,7 +580,7 @@ void GPUBuffer_CreateTypedWithStaticData( GPUBuffer_s* buffer, const void* data,
 		dataDesc.SysMemSlicePitch = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, &dataDesc, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	V6_ASSERT( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) == 0 );
@@ -592,9 +600,11 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * elementSize;
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * elementSize;
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -605,13 +615,13 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 		bufferDesc.StructureByteStride = elementSize;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 	
 	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * elementSize;
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_STAGING;
 		bufferDesc.BindFlags = 0;
 		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -619,7 +629,7 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 		bufferDesc.StructureByteStride = elementSize;
 		
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	{
@@ -649,9 +659,11 @@ void GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* 
 {
 	memset( buffer, 0, sizeof( *buffer ) );
 
+	buffer->size = count * elementSize;
+
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * elementSize;
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		bufferDesc.CPUAccessFlags = 0;
@@ -664,13 +676,13 @@ void GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* 
 		dataDesc.SysMemSlicePitch = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = count * elementSize;
+		bufferDesc.ByteWidth = buffer->size;
 		bufferDesc.Usage = D3D11_USAGE_STAGING;
 		bufferDesc.BindFlags = 0;
 		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -678,7 +690,7 @@ void GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* 
 		bufferDesc.StructureByteStride = elementSize;
 
 		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
-		GPUResource_LogMemory( "GPUBuffer", bufferDesc.ByteWidth, name );
+		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 
 	{
@@ -732,6 +744,7 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcDat
 #else
 	D3D11_MAPPED_SUBRESOURCE res;
 	V6_ASSERT_D3D11( g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res ) );
+	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
 	memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );
 	g_deviceContext->Unmap( dstBuffer->buf, 0 );
 #endif

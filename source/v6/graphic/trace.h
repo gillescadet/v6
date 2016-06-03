@@ -97,6 +97,7 @@ struct TraceContext_s
 
 void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );
 void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options );
+void TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* right, Vec3* up, Vec3* forward );
 void TraceContext_Release( TraceContext_s* traceContext );
 void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack );
 

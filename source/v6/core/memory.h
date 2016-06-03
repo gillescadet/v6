@@ -98,7 +98,7 @@ public:
 	virtual void	push() override;
 	virtual void	pop() override;
 
-private:
+public:
 	IAllocator*	m_heap;
 	u32*		m_stack;
 	void*		m_buffer;

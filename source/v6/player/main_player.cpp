@@ -99,6 +99,19 @@ struct Player_s
 
 //----------------------------------------------------------------------------------------------------
 
+static u32 CheckMemory( const u8* p, u8 val, u32 size )
+{
+	for ( u32 i = 0; i < size; ++i )
+	{
+		if ( p[i] != val )
+			return i;
+	}
+
+	return size;
+}
+
+//----------------------------------------------------------------------------------------------------
+
 static void FrameTimer_Init( FrameTimer_s* frameTimer, float fpsMax, float dtMax )
 {
 	frameTimer->frameTickLast = GetTickCount();
@@ -123,7 +136,7 @@ static float FrameTimer_ComputeInterval( FrameTimer_s* frameTimer )
 		frameUpdatedTick = GetTickCount();
 //#endif // #if !V6_USE_HMD
 	}
-	frameTimer->frameTickLast = frameTick;
+	frameTimer->frameTickLast = frameUpdatedTick;
 
 	return dt;
 }
@@ -160,7 +173,7 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 static void PlayerScene_Create( Player_s* player )
 {
-	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height );
+	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, nullptr );
 	
 	Scene_Create( &player->scene );
 
@@ -359,6 +372,17 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 
 	switch( keyEvent->key )
 	{
+	case 'A': player->keyLeftPressed = keyEvent->pressed; break;
+	case 'D': player->keyRightPressed = keyEvent->pressed; break;
+	case 'S': player->keyDownPressed = keyEvent->pressed; break;
+	case 'W': player->keyUpPressed = keyEvent->pressed; break;
+	}
+
+	if ( !keyEvent->pressed )
+		return ;
+
+	switch( keyEvent->key )
+	{
 	case 0x1B:
 		Win_Release( &player->win );
 		break;
@@ -374,12 +398,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 0x24:
 		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
 		break;
-	case 'A':
-		player->keyLeftPressed = keyEvent->pressed;
-		break;
-	case 'D':
-		player->keyRightPressed = keyEvent->pressed;
-		break;
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
@@ -390,13 +408,9 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY;
 		break;
-	case 'S':
-		player->keyDownPressed = keyEvent->pressed;
-		break;
 	case 'U':
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
-	case 'W': player->keyUpPressed = keyEvent->pressed; break;
 	}
 }
 
@@ -467,11 +481,6 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 	Player_ProcessInputs( player, dt );
 
-	Camera_UpdateBasis( &player->camera );
-
-	View_s view;
-	Camera_MakeView( &player->camera, &view );
-
 	if ( PlayerStream_IsValid( player ) )
 	{
 		if ( player->targetFrameID < player->curFrameID )
@@ -481,6 +490,15 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 		
 		TraceContext_UpdateFrame( &player->traceContext, frameID, player->stack );
 
+		Vec3 right, up, forward;
+		TraceContext_GetFrameBasis( &player->traceContext, &right, &up, &forward );
+		
+		const Mat4x4 lookAt = Mat4x4_Basis( &right, &up, &forward );
+		Camera_UpdateBasis( &player->camera, &lookAt );
+
+		View_s view;
+		Camera_MakeView( &player->camera, &view );
+
 		TraceOptions_s traceOptions = {};
 		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &traceOptions );
 
@@ -489,6 +507,11 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 	}
 	else
 	{
+		Camera_UpdateBasis( &player->camera, nullptr );
+
+		View_s view;
+		Camera_MakeView( &player->camera, &view );
+
 		PlayerScene_Draw( player, &view );
 	}
 

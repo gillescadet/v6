@@ -158,6 +158,14 @@ V6_INLINE void Mat4x4_Basis( Mat4x4* r, const Vec3* vx, const Vec3* vy, const Ve
 	Vec4_Make( &r->m_row3,	0.0f,	0.0f,	0.0f,	1.0f );
 }
 
+V6_INLINE Mat4x4 Mat4x4_Basis( const Vec3* vx, const Vec3* vy, const Vec3* vz )
+{
+	Mat4x4 r;
+	Mat4x4_Basis( &r, vx, vy, vz );
+	return r;
+}
+
+
 V6_INLINE void Mat4x4_SetTranslation( Mat4x4* r, const Vec3& v )
 {
 	r->m_row0.w = v.x;

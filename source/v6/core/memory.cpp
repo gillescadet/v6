@@ -31,7 +31,7 @@ void * CHeap::alloc(int nSize)
 
 void CHeap::free(void * p)
 {
-	if ( p == nullptr)
+	if ( p == nullptr )
 		return;
 	
 	--m_notFreeCount;

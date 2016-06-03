@@ -119,7 +119,7 @@ void* Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, Co
 	data->frameOffsets = (u32*)buffer;
 	streamReader->Read( frameOffsetSize, data->frameOffsets );
 
-	data->sequenceByteOffsets = data->frameOffsets + frameOffsetSize;
+	data->sequenceByteOffsets = (u32*)(buffer + frameOffsetSize);
 	streamReader->Read( sequenceByteOffsetSize, data->sequenceByteOffsets );
 
 	V6_ASSERT( streamReader->GetPos() - beginPos == streamHeader.size );
