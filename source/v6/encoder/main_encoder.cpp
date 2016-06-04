@@ -29,8 +29,8 @@ int main()
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 #endif
 
-	const v6::u32 frameOffset	= 0;
-	const v6::u32 frameCount	= 750;
+	const v6::u32 frameOffset	= 64;
+	const v6::u32 frameCount	= 750 - frameOffset;
 	const v6::u32 playRate		= 75;
 
 	if ( !v6::VideoStream_Encode( streamFilename, templateFilename, frameOffset, frameCount, playRate, &heap ) )
