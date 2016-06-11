@@ -97,6 +97,70 @@ V6_INLINE void Mat3x3_Clear( Mat3x3* r )
 	r->m_row2 = Vec3_Zero();
 }
 
+template < bool PRECENTRED >
+V6_INLINE void Mat3x3_Covariance_Guts( Mat3x3* r, Vec3* center, const Vec3* points, u32 pointCount )
+{
+	V6_ASSERT( pointCount > 0 );
+	
+	const float invPointCount = 1.0f / pointCount;
+
+	if ( !PRECENTRED )
+	{
+		*center = Vec3_Zero();
+		for ( u32 pointID = 0; pointID < pointCount; ++pointID )
+			*center += points[pointID];
+		*center *= invPointCount;
+	}
+
+	float sumXX = 0.0f;
+	float sumXY = 0.0f;
+	float sumXZ = 0.0f;
+
+	float sumYY = 0.0f;
+	float sumYZ = 0.0f;
+
+	float sumZZ = 0.0f;
+
+	for ( u32 pointID = 0; pointID < pointCount; ++pointID )
+	{
+		Vec3 p = points[pointID];
+		if ( !PRECENTRED )
+			p -= *center;
+		
+		sumXX += p.x * p.x;
+		sumXY += p.x * p.y;
+		sumXZ += p.x * p.z;
+
+		sumYY += p.y * p.y;
+		sumYZ += p.y * p.z;
+
+		sumZZ += p.z * p.z;
+	}
+
+	sumXX *= invPointCount;
+	sumXY *= invPointCount;
+	sumXZ *= invPointCount;
+
+	sumYY *= invPointCount;
+	sumYZ *= invPointCount;
+
+	sumZZ *= invPointCount;
+
+	r->m_row0 = Vec3_Make( sumXX, sumXY, sumXZ );
+	r->m_row1 = Vec3_Make( sumXY, sumYY, sumYZ );
+	r->m_row2 = Vec3_Make( sumXZ, sumYZ, sumZZ );
+}
+
+V6_INLINE void Mat3x3_Covariance( Mat3x3* r, Vec3* center, const Vec3* points, u32 pointCount )
+{
+	Mat3x3_Covariance_Guts< true >( r, center, points, pointCount );
+}
+
+V6_INLINE void Mat3x3_CovariancePrecentred( Mat3x3* r, const Vec3* points, u32 pointCount )
+{
+	Mat3x3_Covariance_Guts< true >( r, nullptr, points, pointCount );
+}
+
 V6_INLINE void Mat3x3_Identity( Mat3x3* r )
 {
 	r->m_row0 = Vec3_Make( 1.0, 0.0, 0.0 );

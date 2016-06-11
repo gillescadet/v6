@@ -58,7 +58,7 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 8;
+static const u32 GRID_MACRO_SHIFT				= 9;
 static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
 static const u32 CUBE_SIZE						= GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
@@ -2470,7 +2470,7 @@ int main()
 	V6_MSG( "Viewer 0.1\n" );
 
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 100 * 1024 * 1024 );
+	v6::Stack stack( &heap, 200 * 1024 * 1024 );
 		
 #if V6_LOAD_EXTERNAL == 1
 	v6::Stack stackScene( &heap, 400 * 1024 * 1024 );

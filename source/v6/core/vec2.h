@@ -69,22 +69,39 @@ public:
 		return v;
 	}
 
-	Vec2 operator*=(Vec2 const & v2)
+	Vec2& operator*=(Vec2 const & v2)
 	{
 		x *= v2.x;
 		y *= v2.y;
+		return *this;
+	}
+
+	Vec2& operator*=( float s )
+	{
+		x *= s;
+		y *= s;
+		return *this;
 	}
 	
-	Vec2 operator+=(Vec2 const & v2)
+	Vec2& operator+=(Vec2 const & v2)
 	{
 		x += v2.x;
 		y += v2.y;
+		return *this;
 	}
 
-	Vec2 operator-=(Vec2 const & v2)
+	Vec2& operator+=( float s )
+	{
+		x += s;
+		y += s;
+		return *this;
+	}
+
+	Vec2& operator-=(Vec2 const & v2)
 	{
 		x -= v2.x;
 		y -= v2.y;
+		return *this;
 	}
 };
 

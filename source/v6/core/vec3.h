@@ -43,6 +43,16 @@ public:
 		return x * x + y * y + z * z;
 	}
 
+	float Min() const
+	{
+		return v6::Min( x, v6::Min( y, z ) );
+	}
+
+	float Max() const
+	{
+		return v6::Max( x, v6::Max( y, z ) );
+	}
+
 	Vec3 Normalized() const
 	{
 		float const fL = Length();
@@ -157,6 +167,16 @@ V6_INLINE Vec3 Vec3_Zero()
 	v.x = 0.0f;
 	v.y = 0.0f;
 	v.z = 0.0f;
+
+	return v;
+}
+
+V6_INLINE Vec3 Vec3_One()
+{
+	Vec3 v;
+	v.x = 1.0f;
+	v.y = 1.0f;
+	v.z = 1.0f;
 
 	return v;
 }

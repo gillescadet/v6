@@ -275,9 +275,11 @@ static ProjectFile_s s_projectFiles[] =
 
 	// compressor
 	{ "source/v6/codec/compression.cpp",				PROJECT_COMPRESSOR },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_COMPRESSOR },
 	{ "source/v6/core/image.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/memory.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/stream.cpp",						PROJECT_COMPRESSOR },
+	{ "source/v6/core/string.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/compressor/main_compressor.cpp",		PROJECT_COMPRESSOR },
 
 	// doc

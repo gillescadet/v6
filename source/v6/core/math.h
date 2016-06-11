@@ -25,6 +25,9 @@ V6_INLINE T Cos( T x ) { return cosf( x ); }
 template<typename T>
 V6_INLINE bool IsPowOfTwo( T x ) { return (x & (x-1)) == 0; }
 
+template<typename T1, typename T2>
+V6_INLINE T1 Lerp(T1 v0, T1 v1, T2 t) { return (1-t) * v0 + t * v1; }
+
 template<typename T>
 V6_INLINE T Max(T x, T y) { return x < y ? y : x; }
 	

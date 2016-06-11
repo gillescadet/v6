@@ -9,6 +9,11 @@
 
 BEGIN_V6_NAMESPACE
 
+inline void RandSeed( u32 seed )
+{
+	srand( seed );
+}
+
 inline float RandFloat()
 {
 	static float fInvRandMax = 1.0f / RAND_MAX;
