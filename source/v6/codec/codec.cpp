@@ -496,7 +496,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		V6_ASSERT( chunk + blockDataUncompressedSize == (u8*)blockData );
 	}
 #else
-	chunkReader->Read( blockDataSize, chunk );
+	chunkReader->Read( blockDataUncompressedSize, chunk );
 #endif // #if CODEC_COLOR_COMPRESS == 1
 	data->blockData = (u32*)chunk;
 	chunk += blockDataUncompressedSize;
@@ -580,7 +580,7 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 		{
 			EncodedBlockEx_s* encodedBlock = (EncodedBlockEx_s*)encodedData;
 			u32 cellCount = 0;
-			Block_Encode( encodedBlock, uncompressedBlockData, cellPerBucketCount );
+			Block_Encode_Optimize( encodedBlock, uncompressedBlockData, cellPerBucketCount );
 			encodedData += dataCompressedSize;
 			uncompressedBlockData += cellPerBucketCount;
 		}

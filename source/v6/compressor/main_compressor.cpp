@@ -14,6 +14,7 @@
 #include <v6/core/random.h>
 #include <v6/core/stream.h>
 #include <v6/core/string.h>
+#include <v6/core/time.h>
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
@@ -141,7 +142,7 @@ static u32 ImageBlock_EncodeBC1_Build( ImageBlock_s* block, const Color_s* pixel
 	return sumError;
 }
 
-static void ImageBlock_EncodeBC1_BoundingBox( ImageBlock_s* block, const Color_s* pixels, u32 lineStride )
+static u32 ImageBlock_EncodeBC1_BoundingBox( ImageBlock_s* block, const Color_s* pixels, u32 lineStride )
 {
 	// Find the min/max colors
 	
@@ -177,7 +178,7 @@ static void ImageBlock_EncodeBC1_BoundingBox( ImageBlock_s* block, const Color_s
 	max.g = max.g > extentG ? (max.g - extentG) : 0;
 	max.b = max.b > extentB ? (max.b - extentB) : 0;
 
-	ImageBlock_EncodeBC1_Build( block, pixels, lineStride, min, max, 4 );
+	return ImageBlock_EncodeBC1_Build( block, pixels, lineStride, min, max, 4 );
 }
 
 static void ImageBlock_EncodeBC1_BruteForce( ImageBlock_s* block, const Color_s* pixels, u32 lineStride, u32 radius )
@@ -284,7 +285,8 @@ static void EndColor_U8ToF32( Vec3* endColorF32, const Color_s* endColorU8 )
 	endColorF32->z = endColorU8->b / 255.0f;
 }
 
-static u32 ImageBlock_EncodeBC1_Refine( ImageBlock_s* block, const Color_s* pixels, u32 lineStride, const Vec3* endColor0, const Vec3* endColor1, u32 binCount, u32 radius )
+template < int RADIUS >
+static u32 ImageBlock_EncodeBC1_Refine( ImageBlock_s* block, const Color_s* pixels, u32 lineStride, const Vec3* endColor0, const Vec3* endColor1, u32 binCount )
 {
 	// Converts to 8 bits
 	
@@ -317,20 +319,20 @@ static u32 ImageBlock_EncodeBC1_Refine( ImageBlock_s* block, const Color_s* pixe
 	max.b >>= 3;
 	
 	Vec3u startMin, endMin;
-	startMin.x = Max( 0, (int)min.r - (int)radius );
-	startMin.y = Max( 0, (int)min.g - (int)radius );
-	startMin.z = Max( 0, (int)min.b - (int)radius );
-	endMin.x = Min( 31, (int)min.r + (int)radius );
-	endMin.y = Min( 63, (int)min.g + (int)radius );
-	endMin.z = Min( 31, (int)min.b + (int)radius );
+	startMin.x = Max( 0, (int)min.r - RADIUS );
+	startMin.y = Max( 0, (int)min.g - RADIUS );
+	startMin.z = Max( 0, (int)min.b - RADIUS );
+	endMin.x = Min( 31, (int)min.r + RADIUS );
+	endMin.y = Min( 63, (int)min.g + RADIUS );
+	endMin.z = Min( 31, (int)min.b + RADIUS );
 
 	Vec3u startMax, endMax;
-	startMax.x = Max( 0, (int)max.r - (int)radius );
-	startMax.y = Max( 0, (int)max.g - (int)radius );
-	startMax.z = Max( 0, (int)max.b - (int)radius );
-	endMax.x = Min( 31, (int)max.r + (int)radius );
-	endMax.y = Min( 63, (int)max.g + (int)radius );
-	endMax.z = Min( 31, (int)max.b + (int)radius );
+	startMax.x = Max( 0, (int)max.r - RADIUS );
+	startMax.y = Max( 0, (int)max.g - RADIUS );
+	startMax.z = Max( 0, (int)max.b - RADIUS );
+	endMax.x = Min( 31, (int)max.r + RADIUS );
+	endMax.y = Min( 63, (int)max.g + RADIUS );
+	endMax.z = Min( 31, (int)max.b + RADIUS );
 
 	u32 minError = INT_MAX;
 
@@ -597,7 +599,18 @@ static u32 ImageBlock_EncodeBC1_Optimize( ImageBlock_s* block, const Color_s* pi
 	}
 #endif // #if MAIN_COMPRESSOR_DEBUG == 1
 
-	const u32 error = ImageBlock_EncodeBC1_Refine( block, pixels, lineStride, &bestEndColor0, &bestEndColor1, binCount, radius );
+	u32 error;
+	switch ( radius )
+	{
+	case 1:
+		error = ImageBlock_EncodeBC1_Refine< 1 >( block, pixels, lineStride, &bestEndColor0, &bestEndColor1, binCount );
+		break;
+	case 2:
+		error = ImageBlock_EncodeBC1_Refine< 2 >( block, pixels, lineStride, &bestEndColor0, &bestEndColor1, binCount );
+		break;
+	default:
+		V6_ASSERT_NOT_SUPPORTED();
+	}
 
 #if MAIN_COMPRESSOR_DEBUG == 1
 	if ( s_plot )
@@ -628,6 +641,161 @@ static u32 ImageBlock_EncodeBC1_Optimize( ImageBlock_s* block, const Color_s* pi
 #endif // #if MAIN_COMPRESSOR_DEBUG == 1
 
 	return error;
+}
+
+static u32 ImageBlock_EncodeBC1_EmulateBlock( ImageBlock_s* block, const Color_s* pixels, u32 lineStride )
+{
+	u32 cellRGBA[16];
+	u32 colorID = 0;
+	for ( u32 y = 0; y < 4; ++y )
+	{
+		const u32 xOffset = y * lineStride;
+		for ( u32 x = 0; x < 4; ++x, ++colorID )
+		{
+			const Color_s* pixel = &pixels[xOffset + x];
+			cellRGBA[colorID] = (pixel->r << 24) | (pixel->g << 16) | (pixel->b << 8) | colorID;
+		}
+	}
+
+	EncodedBlockEx_s encodedBlock;
+	const u32 error = Block_Encode_Optimize( &encodedBlock, cellRGBA, 16 );
+
+	block->color0 = encodedBlock.cellEndColors & 0xFFFF;
+	block->color1 = encodedBlock.cellEndColors >> 16;
+	block->bits = (u32)encodedBlock.cellColorIndices[0];
+
+	return error;
+}
+
+static u32 ImageBlock_EncodeBC1_OptimizeFast( ImageBlock_s* block, const Color_s* pixels, u32 lineStride )
+{
+	// Compute centred colors
+
+	Vec3 colorCenter = Vec3_Zero();
+	Vec3 centredColors[16];
+
+	{
+		Vec3 colors[16];
+		u32 colorID = 0;
+		for ( u32 y = 0; y < 4; ++y )
+		{
+			const u32 xOffset = y * lineStride;
+			for ( u32 x = 0; x < 4; ++x, ++colorID )
+			{
+				const Color_s* pixel = &pixels[xOffset + x];
+				colors[colorID].x = pixel->r / 255.0f;
+				colors[colorID].y = pixel->g / 255.0f;
+				colors[colorID].z = pixel->b / 255.0f;
+				colorCenter += colors[colorID];
+			}
+		}
+
+		colorCenter *= 1.0f / 16.0f;
+	
+		for ( u32 colorID = 0; colorID < 16; ++colorID )
+			centredColors[colorID] = colors[colorID] - colorCenter;
+	}
+
+	// Compute best line passing by centred colors
+
+	Vec3 colorDir;
+
+	{
+		Mat3x3 covariance;
+		Optimization_FindBestFittingLine3DPrecentred( &colorDir, &covariance, centredColors, 16 );
+
+		if ( covariance.m_row0.x < FLT_EPSILON && covariance.m_row1.y < FLT_EPSILON && covariance.m_row2.z < FLT_EPSILON )
+			return ImageBlock_EncodeBC1_BoundingBox( block, pixels, lineStride );
+	}
+
+	Vec3 bestEndColor0;
+	Vec3 bestEndColor1;
+	float minSumDistanceSQ = FLT_MAX;
+
+	{
+		// Project centred colors on line to find bounds
+
+		float ts[16];
+		float tMin = FLT_MAX;
+		float tMax = -FLT_MAX;
+		for ( u32 colorID = 0; colorID < 16; ++colorID )
+		{
+			ts[colorID] = Dot( centredColors[colorID], colorDir );
+			tMin = Min( tMin, ts[colorID] );
+			tMax = Max( tMax, ts[colorID] );
+		}
+
+		// Try multiple segments
+
+		const float tLen = (tMax - tMin);
+		const float tStep = tLen * 0.0125f;
+
+		static const float colorEps = 3.0f * (2.0f / 255.f) * (2.0f / 255.0f);
+
+		for ( int step0 = -4; step0 <= 4; ++step0 )
+		{
+			const float t0 = tMin + step0 * tStep;
+			for ( int step1 = -4; step1 <= 4; ++step1 )
+			{
+				const float t1 = tMax + step1 * tStep;
+				const float tDiff = t1 - t0;
+				if ( tDiff < colorEps )
+					continue;
+
+				Vec3 endColor0 = colorCenter + t0 * colorDir;
+				Vec3 endColor1 = colorCenter + t1 * colorDir;
+				if ( endColor0.Max() < 0.0f || endColor0.Min() > 1.0f || endColor1.Max() < 0.0f || endColor1.Min() > 1.0f )
+					continue;
+
+				// Snap on the end color grid
+
+				{
+					Color_s encodedColor0;
+					Color_s encodedColor1;
+					EndColor_F32ToU8( &encodedColor0, &endColor0 );
+					EndColor_F32ToU8( &encodedColor1, &endColor1 );
+					EndColor_U8ToF32( &endColor0, &encodedColor0 );
+					EndColor_U8ToF32( &endColor1, &encodedColor1 );
+				}
+
+				// Project centred colors on segment to find decoded colors
+
+				float segmentSumDistanceSQ = 0.0f;
+
+				Vec3 binColors[4];
+				binColors[0] = endColor0 - colorCenter;
+				binColors[3] = endColor1 - colorCenter;
+				binColors[1] = Lerp( binColors[0], binColors[3], 1.0f / 3.0f );
+				binColors[2] = Lerp( binColors[0], binColors[3], 2.0f / 3.0f );
+				
+				for ( u32 colorID = 0; colorID < 16; ++colorID )
+				{
+					float bestDistanceSQ = FLT_MAX;
+					for ( u32 binID = 0; binID < 4; ++binID )
+					{
+						const float distanceSQ = (centredColors[colorID] - binColors[binID]).LengthSq();
+						bestDistanceSQ = Min( bestDistanceSQ, distanceSQ );
+					}
+					
+					segmentSumDistanceSQ += bestDistanceSQ;
+				}
+
+				// Keep the best segment
+
+				if ( segmentSumDistanceSQ < minSumDistanceSQ )
+				{
+					minSumDistanceSQ = segmentSumDistanceSQ;
+					bestEndColor0 = endColor0;
+					bestEndColor1 = endColor1;
+				}
+			}
+		}
+	}
+
+	if ( minSumDistanceSQ == FLT_MAX )
+		return ImageBlock_EncodeBC1_BoundingBox( block, pixels, lineStride );
+
+	return ImageBlock_EncodeBC1_Refine< 1 >( block, pixels, lineStride, &bestEndColor0, &bestEndColor1, 4 );
 }
 
 static void ImageBlock_DecodeBC1( Color_s* pixels, u32 lineStride, const ImageBlock_s* block )
@@ -717,6 +885,7 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 	Image_s imageDst = {};
 	Image_Create( &imageDst, allocator, imageSrc.width, imageSrc.height );
 
+	float maxMSE = 0.0f;
 	float sumMSE = 0.0f;
 	for ( u32 y = 0; y < imageSrc.height; y += 4 )
 	{
@@ -734,9 +903,17 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 			const u32 error3 = ImageBlock_EncodeBC1_Optimize( &block3, &imageSrc.pixels[xOffset + x], imageSrc.width, 3, 1 );
 			const u32 error4 = error3 == 0 ? UINT_MAX : ImageBlock_EncodeBC1_Optimize( &block4, &imageSrc.pixels[xOffset + x], imageSrc.width, 4, 1 );
 			ImageBlock_DecodeBC1( &imageDst.pixels[xOffset + x], imageDst.width, error3 < error4 ? &block3 : &block4 );
-#elif 1
+#elif 0
 			ImageBlock_s block4;
 			const u32 error4 = ImageBlock_EncodeBC1_Optimize( &block4, &imageSrc.pixels[xOffset + x], imageSrc.width, 4, 1 );
+			ImageBlock_DecodeBC1( &imageDst.pixels[xOffset + x], imageDst.width, &block4 );
+#elif 0
+			ImageBlock_s block4;
+			const u32 error4 = ImageBlock_EncodeBC1_OptimizeFast( &block4, &imageSrc.pixels[xOffset + x], imageSrc.width );
+			ImageBlock_DecodeBC1( &imageDst.pixels[xOffset + x], imageDst.width, &block4 );
+#elif 1
+			ImageBlock_s block4;
+			const u32 error4 = ImageBlock_EncodeBC1_EmulateBlock( &block4, &imageSrc.pixels[xOffset + x], imageSrc.width );
 			ImageBlock_DecodeBC1( &imageDst.pixels[xOffset + x], imageDst.width, &block4 );
 #elif 0
 			ImageBlock_s block3;
@@ -745,14 +922,16 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 #endif
 			
 			// ImageBlock_DecodeBC1( &imageDst.pixels[xOffset + x], imageDst.width, &block4 );
-			sumMSE += ImageBlock_Error( imageSrc.pixels, imageDst.pixels, imageDst.width );
+			const float blockMSE =  ImageBlock_Error( imageSrc.pixels, imageDst.pixels, imageDst.width );
+			maxMSE = Max( maxMSE, blockMSE );
+			sumMSE += blockMSE;
 		}
 
 		// V6_MSG( "Line %d/%d\n", y, imageSrc.height );
 	}
 
-	const float mse = sumMSE / (imageSrc.width * imageSrc.height);
-	V6_MSG( "MSE: %g\n", mse );
+	const float avgMSE = sumMSE / (imageSrc.width * imageSrc.height);
+	V6_MSG( "MSE: avg %g, max %g\n", avgMSE, maxMSE );
 
 	char filenameWithoutExt[256];
 	FilePath_TrimExtension( filenameWithoutExt, sizeof( filenameWithoutExt ), filenameSrc );
@@ -799,7 +978,7 @@ retry:
 		}
 
 		EncodedBlockEx_s encodedBlock;
-		Block_Encode( &encodedBlock, cellRGBA, cellCount );
+		Block_Encode_Optimize( &encodedBlock, cellRGBA, cellCount );
 
 		u32 decodedCellRGBA[64] = {};
 		u32 decodedCellCount = 0;
@@ -834,9 +1013,10 @@ static void TestImageCompressions( Stack* stack )
 	//const char* filenameSrc = "D:/media/image/femme.tga";
 	//const char* filenameSrcs[] = { "D:/media/image/montagne.tga" };
 	//const char* filenameSrc = "D:/media/image/ville.tga";
-	const char* filenameSrcs[] = { "D:/media/image/plage.tga" };
+	//const char* filenameSrcs[] = { "D:/media/image/plage.tga" };
 	//const char* filenameSrc = "D:/media/image/rgb.tga";
 	//const char* filenameSrcs[] = { "D:/media/image/sponza01.tga" };
+	const char* filenameSrcs[] = { "D:/media/image/sponza_512_v6.tga" };
 	//const char* filenameSrcs[] = { "D:/media/image/sponza_1024_ss0.tga", "D:/media/image/sponza_1024_ss1.tga", "D:/media/image/sponza_1024_ss2.tga" };
 
 	const u32 fileCount = sizeof( filenameSrcs ) / sizeof( filenameSrcs[0] );
@@ -897,9 +1077,15 @@ int main()
 	v6::CHeap heap;
 	v6::Stack stack( &heap, 100 * 1024 * 1024 );
 
+	const v6::u64 startTick = v6::GetTickCount();
+
 	// v6::TextBestLineFitting( &stack );
 	v6::TestImageCompressions( &stack );
 	// v6::TestBlockCompression( &stack );
+
+	const v6::u64 endTick = v6::GetTickCount();
+
+	V6_MSG( "Duration: %5.3fs\n", v6::ConvertTicksToSeconds( endTick - startTick ) );
 
 	return 0;
 }

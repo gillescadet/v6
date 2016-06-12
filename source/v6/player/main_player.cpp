@@ -401,8 +401,8 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
-			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6s" ); break;
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
+			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6s" );
+			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
 		}
 		break;
 	case 'P':

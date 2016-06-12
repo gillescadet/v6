@@ -21,8 +21,9 @@ struct EncodedBlockEx_s
 	u64	cellColorIndices[2];
 };
 
-void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
-void Block_Encode( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount );
+void	Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
+u32		Block_Encode_BoundingBox( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount );
+u32		Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount );
 
 END_V6_NAMESPACE
 
