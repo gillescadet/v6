@@ -1525,7 +1525,7 @@ void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path )
 
 #if V6_SIMPLE_SCENE == 1
 
-void Scene_CreateDefault( Scene_s* scene )
+void Scene_CreateDefault( SceneViewer_s* scene )
 {
 	const char* filename = "D:/media/obj/default/default.obj";
 
@@ -1546,19 +1546,23 @@ void Scene_CreateDefault( Scene_s* scene )
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	
-	const u32 screenWidth = HLSL_GRID_WIDTH >> 1;
+	const u32 screenWidth = GRID_WIDTH >> 1;
 	//const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 8 );
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_BLUE, Vec3_Make( -pixelRadius * 32, 0, 0.5f * depth ), pixelRadius * 16 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 2 );
+	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 8 );
+	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_BLUE, Vec3_Make( -pixelRadius * 32, 0, 0.5f * depth ), pixelRadius * 16 );
 
-	CameraPath_Load( &s_cameraPath, &info );
+	Path_Load( s_paths, PATH_COUNT, scene );
+	s_yaw = DegToRad( info.cameraYaw );
+	if ( s_paths[PATH_CAMERA].keyCount )
+		s_headOffset = s_paths[PATH_CAMERA].positions[0];
 }
 
 #else
 
-void Scene_CreateDefault( Scene_s* scene )
+void Scene_CreateDefault( SceneViewer_s* scene )
 {
 	Scene_Create( scene );
 

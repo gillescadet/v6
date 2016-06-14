@@ -7,9 +7,12 @@
 #include <v6/core/windows_end.h>
 
 #include <v6/codec/codec.h>
+#include <v6/core/plot.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shaders.h>
 #include <v6/graphic/capture_shared.h>
+
+#define CAPTURE_DEBUG 0
 
 BEGIN_V6_NAMESPACE
 
@@ -25,6 +28,10 @@ static const float AVERAGE_LAYER_COUNT			= 2.0f;
 
 static GPUCaptureResources_s					s_gpuCaptureResources;
 static bool										s_gpuCaptureResourcesCreated = false;
+
+#if CAPTURE_DEBUG == 1
+Plot_s s_plot;
+#endif
 
 static void ClearNode( CaptureContext_s* captureContext )
 {
@@ -132,6 +139,45 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 
 		GPUBuffer_UnmapReadBack( &res->sampleIndirectArgs );
 	}
+
+#if CAPTURE_DEBUG == 1
+	{
+		const u32* collectedIndirectArgs = (u32*)GPUBuffer_MapReadBack( &res->sampleIndirectArgs );
+		const u32 sampleCount = collectedIndirectArgs[sample_count_offset];
+		GPUBuffer_UnmapReadBack( &res->sampleIndirectArgs );
+
+		float gridScales[CODEC_MIP_MAX_COUNT];
+		float halfCellSizes[CODEC_MIP_MAX_COUNT];
+		Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
+		float gridScale = captureContext->desc.gridScaleMin;
+		for ( u32 gridID = 0;  gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		{
+			gridScales[gridID] = gridScale;
+			gridCenters[gridID] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
+			halfCellSizes[gridID] = gridScale / gridWidth;
+			if ( gridScale < captureContext->desc.gridScaleMax )
+				gridScale *= 2;
+		}
+
+		const hlsl::Sample* samples = (hlsl::Sample*)GPUBuffer_MapReadBack( &res->samples );
+		for ( u32 sampleID = 0; sampleID < sampleCount; ++sampleID )
+		{
+			Vec3u cellCoords;
+			cellCoords.x = samples[sampleID].row0 >> 20;
+			cellCoords.y = (samples[sampleID].row0 >> 8) & 0xFFF;
+			cellCoords.z = samples[sampleID].row1 >> 20;
+
+			const u32 mip = samples[sampleID].row1 & 0xF;
+
+			Vec3 p;
+			p.x = gridCenters[mip].x + (cellCoords.x * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
+			p.y = gridCenters[mip].y + (cellCoords.y * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
+			p.z = gridCenters[mip].z + (cellCoords.z * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
+			Plot_AddPoint( &s_plot, &p );
+		}
+		GPUBuffer_UnmapReadBack( &res->samples );
+	}
+#endif // #if CAPTURE_DEBUG == 1
 }
 
 static u32 BuildNode( CaptureContext_s* captureContext )
@@ -373,7 +419,12 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 	GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSample ), "sample" );
 	GPUConstantBuffer_Create( &res->cbOctree, sizeof( hlsl::CBOctree ), "octree" );
 	
+#if CAPTURE_DEBUG == 1
+	Plot_Create( &s_plot, "d:/tmp/plot/capture" );
+	GPUBuffer_CreateStructured( &res->samples, sizeof( hlsl::Sample ), captureContext->resSampleCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "samples" );
+#else
 	GPUBuffer_CreateStructured( &res->samples, sizeof( hlsl::Sample ), captureContext->resSampleCount, 0, "samples" );
+#endif
 	GPUBuffer_CreateIndirectArgs( &res->sampleIndirectArgs, sample_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "sampleIndirectArgs" );
 	GPUBuffer_CreateTyped( &res->sampleNodeOffsets, DXGI_FORMAT_R32_UINT, captureContext->resSampleCount, 0, "octreeSampleNodeOffsets" );
 	GPUBuffer_CreateTyped( &res->firstChildOffsets, DXGI_FORMAT_R32_UINT, captureContext->resNodeCount, 0, "octreeFirstChildOffsets" );
@@ -426,6 +477,10 @@ void CaptureContext_Release( CaptureContext_s* captureContext )
 	GPUCompute_Release( &res->computeBuildLeaf );
 	GPUCompute_Release( &res->computeFillLeaf );
 	GPUCompute_Release( &res->computePackColor );
+
+#if CAPTURE_DEBUG == 1
+	Plot_Release( &s_plot );
+#endif // #if CAPTURE_DEBUG == 1
 
 	s_gpuCaptureResourcesCreated = false;
 }

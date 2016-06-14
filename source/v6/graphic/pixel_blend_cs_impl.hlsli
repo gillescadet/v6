@@ -201,7 +201,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 {
 	const uint2 screenPos = uint2( DTid.x, c_pixelFrameSize.y - DTid.y - 1 );
 	const uint2 bufferPos = uint2( DTid.x + c_pixelEye * c_pixelFrameSize.x, DTid.y );
-#if PIXE_OVERDRAW == 1
+#if PIXEL_OVERDRAW == 1
 	const float3 color = ComputeOverdrawColor( bufferPos );
 #elif 1
 	const float3 color = Blend( bufferPos, GTid );

@@ -401,7 +401,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6s" );
+			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6" );
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
 		}
 		break;
@@ -557,8 +557,8 @@ int main( int argc, char** argv )
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 
-	const v6::u32 width = 1024;
-	const v6::u32 height = 1024;
+	const v6::u32 width = 512;
+	const v6::u32 height = 512;
 
 	if ( !v6::Player_Create( player, width, height, &heap, &stack ) )
 		return -1;

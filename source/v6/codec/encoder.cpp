@@ -8,8 +8,12 @@
 #include <v6/core/color.h>
 #include <v6/core/image.h>
 #include <v6/core/memory.h>
+#include <v6/core/plot.h>
 #include <v6/core/stream.h>
+#include <v6/core/string.h>
 #include <v6/core/vec3i.h>
+
+#define ENCODER_DEBUG					0
 
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF
@@ -95,6 +99,19 @@ struct Context_s
 	u32					blockPosCountPerSequence;
 	u32					blockDataCountPerSequence;
 };
+
+static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
+{
+	const u32 gridMacroMask = (1 << gridMacroShift) - 1;
+	const u32 blockX = (u32)((blockPos >> (gridMacroShift * 0)) & gridMacroMask);
+	const u32 blockY = (u32)((blockPos >> (gridMacroShift * 1)) & gridMacroMask);
+	const u32 blockZ = (u32)((blockPos >> (gridMacroShift * 2)) & gridMacroMask);
+	const u32 cellX = (u32)((cellPos >> 0) & 3);
+	const u32 cellY = (u32)((cellPos >> 2) & 3);
+	const u32 cellZ = (u32)((cellPos >> 4) & 3);
+
+	return Vec3u_Make( (blockX << 2) | cellX, (blockY << 2) | cellY, (blockZ << 2) | cellZ );
+}
 
 static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShift, Vec3i blockPosTranslation )
 {
@@ -447,6 +464,15 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	frame->gridBasis[2] = desc.gridBasis[2];
 	frame->refFrameRank = (u32)-1;
 
+#if ENCODER_DEBUG == 1
+	Plot_s plot;
+	Plot_Create( &plot, String_Format( "d:/tmp/plot/rawframe%d", frameRank ) );
+	Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
+	float gridScales[CODEC_MIP_MAX_COUNT];
+	float halfCellSizes[CODEC_MIP_MAX_COUNT];
+	const float invGridWidth = 1.0f / context->stream->gridMacroWidth;
+#endif // #if ENCODER_DEBUG == 1
+
 	float gridScale = context->stream->desc.gridScaleMin;
 	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip, gridScale *= 2.0f )
 	{
@@ -464,6 +490,12 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			context->gridMin[mip] = Min( context->gridMin[mip], frame->gridMin[mip] );
 			context->gridMax[mip] = Max( context->gridMin[mip], frame->gridMax[mip] );
 		}
+
+#if ENCODER_DEBUG == 1
+		gridCenters[mip] = Codec_ComputeGridCenter( &frame->gridOrigin, gridScale, context->stream->gridMacroHalfWidth );
+		gridScales[mip] = gridScale;
+		halfCellSizes[mip] = gridScale * invGridWidth;
+#endif // #if ENCODER_DEBUG == 1
 	}
 
 	u32 blockPosOffsets[CODEC_BUCKET_COUNT];
@@ -492,6 +524,10 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
 		{
+#if ENCODER_DEBUG == 1
+			Plot_NewObject( &plot, Color_Make( 255, 255, 255, 255 ) );
+#endif // #if ENCODER_DEBUG == 1
+
 			const u32 blockPosID = blockPosOffsets[bucket] + blockRank;
 
 			Block_s* block = &frame->blocks[blockPosID];
@@ -509,6 +545,14 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 				{
 					block->cellPresence |= 1ll << cellPos;
 					block->cellRGBA[cellPos] = rgba;
+#if ENCODER_DEBUG == 1
+					const Vec3u cellCoords = ComputeCellCoords( block->pos, context->stream->desc.gridMacroShift, cellPos );
+					Vec3 p;
+					p.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
+					p.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
+					p.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
+					Plot_AddPoint( &plot, &p );
+#endif // #if ENCODER_DEBUG == 1
 				}
 			}
 
@@ -522,6 +566,10 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		frame->blockOffsetPerMip[mip] = blockOffset;
 		blockOffset += frame->blockCountPerMip[mip];
 	}
+
+#if ENCODER_DEBUG == 1
+	Plot_Release( &plot );
+#endif // #if ENCODER_DEBUG == 1
 
 	return true;
 }

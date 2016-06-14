@@ -49,6 +49,9 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	v6::hlsl::CBCull cbCullData = {};
 	{
+		cbCullData.c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift;
+		cbCullData.c_cullInvGridWidth = invGridWidth;
+
 		float gridScale = traceContext->stream->desc.gridScaleMin;
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
 		{
@@ -103,8 +106,6 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 			memcpy( cbCull, &cbCullData, sizeof( cbCullData ) );
 			GPUConstantBuffer_UnmapWrite( &traceRes->cbCull );
 
-			cbCullData.c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift;
-			cbCullData.c_cullInvGridWidth = invGridWidth;
 			cbCullData.c_cullBlockGroupOffset += traceContext->frameState.groupCounts[bucket];
 			cbCullData.c_cullBlockRangeOffset += traceContext->frameState.blockRangeCounts[bucket];
 		}
@@ -445,7 +446,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUBuffer_CreateTyped( &res->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "sequenceBlockGroups1" );
 	
 	const u32 eyeCount = traceDesc->stereo ? 2 : 1;
-	traceContext->resPassedBlockCount = Max( 1u, stream->desc.maxBlockCountPerFrame / 2 );
+	traceContext->resPassedBlockCount = Max( 1u, stream->desc.maxBlockCountPerFrame );
 	traceContext->resCellItemCount = Max( 1u, (traceDesc->screenWidth * eyeCount * traceDesc->screenHeight) * HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
 
 	GPUConstantBuffer_Create( &res->cbCull, sizeof( v6::hlsl::CBCull ), "cull" );
