@@ -24,8 +24,10 @@ void Plot_Create( Plot_s* plot, const char* filename );
 void Plot_Release( Plot_s* plot );
 
 void Plot_NewObject( Plot_s* plot, Color_s color );
-void Plot_AddLine( Plot_s* plot, const Vec3* p0, const Vec3* p1);
+void Plot_AddBox( Plot_s* plot, const Vec3* p0, const Vec3* p1, bool wireframe );
+void Plot_AddLine( Plot_s* plot, const Vec3* p0, const Vec3* p1 );
 void Plot_AddPoint( Plot_s* plot, const Vec3* p );
+void Plot_AddTriangle( Plot_s* plot, const Vec3* p0, const Vec3* p1, const Vec3* p2 );
 
 END_V6_NAMESPACE
 

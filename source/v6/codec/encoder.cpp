@@ -13,7 +13,7 @@
 #include <v6/core/string.h>
 #include <v6/core/vec3i.h>
 
-#define ENCODER_DEBUG					0
+#define ENCODER_DEBUG					1
 
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF
@@ -470,7 +470,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
 	float gridScales[CODEC_MIP_MAX_COUNT];
 	float halfCellSizes[CODEC_MIP_MAX_COUNT];
-	const float invGridWidth = 1.0f / context->stream->gridMacroWidth;
+	const float invGridWidth = 1.0f / (1 << (context->stream->desc.gridMacroShift + 2));
 #endif // #if ENCODER_DEBUG == 1
 
 	float gridScale = context->stream->desc.gridScaleMin;
@@ -525,7 +525,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
 		{
 #if ENCODER_DEBUG == 1
-			Plot_NewObject( &plot, Color_Make( 255, 255, 255, 255 ) );
+			Plot_NewObject( &plot, Color_Make( 255, 0, 0, 50 ) );
 #endif // #if ENCODER_DEBUG == 1
 
 			const u32 blockPosID = blockPosOffsets[bucket] + blockRank;
@@ -547,11 +547,13 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 					block->cellRGBA[cellPos] = rgba;
 #if ENCODER_DEBUG == 1
 					const Vec3u cellCoords = ComputeCellCoords( block->pos, context->stream->desc.gridMacroShift, cellPos );
-					Vec3 p;
-					p.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
-					p.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
-					p.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip] + halfCellSizes[block->mip];
-					Plot_AddPoint( &plot, &p );
+					Vec3 pMin;
+					pMin.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+					pMin.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+					pMin.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+					const Vec3 pMax = pMin + halfCellSizes[block->mip] * 2.0f;
+					Plot_AddBox( &plot, &pMin, &pMax, false );
+					Plot_AddBox( &plot, &pMin, &pMax, true );
 #endif // #if ENCODER_DEBUG == 1
 				}
 			}

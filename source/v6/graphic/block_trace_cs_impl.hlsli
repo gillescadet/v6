@@ -45,12 +45,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
 	{
-#if BLOCK_DEBUG == 1
-		if ( c_blockGetStats )
-			InterlockedAdd( blockTraceStats[0].cellProcessedCount, 1 );
-#endif // #if BLOCK_DEBUG == 1
-
 		bool valid;
+		uint mip;
 		uint rgb_none;
 		float3 boxMinRS[2];
 		float3 boxMaxRS[2];
@@ -75,7 +71,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 			valid = packedColor != HLSL_GRID_BLOCK_CELL_EMPTY;
 
-			const uint mip = packedPos >> 28;
+			mip = packedPos >> 28;
 			const uint blockPos = packedPos & 0x0FFFFFFF;
 			rgb_none = packedColor & ~0xFF;
 			const uint cellPos = packedColor & 0x3F;
@@ -104,16 +100,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #endif // #if BLOCK_DEBUG == 1
 
 			const float gridScale = c_blockGridScales[mip].x;
-			const float cellScale = c_blockGridScales[mip].y;
-			const float halfCellSize = gridScale * c_blockInvGridWidth;
+			const float halfCellSize = c_blockGridScales[mip].y;
 			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockGridCenters[mip].xyz;
 
 			for ( uint eye = 0; eye < c_blockEyeCount; ++eye )
-		{
+			{
 				const float3 cellPosRS = cellPosWS - c_blockEyes[eye].org; // optimization: do everything in camera relative space
 				
-				boxMinRS[eye] = cellPosRS - cellScale;
-				boxMaxRS[eye] = cellPosRS + cellScale;
+				boxMinRS[eye] = cellPosRS - halfCellSize;
+				boxMaxRS[eye] = cellPosRS + halfCellSize;
 
 				const matrix worldToProjMatrix = mul( c_blockEyes[eye].viewToProj, c_blockEyes[eye].objectToView );
 				const float4 cellPosCS = mul( worldToProjMatrix, float4( cellPosWS, 1.0f ) );
@@ -125,6 +120,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 				pixelCoords[eye] = int2( pixelPos );
 			}
 		}
+
+#if BLOCK_DEBUG == 1
+		if ( c_blockGetStats )
+			InterlockedAdd( blockTraceStats[0].cellProcessedCounts[mip], 1 );
+#endif // #if BLOCK_DEBUG == 1
 
 		if ( valid )
 		{
@@ -170,7 +170,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 							if ( c_blockGetStats )
 							{
 								InterlockedAdd( blockTraceStats[0].pixelSampleCount, 1 + countbits( hitMask8 ) );
-								InterlockedAdd( blockTraceStats[0].cellItemCount, 1 );
+								InterlockedAdd( blockTraceStats[0].cellItemCounts[mip], 1 );
 							}
 #endif // #if BLOCK_DEBUG == 1
 						}

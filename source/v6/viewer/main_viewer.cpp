@@ -41,8 +41,8 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		1
-#define V6_SIMPLE_SCENE			0
+#define V6_LOAD_EXTERNAL		0
+#define V6_SIMPLE_SCENE			1
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			1
@@ -170,6 +170,7 @@ enum
 	MESH_POINT,
 	MESH_LINE,
 	MESH_VIRTUAL_BOX,
+	MESH_SPHERE_RED,
 
 	MESH_COUNT
 };
@@ -1525,7 +1526,7 @@ void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path )
 
 #if V6_SIMPLE_SCENE == 1
 
-void Scene_CreateDefault( SceneViewer_s* scene )
+void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 {
 	const char* filename = "D:/media/obj/default/default.obj";
 
@@ -1540,7 +1541,8 @@ void Scene_CreateDefault( SceneViewer_s* scene )
 	Scene_Create( scene );
 	SceneViewer_SetFilename( scene, filename );
 	SceneViewer_SetInfo( scene, &info );
-
+	
+	GPUMesh_CreateSphere( &scene->meshes[MESH_SPHERE_RED], Color_Make( 255, 0, 0, 255 ), 16, stack );
 	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
 	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
 
@@ -1550,7 +1552,7 @@ void Scene_CreateDefault( SceneViewer_s* scene )
 	//const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 2 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 4 );
 	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 8 );
 	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_BLUE, Vec3_Make( -pixelRadius * 32, 0, 0.5f * depth ), pixelRadius * 16 );
 
@@ -1562,7 +1564,7 @@ void Scene_CreateDefault( SceneViewer_s* scene )
 
 #else
 
-void Scene_CreateDefault( SceneViewer_s* scene )
+void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 {
 	Scene_Create( scene );
 
@@ -1806,7 +1808,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 	GPUContext_Create( nWidth, nHeight, (HWND)s_win.hWnd, heap, stack );
 
 	m_defaultScene = heap->newInstance< SceneViewer_s >();
-	Scene_CreateDefault( m_defaultScene );
+	Scene_CreateDefault( m_defaultScene, stack );
 	s_activeScene = m_defaultScene;
 
 	m_debugScene = heap->newInstance< SceneDebug_s >();

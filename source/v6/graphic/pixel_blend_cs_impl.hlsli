@@ -142,7 +142,7 @@ float3 Blend( uint2 bufferPos, uint3 GTid )
 	UPDATE_THIS_PIXEL( +1,  0, 3 );
 	UPDATE_THIS_PIXEL( -1, +1, 2 );
 	UPDATE_THIS_PIXEL(  0, +1, 1 );
-	UPDATE_THIS_PIXEL( +1, +1, 0 );	
+	UPDATE_THIS_PIXEL( +1, +1, 0 );
 		
 	const float3 color = UnpackRGB_NONE( thisR8G8B8_none8 ) / 255.0f;
 	return color;

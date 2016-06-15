@@ -17,6 +17,7 @@
 BEGIN_V6_NAMESPACE
 
 class IAllocator;
+class IStack;
 
 enum
 {
@@ -279,9 +280,10 @@ void						GPUEvent_End();
 void						GPUMesh_Create( GPUMesh_s* mesh, const void* vertices, u32 vertexCount, u32 vertexSize, u32 vertexFormat, const void* indices, u32 indexCount, u32 indexSize, D3D11_PRIMITIVE_TOPOLOGY topology );
 void						GPUMesh_CreateTriangle( GPUMesh_s* mesh );
 void						GPUMesh_CreateBox( GPUMesh_s* mesh, const Color_s color, bool wireframe );
-void						GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color );
-void						GPUMesh_CreatePoint( GPUMesh_s* mesh );
 void						GPUMesh_CreateLine( GPUMesh_s* mesh, const Color_s color );
+void						GPUMesh_CreatePoint( GPUMesh_s* mesh );
+void						GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color );
+void						GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCount, IStack* stack );
 void						GPUMesh_Draw( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader );
 void						GPUMesh_DrawIndirect( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shader, GPUBuffer_s* bufferArgs, u32 offsetArgs );
 void						GPUMesh_Release( GPUMesh_s* mesh );

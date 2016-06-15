@@ -1231,6 +1231,97 @@ void GPUMesh_CreateBox( GPUMesh_s* mesh, const Color_s color, bool wireframe )
 	}
 }
 
+void GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCount, IStack* stack )
+{
+	ScopedStack scopedStack( stack );
+
+	V6_ASSERT( segmentCount >= 2 );
+
+	Vec2* circleCoords = stack->newArray< Vec2 >( segmentCount );
+	
+	const float phiStep = 2.0f * V6_PI / segmentCount;
+	float phi = 0.0f;
+	for ( u32 coordID = 0; coordID < segmentCount; ++coordID, phi += phiStep )
+	{
+		circleCoords[coordID].x = Cos( phi );
+		circleCoords[coordID].y = Sin( phi );
+	}
+
+	const u32 circleCount = segmentCount-1;
+	const u32 vertexCount = circleCount * segmentCount + 2;
+
+	BasicVertex_s* vertices = stack->newArray< BasicVertex_s >( vertexCount );
+	u32 vertexID = 0;
+
+	vertices[vertexID].position = Vec3_Make( 0.0f, 0.0f, 1.0f );
+	vertices[vertexID].color = color;
+	++vertexID;
+
+	const float thetaStep = V6_PI / (circleCount + 1);
+	float theta = thetaStep;
+	for ( u32 circleID = 0; circleID < circleCount; ++circleID, theta += thetaStep )
+	{
+		const float height = Cos( theta );
+		const float radius = Sin( theta );
+		for ( u32 coordID = 0; coordID < segmentCount; ++coordID )
+		{
+			vertices[vertexID].position = Vec3_Make( circleCoords[coordID].x * radius, circleCoords[coordID].y * radius, height );
+			vertices[vertexID].color = color;
+			++vertexID;
+		}
+	}
+
+	vertices[vertexID].position = Vec3_Make( 0.0f, 0.0f, -1.0f );
+	vertices[vertexID].color = color;
+	++vertexID;
+
+	V6_ASSERT( vertexID == vertexCount );
+
+	const u32 indexCount = circleCount * segmentCount * 3 * 2;
+
+	u16* indices = stack->newArray< u16 >( indexCount );
+	u16 indexID = 0;
+
+	for ( u32 coordID = 0; coordID < segmentCount; ++coordID )
+	{
+		indices[indexID+0] = 0;
+		indices[indexID+1] = 1 + coordID;
+		indices[indexID+2] = 1 + (coordID+1) % segmentCount;
+		indexID += 3;
+	}
+
+	vertexID = 1;
+	for ( u32 circleID = 0; circleID < circleCount-1; ++circleID )
+	{
+		for ( u32 coordID = 0; coordID < segmentCount; ++coordID )
+		{
+			indices[indexID+0] = vertexID + coordID;
+			indices[indexID+1] = vertexID + segmentCount + coordID;
+			indices[indexID+2] = vertexID + segmentCount + (coordID+1) % segmentCount;
+			indexID += 3;
+
+			indices[indexID+0] = vertexID + coordID;
+			indices[indexID+1] = vertexID + segmentCount + (coordID+1) % segmentCount;
+			indices[indexID+2] = vertexID + (coordID+1) % segmentCount;
+			indexID += 3;
+		}
+
+		vertexID += segmentCount;
+	}
+
+	for ( u32 coordID = 0; coordID < segmentCount; ++coordID )
+	{
+		indices[indexID+0] = vertexID + coordID;
+		indices[indexID+1] = vertexCount-1;
+		indices[indexID+2] = vertexID + (coordID+1) % segmentCount;
+		indexID += 3;
+	}
+
+	V6_ASSERT( indexID == indexCount );
+
+	GPUMesh_Create( mesh, vertices, vertexCount, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, indexCount, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+}
+
 void GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color )
 {
 	const BasicVertex_s vertices[8] = 
@@ -1241,7 +1332,7 @@ void GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color )
 		{ Vec3_Make(  1.0f,  1.0f, 0.0f ), color },
 	};
 
-	const u16 indices[4] = { 	0, 2, 1, 3 };
+	const u16 indices[4] = { 0, 2, 1, 3 };
 
 	GPUMesh_Create( mesh, vertices, 4, sizeof( BasicVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, indices, 4, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
 }

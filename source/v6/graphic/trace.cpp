@@ -8,6 +8,7 @@
 
 #include <v6/core/memory.h>
 #include <v6/core/random.h>
+#include <v6/core/string.h>
 #include <v6/codec/decoder.h>
 #include <v6/graphic/trace.h>
 #include <v6/graphic/trace_shaders.h>
@@ -55,7 +56,6 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 		float gridScale = traceContext->stream->desc.gridScaleMin;
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
 		{
-			const float cellScale = gridScale * invGridWidth;
 			const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
 			cbCullData.c_cullCentersAndGridScales[gridID] = Vec4_Make( &center, gridScale );
 			if ( gridScale < traceContext->stream->desc.gridScaleMax )
@@ -95,24 +95,23 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		if ( traceContext->frameState.groupCounts[bucket] == 0 )
-			continue;
-
 		GPUEvent_Begin( "Cull Bucket");
 
 		// update
 		{
+			cbCullData.c_cullBlockGroupCount = traceContext->frameState.groupCounts[bucket];
+
 			v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &traceRes->cbCull );
 			memcpy( cbCull, &cbCullData, sizeof( cbCullData ) );
 			GPUConstantBuffer_UnmapWrite( &traceRes->cbCull );
-
+			
 			cbCullData.c_cullBlockGroupOffset += traceContext->frameState.groupCounts[bucket];
 			cbCullData.c_cullBlockRangeOffset += traceContext->frameState.blockRangeCounts[bucket];
 		}
 
 		// dispach
 		const u32 shaderOption = (options->logReadBack || options->showHistory) ? 1 : 0;
-		GPUCompute_Dispatch( &traceRes->computeCull[shaderOption][bucket], traceContext->frameState.groupCounts[bucket], 1, 1 );
+		GPUCompute_Dispatch( &traceRes->computeCull[shaderOption][bucket], Max( 1u, traceContext->frameState.groupCounts[bucket] ), 1, 1 );
 
 		GPUEvent_End();
 	}
@@ -139,7 +138,11 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 			ReadBack_Log( "blockCull", blockCullStats->blockProcessedCount, "blockProcessedCount" );
 			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
 			V6_ASSERT( blockCullStats->blockPassedCount <= traceContext->resPassedBlockCount );
-			ReadBack_Log( "blockCull", blockCullStats->cellOutputCount, "cellOutputCount" );
+			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
+			{
+				if ( blockCullStats->cellOutputCounts[mip] )
+					ReadBack_Log( "blockCull", blockCullStats->cellOutputCounts[mip], String_Format( "cellOutputCount.mip[%d]", mip ) );
+			}
 
 			GPUBuffer_UnmapReadBack( &traceRes->cullStats );
 		}
@@ -168,12 +171,12 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		v6::hlsl::CBBlock* cbBlock = (v6::hlsl::CBBlock*)GPUConstantBuffer_MapWrite( &traceRes->cbBlock );
 
 		float gridScale = traceContext->stream->desc.gridScaleMin;
-		for ( u32 gridID = 0;  gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
 		{
-			const float cellScale = gridScale * invGridWidth;
-			cbBlock->c_blockGridScales[gridID] = Vec4_Make( gridScale, cellScale, ((1 << 21) - 1) / gridScale, 0.0f );
+			const float halfCellSize = gridScale * invGridWidth;
+			cbBlock->c_blockGridScales[mip] = Vec4_Make( gridScale, halfCellSize, ((1 << 21) - 1) / gridScale, 0.0f );
 			const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
-			cbBlock->c_blockGridCenters[gridID] = Vec4_Make( &center, 0.0f );
+			cbBlock->c_blockGridCenters[mip] = Vec4_Make( &center, 0.0f );
 			if ( gridScale < traceContext->stream->desc.gridScaleMax )
 				gridScale *= 2;
 		}
@@ -181,7 +184,6 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
 		cbBlock->c_blockGridMacroShift = traceContext->stream->desc.gridMacroShift;
-		cbBlock->c_blockInvGridWidth = invGridWidth;
 		cbBlock->c_blockEyeCount = eyeCount;
 
 		const Vec2 frameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
@@ -275,11 +277,23 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			const hlsl::BlockTraceStats* blockTraceStats = (hlsl::BlockTraceStats*)GPUBuffer_MapReadBack( &traceRes->traceStats );
 
 			ReadBack_Log( "blockTrace", blockTraceStats->cellInputCount, "cellInputCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCount, "cellProcessedCount" );
+			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip  )
+			{
+				if ( blockTraceStats->cellProcessedCounts[mip] )
+					ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCounts[mip], String_Format( "cellProcessedCounts.mip[%d]", mip ) );
+			}
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->cellItemCount, "cellItemCount" );
+			u32 cellItemCount = 0;
+			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip  )
+			{
+				if ( blockTraceStats->cellItemCounts[mip] )
+				{
+					ReadBack_Log( "blockTrace", blockTraceStats->cellItemCounts[mip], String_Format( "cellItemCount.mip[%d]", mip ) );
+					cellItemCount += blockTraceStats->cellItemCounts[mip];
+				}
+			}
 			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
-			V6_ASSERT( blockTraceStats->cellItemCount < traceContext->resCellItemCount );
+			V6_ASSERT( cellItemCount < traceContext->resCellItemCount );
 
 			GPUBuffer_UnmapReadBack( &traceRes->traceStats );
 		}

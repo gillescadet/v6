@@ -12,7 +12,7 @@
 #include <v6/graphic/capture_shaders.h>
 #include <v6/graphic/capture_shared.h>
 
-#define CAPTURE_DEBUG 0
+#define CAPTURE_DEBUG 1
 
 BEGIN_V6_NAMESPACE
 
@@ -169,11 +169,13 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 
 			const u32 mip = samples[sampleID].row1 & 0xF;
 
-			Vec3 p;
-			p.x = gridCenters[mip].x + (cellCoords.x * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
-			p.y = gridCenters[mip].y + (cellCoords.y * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
-			p.z = gridCenters[mip].z + (cellCoords.z * halfCellSizes[mip] * 2.0f ) - gridScales[mip] + halfCellSizes[mip];
-			Plot_AddPoint( &s_plot, &p );
+			Vec3 pMin;
+			pMin.x = gridCenters[mip].x + (cellCoords.x * halfCellSizes[mip] * 2.0f ) - gridScales[mip];
+			pMin.y = gridCenters[mip].y + (cellCoords.y * halfCellSizes[mip] * 2.0f ) - gridScales[mip];
+			pMin.z = gridCenters[mip].z + (cellCoords.z * halfCellSizes[mip] * 2.0f ) - gridScales[mip];
+			const Vec3 pMax = pMin + halfCellSizes[mip] * 2.0f;
+			Plot_AddBox( &s_plot, &pMin, &pMax, false );
+			Plot_AddBox( &s_plot, &pMin, &pMax, true );
 		}
 		GPUBuffer_UnmapReadBack( &res->samples );
 	}

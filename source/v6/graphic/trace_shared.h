@@ -38,8 +38,13 @@ CBUFFER( CBCull, 0 )
 {
 	uint				c_cullGridMacroShift;
 	float				c_cullInvGridWidth;
+	uint2				c_cullPad0;
+
+	uint				c_cullBlockGroupCount;
 	uint				c_cullBlockGroupOffset;
 	uint				c_cullBlockRangeOffset;
+	uint				c_cullPad1;
+
 	float4				c_cullCentersAndGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4];
 	
@@ -69,9 +74,8 @@ CBUFFER( CBBlock, 1 )
 	float4				c_blockGridCenters[HLSL_MIP_MAX_COUNT];
 
 	uint				c_blockGridMacroShift;
-	float				c_blockInvGridWidth;
 	uint				c_blockEyeCount;
-	uint				c_blockPad;
+	uint2				c_blockPad;
 
 	float2				c_blockFrameSize;
 	uint				c_blockGetStats;
@@ -112,15 +116,15 @@ struct BlockCullStats
 	uint	blockInputCount;
 	uint	blockProcessedCount;
 	uint	blockPassedCount;
-	uint	cellOutputCount;
+	uint	cellOutputCounts[HLSL_MIP_MAX_COUNT];
 };
 
 struct BlockTraceStats 
 {
 	uint	cellInputCount;
-	uint	cellProcessedCount;
+	uint	cellProcessedCounts[HLSL_MIP_MAX_COUNT];
 	uint	pixelSampleCount;
-	uint	cellItemCount;
+	uint	cellItemCounts[HLSL_MIP_MAX_COUNT];
 	uint	cellItemMaxCountPerPixel;
 };
 

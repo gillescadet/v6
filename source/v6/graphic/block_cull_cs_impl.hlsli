@@ -32,7 +32,7 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 	InterlockedAdd( blockCullStats[0].blockInputCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-	if ( blockRank < range.blockCount )
+	if ( blockRank < range.blockCount && c_cullBlockGroupCount > 0 )
 	{
 #if BLOCK_GET_STATS == 1
 		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );
@@ -105,7 +105,7 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
-			InterlockedAdd( blockCullStats[0].cellOutputCount, GRID_CELL_COUNT );
+			InterlockedAdd( blockCullStats[0].cellOutputCounts[mip], GRID_CELL_COUNT );
 #endif // #if BLOCK_GET_STATS == 1
 		}
 	}
