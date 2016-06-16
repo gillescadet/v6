@@ -500,7 +500,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 		Camera_MakeView( &player->camera, &view );
 
 		TraceOptions_s traceOptions = {};
-		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &traceOptions );
+		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &traceOptions, player->stack );
 
 		if ( frameID < player->targetFrameID )
 			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );

@@ -41,8 +41,8 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		0
-#define V6_SIMPLE_SCENE			1
+#define V6_LOAD_EXTERNAL		1
+#define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			1
@@ -58,7 +58,7 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 8;
+static const u32 GRID_MACRO_SHIFT				= 9;
 static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
 static const u32 CUBE_SIZE						= GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
@@ -2412,7 +2412,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
-					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options );
+					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options, m_stack );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );

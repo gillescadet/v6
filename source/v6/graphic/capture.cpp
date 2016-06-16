@@ -12,7 +12,7 @@
 #include <v6/graphic/capture_shaders.h>
 #include <v6/graphic/capture_shared.h>
 
-#define CAPTURE_DEBUG 1
+#define CAPTURE_DEBUG 0
 
 BEGIN_V6_NAMESPACE
 

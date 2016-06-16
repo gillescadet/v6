@@ -7,6 +7,7 @@
 #include <v6/core/windows_end.h>
 
 #include <v6/core/memory.h>
+#include <v6/core/plot.h>
 #include <v6/core/random.h>
 #include <v6/core/string.h>
 #include <v6/codec/decoder.h>
@@ -14,6 +15,8 @@
 #include <v6/graphic/trace_shaders.h>
 #include <v6/graphic/trace_shared.h>
 #include <v6/graphic/view.h>
+
+#define TRACE_CELL_DEBUG 0
 
 BEGIN_V6_NAMESPACE
 
@@ -149,7 +152,14 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 	}
 }
 
-static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const TraceOptions_s* options )
+static int BlockTraceCellStats_Compare( const void* blockTraceCellStatsPointer0, const void* blockTraceCellStatsPointer1 )
+{
+	const hlsl::BlockTraceCellStats* blockTraceCellStats0 = (hlsl::BlockTraceCellStats*)blockTraceCellStatsPointer0;
+	const hlsl::BlockTraceCellStats* blockTraceCellStats1 = (hlsl::BlockTraceCellStats*)blockTraceCellStatsPointer1;
+	return blockTraceCellStats0->blockCellID - blockTraceCellStats1->blockCellID;
+}
+
+static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const TraceOptions_s* options, IStack* stack )
 {
 	static const void* nulls[8] = {};
 	
@@ -160,7 +170,10 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	u32 values[4] = {};
 	g_deviceContext->ClearUnorderedAccessViewUint( traceRes->cellItemCounters.uav, values );
 	if ( options->logReadBack )
+	{
 		g_deviceContext->ClearUnorderedAccessViewUint( traceRes->traceStats.uav, values );
+		g_deviceContext->ClearUnorderedAccessViewUint( traceRes->traceCellStats.uav, values );
+	}
 
 	{
 		V6_ASSERT( traceContext->stream->desc.gridMacroShift > 0 );
@@ -225,7 +238,10 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &traceRes->cellItems.uav, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &traceRes->cellItemCounters.uav, nullptr );
 	if ( options->logReadBack )
+	{
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &traceRes->traceStats.uav, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELL_STATS_SLOT, 1, &traceRes->traceCellStats.uav, nullptr );
+	}
 	
 	{
 		GPUEvent_Begin( "Init Trace");
@@ -265,13 +281,18 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( options->logReadBack )
+	{
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_CELL_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	}
 	
 	GPUEvent_End();
 
 	if ( options->logReadBack )
 	{			
 		V6_MSG( "\n" );
+
+		u32 traceCellStatsCount = 0;
 
 		{
 			const hlsl::BlockTraceStats* blockTraceStats = (hlsl::BlockTraceStats*)GPUBuffer_MapReadBack( &traceRes->traceStats );
@@ -295,8 +316,68 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
 			V6_ASSERT( cellItemCount < traceContext->resCellItemCount );
 
+			ReadBack_Log( "blockTrace", blockTraceStats->traceCellStatCount, "traceCellStatCount" );
+			traceCellStatsCount = blockTraceStats->traceCellStatCount;
+
 			GPUBuffer_UnmapReadBack( &traceRes->traceStats );
 		}
+
+#if TRACE_CELL_DEBUG == 1
+		if ( traceCellStatsCount )
+		{
+			ScopedStack scopedStack( stack );
+
+			Plot_s plot;
+			Plot_Create( &plot, "d:/tmp/plot/traceCellStats" );
+
+			hlsl::BlockTraceCellStats* blockTraceCellStats = stack->newArray< hlsl::BlockTraceCellStats >( traceCellStatsCount );
+			memcpy( blockTraceCellStats, GPUBuffer_MapReadBack( &traceRes->traceCellStats ), sizeof( *blockTraceCellStats ) * traceCellStatsCount );
+			GPUBuffer_UnmapReadBack( &traceRes->traceCellStats );
+
+			qsort( blockTraceCellStats, traceCellStatsCount, sizeof( *blockTraceCellStats ), BlockTraceCellStats_Compare );
+
+			u32 prevBlockCellID = (u32)-1;
+			bool addHitBox = false;
+
+			const Vec3 origin = Vec3_Zero();
+
+			for ( u32 blockTraceCellStatsID = 0; blockTraceCellStatsID < traceCellStatsCount; ++blockTraceCellStatsID )
+			{
+				const hlsl::BlockTraceCellStats* blockTraceCellStat = &blockTraceCellStats[blockTraceCellStatsID];
+
+				if ( blockTraceCellStat->blockCellID != prevBlockCellID )
+				{
+					Plot_NewObject( &plot, Color_Make( 255, 255, 255, 255 ) );
+					Plot_AddBox( &plot, &blockTraceCellStat->boxMinRS, &blockTraceCellStat->boxMaxRS, true );
+					addHitBox = true;
+					prevBlockCellID = blockTraceCellStat->blockCellID;
+				}
+				
+				const Vec3 center = (blockTraceCellStat->boxMinRS + blockTraceCellStat->boxMaxRS) * 0.5f;
+				const float centerDistance = center.Length() / blockTraceCellStat->rayDir.Length();
+
+				if ( blockTraceCellStat->hit )
+				{
+					const Vec3 startPoint = centerDistance * 0.8f * blockTraceCellStat->rayDir;
+					const Vec3 hitPoint = blockTraceCellStat->tIn * blockTraceCellStat->rayDir;
+					Plot_AddLine( &plot, &startPoint, &hitPoint );
+					if ( addHitBox )
+					{
+						Plot_AddBox( &plot, &blockTraceCellStat->boxMinRS, &blockTraceCellStat->boxMaxRS, false );
+						addHitBox = false;
+					}
+				}
+				else
+				{
+					const Vec3 startPoint = centerDistance * 0.8f * blockTraceCellStat->rayDir;
+					const Vec3 endPoint = centerDistance * 1.2f * blockTraceCellStat->rayDir;
+					Plot_AddLine( &plot, &startPoint, &endPoint );
+				}
+			}
+
+			Plot_Release( &plot );
+		}
+#endif // #if TRACE_CELL_DEBUG == 1
 	}
 }
 
@@ -475,6 +556,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	
 	GPUBuffer_CreateStructured( &res->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( &res->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
+	GPUBuffer_CreateStructured( &res->traceCellStats, sizeof( hlsl::BlockTraceCellStats ), HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceCellStats" );
 
 	GPUTexture2D_CreateRW( &res->colors, traceDesc->screenWidth, traceDesc->screenHeight, "pixelColors" );
 
@@ -522,6 +604,7 @@ void TraceContext_Release( TraceContext_s* traceContext )
 
 	GPUBuffer_Release( &res->cullStats );
 	GPUBuffer_Release( &res->traceStats );
+	GPUBuffer_Release( &res->traceCellStats );
 	
 	GPUTexture2D_Release( &res->colors );
 
@@ -542,12 +625,12 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	s_gpuTraceResourcesCreated = false;
 }
 
-void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options )
+void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, IStack* stack )
 {
 	const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
 	CullBlock( traceContext, views, options );
-	TraceBlock( traceContext, views, options );
+	TraceBlock( traceContext, views, options, stack );
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 		BlendPixel( traceContext, renderTargetSet, eye, options );
 }

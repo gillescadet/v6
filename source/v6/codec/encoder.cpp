@@ -13,7 +13,7 @@
 #include <v6/core/string.h>
 #include <v6/core/vec3i.h>
 
-#define ENCODER_DEBUG					1
+#define ENCODER_DEBUG					0
 
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF

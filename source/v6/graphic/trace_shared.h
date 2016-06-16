@@ -12,6 +12,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_SHOW_FLAG_HISTORY				4
 
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				64
+#define HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT		(10 * 1024)
 
 #define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
@@ -27,6 +28,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_TRACE_CELLS_SLOT						7
 #define HLSL_TRACE_INDIRECT_ARGS_SLOT				8
 #define HLSL_TRACE_STATS_SLOT						9
+#define HLSL_TRACE_CELL_STATS_SLOT					10
 
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT		2
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT		(1 << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT)
@@ -126,6 +128,21 @@ struct BlockTraceStats
 	uint	pixelSampleCount;
 	uint	cellItemCounts[HLSL_MIP_MAX_COUNT];
 	uint	cellItemMaxCountPerPixel;
+	uint	traceCellStatCount;
+};
+
+struct BlockTraceCellStats
+{
+	uint	blockCellID;
+	int2	pixelCoords;
+	int		x;
+	int		y;
+	float3	boxMinRS;
+	float3	boxMaxRS;
+	float3	rayDir;
+	float	tIn;
+	float	tOut;
+	bool	hit;
 };
 
 #define trace_cellGroupCountX_offset( BUCKET )				(BUCKET * 3 + 0)

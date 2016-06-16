@@ -6,21 +6,29 @@
 #define GRID_CELL_COUNT		(1<<GRID_CELL_SHIFT)
 #define GRID_CELL_MASK		(GRID_CELL_COUNT-1)
 
-Buffer< uint > blockData									: REGISTER_SRV( HLSL_BLOCK_DATA_SLOT );
-Buffer< uint > traceCells									: REGISTER_SRV( HLSL_TRACE_CELLS_SLOT );
-Buffer< uint > traceIndirectArgs							: REGISTER_SRV( HLSL_TRACE_INDIRECT_ARGS_SLOT );
+Buffer< uint > blockData										: REGISTER_SRV( HLSL_BLOCK_DATA_SLOT );
+Buffer< uint > traceCells										: REGISTER_SRV( HLSL_TRACE_CELLS_SLOT );
+Buffer< uint > traceIndirectArgs								: REGISTER_SRV( HLSL_TRACE_INDIRECT_ARGS_SLOT );
 
-RWStructuredBuffer< BlockCellItem > blockCellItems			: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_SLOT );
-RWBuffer< uint > blockCellItemCounters						: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT );
+RWStructuredBuffer< BlockCellItem > blockCellItems				: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_SLOT );
+RWBuffer< uint > blockCellItemCounters							: REGISTER_UAV( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT );
 #if BLOCK_DEBUG == 1
-RWStructuredBuffer< BlockTraceStats > blockTraceStats		: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
+RWStructuredBuffer< BlockTraceStats > blockTraceStats			: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
+RWStructuredBuffer< BlockTraceCellStats > blockTraceCellStats	: REGISTER_UAV( HLSL_TRACE_CELL_STATS_SLOT );
 #endif // #if BLOCK_DEBUG == 1
 
-bool TraceCell( int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS, uint eye )
+bool IsValidCoords( int2 pixelCoords )
 {
 	const int2 frameSize = int2( c_blockFrameSize.xy );
 
-	const int2 otherPixelCoords = pixelCoords + uint2( x, y );
+	return pixelCoords.x >= 0 && pixelCoords.x < frameSize.x && pixelCoords.y >= 0 && pixelCoords.y < frameSize.y;
+}
+
+bool TraceCell( uint blockCellID, int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS, uint eye )
+{
+	const int2 frameSize = int2( c_blockFrameSize.xy );
+
+	const int2 otherPixelCoords = pixelCoords + int2( x, y );
 	const float3 rayDir = mad( otherPixelCoords.y, c_blockEyes[eye].rayDirUp, mad( otherPixelCoords.x, c_blockEyes[eye].rayDirRight, c_blockEyes[eye].rayDirBase ) );
 	const float3 rayInvDir = rcp( rayDir );
 	const float3 t0 = boxMinRS * rayInvDir;
@@ -29,7 +37,31 @@ bool TraceCell( int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS
 	const float3 tMax = max( t0, t1 );
 	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
 	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );
-	const bool hit = (tIn <= tOut) && (otherPixelCoords.x >= 0 && otherPixelCoords.x < frameSize.x && otherPixelCoords.y >= 0 && otherPixelCoords.y < frameSize.y);
+	const bool hit = (tIn <= tOut) && IsValidCoords( otherPixelCoords );
+
+#if BLOCK_DEBUG == 1
+	if ( c_blockGetStats )
+	{
+		uint traceCellStatID;
+		InterlockedAdd( blockTraceStats[0].traceCellStatCount, 1, traceCellStatID );
+		if ( traceCellStatID < HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT )
+		{
+			BlockTraceCellStats cellStats;
+			cellStats.blockCellID = blockCellID;
+			cellStats.pixelCoords = pixelCoords;
+			cellStats.x = x;
+			cellStats.y = y;
+			cellStats.boxMinRS = boxMinRS;
+			cellStats.boxMaxRS = boxMaxRS;
+			cellStats.rayDir = rayDir;
+			cellStats.tIn = tIn;
+			cellStats.tOut = tOut;
+			cellStats.hit = hit;
+
+			blockTraceCellStats[traceCellStatID] = cellStats;
+		}
+	}
+#endif
 	return hit;
 }
 
@@ -45,6 +77,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
 	{
+		uint blockCellID;
 		bool valid;
 		uint mip;
 		uint rgb_none;
@@ -67,7 +100,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #else
 			const uint blockDataID = traceCells[traceBlockID * 2 + 1];
 #endif
-			const uint packedColor = blockData[blockDataID + cellRank];
+			blockCellID = blockDataID + cellRank;
+			const uint packedColor = blockData[blockCellID];
 
 			valid = packedColor != HLSL_GRID_BLOCK_CELL_EMPTY;
 
@@ -130,20 +164,20 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		{
 			for ( uint eye = 0; eye < c_blockEyeCount; ++eye )
 			{
-				if ( TraceCell( pixelCoords[eye], 0, 0, boxMinRS[eye], boxMaxRS[eye], eye ) )
+				if ( IsValidCoords( pixelCoords[eye] ) )
 				{
 					uint hitMask8 = 0;
 					// 0.35 ms
 					// if ( boxMinRS.x == 66666.66666f ) 
 					{
-						hitMask8 |= TraceCell( pixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
-						hitMask8 |= TraceCell( pixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
-						hitMask8 |= TraceCell( pixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
-						hitMask8 |= TraceCell( pixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
-						hitMask8 |= TraceCell( pixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;
-						hitMask8 |= TraceCell( pixelCoords[eye], -1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 5;
-						hitMask8 |= TraceCell( pixelCoords[eye],  0, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 6;
-						hitMask8 |= TraceCell( pixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 7;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 5;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye],  0, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 6;
+						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 7;
 					}
 
 					// 1.80 ms
