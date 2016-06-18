@@ -1725,7 +1725,7 @@ void GPUShaderContext_CreateEmpty()
 		samplerDesc.MinLOD = 0;
 		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
-		V6_ASSERT_D3D11( g_device->CreateSamplerState( &samplerDesc, &s_shaderContext.samplerState ) );
+		V6_ASSERT_D3D11( g_device->CreateSamplerState( &samplerDesc, &s_shaderContext.trilinearSamplerState ) );
 	}
 
 	s_shaderContext.initialized = true;
@@ -1749,7 +1749,7 @@ void GPUShaderContext_Release()
 		if ( s_shaderContext.shaders[shaderID].m_vertexShader )
 			GPUShader_Release( &s_shaderContext.shaders[shaderID] );
 
-	V6_RELEASE_D3D11( s_shaderContext.samplerState );
+	V6_RELEASE_D3D11( s_shaderContext.trilinearSamplerState );
 
 	memset( &s_shaderContext, 0, sizeof( GPUShaderContext_s ) );
 }

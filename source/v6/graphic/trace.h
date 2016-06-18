@@ -31,8 +31,9 @@ struct SequenceContext_s
 struct GPUTraceResources_s
 {
 	GPUConstantBuffer_s		cbCull;
-	GPUConstantBuffer_s		cbBlock;
-	GPUConstantBuffer_s		cbPixel;
+	GPUConstantBuffer_s		cbTrace;
+	GPUConstantBuffer_s		cbBlend;
+	GPUConstantBuffer_s		cbFilter;
 
 	GPUBuffer_s				blockPos;
 	GPUBuffer_s				blockData;
@@ -46,6 +47,10 @@ struct GPUTraceResources_s
 	GPUBuffer_s				cellItemCounters;
 
 	GPUTexture2D_s			colors;
+	GPUTexture2D_s			histories[2];
+	GPUBuffer_s				displacements;
+
+	ID3D11SamplerState*		bilinearSamplerState;
 
 	GPUBuffer_s				cullStats;
 	GPUBuffer_s				traceStats;
@@ -55,6 +60,7 @@ struct GPUTraceResources_s
 	GPUCompute_s			computeTraceInit;
 	GPUCompute_s			computeTrace[2][CODEC_BUCKET_COUNT];
 	GPUCompute_s			computeBlend[2];
+	GPUCompute_s			computeFilter;
 };
 
 struct TraceDesc_s
@@ -72,17 +78,23 @@ struct TraceOptions_s
 	bool					showBucket;
 	bool					showOverdraw;
 	bool					randomBackground;
+	bool					noJitter;
 };
 
 struct TraceFrameState_s
 {
+	Mat4x4					prevWorldToProjs[2];
 	Vec3					origin;
 	Vec3					basis[3];
+	Vec2					jitter;
 	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
 	u32						groupCounts[CODEC_BUCKET_COUNT];
 	u32						sequenceID;
+	u32						frameID;
 	u32						frameRank;
 	u32						bufferID;
+	u32						jitterID;
+	bool					resetJitter;
 };
 
 struct TraceContext_s

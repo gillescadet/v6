@@ -58,7 +58,7 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 9;
+static const u32 GRID_MACRO_SHIFT				= 8;
 static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
 static const u32 CUBE_SIZE						= GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
@@ -328,6 +328,7 @@ static int g_sample					= 0;
 static bool g_keyPath				= false;
 static bool g_showPath				= false;
 static int g_limit					= false; 
+static bool g_noJitter				= false;
 static bool g_showMip				= false;
 static bool g_showBucket			= false; 
 static bool g_showOverdraw			= false;
@@ -681,6 +682,7 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'G': if ( keyEvent->pressed ) { g_debugBlocks = true; } break;
 		case 'H': g_showHistory = keyEvent->pressed ? !g_showHistory: g_showHistory; break;
 		case 'I': if ( keyEvent->pressed ) { s_logReadBack = true; } break;
+		case 'J': g_noJitter = keyEvent->pressed ? !g_noJitter : g_noJitter; break;
 		case 'L': g_limit = keyEvent->pressed ? !g_limit : g_limit; break;
 		case 'M': g_showMip = keyEvent->pressed ? !g_showMip : g_showMip; break;
 		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
@@ -1065,7 +1067,7 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 	g_deviceContext->VSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
 	g_deviceContext->PSSetConstantBuffers( CONSTANT_BUFFER_GENERIC, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC].buf );
 	
-	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &shaderContext->samplerState );
+	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &shaderContext->trilinearSamplerState );
 
 	if ( material->textureIDs[TEXTURE_GENERIC_DIFFUSE] != Material_s::TEXTURE_INVALID )
 	{
@@ -2412,6 +2414,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
+					options.noJitter = g_noJitter;
 					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options, m_stack );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
@@ -2477,7 +2480,7 @@ int main()
 
 	v6::CHeap heap;
 	v6::Stack stack( &heap, 200 * 1024 * 1024 );
-		
+
 #if V6_LOAD_EXTERNAL == 1
 	v6::Stack stackScene( &heap, 400 * 1024 * 1024 );
 

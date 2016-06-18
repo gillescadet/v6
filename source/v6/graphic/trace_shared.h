@@ -16,7 +16,11 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
+#define HLSL_BILINEAR_SLOT							0
+
 #define HLSL_COLOR_SLOT								0
+#define HLSL_DISPLACEMENT_SLOT						1
+#define HLSL_HISTORY_SLOT							2
 
 #define HLSL_BLOCK_POS_SLOT							0
 #define HLSL_BLOCK_DATA_SLOT						1
@@ -52,13 +56,13 @@ CBUFFER( CBCull, 0 )
 	
 };
 
-struct BlockPerEye
+struct TracePerEye
 {
-	row_major matrix	objectToView;
-	row_major matrix	viewToProj;
+	float4				prevWorldToProj[4];
+	float4				curWorldToProj[4];
 	
 	float3				org;
-	float				pad;
+	float				pad0;
 
 	float3				rayDirBase;
 	float				pad1;
@@ -70,32 +74,40 @@ struct BlockPerEye
 	float				pad3;
 };
 
-CBUFFER( CBBlock, 1 )
+CBUFFER( CBTrace, 1 )
 {	
-	float4				c_blockGridScales[HLSL_MIP_MAX_COUNT];
-	float4				c_blockGridCenters[HLSL_MIP_MAX_COUNT];
+	float4				c_traceGridScales[HLSL_MIP_MAX_COUNT];
+	float4				c_traceGridCenters[HLSL_MIP_MAX_COUNT];
 
-	uint				c_blockGridMacroShift;
-	uint				c_blockEyeCount;
-	uint2				c_blockPad;
+	uint				c_traceGridMacroShift;
+	uint				c_traceEyeCount;
+	float2				c_traceJitter;
 
-	float2				c_blockFrameSize;
-	uint				c_blockGetStats;
-	uint				c_blockShowFlag;
+	float2				c_traceFrameSize;
+	uint				c_traceGetStats;
+	uint				c_traceShowFlag;
 
-	BlockPerEye			c_blockEyes[2];
-};
-
-CBUFFER( CBPixel, 2 )
-{
-	uint				c_pixelEye;
-	uint				c_pixelEyeCount;
-	uint2				c_pixelFrameSize;
-	float3				c_pixelBackColor;
-	float				c_pixelPad;
+	TracePerEye			c_traceEyes[2];
 	
 };
 
+CBUFFER( CBBlend, 2 )
+{
+	uint				c_blendEye;
+	uint				c_blendEyeCount;
+	uint2				c_blendFrameSize;
+	float3				c_blendBackColor;
+	float				c_blendPad;
+};
+
+CBUFFER( CBFilter, 3 )
+{
+	float2				c_filterUnJitter;
+	float				c_filterBlendFactor;
+	float				c_filterPad;
+	float2				c_filterFrameSize;
+	float2				c_filterInvFrameSize;
+};
 
 struct BlockRange
 {
@@ -109,8 +121,9 @@ struct BlockRange
 
 struct BlockCellItem
 {
-	float	depth;
+	uint	hitMask1_depth31;
 	uint	r8g8b8_hitMask8;
+	uint	xdsp16_ydsp16;
 };
 
 struct BlockCullStats 

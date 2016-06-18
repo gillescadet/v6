@@ -121,6 +121,10 @@ static const u32 g_sizeof_pixel_blend_cs_options[2] =
 	sizeof( g_main_pixel_blend_overdraw_cs ),
 };
 
+#include <v6/graphic/pixel_filter_cs_bytecode.h>
+
+static const u32 g_sizeof_pixel_filter_cs = { sizeof( g_main_pixel_filter_cs ) };
+
 END_V6_HLSL_NAMESPACE
 
 #endif // __V6_HLSL_TRACE_SHADERS_H__

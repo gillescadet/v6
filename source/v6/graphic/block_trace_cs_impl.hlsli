@@ -17,22 +17,23 @@ RWStructuredBuffer< BlockTraceStats > blockTraceStats			: REGISTER_UAV( HLSL_TRA
 RWStructuredBuffer< BlockTraceCellStats > blockTraceCellStats	: REGISTER_UAV( HLSL_TRACE_CELL_STATS_SLOT );
 #endif // #if BLOCK_DEBUG == 1
 
-bool IsValidCoords( int2 pixelCoords )
+bool IsValidCoords( float2 pixelCoords )
 {
-	const int2 frameSize = int2( c_blockFrameSize.xy );
+	const float2 frameSize = c_traceFrameSize.xy;
 
 	return pixelCoords.x >= 0 && pixelCoords.x < frameSize.x && pixelCoords.y >= 0 && pixelCoords.y < frameSize.y;
 }
 
-bool TraceCell( uint blockCellID, int2 pixelCoords, int x, int y, float3 boxMinRS, float3 boxMaxRS, uint eye )
+bool TraceCell( uint blockCellID, float2 pixelCoords, float x, float y, float3 boxMinRS, float3 boxMaxRS, uint eye )
 {
-	const int2 frameSize = int2( c_blockFrameSize.xy );
+	const float2 frameSize = c_traceFrameSize.xy;
 
-	const int2 otherPixelCoords = pixelCoords + int2( x, y );
-	const float3 rayDir = mad( otherPixelCoords.y, c_blockEyes[eye].rayDirUp, mad( otherPixelCoords.x, c_blockEyes[eye].rayDirRight, c_blockEyes[eye].rayDirBase ) );
+	const float2 otherPixelCoords = pixelCoords + float2( x, y );
+	const float3 rayDir = mad( otherPixelCoords.y, c_traceEyes[eye].rayDirUp, mad( otherPixelCoords.x, c_traceEyes[eye].rayDirRight, c_traceEyes[eye].rayDirBase ) );
 	const float3 rayInvDir = rcp( rayDir );
 	const float3 t0 = boxMinRS * rayInvDir;
 	const float3 t1 = boxMaxRS * rayInvDir;
+	// optimization: direction is know, t0 and t1 could be ordered statically
 	const float3 tMin = min( t0, t1 );
 	const float3 tMax = max( t0, t1 );
 	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
@@ -40,7 +41,7 @@ bool TraceCell( uint blockCellID, int2 pixelCoords, int x, int y, float3 boxMinR
 	const bool hit = (tIn <= tOut) && IsValidCoords( otherPixelCoords );
 
 #if BLOCK_DEBUG == 1
-	if ( c_blockGetStats )
+	if ( c_traceGetStats )
 	{
 		uint traceCellStatID;
 		InterlockedAdd( blockTraceStats[0].traceCellStatCount, 1, traceCellStatID );
@@ -71,7 +72,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const uint cellID = DTid.x;
 
 #if BLOCK_DEBUG == 1
-	if ( c_blockGetStats )
+	if ( c_traceGetStats )
 		InterlockedAdd( blockTraceStats[0].cellInputCount, 1 );
 #endif // #if BLOCK_DEBUG == 1
 
@@ -84,7 +85,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		float3 boxMinRS[2];
 		float3 boxMaxRS[2];
 		float pixelDepth[2];
-		int2 pixelCoords[2];
+		uint2 pixelDisplacementsF16[2];
+		float2 curPixelCoords[2];
 
 		{
 			const uint blockRank = cellID >> GRID_CELL_SHIFT;
@@ -110,83 +112,103 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			rgb_none = packedColor & ~0xFF;
 			const uint cellPos = packedColor & 0x3F;
 			const uint gridMacroMask = (1 << c_cullGridMacroShift)-1;
-			const uint x = (((blockPos >> (c_blockGridMacroShift*0)) & gridMacroMask) << 2) | ((cellPos >> 0) & 3);
-			const uint y = (((blockPos >> (c_blockGridMacroShift*1)) & gridMacroMask) << 2) | ((cellPos >> 2) & 3);
-			const uint z = (((blockPos >> (c_blockGridMacroShift*2)) & gridMacroMask) << 2) | ((cellPos >> 4) & 3);
+			const uint x = (((blockPos >> (c_traceGridMacroShift*0)) & gridMacroMask) << 2) | ((cellPos >> 0) & 3);
+			const uint y = (((blockPos >> (c_traceGridMacroShift*1)) & gridMacroMask) << 2) | ((cellPos >> 2) & 3);
+			const uint z = (((blockPos >> (c_traceGridMacroShift*2)) & gridMacroMask) << 2) | ((cellPos >> 4) & 3);
 			const uint3 cellCoords = uint3( x, y, z );
 
 #if BLOCK_DEBUG == 1
-			if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_MIPS )
+			if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_MIPS )
 			{
 				const uint mipColors[6] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0x7F000000, 0x007F0000, 0x00007F00 };
 				rgb_none = mipColors[mip % 6];
 			}
-			else if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_BUCKETS )
+			else if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_BUCKETS )
 			{
 				const uint bucketColors[5] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0xFF00FF00, 0xFFFF0000 };
 				rgb_none = bucketColors[GRID_CELL_BUCKET];
 			}
-			else if ( c_blockShowFlag & HLSL_BLOCK_SHOW_FLAG_HISTORY )
+			else if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_HISTORY )
 			{
 				const uint historyColors[4] = { 0xFF000000, 0x00FF0000, 0x0000FF00, 0x7F7F7F00 };
 				rgb_none = historyColors[historyColor];
 			}
 #endif // #if BLOCK_DEBUG == 1
 
-			const float gridScale = c_blockGridScales[mip].x;
-			const float halfCellSize = c_blockGridScales[mip].y;
-			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_blockGridCenters[mip].xyz;
+			const float gridScale = c_traceGridScales[mip].x;
+			const float halfCellSize = c_traceGridScales[mip].y;
+			// optimization: do everything in camera relative space
+			// optimization: add bias inside grid center
+			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_traceGridCenters[mip].xyz;
 
-			for ( uint eye = 0; eye < c_blockEyeCount; ++eye )
+			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
-				const float3 cellPosRS = cellPosWS - c_blockEyes[eye].org; // optimization: do everything in camera relative space
-				
-				boxMinRS[eye] = cellPosRS - halfCellSize;
-				boxMaxRS[eye] = cellPosRS + halfCellSize;
+				{
+					// optimization: do everything in camera relative space
+					const float3 cellPosRS = cellPosWS - c_traceEyes[eye].org; 
+					boxMinRS[eye] = cellPosRS - halfCellSize;
+					boxMaxRS[eye] = cellPosRS + halfCellSize;
+				}
 
-				const matrix worldToProjMatrix = mul( c_blockEyes[eye].viewToProj, c_blockEyes[eye].objectToView );
-				const float4 cellPosCS = mul( worldToProjMatrix, float4( cellPosWS, 1.0f ) );
-				const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
+				float2 prevPixelPos;
+
+				{
+					float4 cellPosCS;
+					cellPosCS.x = mul( c_traceEyes[eye].prevWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
+					cellPosCS.y = mul( c_traceEyes[eye].prevWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
+					cellPosCS.w = mul( c_traceEyes[eye].prevWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
+					const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
 			
-				pixelDepth[eye] = cellPosCS.w;
+					prevPixelPos = mad( cellScreenPos, float2( 0.5f, 0.5f ), 0.5f ) * c_traceFrameSize;
+				}
 
-				const float2 pixelPos = mad( cellScreenPos, 0.5f, 0.5f ) * c_blockFrameSize;
-				pixelCoords[eye] = int2( pixelPos );
+				{
+					float4 cellPosCS;
+					cellPosCS.x = mul( c_traceEyes[eye].curWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[0].w;
+					cellPosCS.y = mul( c_traceEyes[eye].curWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[1].w;
+					cellPosCS.w = mul( c_traceEyes[eye].curWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[3].w;
+					const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
+			
+					pixelDepth[eye] = cellPosCS.w;
+
+					float2 curPixelPos = mad( cellScreenPos, float2( 0.5f, 0.5f ), 0.5f ) * c_traceFrameSize;
+					pixelDisplacementsF16[eye] = f32tof16( curPixelPos - prevPixelPos );
+					curPixelCoords[eye] = floor( curPixelPos ) + c_traceJitter;
+				}
 			}
 		}
 
 #if BLOCK_DEBUG == 1
-		if ( c_blockGetStats )
+		if ( c_traceGetStats )
 			InterlockedAdd( blockTraceStats[0].cellProcessedCounts[mip], 1 );
 #endif // #if BLOCK_DEBUG == 1
 
 		if ( valid )
 		{
-			for ( uint eye = 0; eye < c_blockEyeCount; ++eye )
+			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
-				if ( IsValidCoords( pixelCoords[eye] ) )
+				if ( IsValidCoords( curPixelCoords[eye] ) )
 				{
-					uint hitMask8 = 0;
-					// 0.35 ms
-					// if ( boxMinRS.x == 66666.66666f ) 
+					uint hitMask9 = 0;
 					{
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], -1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 5;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye],  0, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 6;
-						hitMask8 |= TraceCell( blockCellID, pixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 7;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
+
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 5;
+						
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 6;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 7;
+						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 8;
 					}
 
-					// 1.80 ms
-					// if ( boxMinRS.x == 77777.77777f ) 
 					{
-						const int2 frameSize = int2( c_blockFrameSize.xy );
-						const int cellItemCountPerPage = frameSize.x * c_blockEyeCount * frameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
-						const uint2 cellItemPixelCoords = uint2( pixelCoords[eye].x + eye * frameSize.x, pixelCoords[eye].y );
-						const uint pixelID = (mad( cellItemPixelCoords.y >> 3, (frameSize.x * c_blockEyeCount) >> 3, cellItemPixelCoords.x >> 3 ) << 6) + mad( cellItemPixelCoords.y & 7, 8, cellItemPixelCoords.x & 7 );
+						const int2 frameSize = int2( c_traceFrameSize.xy );
+						const int cellItemCountPerPage = frameSize.x * c_traceEyeCount * frameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
+						const uint2 cellItemPixelCoords = uint2( curPixelCoords[eye].x + eye * frameSize.x, curPixelCoords[eye].y );
+						const uint pixelID = (mad( cellItemPixelCoords.y >> 3, (frameSize.x * c_traceEyeCount) >> 3, cellItemPixelCoords.x >> 3 ) << 6) + mad( cellItemPixelCoords.y & 7, 8, cellItemPixelCoords.x & 7 );
 
 						uint blockCellItemRank = 0;
 						InterlockedAdd( blockCellItemCounters[pixelID], 1, blockCellItemRank );
@@ -197,20 +219,21 @@ void main( uint3 DTid : SV_DispatchThreadID )
 							const uint blockCellItemRankInPage = blockCellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
 							const uint blockCellItemID = blockCellItemPage * cellItemCountPerPage + HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT * pixelID + blockCellItemRankInPage;
 					
-							blockCellItems[blockCellItemID].depth = pixelDepth[eye];
-							blockCellItems[blockCellItemID].r8g8b8_hitMask8 = rgb_none | hitMask8;
+							blockCellItems[blockCellItemID].hitMask1_depth31 = ((hitMask9 & 0x100) << 23) | asuint( pixelDepth[eye] );
+							blockCellItems[blockCellItemID].r8g8b8_hitMask8 = rgb_none | (hitMask9 & 0xFF);
+							blockCellItems[blockCellItemID].xdsp16_ydsp16 = (pixelDisplacementsF16[eye].x << 16) | pixelDisplacementsF16[eye].y;
 
 #if BLOCK_DEBUG == 1
-							if ( c_blockGetStats )
+							if ( c_traceGetStats )
 							{
-								InterlockedAdd( blockTraceStats[0].pixelSampleCount, 1 + countbits( hitMask8 ) );
+								InterlockedAdd( blockTraceStats[0].pixelSampleCount, countbits( hitMask9 ) );
 								InterlockedAdd( blockTraceStats[0].cellItemCounts[mip], 1 );
 							}
 #endif // #if BLOCK_DEBUG == 1
 						}
 
 #if BLOCK_DEBUG == 1
-						if ( c_blockGetStats )
+						if ( c_traceGetStats )
 							InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, blockCellItemRank );
 #endif // #if BLOCK_DEBUG == 1
 					}

@@ -226,7 +226,7 @@ struct GPUShaderContext_s
 	GPUCompute_s					computes[COMPUTE_MAX_COUNT];
 	GPUShader_s						shaders[SHADER_MAX_COUNT];
 
-	ID3D11SamplerState*				samplerState;
+	ID3D11SamplerState*				trilinearSamplerState;
 
 	bool							initialized;
 };

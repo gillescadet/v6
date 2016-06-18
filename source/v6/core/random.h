@@ -78,6 +78,25 @@ inline u32 HashVector( Vec3 v )
 	return seedx ^ seedy ^ seedy;
 }
 
+template < u32 BASE >
+inline float HaltonSequence( u32 index )
+{
+	// see wikipedia
+
+	float r = 0.0;
+	
+	float f = 1.0f;
+	u32 i = index + 1;
+	while ( i > 0 )
+	{
+		f *= 1.0f / BASE;
+		r += f * (i % BASE);
+		i /= BASE;
+	}
+
+	return r;
+}
+
 END_V6_NAMESPACE
 
 #endif // __V6_CORE_RANDOM_H__

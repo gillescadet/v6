@@ -152,6 +152,14 @@ V6_INLINE Vec2 operator*( Vec2 const & v1, float f)
 	return v;
 }
 
+V6_INLINE Vec2 operator/( float f, Vec2 const & v1 )
+{
+	Vec2 v;
+	v.x = f / v1.x;
+	v.y = f / v1.y;
+	return v;
+}
+
 V6_INLINE Vec2 operator+( Vec2 const & v1, float f )
 {
 	Vec2 v;
