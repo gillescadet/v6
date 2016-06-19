@@ -23,7 +23,7 @@ int main()
 	const v6::u32 playRate		= 75;
 #endif
 
-#if 1
+#if 0
 	const char* streamFilename = "D:/media/obj/default/default.v6";
 	const char* templateFilename = "D:/media/obj/default/default_%06d.v6f";
 
@@ -32,12 +32,12 @@ int main()
 	const v6::u32 playRate		= 75;
 #endif
 
-#if 0
+#if 1
 	const char* streamFilename = "D:/tmp/v6/ue.v6";
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 
-	const v6::u32 frameOffset	= 64;
-	const v6::u32 frameCount	= 750 - frameOffset;
+	const v6::u32 frameOffset	= 0;
+	const v6::u32 frameCount	= 1;
 	const v6::u32 playRate		= 75;
 #endif
 

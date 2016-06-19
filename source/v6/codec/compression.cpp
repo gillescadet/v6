@@ -195,18 +195,18 @@ static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64]
 					{
 						for ( max.b = startMax.z; max.b <= endMax.z; ++max.b )
 						{
-							Color_s endColor0 = min;
-							endColor0.r = (min.r << 3) | minHighBits.x;
-							endColor0.g = (min.g << 2) | minHighBits.y;
-							endColor0.b = (min.b << 3) | minHighBits.z;
+							Color_s discretEndColor0 = min;
+							discretEndColor0.r = (min.r << 3) | minHighBits.x;
+							discretEndColor0.g = (min.g << 2) | minHighBits.y;
+							discretEndColor0.b = (min.b << 3) | minHighBits.z;
 
-							Color_s endColor1 = max;
-							endColor1.r = (max.r << 3) | maxHighBits.x;
-							endColor1.g = (max.g << 2) | maxHighBits.y;
-							endColor1.b = (max.b << 3) | maxHighBits.z;
+							Color_s discretEndColor1 = max;
+							discretEndColor1.r = (max.r << 3) | maxHighBits.x;
+							discretEndColor1.g = (max.g << 2) | maxHighBits.y;
+							discretEndColor1.b = (max.b << 3) | maxHighBits.z;
 
 							EncodedBlockEx_s curBlock;
-							const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, endColor0, endColor1 );
+							const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
 
 							if ( error < minError )
 							{

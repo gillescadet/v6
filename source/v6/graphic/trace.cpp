@@ -16,8 +16,10 @@
 #include <v6/graphic/trace_shared.h>
 #include <v6/graphic/view.h>
 
+#define TRACE_TSAA_SAMPLE_COUNT		64
+#define TRACE_TSAA_BLEND_FACTOR		0.15f
+
 #define TRACE_CELL_DEBUG			0
-#define TRACE_JITTER_SAMPLE_COUNT	64
 
 BEGIN_V6_NAMESPACE
 
@@ -195,7 +197,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		else
 		{
 			traceContext->frameState.jitter = Vec2_Make( HaltonSequence< 2 >( traceContext->frameState.jitterID ), HaltonSequence< 3 >( traceContext->frameState.jitterID ) );
-			traceContext->frameState.jitterID = (traceContext->frameState.jitterID + 1) % TRACE_JITTER_SAMPLE_COUNT;
+			traceContext->frameState.jitterID = (traceContext->frameState.jitterID + 1) % TRACE_TSAA_SAMPLE_COUNT;
 		}
 
 		if ( traceContext->frameState.resetJitter )
@@ -505,7 +507,7 @@ static void FilterPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* ren
 		v6::hlsl::CBFilter* cbFilter = (v6::hlsl::CBFilter*)GPUConstantBuffer_MapWrite( &traceRes->cbFilter );
 
 		cbFilter->c_filterJitter = Vec2_Make( traceContext->frameState.jitter.x, traceContext->frameState.jitter.y );
-		cbFilter->c_filterBlendFactor = traceContext->frameState.resetJitter ? 1.0f : 0.15f;
+		cbFilter->c_filterBlendFactor = traceContext->frameState.resetJitter ? 1.0f : TRACE_TSAA_BLEND_FACTOR;
 		cbFilter->c_filterFrameSize = frameSize;
 		cbFilter->c_filterInvFrameSize = 1.0f / frameSize;
 

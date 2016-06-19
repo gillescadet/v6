@@ -23,7 +23,7 @@
 
 static const uint32			s_targetFPS			= 75;
 static const uint32			s_sampleCount		= 9;
-static const uint32			s_gridMacroShift	= 7;
+static const uint32			s_gridMacroShift	= 8;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
 static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);
@@ -189,14 +189,20 @@ static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* u
 static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& origin, const FVector& samplePos, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
-	showFlags.SetMotionBlur( false ); // motion blur doesn't work correctly with scene captures.
-	showFlags.SetSeparateTranslucency( false );
-	showFlags.SetHMDDistortion( false );
 	showFlags.SetAntiAliasing( false );
-	showFlags.SetTranslucency( false );
+	showFlags.SetBloom( false );
 	showFlags.SetCameraImperfections( false );
 	showFlags.SetDepthOfField( false );
+	showFlags.SetEyeAdaptation( false );
+	showFlags.SetFog( false );
 	showFlags.SetGrain( false );
+	showFlags.SetHMDDistortion( false );
+	showFlags.SetLensFlares( false );
+	showFlags.SetMotionBlur( false );
+	showFlags.SetParticles( false );
+	showFlags.SetSeparateTranslucency( false );
+	showFlags.SetTonemapper( false ); // should reinvestigate that
+	showFlags.SetTranslucency( false );
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
 
@@ -214,6 +220,11 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	newView->bIsSceneCapture = true;
 	viewFamily.Views.Add( newView );
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
+
+	FPostProcessSettings postProcessSettings;
+	newView->StartFinalPostprocessSettings( origin );
+	newView->OverridePostProcessSettings( postProcessSettings, 1.0f );
+	newView->EndFinalPostprocessSettings( viewInitOptions );
 
 	s_captureState = captureState;
 	s_captureFrameID = frameID;
@@ -237,6 +248,7 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameI
 	renderTargetTexture->AddToRoot();
 	renderTargetTexture->ClearColor = FLinearColor::Black;
 	renderTargetTexture->InitCustomFormat( size, size, PF_B8G8R8A8, false );
+	//renderTargetTexture->InitCustomFormat( size, size, PF_A16B16G16R16, false );
 	
 	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
 

@@ -115,7 +115,7 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 
 		uint sampleID;
 		InterlockedAdd( sample_count, 1, sampleID );
-		Sample_Pack( collectedSamples[sampleID], uniquePixelSample.coords, uniquePixelSample.mip, uint3( mad( uniquePixelSample.color / uniquePixelSample.count, 255.0f, 0.5f ) ), uniquePixelSample.occupancy );
+		Sample_Pack( collectedSamples[sampleID], uniquePixelSample.coords, uniquePixelSample.mip, uint3( mad( saturate( uniquePixelSample.color / uniquePixelSample.count ), 255.0f, 0.5f ) ), uniquePixelSample.occupancy );
 
 //#if HLSL_DEBUG_COLLECT == 1
 //		InterlockedAdd( sample_pixelSampleCount, uniquePixelSample.count );
