@@ -89,7 +89,7 @@ static const u32 RANDOM_CUBE_COUNT				= 100;
 
 static const u32 HMD_FPS						= 75;
 static const u32 VIDEO_FRAME_MAX_COUNT			= 10;
-static const u32 VIDEO_FPS						= 25;
+static const u32 VIDEO_FPS						= 75;
 
 static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
@@ -328,7 +328,7 @@ static int g_sample					= 0;
 static bool g_keyPath				= false;
 static bool g_showPath				= false;
 static int g_limit					= false; 
-static bool g_noJitter				= false;
+static bool g_noTSAA				= false;
 static bool g_showMip				= false;
 static bool g_showBucket			= false; 
 static bool g_showOverdraw			= false;
@@ -682,7 +682,7 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'G': if ( keyEvent->pressed ) { g_debugBlocks = true; } break;
 		case 'H': g_showHistory = keyEvent->pressed ? !g_showHistory: g_showHistory; break;
 		case 'I': if ( keyEvent->pressed ) { s_logReadBack = true; } break;
-		case 'J': g_noJitter = keyEvent->pressed ? !g_noJitter : g_noJitter; break;
+		case 'J': g_noTSAA = keyEvent->pressed ? !g_noTSAA : g_noTSAA; break;
 		case 'L': g_limit = keyEvent->pressed ? !g_limit : g_limit; break;
 		case 'M': g_showMip = keyEvent->pressed ? !g_showMip : g_showMip; break;
 		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
@@ -2415,7 +2415,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
-					options.noJitter = g_noJitter;
+					options.noTSAA = g_noTSAA;
 					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options, m_stack );
 				}
 				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );

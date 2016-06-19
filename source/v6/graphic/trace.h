@@ -78,7 +78,7 @@ struct TraceOptions_s
 	bool					showBucket;
 	bool					showOverdraw;
 	bool					randomBackground;
-	bool					noJitter;
+	bool					noTSAA;
 };
 
 struct TraceFrameState_s

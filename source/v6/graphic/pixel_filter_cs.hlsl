@@ -29,8 +29,7 @@ void main_pixel_filter_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Gro
 		blendFactor = 1.0f;
 
 	const float3 prevColor = inputHistory.SampleLevel( bilinearSampler, prevColorUVs, 0 ).rgb;
-	// const float3 prevColor = inputHistory.Load( int3( DTid.xy, 0 ) ).rgb;
 	const float3 curColor = inputColors.SampleLevel( bilinearSampler, curColorUVs, 0 ).rgb;
 
-	outputColors[DTid.xy] = float4( lerp( prevColor, curColor, c_filterBlendFactor ), 0.0f );
+	outputColors[DTid.xy] = float4( lerp( prevColor, curColor, blendFactor ), 0.0f );
 }

@@ -188,7 +188,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
 			Mat4x4_Mul( &worldToProjs[eye], views[eye].projMatrix, views[eye].viewMatrix );
 
-		if ( options->noJitter )
+		if ( options->noTSAA )
 		{
 			traceContext->frameState.jitter = Vec2_Make( 0.5f, 0.5f );
 		}
@@ -418,7 +418,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	}
 }
 
-static void BlendPixel( TraceContext_s* traceContext, u32 eye, const TraceOptions_s* options )
+static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView* outputColors, u32 eye, const TraceOptions_s* options )
 {
 	GPUTraceResources_s* traceRes = traceContext->res;
 
@@ -432,7 +432,7 @@ static void BlendPixel( TraceContext_s* traceContext, u32 eye, const TraceOption
 
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_SLOT, 1, &traceRes->cellItems.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &traceRes->cellItemCounters.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &traceRes->colors.uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &outputColors, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.uav, nullptr );
 	const u32 shaderOption = options->showOverdraw ? 1 : 0;
 	g_deviceContext->CSSetShader( traceRes->computeBlend[shaderOption].m_computeShader, nullptr, 0 );
@@ -758,8 +758,15 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 	TraceBlock( traceContext, views, options, stack );
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 	{
-		BlendPixel( traceContext, eye, options );
-		FilterPixel( traceContext, renderTargetSet, eye, options );
+		if ( options->noTSAA )
+		{
+			BlendPixel( traceContext, renderTargetSet->colorBuffers[eye].uav, eye, options );
+		}
+		else
+		{
+			BlendPixel( traceContext, traceContext->res->colors.uav, eye, options );
+			FilterPixel( traceContext, renderTargetSet, eye, options );
+		}
 	}
 
 	traceContext->frameState.resetJitter = false;
