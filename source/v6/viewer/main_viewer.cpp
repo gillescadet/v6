@@ -47,7 +47,7 @@
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
-#define V6_USE_CACHE			0
+#define V6_USE_CACHE			1
 
 #if V6_USE_HMD == 1
 #include <v6/graphic/hmd.h>
@@ -1914,11 +1914,12 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 #if V6_USE_CACHE == 1
 	CodecStreamDesc_s codecDesc;
 	if ( !VideoStream_LoadDesc( streamFilename, &codecDesc, m_stack ) ||
+		codecDesc.sequenceCount != 1 ||
 		codecDesc.frameCount != frameCount ||
 		codecDesc.frameRate != HMD_FPS ||
 		codecDesc.playRate != VIDEO_FPS ||
 		codecDesc.sampleCount != SAMPLE_MAX_COUNT ||
-		codecDesc.gridMacroShift != HLSL_GRID_MACRO_SHIFT ||
+		codecDesc.gridMacroShift != GRID_MACRO_SHIFT ||
 		codecDesc.gridScaleMin != GRID_MIN_SCALE ||
 		codecDesc.gridScaleMax != GRID_MAX_SCALE )
 #endif // #if V6_USE_CACHE == 1

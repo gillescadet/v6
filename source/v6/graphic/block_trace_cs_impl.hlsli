@@ -150,7 +150,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					boxMaxRS[eye] = cellPosRS + halfCellSize;
 				}
 
-				float2 prevPixelPos;
+				float2 prevPixelUV;
 
 				{
 					float4 cellPosCS;
@@ -159,7 +159,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					cellPosCS.w = mul( c_traceEyes[eye].prevWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
 					const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
 			
-					prevPixelPos = mad( cellScreenPos, float2( 0.5f, 0.5f ), 0.5f ) * c_traceFrameSize;
+					prevPixelUV = mad( cellScreenPos, 0.5f, 0.5f );
 				}
 
 				{
@@ -171,9 +171,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			
 					pixelDepth[eye] = cellPosCS.w;
 
-					float2 curPixelPos = mad( cellScreenPos, float2( 0.5f, 0.5f ), 0.5f ) * c_traceFrameSize;
-					pixelDisplacementsF16[eye] = f32tof16( curPixelPos - prevPixelPos );
-					curPixelCoords[eye] = floor( curPixelPos ) + c_traceJitter;
+					const float2 curPixelUV = mad( cellScreenPos, 0.5f, 0.5f );
+					pixelDisplacementsF16[eye] = f32tof16( curPixelUV - prevPixelUV );
+					curPixelCoords[eye] = floor( curPixelUV * c_traceFrameSize ) + c_traceJitter;
 				}
 			}
 		}

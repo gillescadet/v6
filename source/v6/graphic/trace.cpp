@@ -188,8 +188,15 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
 			Mat4x4_Mul( &worldToProjs[eye], views[eye].projMatrix, views[eye].viewMatrix );
 
-		traceContext->frameState.jitter = Vec2_Make( HaltonSequence< 2 >( traceContext->frameState.jitterID ), HaltonSequence< 3 >( traceContext->frameState.jitterID ) );
-		traceContext->frameState.jitterID = (traceContext->frameState.jitterID + 1) % TRACE_JITTER_SAMPLE_COUNT;
+		if ( options->noJitter )
+		{
+			traceContext->frameState.jitter = Vec2_Make( 0.5f, 0.5f );
+		}
+		else
+		{
+			traceContext->frameState.jitter = Vec2_Make( HaltonSequence< 2 >( traceContext->frameState.jitterID ), HaltonSequence< 3 >( traceContext->frameState.jitterID ) );
+			traceContext->frameState.jitterID = (traceContext->frameState.jitterID + 1) % TRACE_JITTER_SAMPLE_COUNT;
+		}
 
 		if ( traceContext->frameState.resetJitter )
 		{
@@ -247,7 +254,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
 		}
 
-		cbTrace->c_traceJitter = options->noJitter ? Vec2_Zero() : traceContext->frameState.jitter;
+		cbTrace->c_traceJitter = traceContext->frameState.jitter;
 
 		GPUConstantBuffer_UnmapWrite( &traceRes->cbTrace );
 
@@ -497,7 +504,7 @@ static void FilterPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* ren
 
 		v6::hlsl::CBFilter* cbFilter = (v6::hlsl::CBFilter*)GPUConstantBuffer_MapWrite( &traceRes->cbFilter );
 
-		cbFilter->c_filterUnJitter = options->noJitter ? Vec2_Zero() : Vec2_Make( 1.0f - traceContext->frameState.jitter.x, traceContext->frameState.jitter.y - 1.0f );
+		cbFilter->c_filterJitter = Vec2_Make( traceContext->frameState.jitter.x, traceContext->frameState.jitter.y );
 		cbFilter->c_filterBlendFactor = traceContext->frameState.resetJitter ? 1.0f : 0.15f;
 		cbFilter->c_filterFrameSize = frameSize;
 		cbFilter->c_filterInvFrameSize = 1.0f / frameSize;

@@ -102,7 +102,7 @@ CBUFFER( CBBlend, 2 )
 
 CBUFFER( CBFilter, 3 )
 {
-	float2				c_filterUnJitter;
+	float2				c_filterJitter;
 	float				c_filterBlendFactor;
 	float				c_filterPad;
 	float2				c_filterFrameSize;
