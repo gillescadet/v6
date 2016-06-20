@@ -58,6 +58,7 @@ struct FrameTimer_s
 enum CommandAction_e
 {
 	COMMAND_ACTION_NONE,
+	COMMAND_ACTION_COMMAND_LINE,
 	COMMAND_ACTION_LOAD_STREAM,
 	COMMAND_ACTION_UNLOAD_STREAM,
 	COMMAND_ACTION_PLAY,
@@ -65,6 +66,11 @@ enum CommandAction_e
 	COMMAND_ACTION_END_FRAME,
 	COMMAND_ACTION_PREV_FRAME,
 	COMMAND_ACTION_NEXT_FRAME,
+	COMMAND_ACTION_TRACE_OPTION_BUCKET,
+	COMMAND_ACTION_TRACE_OPTION_LOG,
+	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
+	COMMAND_ACTION_TRACE_OPTION_MIP,
+	COMMAND_ACTION_TRACE_OPTION_TSAA,
 };
 
 struct CommandBuffer_s
@@ -84,6 +90,7 @@ struct Player_s
 	Scene_s					scene;
 	VideoStream_s			stream;
 	TraceContext_s			traceContext;
+	TraceOptions_s			traceOptions;
 	float					curFrameID;
 	u32						targetFrameID;
 
@@ -95,6 +102,8 @@ struct Player_s
 	int						keyRightPressed;
 	int						keyUpPressed;
 	int						keyDownPressed;
+	char					commandLine[256];
+	u32						commandLineSize;
 };
 
 //----------------------------------------------------------------------------------------------------
@@ -281,24 +290,117 @@ static bool PlayerStream_IsValid( Player_s* player )
 
 //----------------------------------------------------------------------------------------------------
 
+static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuffer, const char* commandLine )
+{
+	switch ( commandLine[0] )
+	{
+	case 'B':
+		if ( strcmp( commandLine, "BUCKET ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "BUCKET OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
+	case 'L':
+		if ( strcmp( commandLine, "LOG" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_LOG;
+			return;
+		}
+
+		break;
+
+	case 'M':
+		if ( strcmp( commandLine, "MIP ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_MIP;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "MIP OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_MIP;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
+	case 'O':
+		if ( strcmp( commandLine, "OVERDRAW ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "OVERDRAW OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
+	case 'T':
+		if ( strcmp( commandLine, "TSAA ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_TSAA;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "TSAA OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_TSAA;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+	}
+
+	V6_WARNING( "Unknown command %s\n", commandLine );
+	commandBuffer->action = COMMAND_ACTION_NONE;
+}
+
 static void PlayerCommandBuffer_Process( Player_s* player )
 {
-	switch ( player->commandBuffer.action )
+	CommandBuffer_s commandBuffer = player->commandBuffer;
+	if ( commandBuffer.action == COMMAND_ACTION_COMMAND_LINE )
+		PlayerCommandBuffer_MakeFromCommandLine( &commandBuffer, player->commandBuffer.arg );
+
+	switch ( commandBuffer.action )
 	{
+	case COMMAND_ACTION_COMMAND_LINE:
+		V6_ASSERT_NOT_SUPPORTED();
+		break;
 	case COMMAND_ACTION_LOAD_STREAM:
 		{
 			if ( PlayerStream_IsValid( player ) )
 				PlayerStream_Release( player );
-			if ( !PlayerStream_Create( player, player->commandBuffer.arg ) )
+			if ( !PlayerStream_Create( player, commandBuffer.arg ) )
 			{
-				V6_ERROR( "Unable to load stream %s\n", player->commandBuffer.arg );
+				V6_ERROR( "Unable to load stream %s\n", commandBuffer.arg );
 			}
 			else
 			{
 				player->camera.pos = player->stream.desc.sequenceCount > 0 ? player->stream.sequences[0].frameDescArray[0].gridOrigin : Vec3_Zero();
 				player->camera.yaw = 0.0f;
 				player->camera.pitch = 0.0f;
-				V6_MSG( "Loaded stream %s\n", player->commandBuffer.arg );
+				V6_MSG( "Loaded stream %s\n", commandBuffer.arg );
 			}
 		}
 		break;
@@ -359,6 +461,21 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			}
 		}
 		break;
+	case COMMAND_ACTION_TRACE_OPTION_BUCKET:
+		player->traceOptions.showBucket = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showBucket;
+		break;
+	case COMMAND_ACTION_TRACE_OPTION_LOG:
+		player->traceOptions.logReadBack = true;
+		break;
+	case COMMAND_ACTION_TRACE_OPTION_MIP:
+		player->traceOptions.showMip = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showMip;
+		break;
+	case COMMAND_ACTION_TRACE_OPTION_OVERDRAW:
+		player->traceOptions.showOverdraw = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showOverdraw;
+		break;
+	case COMMAND_ACTION_TRACE_OPTION_TSAA:
+		player->traceOptions.noTSAA = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noTSAA;
+		break;
 	}
 
 	player->commandBuffer.action = COMMAND_ACTION_NONE;
@@ -369,6 +486,42 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 {
 	Player_s* player = (Player_s*)keyEvent->win->owner;
+
+	if ( player->commandLineSize != (u32)-1 )
+	{
+		if ( !keyEvent->pressed )
+			return ;
+
+		if ( keyEvent->key == 0x0D )
+		{
+			if ( player->commandLineSize == 0 )
+			{
+				V6_MSG( "\r~<NULL>\n" );
+			}
+			else
+			{
+				V6_MSG( "\r~%s\n", player->commandLine );
+				player->commandBuffer.action = COMMAND_ACTION_COMMAND_LINE;
+				strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), player->commandLine );
+			}
+			player->commandLineSize = (u32)-1;
+			
+		}
+		else if ( keyEvent->key == 0xC0 )
+		{
+			V6_MSG( "\r~<NULL>\n" );
+			player->commandLineSize = (u32)-1;
+		}
+		else if ( keyEvent->key >= ' ' && player->commandLineSize < sizeof( player->commandLine ) )
+		{
+			player->commandLine[player->commandLineSize] = keyEvent->key;
+			++player->commandLineSize;
+			player->commandLine[player->commandLineSize] = 0;
+			V6_MSG( "\r~%s", player->commandLine );
+		}
+
+		return;
+	}
 
 	switch( keyEvent->key )
 	{
@@ -398,12 +551,35 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 0x24:
 		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
 		break;
+	case 0xC0:
+		player->commandLineSize = 0;
+		V6_MSG( "~" );
+		break;
+	case 'I':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_LOG;
+		break;
+	case 'J':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_TSAA;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6" );
 			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
 		}
+		break;
+	case 'N':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
+		player->commandBuffer.arg[0] = 2;
+		break;
+	case 'M':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_MIP;
+		player->commandBuffer.arg[0] = 2;
+		break;
+	case 'O':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
+		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY;
@@ -499,8 +675,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 		View_s view;
 		Camera_MakeView( &player->camera, &view );
 
-		TraceOptions_s traceOptions = {};
-		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &traceOptions, player->stack );
+		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &player->traceOptions, player->stack );
 
 		if ( frameID < player->targetFrameID )
 			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
@@ -517,11 +692,15 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 	GPUColorRenderTarget_Copy( &GPUSurfaceContext_Get()->surface, &player->mainRenderTargetSet.colorBuffers[0] );
 	GPUSurfaceContext_Present();
+
+	player->traceOptions.logReadBack = false;
 }
 
 static bool Player_Create( Player_s* player, u32 width, u32 height, IAllocator* heap, IStack* stack )
 {
 	memset( player, 0, sizeof( *player ) );
+
+	player->commandLineSize = (u32)-1;
 
 	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, width, height, true ) )
 		return false;
