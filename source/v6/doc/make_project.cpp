@@ -234,16 +234,18 @@ enum
 
 enum
 {
-	PROJECT_CLASSWRAPPER	= 1 << 0,
-	PROJECT_COMPRESSOR		= 1 << 1,
-	PROJECT_DOC				= 1 << 2,
-	PROJECT_ENCODER			= 1 << 3,
-	PROJECT_LIBOVR			= 1 << 4,
-	PROJECT_LIBOVRKERNEL	= 1 << 5,
-	PROJECT_PLAYER			= 1 << 6,
-	PROJECT_VIEWER			= 1 << 7,
+	PROJECT_BIN2H			= 1 << 0,
+	PROJECT_BMFONTPARSER	= 1 << 1,
+	PROJECT_CLASSWRAPPER	= 1 << 2,
+	PROJECT_COMPRESSOR		= 1 << 3,
+	PROJECT_DOC				= 1 << 4,
+	PROJECT_ENCODER			= 1 << 5,
+	PROJECT_LIBOVR			= 1 << 6,
+	PROJECT_LIBOVRKERNEL	= 1 << 7,
+	PROJECT_PLAYER			= 1 << 8,
+	PROJECT_VIEWER			= 1 << 9,
 
-	PROJECT_COUNT			= 8
+	PROJECT_COUNT			= 10
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -256,6 +258,8 @@ static const Config_s s_configs[CONFIG_COUNT] =
 
 static const Project_s s_projects[PROJECT_COUNT] = 
 { 
+	{ PROJECT_BIN2H, 		"C1954BE7-8364-4327-BFFA-8F36057A2083", "bin2h" },
+	{ PROJECT_BMFONTPARSER,	"F8B1604E-BC8E-4B59-AF7F-D31B01DD9650", "bmfont_parser" },
 	{ PROJECT_CLASSWRAPPER, "30B4EE66-3B03-4859-9372-974340DC4BD3", "class_wrappper" },
 	{ PROJECT_COMPRESSOR,	"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor" },
 	{ PROJECT_DOC,			"3CF8E22B-F0B6-43A7-B472-9E3ACB91591A", "doc" },
@@ -268,6 +272,16 @@ static const Project_s s_projects[PROJECT_COUNT] =
 
 static ProjectFile_s s_projectFiles[] =
 {
+	// bin2h	
+	{ "source/v6/bin2h/main_bin2h.cpp",					PROJECT_BIN2H },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_BIN2H },
+	{ "source/v6/core/memory.cpp",						PROJECT_BIN2H },
+	
+	// bmfont parser
+	{ "source/v6/bmfont_parser/main_bmfont_parser.cpp",	PROJECT_BMFONTPARSER },
+	{ "source/v6/core/filesystem.cpp",					PROJECT_BMFONTPARSER },
+	{ "source/v6/core/memory.cpp",						PROJECT_BMFONTPARSER },
+	
 	// class wrapper
 	{ "source/v6/core/memory.cpp",						PROJECT_CLASSWRAPPER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_CLASSWRAPPER },
