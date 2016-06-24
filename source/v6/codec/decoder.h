@@ -24,6 +24,7 @@ struct VideoSequence_s
 
 struct VideoStream_s
 {
+	char					name[256];
 	CodecStreamDesc_s		desc;
 	CodecStreamData_s		data;
 	void*					buffer;

@@ -405,6 +405,8 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 		return false;
 	}
 
+	strcpy_s( stream->name, sizeof( stream->name ), streamFilename );
+
 	return true;
 }
 

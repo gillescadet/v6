@@ -13,6 +13,7 @@
 #include <v6/core/string.h>
 #include <v6/core/time.h>
 #include <v6/core/win.h>
+#include <v6/graphic/font.h>
 #include <v6/graphic/gpu.h>
 #include <v6/graphic/scene.h>
 #include <v6/graphic/trace.h>
@@ -47,12 +48,22 @@ enum
 	SHADER_COUNT
 };
 
+struct FrameInfo_s
+{
+	u32		frameID;
+	float	dt;
+	float	averageFPS;
+};
+
 struct FrameTimer_s
 {
-	u64						frameTickLast;
-	float					fpsMax;
-	float					dtMin;
-	float					dtMax;
+	u32		frameID;
+	u64		frameTickLast;
+	float	fpsMax;
+	float	dtMin;
+	float	dtMax;
+	u64		frameDurations[32];
+	u64		frameDurationSum;
 };
 
 enum CommandAction_e
@@ -89,6 +100,7 @@ struct Player_s
 	Camera_s				camera;
 	Scene_s					scene;
 	VideoStream_s			stream;
+	FontContext_s			fontContext;
 	TraceContext_s			traceContext;
 	TraceOptions_s			traceOptions;
 	float					curFrameID;
@@ -127,27 +139,40 @@ static void FrameTimer_Init( FrameTimer_s* frameTimer, float fpsMax, float dtMax
 	frameTimer->fpsMax = Max( 1.0f, fpsMax );
 	frameTimer->dtMin = 1.0f / frameTimer->fpsMax;
 	frameTimer->dtMax = Max( frameTimer->dtMin, dtMax );
+	memset( frameTimer->frameDurations, 0, sizeof( frameTimer->frameDurations ) );
+	frameTimer->frameDurationSum = 0;
 }
 
-static float FrameTimer_ComputeInterval( FrameTimer_s* frameTimer )
+static void FrameTimer_ComputeNewFrameInfo( FrameTimer_s* frameTimer, FrameInfo_s* frameInfo )
 {
+	frameInfo->dt = 0.0f;
+	frameInfo->frameID = frameTimer->frameID;
+
 	const u64 frameTick = GetTickCount();
 	u64 frameUpdatedTick = frameTick;
-	float dt = 0.0f;
+	u64 frameDelta;
 	for (;;)
 	{
-		const u64 frameDelta = frameUpdatedTick - frameTimer->frameTickLast;
-		dt = Min( ConvertTicksToSeconds( frameDelta ), frameTimer->dtMax );
+		frameDelta = frameUpdatedTick - frameTimer->frameTickLast;
+		frameInfo->dt = Min( ConvertTicksToSeconds( frameDelta ), frameTimer->dtMax );
 //#if !V6_USE_HMD
-		if ( dt + 0.0001f >= frameTimer->dtMin )
+		if ( frameInfo->dt + 0.0001f >= frameTimer->dtMin )
 			break;
 		SwitchToThread();
 		frameUpdatedTick = GetTickCount();
 //#endif // #if !V6_USE_HMD
 	}
 	frameTimer->frameTickLast = frameUpdatedTick;
+	
+	const u32 frameDurationRank = frameTimer->frameID % 32;
+	frameTimer->frameDurationSum -= frameTimer->frameDurations[frameDurationRank];
+	frameTimer->frameDurationSum += frameDelta;
+	frameTimer->frameDurations[frameDurationRank] = frameDelta;
+	
+	const float avgFrameDuration = ConvertTicksToSeconds( frameTimer->frameDurationSum ) / 32.0f;
+	frameInfo->averageFPS = avgFrameDuration < FLT_EPSILON ? 0.0f : 1.0f / avgFrameDuration; 
 
-	return dt;
+	++frameTimer->frameID;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -247,10 +272,14 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 		static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
 		GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "player_basic_vs.cso", "player_basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, player->stack );
 	}
+
+	FontContext_Create( &player->fontContext );
 }
 
 static void PlayerDevice_Release( Player_s* player )
 {
+	FontContext_Release( &player->fontContext );
+
 	GPURenderTargetSet_Release( &player->mainRenderTargetSet );
 
 	GPUDevice_Release();
@@ -649,7 +678,24 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 	}
 }
 
-static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
+static void Player_DrawUI( Player_s* player, float averageFPS )
+{
+	const u32 lineHeight = FontContext_GetLineHeight( &player->fontContext );
+	u32 cursorY = lineHeight / 2;
+
+	FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
+	cursorY += lineHeight;
+
+	if ( PlayerStream_IsValid( player ) )
+		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
+	else
+		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
+	cursorY += lineHeight;
+
+	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
+}
+
+static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float averageFPS )
 {
 	String_ResetInternalBuffer();
 	
@@ -689,6 +735,8 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt )
 
 		PlayerScene_Draw( player, &view );
 	}
+
+	Player_DrawUI( player, averageFPS );
 
 	GPUColorRenderTarget_Copy( &GPUSurfaceContext_Get()->surface, &player->mainRenderTargetSet.colorBuffers[0] );
 	GPUSurfaceContext_Present();
@@ -752,13 +800,13 @@ int main( int argc, char** argv )
 	
 	v6::FrameTimer_s frameTimer;
 	v6::FrameTimer_Init( &frameTimer, (float)v6::PLAY_RATE, 0.1f );
-	v6::u32 frameID = 0;
-	while ( !Win_ProcessMessagesAndShouldQuit( &player->win ) )
+	
+	while ( !v6::Win_ProcessMessagesAndShouldQuit( &player->win ) )
 	{
-		const float dt = FrameTimer_ComputeInterval( &frameTimer );
+		v6::FrameInfo_s frameInfo;
+		v6::FrameTimer_ComputeNewFrameInfo( &frameTimer, &frameInfo );
 
-		v6::Player_ProcessFrame( player, frameID, dt );
-		++frameID;
+		v6::Player_ProcessFrame( player, frameInfo.frameID, frameInfo.dt, frameInfo.averageFPS );
 	}
 
 	v6::Player_Release( player );

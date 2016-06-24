@@ -40,6 +40,13 @@ V6_INLINE Color_s Color_Make( u8 r, u8 g, u8 b, u8 a )
 	return c;
 }
 
+V6_INLINE Color_s Color_Black()			{ return Color_Make(   0,   0,   0, 255 );  }
+V6_INLINE Color_s Color_Blue()			{ return Color_Make(   0,   0, 255, 255 );  }
+V6_INLINE Color_s Color_Green()			{ return Color_Make(   0, 255,   0, 255 );  }
+V6_INLINE Color_s Color_Red()			{ return Color_Make( 255,   0,   0, 255 );  }
+V6_INLINE Color_s Color_White()			{ return Color_Make( 255, 255, 255, 255 );  }
+V6_INLINE Color_s Color_Transparent()	{ return Color_Make(   0,   0,   0,   0 );  }
+
 END_V6_NAMESPACE
 
 #endif // __V6_CORE_COLOR_H__

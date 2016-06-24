@@ -6,10 +6,12 @@
 #define __V6_GRAPHIC_TRACE_H__
 
 #include <v6/codec/codec.h>
+#include <v6/core/vec3.h>
 #include <v6/graphic/gpu.h>
 
 BEGIN_V6_NAMESPACE
 
+struct GPUTraceResources_s;
 struct View_s;
 
 struct SequenceBlockRange_s
@@ -26,41 +28,6 @@ struct SequenceContext_s
 	SequenceBlockRange_s	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
 	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
 	u32						frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
-};
-
-struct GPUTraceResources_s
-{
-	GPUConstantBuffer_s		cbCull;
-	GPUConstantBuffer_s		cbTrace;
-	GPUConstantBuffer_s		cbBlend;
-	GPUConstantBuffer_s		cbFilter;
-
-	GPUBuffer_s				blockPos;
-	GPUBuffer_s				blockData;
-	GPUBuffer_s				ranges[2];
-	GPUBuffer_s				groups[2];
-
-	GPUBuffer_s				traceCell;
-	GPUBuffer_s				traceIndirectArgs;
-	
-	GPUBuffer_s				cellItems;
-	GPUBuffer_s				cellItemCounters;
-
-	GPUTexture2D_s			colors;
-	GPUTexture2D_s			histories[2];
-	GPUBuffer_s				displacements;
-
-	ID3D11SamplerState*		bilinearSamplerState;
-
-	GPUBuffer_s				cullStats;
-	GPUBuffer_s				traceStats;
-	GPUBuffer_s				traceCellStats;
-
-	GPUCompute_s			computeCull[2][CODEC_BUCKET_COUNT];
-	GPUCompute_s			computeTraceInit;
-	GPUCompute_s			computeTrace[2][CODEC_BUCKET_COUNT];
-	GPUCompute_s			computeBlend[2];
-	GPUCompute_s			computeFilter;
 };
 
 struct TraceDesc_s

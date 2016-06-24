@@ -180,12 +180,22 @@ struct GPURenderTargetSetCreationDesc_s
 	bool							stereo;
 };
 
+enum GPUBlendMode : u8
+{
+	GPU_BLEND_MODE_OPAQUE,
+	GPU_BLEND_MODE_ALPHA_COVERAGE,
+	GPU_BLEND_MODE_ADDITIF,
+	GPU_BLEND_MODE_NO_COLOR,
+
+	GPU_BLEND_MODE_COUNT
+};
+
 struct GPURenderTargetSetBindingDesc_s
 {
 	bool							clear;
 	bool							noZ;
 	bool							useMSAA;
-	bool							useAlphaCoverage;
+	GPUBlendMode					blendMode;
 };
 
 struct GPURenderTargetSet_s
@@ -311,6 +321,7 @@ void						GPURenderTargetSet_Unbind( GPURenderTargetSet_s* renderTargetSet );
 void						GPUResource_LogMemory( const char* res, u32 size, const char* name );
 void						GPUResource_LogMemoryUsage();
 
+void						GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 sourceSizeVS, const void* sourcePS, u32 sourceSizePS, u32 vertexFormat );
 bool						GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, IAllocator* allocator );
 void						GPUShader_Release( GPUShader_s* shader );
 
@@ -322,6 +333,7 @@ GPUSurfaceContext_s*		GPUSurfaceContext_Get();
 void						GPUSurfaceContext_Present();
 
 void						GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* pixels, bool mipmap, const char* name );
+void						GPUTexture2D_CreateCompressed( GPUTexture2D_s* tex, u32 width, u32 height, void* compressedData, bool mipmap, const char* name );
 void						GPUTexture2D_CreateRW( GPUTexture2D_s* tex, u32 width, u32 height, const char* name );
 void						GPUTexture2D_Release( GPUTexture2D_s* tex );
 

@@ -23,10 +23,45 @@
 
 BEGIN_V6_NAMESPACE
 
+struct GPUTraceResources_s
+{
+	GPUConstantBuffer_s		cbCull;
+	GPUConstantBuffer_s		cbTrace;
+	GPUConstantBuffer_s		cbBlend;
+	GPUConstantBuffer_s		cbFilter;
+
+	GPUBuffer_s				blockPos;
+	GPUBuffer_s				blockData;
+	GPUBuffer_s				ranges[2];
+	GPUBuffer_s				groups[2];
+
+	GPUBuffer_s				traceCell;
+	GPUBuffer_s				traceIndirectArgs;
+	
+	GPUBuffer_s				cellItems;
+	GPUBuffer_s				cellItemCounters;
+
+	GPUTexture2D_s			colors;
+	GPUTexture2D_s			histories[2];
+	GPUBuffer_s				displacements;
+
+	ID3D11SamplerState*		bilinearSamplerState;
+
+	GPUBuffer_s				cullStats;
+	GPUBuffer_s				traceStats;
+	GPUBuffer_s				traceCellStats;
+
+	GPUCompute_s			computeCull[2][CODEC_BUCKET_COUNT];
+	GPUCompute_s			computeTraceInit;
+	GPUCompute_s			computeTrace[2][CODEC_BUCKET_COUNT];
+	GPUCompute_s			computeBlend[2];
+	GPUCompute_s			computeFilter;
+};
+
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
 
-struct GPUTraceResources_s						s_gpuTraceResources;
+static GPUTraceResources_s						s_gpuTraceResources;
 static bool										s_gpuTraceResourcesCreated = false;
 
 static const u32 SEQUENCE_BLOCK_GROUP_MAX_COUNT = 65536;

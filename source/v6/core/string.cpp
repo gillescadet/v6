@@ -6,7 +6,7 @@
 
 BEGIN_V6_NAMESPACE
 
-thread_local char	s_strBuffer[16 * 1024];
+thread_local char	s_strBuffer[32 * 1024];
 thread_local char*	const s_strEnd = s_strBuffer + sizeof( s_strBuffer );
 thread_local char*	s_str = s_strBuffer;
 

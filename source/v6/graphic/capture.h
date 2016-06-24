@@ -23,29 +23,6 @@ struct CaptureDesc_s
 	bool						logReadBack;
 };
 
-struct GPUCaptureResources_s
-{
-	GPUConstantBuffer_s			cbCollect;
-	GPUConstantBuffer_s			cbOctree;
-	
-	GPUBuffer_s					samples;
-	GPUBuffer_s					sampleIndirectArgs;
-	GPUBuffer_s					sampleNodeOffsets;
-	GPUBuffer_s					firstChildOffsets;
-	ID3D11UnorderedAccessView*	firstChildOffsetsLimitedUAV;
-	GPUBuffer_s					leaves;
-	GPUBuffer_s					octreeIndirectArgs;
-	GPUBuffer_s					blockPos;
-	GPUBuffer_s					blockData;
-	GPUBuffer_s					blockIndirectArgs;
-
-	GPUCompute_s				computeCollect;
-	GPUCompute_s				computeBuildInner;
-	GPUCompute_s				computeBuildLeaf;
-	GPUCompute_s				computeFillLeaf;
-	GPUCompute_s				computePackColor;
-};
-
 struct CaptureContext_s
 {
 	static const u32			SAMPLE_MAX_COUNT = 32;

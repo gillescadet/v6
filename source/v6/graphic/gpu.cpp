@@ -235,6 +235,127 @@ void GPUCompute_DispatchIndirect( GPUCompute_s* compute, GPUBuffer_s* bufferArgs
 	g_deviceContext->DispatchIndirect( bufferArgs->buf, offsetArgs );
 }
 
+void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 sourceSizeVS, const void* sourcePS, u32 sourceSizePS, u32 vertexFormat )
+{
+	V6_ASSERT_D3D11( g_device->CreateVertexShader( sourceVS, sourceSizeVS, nullptr, &shader->m_vertexShader ) );
+	V6_ASSERT_D3D11( g_device->CreatePixelShader( sourcePS, sourceSizePS, nullptr, &shader->m_pixelShader ) );
+	
+	D3D11_INPUT_ELEMENT_DESC idesc[VERTEX_INPUT_MAX_COUNT] = {};
+
+	int stride = 0;
+	int inputCount = 0;
+		
+	if ( vertexFormat & VERTEX_FORMAT_POSITION )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "POSITION";
+		idesc[inputCount].SemanticIndex = 0;
+		idesc[inputCount].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 12;
+		++inputCount;
+	}
+
+	if ( vertexFormat & VERTEX_FORMAT_COLOR )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "COLOR";
+		idesc[inputCount].SemanticIndex = 0;
+		idesc[inputCount].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 4;
+		++inputCount;
+	}
+
+	const static DXGI_FORMAT widthToFloatFormats[] = { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT };
+
+	if ( vertexFormat & VERTEX_FORMAT_USER0_MASK )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "USER";
+		idesc[inputCount].SemanticIndex = 0;
+		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER0_MASK ) >> VERTEX_FORMAT_USER0_SHIFT;
+		V6_ASSERT( width >= 1 && width <= 4 );
+		idesc[inputCount].Format = widthToFloatFormats[width];
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 4 * width;
+		++inputCount;
+	}
+
+	if ( vertexFormat & VERTEX_FORMAT_USER1_MASK )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "USER";
+		idesc[inputCount].SemanticIndex = 1;
+		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER1_MASK ) >> VERTEX_FORMAT_USER1_SHIFT;
+		V6_ASSERT( width >= 1 && width <= 4 );
+		idesc[inputCount].Format = widthToFloatFormats[width];
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 4 * width;
+		++inputCount;
+	}
+
+	if ( vertexFormat & VERTEX_FORMAT_USER2_MASK )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "USER";
+		idesc[inputCount].SemanticIndex = 2;
+		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER2_MASK ) >> VERTEX_FORMAT_USER2_SHIFT;
+		V6_ASSERT( width >= 1 && width <= 4 );
+		idesc[inputCount].Format = widthToFloatFormats[width];
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 4 * width;
+		++inputCount;
+	}
+
+	if ( vertexFormat & VERTEX_FORMAT_USER3_MASK )
+	{
+		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
+
+		idesc[inputCount].SemanticName = "USER";
+		idesc[inputCount].SemanticIndex = 3;
+		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER3_MASK ) >> VERTEX_FORMAT_USER3_SHIFT;
+		V6_ASSERT( width >= 1 && width <= 4 );
+		idesc[inputCount].Format = widthToFloatFormats[width];
+		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].AlignedByteOffset = stride;
+		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+		idesc[inputCount].InstanceDataStepRate = 0;
+
+		stride += 4 * width;
+		++inputCount;
+	}
+
+	V6_ASSERT_D3D11( g_device->CreateInputLayout( idesc, inputCount, sourceVS, sourceSizeVS, &shader->m_inputLayout ) );
+
+	shader->m_vertexFormat = vertexFormat;
+}
+
 bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 vertexFormat, IAllocator* allocator )
 {
 	Stack stack( allocator, 64 * 1024 );
@@ -247,16 +368,6 @@ bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 
 		return false;
 	}
 
-	{
-		HRESULT hRes = g_device->CreateVertexShader( vsBytecode, vsBytecodeSize, nullptr, &shader->m_vertexShader );
-
-		if ( FAILED( hRes) )
-		{
-			V6_ERROR( "ID3D11Device::CreateVertexShader failed!\n" );
-			return false;
-		}
-	}
-
 	void* psBytecode = nullptr;
 	const int psBytecodeSize = FileSystem_ReadFile( ps, &psBytecode, &stack );
 	if ( psBytecodeSize <= 0 )
@@ -265,138 +376,7 @@ bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 
 		return false;
 	}
 
-	{
-		HRESULT hRes = g_device->CreatePixelShader( psBytecode, psBytecodeSize, nullptr, &shader->m_pixelShader );
-
-		if ( FAILED( hRes) )
-		{
-			V6_ERROR( "ID3D11Device::CreatePixelShader failed!\n" );
-			return false;
-		}
-	}
-	
-	{
-		D3D11_INPUT_ELEMENT_DESC idesc[VERTEX_INPUT_MAX_COUNT] = {};
-
-		int stride = 0;
-		int inputCount = 0;		
-		
-		if ( vertexFormat & VERTEX_FORMAT_POSITION )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "POSITION";
-			idesc[inputCount].SemanticIndex = 0;
-			idesc[inputCount].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 12;
-			++inputCount;
-		}
-
-		if ( vertexFormat & VERTEX_FORMAT_COLOR )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "COLOR";
-			idesc[inputCount].SemanticIndex = 0;
-			idesc[inputCount].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 4;
-			++inputCount;
-		}
-
-		const static DXGI_FORMAT widthToFloatFormats[] = { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT };
-
-		if ( vertexFormat & VERTEX_FORMAT_USER0_MASK )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "USER";
-			idesc[inputCount].SemanticIndex = 0;
-			const u32 width = ( vertexFormat & VERTEX_FORMAT_USER0_MASK ) >> VERTEX_FORMAT_USER0_SHIFT;
-			V6_ASSERT( width >= 1 && width <= 4 );
-			idesc[inputCount].Format = widthToFloatFormats[width];
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 4 * width;
-			++inputCount;
-		}
-
-		if ( vertexFormat & VERTEX_FORMAT_USER1_MASK )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "USER";
-			idesc[inputCount].SemanticIndex = 1;
-			const u32 width = ( vertexFormat & VERTEX_FORMAT_USER1_MASK ) >> VERTEX_FORMAT_USER1_SHIFT;
-			V6_ASSERT( width >= 1 && width <= 4 );
-			idesc[inputCount].Format = widthToFloatFormats[width];
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 4 * width;
-			++inputCount;
-		}
-
-		if ( vertexFormat & VERTEX_FORMAT_USER2_MASK )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "USER";
-			idesc[inputCount].SemanticIndex = 2;
-			const u32 width = ( vertexFormat & VERTEX_FORMAT_USER2_MASK ) >> VERTEX_FORMAT_USER2_SHIFT;
-			V6_ASSERT( width >= 1 && width <= 4 );
-			idesc[inputCount].Format = widthToFloatFormats[width];
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 4 * width;
-			++inputCount;
-		}
-
-		if ( vertexFormat & VERTEX_FORMAT_USER3_MASK )
-		{
-			V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
-
-			idesc[inputCount].SemanticName = "USER";
-			idesc[inputCount].SemanticIndex = 3;
-			const u32 width = ( vertexFormat & VERTEX_FORMAT_USER3_MASK ) >> VERTEX_FORMAT_USER3_SHIFT;
-			V6_ASSERT( width >= 1 && width <= 4 );
-			idesc[inputCount].Format = widthToFloatFormats[width];
-			idesc[inputCount].InputSlot = 0;
-			idesc[inputCount].AlignedByteOffset = stride;
-			idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-			idesc[inputCount].InstanceDataStepRate = 0;
-
-			stride += 4 * width;
-			++inputCount;
-		}
-
-		HRESULT hRes = g_device->CreateInputLayout( idesc, inputCount, vsBytecode, vsBytecodeSize, &shader->m_inputLayout );
-
-		if ( FAILED( hRes) )
-		{
-			V6_ERROR( "ID3D11Device::CreateInputLayout failed!\n" );
-			return false;
-		}
-
-		shader->m_vertexFormat = vertexFormat;
-	}
+	GPUShader_CreateFromSource( shader, vsBytecode, vsBytecodeSize, psBytecode, psBytecodeSize, vertexFormat );
 
 	return true;
 }
@@ -730,6 +710,7 @@ void GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer )
 
 void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount )
 {
+	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
 #if 0
 	D3D11_BOX dstBox;
 	dstBox.left = dstOffset * sizeof( T );
@@ -743,10 +724,16 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcDat
 	g_deviceContext->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
 #else
 	D3D11_MAPPED_SUBRESOURCE res;
-	V6_ASSERT_D3D11( g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res ) );
-	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
-	memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );
-	g_deviceContext->Unmap( dstBuffer->buf, 0 );
+	const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
+	if ( mapResult == S_OK )
+	{
+		memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );
+		g_deviceContext->Unmap( dstBuffer->buf, 0 );
+	}
+	else
+	{
+		V6_ERROR( "ID3D11DeviceContext::Map() failed with error code 0x%08X\n", mapResult );
+	}
 #endif
 }
 
@@ -903,7 +890,6 @@ void GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* p
 			texDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
 
 		D3D11_SUBRESOURCE_DATA data[16] = {};
-		void* mipPixels = nullptr;
 		
 		u32 pixelCount = 0;
 		for ( u32 mip = 0; mip < 16; ++mip )
@@ -924,8 +910,6 @@ void GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* p
 				height >>= 1;
 		}
 
-		if ( pixelCount > width * height )
-		
 		V6_ASSERT( !mipmap || width == 1 );
 		V6_ASSERT( !mipmap || height == 1 );
 		V6_ASSERT_D3D11( g_device->CreateTexture2D( &texDesc, data, &tex->tex ) );
@@ -945,6 +929,71 @@ void GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* p
 	
 	tex->uav = nullptr;
 	tex->mipmapState = mipmap ? GPUTEXTURE_MIPMAP_STATE_REQUIRED : GPUTEXTURE_MIPMAP_STATE_NONE;
+}
+
+void GPUTexture2D_CreateCompressed( GPUTexture2D_s* tex, u32 width, u32 height, void* compressedData, bool mipmap, const char* name )
+{
+	V6_ASSERT( IsPowOfTwo( width ) && IsPowOfTwo( height ) && width >= 4 && height >= 4 );
+
+	u32 mipCount;
+
+	{
+		D3D11_TEXTURE2D_DESC texDesc = {};
+		texDesc.Width = width;
+		texDesc.Height = height;
+		texDesc.MipLevels = 1;
+		texDesc.ArraySize = 1;
+		texDesc.Format = DXGI_FORMAT_BC1_UNORM;
+		texDesc.SampleDesc.Count = 1;
+		texDesc.SampleDesc.Quality = 0;
+		texDesc.Usage = D3D11_USAGE_DEFAULT;
+		texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		texDesc.CPUAccessFlags = 0;
+		texDesc.MiscFlags = 0;
+
+		D3D11_SUBRESOURCE_DATA data[16] = {};
+		
+		u32 mip = 0;
+		u32 size = 0;
+		for (;;)
+		{
+			data[mip].pSysMem = (u8*)compressedData + size;
+			data[mip].SysMemPitch = (width / 4) * 8;
+			data[mip].SysMemSlicePitch = (width / 4) * (height / 4) * 8;
+
+			size += data[mip].SysMemSlicePitch;
+
+			if ( !mipmap || (width == 4 || height == 4) || mip == 15 )
+				break;
+
+			width >>= 1;
+			height >>= 1;
+
+			++mip;
+		}
+
+		mipCount = mip + 1; 
+		texDesc.MipLevels = mipCount;
+
+		V6_ASSERT( !mipmap || width == 4 || height == 4 );
+
+		V6_ASSERT_D3D11( g_device->CreateTexture2D( &texDesc, data, &tex->tex ) );
+
+		GPUResource_LogMemory( "Texture2D", size * texDesc.ArraySize, name );
+	}
+
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_BC1_UNORM;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = mipCount;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+
+		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( tex->tex, &srvDesc, &tex->srv ) );
+	}
+	
+	tex->uav = nullptr;
+	tex->mipmapState = mipmap ? GPUTEXTURE_MIPMAP_STATE_GENERATED : GPUTEXTURE_MIPMAP_STATE_NONE;
 }
 
 void GPUTexture2D_CreateRW( GPUTexture2D_s* tex, u32 width, u32 height, const char* name )
@@ -1589,10 +1638,10 @@ void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPU
 		blendState.RenderTarget[0].BlendEnable = true;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		blendState.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
 		blendState.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
 		blendState.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-		blendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+		blendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
 		blendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 		blendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		
@@ -1620,10 +1669,23 @@ void GPURenderTargetSet_Bind( GPURenderTargetSet_s* renderTargetSet, const GPURe
 {
 	// Rasterization state
 	g_deviceContext->OMSetDepthStencilState( desc->noZ ? renderTargetSet->depthStencilStateNoZ : renderTargetSet->depthStencilStateZRW, 0 );
-	if ( desc->useAlphaCoverage )
-		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );
-	else
+	switch( desc->blendMode )
+	{
+	case GPU_BLEND_MODE_NO_COLOR:
+		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateNoColor, nullptr, 0XFFFFFFFF );
+		break;
+	case GPU_BLEND_MODE_OPAQUE:
 		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateOpaque, nullptr, 0XFFFFFFFF );
+		break;
+	case GPU_BLEND_MODE_ALPHA_COVERAGE:
+		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateAlphaCoverage, nullptr, 0XFFFFFFFF );
+		break;
+	case GPU_BLEND_MODE_ADDITIF:
+		g_deviceContext->OMSetBlendState( renderTargetSet->blendStateAdditif, nullptr, 0XFFFFFFFF );
+		break;
+	default:
+		V6_ASSERT_NOT_SUPPORTED();
+	}
 		
 	// Viewport
 	{

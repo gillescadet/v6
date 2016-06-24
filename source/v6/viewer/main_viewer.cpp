@@ -1834,8 +1834,10 @@ void CRenderingDevice::DrawWorld( const View_s* view, u32 eye )
 	renderTargetSetBindingDesc.clear = true;
 	renderTargetSetBindingDesc.useMSAA = g_useMSAA;
 #if V6_USE_ALPHA_COVERAGE == 1
-	renderTargetSetBindingDesc.useAlphaCoverage = true;
+	renderTargetSetBindingDesc.blendMode = GPU_BLEND_MODE_ALPHA_COVERAGE;
 	flags = RENDER_FLAGS_USE_ALPHA_COVERAGE;
+#else
+	renderTargetSetBindingDesc.blendMode = GPU_BLEND_MODE_OPAQUE;
 #endif
 
 	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
