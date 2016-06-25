@@ -241,15 +241,6 @@ struct GPUShaderContext_s
 	bool							initialized;
 };
 
-struct GPUQueryContext_s
-{	
-	static const u32				QUERY_MAX_COUNT = 64;
-
-	GPUQuery_s						queries[2][QUERY_MAX_COUNT];
-
-	bool							initialized;
-};
-
 typedef u16 GPUEventID_t;
 
 struct GPUEventDuration_s
@@ -321,10 +312,6 @@ bool						GPUQuery_ReadTimeStamp( GPUQuery_s* query );
 bool						GPUQuery_ReadTimeStampDisjoint( GPUQuery_s* query );
 void						GPUQuery_Release( GPUQuery_s* query );
 void						GPUQuery_WriteTimeStamp( GPUQuery_s* query );
-
-void						GPUQueryContext_CreateEmpty();
-GPUQueryContext_s*			GPUQueryContext_Get();
-void						GPUQueryContext_Release();
 
 void						GPURenderTargetSet_Bind( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetBindingDesc_s* desc, u32 eye );
 void						GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetCreationDesc_s* desc );

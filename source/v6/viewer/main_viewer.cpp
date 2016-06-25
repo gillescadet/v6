@@ -371,7 +371,6 @@ static const float				s_defaultPathSpeed = 100.0f;
 static PathPlayer_s				s_pathPlayer;
 
 static GPURenderTargetSet_s		s_mainRenderTargetSet;
-static GPUQuery_s*				s_pendingQueries = nullptr;
 
 static void Path_Init( Path_s* path )
 {
@@ -907,22 +906,8 @@ static void GPUContext_Create( u32 width, u32 height, HWND hWnd, IAllocator* hea
 	GPURenderTargetSet_Create( &s_mainRenderTargetSet, &renderTargetSetCreationDesc );
 	
 	GPUShaderContext_CreateEmpty();
-	GPUQueryContext_CreateEmpty();
 
 	GPUContext_CreateShaders( stack );
-
-	GPUQueryContext_s* queryContext = GPUQueryContext_Get();
-
-	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
-	{
-		for ( u32 queryID = 0; queryID < QUERY_COUNT; ++queryID )
-		{
-			if ( queryID == QUERY_FREQUENCY )
-				GPUQuery_CreateTimeStampDisjoint( &queryContext->queries[bufferID][queryID] );
-			else
-				GPUQuery_CreateTimeStamp( &queryContext->queries[bufferID][queryID] );
-		}
-	}
 }
 
 static void GPUContext_Release()
@@ -2200,8 +2185,6 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	++g_sample;
 
-	v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
-
 	if ( g_sample == SAMPLE_MAX_COUNT )
 	{
 		V6_MSG( "Packing all samples..." );
@@ -2346,16 +2329,9 @@ void CRenderingDevice::Draw( float dt )
 	{
 		// draw mode
 
-		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
-
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			DrawWorld( &views[eye], eye );
 		
-		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
-		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
-		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
-		v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
-
 		PathPlayer_AddTimeStep( &s_pathPlayer, dt );
 	}	
 	else if ( g_drawMode == DRAW_MODE_BLOCK )
@@ -2372,8 +2348,6 @@ void CRenderingDevice::Draw( float dt )
 
 			V6_ASSERT( m_bakedFrameCount == frameID );
 
-			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
-
 			if ( BuildBlock( frameID ) )
 			{
 				if ( g_sample == SAMPLE_MAX_COUNT )
@@ -2388,10 +2362,6 @@ void CRenderingDevice::Draw( float dt )
 			{
 				ResetDrawMode();
 			}
-
-			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
-			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
-			v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 		}
 		else
 		{
@@ -2407,11 +2377,8 @@ void CRenderingDevice::Draw( float dt )
 
 			if ( m_bakedFrameCount == -1 )
 			{
-				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T0] );
-				{
-					TraceContext_UpdateFrame( m_traceContext, frameID, m_stack );
-				}
-				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T1] );
+				TraceContext_UpdateFrame( m_traceContext, frameID, m_stack );
+				
 				{
 					TraceOptions_s options = {};
 					options.logReadBack = s_logReadBack;
@@ -2423,9 +2390,6 @@ void CRenderingDevice::Draw( float dt )
 					options.noTSAA = g_noTSAA;
 					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options, m_stack );
 				}
-				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T2] );
-				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T3] );
-				v6::GPUQuery_WriteTimeStamp( &s_pendingQueries[v6::QUERY_T4] );
 
 				s_logReadBack = false;
 				g_mousePicked = false;
@@ -2567,27 +2531,8 @@ int main()
 	{
 		v6::String_ResetInternalBuffer();
 
-		const v6::u32 bufferID = frameId & 1;
-
-		v6::GPUQuery_s* pendingQueries = v6::GPUQueryContext_Get()->queries[bufferID];
 		static const int tMaxCount = 64;
 		static float dts[tMaxCount] = {};
-		static float tfTimes[tMaxCount] = {};
-		static float tbTimes[v6::QUERY_TIME_COUNT][tMaxCount] = {};
-		static int tID = 0;
-		
-		if ( v6::GPUQuery_ReadTimeStampDisjoint( &pendingQueries[v6::QUERY_FREQUENCY] ) )
-		{
-			for ( v6::u32 queryID = v6::QUERY_FRAME_BEGIN; queryID < v6::QUERY_COUNT; ++queryID )
-				v6::GPUQuery_ReadTimeStamp( &pendingQueries[queryID] );
-			
-			tfTimes[tID] = v6::GPUQuery_GetElpasedTime( &pendingQueries[v6::QUERY_FRAME_BEGIN], &pendingQueries[v6::QUERY_FRAME_END], &pendingQueries[v6::QUERY_FREQUENCY] );
-			for ( v6::u32 timeID = 0; timeID < v6::QUERY_TIME_COUNT; ++timeID )
-				tbTimes[timeID][tID] = v6::GPUQuery_GetElpasedTime( &pendingQueries[v6::QUERY_T0+timeID], &pendingQueries[v6::QUERY_T1+timeID], &pendingQueries[v6::QUERY_FREQUENCY] );
-			tID = (tID + 1) & (tMaxCount-1);
-		}
-		
-		v6::s_pendingQueries = pendingQueries;
 		
 		const __int64 frameTick = v6::GetTickCount();
 		
@@ -2611,31 +2556,16 @@ int main()
 		if ( (frameId % 30) == 0 || v6::IsBakingMode( v6::g_drawMode ) ) 
 		{
 			float ifps = 0;
-			float tfTime = 0;
-			float tbTime[v6::QUERY_TIME_COUNT] = {};
 				
 			for ( int t = 0; t < tMaxCount; ++t )
-			{
 				ifps += dts[t];
-				tfTime += tfTimes[t];
-				for ( v6::u32 timeID = 0; timeID < v6::QUERY_TIME_COUNT; ++timeID )
-					tbTime[timeID] += tbTimes[timeID][t];
-			}
 
 			ifps *= 1.0f / tMaxCount;
-			tfTime *= 1.0f / tMaxCount;
-			for ( v6::u32 timeID = 0; timeID < v6::QUERY_TIME_COUNT; ++timeID )
-				tbTime[timeID] *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | tf: %4u | t0: %4u | t1: %4u | t2: %4u | t3: %4u | %s | Hmd %d %s", 
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | %s | Hmd %d %s",
 				title, 
 				(int)(1.0f / ifps), 
-				(int)(tfTime * 1000000.0f),
-				(int)(tbTime[0] * 1000000.0f),
-				(int)(tbTime[1] * 1000000.0f),
-				(int)(tbTime[2] * 1000000.0f),
-				(int)(tbTime[3] * 1000000.0f),
 				v6::ModeToString( v6::g_drawMode ),
 				v6::s_hmdState,
 				v6::s_activeScene->info.dirty ? "| *" : "" );
@@ -2650,13 +2580,7 @@ int main()
 			v6::g_reloadShaders = false;
 		}
 
-		v6::GPUQuery_BeginTimeStampDisjoint( &pendingQueries[v6::QUERY_FREQUENCY] );
-		v6::GPUQuery_WriteTimeStamp( &pendingQueries[v6::QUERY_FRAME_BEGIN] );
-
 		oRenderingDevice.Draw( dt );
-
-		v6::GPUQuery_WriteTimeStamp( &pendingQueries[v6::QUERY_FRAME_END] );
-		v6::GPUQuery_EndTimeStampDisjoint( &pendingQueries[v6::QUERY_FREQUENCY] );
 
 		v6::GPUSurfaceContext_Present();
 

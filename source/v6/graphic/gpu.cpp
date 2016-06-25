@@ -71,7 +71,6 @@ static ID3DUserDefinedAnnotation*	s_userDefinedAnnotation = nullptr;
 
 GPUEventContext_s					s_eventContext = {};
 GPUSurfaceContext_s					s_surfaceContext = {};
-GPUQueryContext_s					s_queryContext = {};
 GPUShaderContext_s					s_shaderContext = {};
 
 static u32 s_gpuMemory = 0;
@@ -1620,36 +1619,6 @@ void GPUShaderState_Restore( GPUShaderState_s* shaderState )
 		g_deviceContext->CSSetUnorderedAccessViews( 0, GPUShaderState_s::UAV_SLOT_COUNT_D3D_11_1, shaderState->uavs, nullptr );
 }
 
-void GPUQueryContext_CreateEmpty()
-{
-	V6_ASSERT( !s_queryContext.initialized );
-
-	s_queryContext.initialized = true;
-}
-
-GPUQueryContext_s* GPUQueryContext_Get()
-{
-	V6_ASSERT( s_queryContext.initialized );
-
-	return &s_queryContext;
-}
-
-void GPUQueryContext_Release()
-{
-	V6_ASSERT( s_queryContext.initialized );
-
-	for ( u32 bufferID = 0; bufferID < EVENT_BUFFER_COUNT; ++bufferID )
-	{
-		for ( u32 queryID = 0; queryID < GPUQueryContext_s::QUERY_MAX_COUNT; ++queryID )
-		{
-			if ( s_queryContext.queries[bufferID][queryID].query )
-				GPUQuery_Release( &s_queryContext.queries[bufferID][queryID] );
-		}
-	}
-
-	memset( &s_queryContext, 0, sizeof( s_queryContext ) );
-}
-
 void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPURenderTargetSetCreationDesc_s* desc )
 {
 	memset( renderTargetSet, 0, sizeof(*renderTargetSet) );
@@ -2023,9 +1992,6 @@ void GPUDevice_Release()
 		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
 		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
 	}
-
-	if ( s_queryContext.initialized )
-		GPUQueryContext_Release();
 
 	if ( s_surfaceContext.initialized )
 		GPUShaderContext_Release();
