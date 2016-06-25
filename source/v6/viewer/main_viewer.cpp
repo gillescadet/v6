@@ -44,14 +44,14 @@
 #define V6_LOAD_EXTERNAL		1
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
-#define V6_STEREO				0
-#define V6_ENABLE_HMD			1
+#define V6_STEREO				1
+#define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			1
 
 #if V6_USE_HMD == 1
 #include <v6/graphic/hmd.h>
-#endif // #if HLSL_STEREO == 1
+#endif // #if V6_USE_HMD == 1
 
 BEGIN_V6_NAMESPACE
 
@@ -65,7 +65,7 @@ static const float GRID_MIN_SCALE				= 50.0f;
 static const float GRID_MAX_SCALE				= 2000.0f;
 
 static const u32 ANY_EYE						= 0;
-#if HLSL_STEREO == 1
+#if V6_STEREO == 1
 static const u32 LEFT_EYE						= 0;
 static const u32 RIGHT_EYE						= 1;
 static const u32 EYE_COUNT						= 2;
@@ -99,9 +99,9 @@ static const u32 s_gpuEventComposeSurface		= GPUEvent_Register( "Compose Surface
 
 static Win_s									s_win;
 #if V6_USE_HMD
-v6::u32		s_hmdState							= v6::HMD_TRACKING_STATE_OFF;
+u32		s_hmdState								= HMD_TRACKING_STATE_OFF;
 #else
-v6::u32		s_hmdState							= 0;
+u32		s_hmdState								= 0;
 #endif // #if V6_USE_HMD
 
 static POINT		s_mouseCursorPos			= {};
@@ -296,11 +296,11 @@ struct ScenePathGeo_s : SceneViewer_s
 struct SceneContext_s
 {
 	char			filename[256];
-	v6::IStack*		stack;
+	IStack*			stack;
 	ObjScene_s		objScene;
 	Scene_s*		scene;
-	v6::Signal_s	deviceReady;
-	v6::Signal_s	loadDone;
+	Signal_s		deviceReady;
+	Signal_s		loadDone;
 };
 
 struct TraceData_s
@@ -872,9 +872,9 @@ static void GPUContext_CreateShaders( IStack* stack )
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
 	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( v6::hlsl::CBBasic ), "basic" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( v6::hlsl::CBGeneric ), "generic" );
-	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( v6::hlsl::CBCompose), "compose" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( hlsl::CBBasic ), "basic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC], sizeof( hlsl::CBGeneric ), "generic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( hlsl::CBCompose), "compose" );
 
 	static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
 	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", stack );
@@ -974,7 +974,7 @@ static void Material_DrawBasic( Material_s* material, Entity_s* entity, Scene_s*
 
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	hlsl::CBBasic* cbBasic = (hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
@@ -1001,7 +1001,7 @@ static void Material_DrawFakeCube( Material_s* material, Entity_s* entity, Scene
 {
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	v6::hlsl::CBBasic* cbBasic = (v6::hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
+	hlsl::CBBasic* cbBasic = (hlsl::CBBasic*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
@@ -1024,7 +1024,7 @@ static void Material_DrawGeneric( Material_s* material, Entity_s* entity, Scene_
 {
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	v6::hlsl::CBGeneric* cbGeneric = (v6::hlsl::CBGeneric*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC] );
+	hlsl::CBGeneric* cbGeneric = (hlsl::CBGeneric*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_GENERIC] );
 
 	Mat4x4 worlMatrix;
 	Mat4x4_Scale( &worlMatrix, entity->scale );
@@ -1154,7 +1154,7 @@ static void SceneViewer_MakeRawFrameFilename( const SceneViewer_s* scene, char* 
 	sprintf_s( path, maxPathSize, "%s_%06u.v6f", path, frame );
 }
 
-static void SceneContext_Create( SceneContext_s* sceneContext, v6::IStack* stack )
+static void SceneContext_Create( SceneContext_s* sceneContext, IStack* stack )
 {
 	stack->push();
 
@@ -1945,7 +1945,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 {
 	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
-#if HLSL_STEREO == 1
+#if V6_STEREO == 1
 	// Render
 
 	GPUEvent_Begin( s_gpuEventComposeSurface );
@@ -1954,7 +1954,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
-	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+	g_deviceContext->CSSetConstantBuffers( hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
 
 	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &srvLeft );
 	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &srvRight );
@@ -1963,16 +1963,16 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
 
 	{
-		v6::hlsl::CBCompose* cbCompose = ConstantBuffer_MapWrite< v6::hlsl::CBCompose >( g_deviceContext, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
+		hlsl::CBCompose* cbCompose = (hlsl::CBCompose*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 		
-		cbCompose->c_composeFrameWidth = m_config.screenWidth;
+		cbCompose->c_composeFrameWidth = m_width;
 
-		ConstantBuffer_UnmapWrite( g_deviceContext, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE]  );
+		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE]  );
 	}		
 
 	V6_ASSERT( (m_width & 0x7) == 0 );
 	V6_ASSERT( (m_height & 0x7) == 0 );
-	const u32 pixelGroupWidth = (m_width >> 3) * HLSL_EYE_COUNT;
+	const u32 pixelGroupWidth = (m_width >> 3) * 2;
 	const u32 pixelGroupHeight = m_height >> 3;
 	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
@@ -2247,7 +2247,7 @@ void CRenderingDevice::Draw( float dt )
 #if V6_USE_HMD
 	HmdRenderTarget_s renderTargets[2];
 	HmdEyePose_s eyePoses[2];
-	s_hmdState = v6::Hmd_BeginRendering( renderTargets, eyePoses, ZNEAR, ZFAR );
+	s_hmdState = Hmd_BeginRendering( renderTargets, eyePoses, ZNEAR, ZFAR );
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
@@ -2499,7 +2499,7 @@ int main()
 	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::GRID_WIDTH >> 1, v6::GRID_WIDTH >> 1 );
 #endif // #if V6_USE_HMD
 
-	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
+	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
 		return 1;
 
 	v6::CRenderingDevice oRenderingDevice;

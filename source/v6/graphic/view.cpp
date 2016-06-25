@@ -6,7 +6,7 @@
 
 BEGIN_V6_NAMESPACE
 
-void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt )
+void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt, float ipd )
 {
 	camera->pos = *pos;
 	camera->znear = znear;
@@ -14,17 +14,20 @@ void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, f
 	camera->aspectRatio = aspectRatio;
 	camera->yaw = 0.0f;
 	camera->pitch = 0.0f;
+	camera->ipdHalf = ipd * 0.5f;
 	Camera_UpdateBasis( camera, lookAt );
 }
 
-void Camera_MakeView( Camera_s* camera, View_s* view )
+void Camera_MakeView( Camera_s* camera, View_s* view, u32 eye )
 {
-	view->org = camera->pos;
+	const Vec3 eyeOffset = camera->right * camera->ipdHalf;
+
+	view->org = camera->pos + (eye == 0 ? -eyeOffset : eyeOffset);
 	view->forward = camera->forward;
 	view->right = camera->right;
 	view->up = camera->up;
 
-	view->viewMatrix = Mat4x4_View( &camera->pos, &camera->right, &camera->up, &camera->forward );
+	view->viewMatrix = Mat4x4_View( &view->org, &camera->right, &camera->up, &camera->forward );
 	view->projMatrix = Mat4x4_Projection( camera->znear, camera->fov, camera->aspectRatio );
 
 	const float tanHalfFovH = Tan( 0.5f * camera->fov );

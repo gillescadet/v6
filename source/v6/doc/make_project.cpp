@@ -344,6 +344,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/player/player_basic_ps.hlsl",			PROJECT_PLAYER },
 	{ "source/v6/player/player_basic_vs.hlsl",			PROJECT_PLAYER },
 	{ "source/v6/player/player_shared.h",				PROJECT_PLAYER },
+	{ "source/v6/player/surface_compose_cs.hlsl",		PROJECT_PLAYER },
 
 	// viewer
 	{ "source/v6/codec/codec.cpp",						PROJECT_VIEWER },

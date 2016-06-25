@@ -20,6 +20,7 @@ struct Camera_s
 	float			aspectRatio;
 	float			yaw;
 	float			pitch;
+	float			ipdHalf;
 };
 
 struct View_s
@@ -38,8 +39,8 @@ struct View_s
 	float			tanHalfFOVDown;
 };
 
-void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt );
-void	Camera_MakeView( Camera_s* camera, View_s* view );
+void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt, float ipd );
+void	Camera_MakeView( Camera_s* camera, View_s* view, u32 eye );
 void	Camera_UpdateBasis( Camera_s* camera, const Mat4x4* lookAt );
 
 END_V6_NAMESPACE

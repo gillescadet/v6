@@ -23,6 +23,7 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			1
+#define V6_STEREO				1
 
 BEGIN_V6_NAMESPACE
 
@@ -37,10 +38,18 @@ static const u32	PLAY_RATE				= 75;
 static const float	ZNEAR					= 10.0f;
 static const float	MOUSE_ROTATION_SPEED	= 0.5f;
 static const float	KEY_TRANSLATION_SPEED	= 200.0f;
+#if V6_STEREO == 1
+static const u32 EYE_COUNT					= 2;
+static const float IPD						= 6.5f;
+#else
+static const u32 EYE_COUNT					= 1;
+static const float IPD						= 0.0f;
+#endif
 
 enum
 {
 	CONSTANT_BUFFER_BASIC,
+	CONSTANT_BUFFER_COMPOSE,
 
 	CONSTANT_BUFFER_COUNT
 };
@@ -50,6 +59,13 @@ enum
 	SHADER_BASIC,
 
 	SHADER_COUNT
+};
+
+enum
+{
+	COMPUTE_COMPOSESURFACE,
+
+	COMPUTE_COUNT
 };
 
 struct FrameInfo_s
@@ -213,7 +229,7 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 static void PlayerScene_Create( Player_s* player )
 {
-	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, nullptr );
+	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, nullptr, IPD );
 	
 	Scene_Create( &player->scene );
 
@@ -232,17 +248,20 @@ static void PlayerScene_Release( Player_s* player )
 	Scene_Release( &player->scene );
 }
 
-static void PlayerScene_Draw( Player_s* player, View_s* view )
+static void PlayerScene_Draw( Player_s* player, View_s* views )
 {
 	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 	renderTargetSetBindingDesc.clear = true;
 	renderTargetSetBindingDesc.useMSAA = true;
 
-	GPURenderTargetSet_Bind( &player->mainRenderTargetSet, &renderTargetSetBindingDesc, 0 );
+	for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+	{
+		GPURenderTargetSet_Bind( &player->mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
-	Scene_Draw( &player->scene, view, 0 );
+		Scene_Draw( &player->scene, &views[eye], eye );
 
-	GPURenderTargetSet_Unbind( &player->mainRenderTargetSet );
+		GPURenderTargetSet_Unbind( &player->mainRenderTargetSet );
+	}
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -253,7 +272,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 #if V6_D3D_DEBUG == 1
 	debugDevice = true;
 #endif
-	GPUDevice_CreateWithSurfaceContext( width, height, player->win.hWnd, debugDevice );
+	GPUDevice_CreateWithSurfaceContext( width * EYE_COUNT, height, player->win.hWnd, debugDevice );
 	
 	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 	renderTargetSetCreationDesc.name = "main";
@@ -262,6 +281,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 	renderTargetSetCreationDesc.supportMSAA = true;
 	renderTargetSetCreationDesc.bindable = true;
 	renderTargetSetCreationDesc.writable = true;
+	renderTargetSetCreationDesc.stereo = V6_STEREO;
 
 	GPURenderTargetSet_Create( &player->mainRenderTargetSet, &renderTargetSetCreationDesc );
 
@@ -271,12 +291,16 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 
 	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( hlsl::CBBasic ), "basic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( hlsl::CBCompose ), "compose" );
 
 	{
 		ScopedStack scopedStack( player->stack );
 		
 		static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
 		GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "player_basic_vs.cso", "player_basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, player->stack );
+
+		static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
+		GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", player->stack );
 	}
 
 	FontContext_Create( &player->fontContext );
@@ -301,7 +325,7 @@ static bool PlayerStream_Create( Player_s* player, const char* streamFilename )
 	TraceDesc_s traceDesc = {};
 	traceDesc.screenWidth = player->mainRenderTargetSet.width;
 	traceDesc.screenHeight = player->mainRenderTargetSet.height;
-	traceDesc.stereo = false;
+	traceDesc.stereo = V6_STEREO;
 
 	TraceContext_Create( &player->traceContext, &traceDesc, &player->stream );
 
@@ -460,6 +484,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		{
 			if ( PlayerStream_IsValid( player ) )
 				PlayerStream_Release( player );
+			player->camera.pos = Vec3_Zero();
+			player->camera.yaw = 0.0f;
+			player->camera.pitch = 0.0f;
 		}
 		break;
 	case COMMAND_ACTION_PLAY:
@@ -733,6 +760,51 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
 }
 
+static void Player_CopyToSurface( Player_s* player )
+{
+	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
+
+#if V6_STEREO == 1
+
+	// set
+
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	g_deviceContext->CSSetConstantBuffers( hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+
+	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[0].srv );
+	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[1].srv );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &surfaceContext->surface.uav, nullptr );
+		
+	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
+
+	{
+		hlsl::CBCompose* cbCompose = (hlsl::CBCompose*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
+		
+		cbCompose->c_composeFrameWidth = player->mainRenderTargetSet.width;
+
+		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
+	}		
+
+	V6_ASSERT( (player->mainRenderTargetSet.width & 0x7) == 0 );
+	V6_ASSERT( (player->mainRenderTargetSet.height & 0x7) == 0 );
+	const u32 pixelGroupWidth = (player->mainRenderTargetSet.width >> 3) * 2;
+	const u32 pixelGroupHeight = player->mainRenderTargetSet.height >> 3;
+	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+	// unset
+	static const void* nulls[8] = {};
+	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+#else
+
+	GPUColorRenderTarget_Copy( &surfaceContext->surface, &player->mainRenderTargetSet.colorBuffers[0] );
+
+#endif
+}
+
 static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float averageFPS )
 {
 	String_ResetInternalBuffer();
@@ -761,10 +833,11 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 			const Mat4x4 lookAt = Mat4x4_Basis( &right, &up, &forward );
 			Camera_UpdateBasis( &player->camera, &lookAt );
 
-			View_s view;
-			Camera_MakeView( &player->camera, &view );
+			View_s views[EYE_COUNT];
+			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+				Camera_MakeView( &player->camera, &views[eye], eye );
 
-			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &player->traceOptions, player->stack );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, player->stack );
 
 			if ( frameID < player->targetFrameID )
 				player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
@@ -773,10 +846,11 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		{
 			Camera_UpdateBasis( &player->camera, nullptr );
 
-			View_s view;
-			Camera_MakeView( &player->camera, &view );
+			View_s views[2];
+			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+				Camera_MakeView( &player->camera, &views[eye], eye );
 
-			PlayerScene_Draw( player, &view );
+			PlayerScene_Draw( player, views );
 		}
 
 		GPUEvent_End();
@@ -791,7 +865,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	{
 		GPUEvent_Begin( s_gpuEventCopy );
 		
-		GPUColorRenderTarget_Copy( &GPUSurfaceContext_Get()->surface, &player->mainRenderTargetSet.colorBuffers[0] );
+		Player_CopyToSurface( player );
 
 		GPUEvent_End();
 	}
@@ -815,7 +889,7 @@ static bool Player_Create( Player_s* player, u32 width, u32 height, IAllocator* 
 
 	player->commandLineSize = (u32)-1;
 
-	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, width, height, true ) )
+	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, width * EYE_COUNT, height, true ) )
 		return false;
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
 	Win_RegisterMouseEvent( &player->win, Player_OnMouseEvent );
