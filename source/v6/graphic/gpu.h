@@ -250,6 +250,16 @@ struct GPUQueryContext_s
 	bool							initialized;
 };
 
+typedef u16 GPUEventID_t;
+
+struct GPUEventDuration_s
+{
+	const char*						name;
+	u32								durationUS;
+	GPUEventID_t					id;
+	u8								depth;
+};
+
 void						GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, const char* name );
 void						GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void* data, u32 count, u32 flags, const char* name );
 void						GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count, u32 flags, const char* name );
@@ -283,9 +293,12 @@ void						GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarge
 void						GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name );
 void						GPUDepthRenderTarget_Release( GPUDepthRenderTarget_s* depthRenderTarget );
 
-void						GPUEvent_Begin( const char* eventName );
-void						GPUEvent_BeginW( const wchar_t* eventNameW );
+void						GPUEvent_Begin( GPUEventID_t eventID );
+void						GPUEvent_BeginFrame( u32 frameID );
 void						GPUEvent_End();
+void						GPUEvent_EndFrame();
+GPUEventID_t				GPUEvent_Register( const char* eventName, bool profile );
+u32							GPUEvent_UpdateDurations( GPUEventDuration_s** durations );
 
 void						GPUMesh_Create( GPUMesh_s* mesh, const void* vertices, u32 vertexCount, u32 vertexSize, u32 vertexFormat, const void* indices, u32 indexCount, u32 indexSize, D3D11_PRIMITIVE_TOPOLOGY topology );
 void						GPUMesh_CreateTriangle( GPUMesh_s* mesh );

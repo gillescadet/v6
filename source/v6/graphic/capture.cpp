@@ -39,6 +39,11 @@ struct GPUCaptureResources_s
 	GPUCompute_s				computePackColor;
 };
 
+static const GPUEventID_t s_gpuEventCollect			= GPUEvent_Register( "Collect", true );
+static const GPUEventID_t s_gpuEventBuildNode		= GPUEvent_Register( "BuildNode", true );
+static const GPUEventID_t s_gpuEventFillLeaf		= GPUEvent_Register( "FillLeaf", true );
+static const GPUEventID_t s_gpuEventPack			= GPUEvent_Register( "Pack", true );
+
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
 
@@ -67,7 +72,7 @@ static void ClearNode( CaptureContext_s* captureContext )
 
 static void Collect( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
 {
-	GPUEvent_Begin( "Collect" );
+	GPUEvent_Begin( s_gpuEventCollect );
 
 	GPUCaptureResources_s* res = captureContext->res;
 	
@@ -207,7 +212,7 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 
 static u32 BuildNode( CaptureContext_s* captureContext )
 {
-	GPUEvent_Begin( "BuildNode");
+	GPUEvent_Begin( s_gpuEventBuildNode );
 
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -274,7 +279,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 
 static void FillLeaf( CaptureContext_s* captureContext )
 {
-	GPUEvent_Begin( "FillLeaf");
+	GPUEvent_Begin( s_gpuEventFillLeaf );
 
 	GPUCaptureResources_s* res = captureContext->res;
 
@@ -312,7 +317,7 @@ static void FillLeaf( CaptureContext_s* captureContext )
 
 static void PackColor( CaptureContext_s* captureContext )
 {
-	GPUEvent_Begin( "Pack");
+	GPUEvent_Begin( s_gpuEventPack );
 
 	GPUCaptureResources_s* res = captureContext->res;
 

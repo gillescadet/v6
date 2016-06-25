@@ -27,6 +27,8 @@ struct GPUFontResources_s
 extern ID3D11Device*		g_device;
 extern ID3D11DeviceContext*	g_deviceContext;
 
+static const GPUEventID_t	s_gpuEventFont = GPUEvent_Register( "Font", true );
+
 static GPUFontResources_s	s_gpuFontResources;
 static bool					s_gpuFontResourcesCreated = false;
 static const u32			s_gpuCharacterMaxCount = 20000;
@@ -163,7 +165,7 @@ void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderT
 	renderTargetSetBindingDesc.noZ = true;
 	renderTargetSetBindingDesc.blendMode = GPU_BLEND_MODE_ADDITIF;
 
-	GPUEvent_Begin( "Font");
+	GPUEvent_Begin( s_gpuEventFont );
 
 	GPUFontResources_s* fontRes = fontContext->res;
 

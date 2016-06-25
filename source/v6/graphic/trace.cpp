@@ -58,6 +58,14 @@ struct GPUTraceResources_s
 	GPUCompute_s			computeFilter;
 };
 
+static const GPUEventID_t s_gpuEventCull			= GPUEvent_Register( "Cull", true );
+static const GPUEventID_t s_gpuEventCullBucket		= GPUEvent_Register( "Cull Bucket", false );
+static const GPUEventID_t s_gpuEventTrace			= GPUEvent_Register( "Trace", true );
+static const GPUEventID_t s_gpuEventInitTrace		= GPUEvent_Register( "Init Trace", false );
+static const GPUEventID_t s_gpuEventTraceBucket		= GPUEvent_Register( "Trace Bucket", false );
+static const GPUEventID_t s_gpuEventBlend			= GPUEvent_Register( "Blend", true );
+static const GPUEventID_t s_gpuEventFilter			= GPUEvent_Register( "Filter", true );
+
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
 
@@ -72,7 +80,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	GPUTraceResources_s* traceRes = traceContext->res;
 
-	GPUEvent_Begin( "Cull Blocks");
+	GPUEvent_Begin( s_gpuEventCull );
 
 	// Clear
 	u32 values[4] = {};
@@ -136,7 +144,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		GPUEvent_Begin( "Cull Bucket");
+		GPUEvent_Begin( s_gpuEventCullBucket );
 
 		// update
 		{
@@ -203,7 +211,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	
 	GPUTraceResources_s* traceRes = traceContext->res;
 
-	GPUEvent_Begin( "Trace Blocks");
+	GPUEvent_Begin( s_gpuEventTrace );
 
 	u32 values[4] = {};
 	g_deviceContext->ClearUnorderedAccessViewUint( traceRes->cellItemCounters.uav, values );
@@ -318,7 +326,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 	}
 	
 	{
-		GPUEvent_Begin( "Init Trace");
+		GPUEvent_Begin( s_gpuEventInitTrace );
 
 		// set
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &traceRes->traceIndirectArgs.uav, nullptr );
@@ -334,7 +342,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 
 	for ( u32 bucket = 0; bucket < HLSL_BUCKET_COUNT; ++bucket )
 	{
-		GPUEvent_Begin( "Trace Bucket");
+		GPUEvent_Begin( s_gpuEventTraceBucket );
 
 		// set
 		g_deviceContext->CSSetShaderResources( HLSL_TRACE_INDIRECT_ARGS_SLOT, 1, &traceRes->traceIndirectArgs.srv );
@@ -461,7 +469,7 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 
 	// Render
 
-	GPUEvent_Begin( "Blend Pixels");
+	GPUEvent_Begin( s_gpuEventBlend );
 	
 	// Set
 
@@ -522,7 +530,7 @@ static void FilterPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* ren
 
 	// Render
 
-	GPUEvent_Begin( "Filter Pixels");
+	GPUEvent_Begin( s_gpuEventFilter );
 	
 	// Set
 

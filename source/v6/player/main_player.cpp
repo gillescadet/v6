@@ -22,9 +22,13 @@
 
 #pragma comment( lib, "d3d11.lib" )
 
-#define V6_D3D_DEBUG			0
+#define V6_D3D_DEBUG			1
 
 BEGIN_V6_NAMESPACE
+
+static const GPUEventID_t s_gpuEventDraw		= GPUEvent_Register( "Draw", true );
+static const GPUEventID_t s_gpuEventCopy		= GPUEvent_Register( "Copy", true );
+static const GPUEventID_t s_gpuEventPresent		= GPUEvent_Register( "Present", true );
 
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
@@ -82,6 +86,7 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
+	COMMAND_ACTION_UI,
 };
 
 struct CommandBuffer_s
@@ -103,6 +108,7 @@ struct Player_s
 	FontContext_s			fontContext;
 	TraceContext_s			traceContext;
 	TraceOptions_s			traceOptions;
+	bool					hideUI;
 	float					curFrameID;
 	u32						targetFrameID;
 
@@ -399,6 +405,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 		}
 
 		break;
+
+	case 'U':
+		if ( strcmp( commandLine, "UI ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_UI;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "UI OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_UI;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
 	}
 
 	V6_WARNING( "Unknown command %s\n", commandLine );
@@ -505,6 +528,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_TRACE_OPTION_TSAA:
 		player->traceOptions.noTSAA = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noTSAA;
 		break;
+	case COMMAND_ACTION_UI:
+		player->hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->hideUI;
+		break;
 	}
 
 	player->commandBuffer.action = COMMAND_ACTION_NONE;
@@ -584,6 +610,9 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandLineSize = 0;
 		V6_MSG( "~" );
 		break;
+	case 'C':
+		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
+		break;
 	case 'I':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_LOG;
 		break;
@@ -614,7 +643,8 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_PLAY;
 		break;
 	case 'U':
-		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
+		player->commandBuffer.action = COMMAND_ACTION_UI;
+		player->commandBuffer.arg[0] = 2;
 		break;
 	}
 }
@@ -678,7 +708,7 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 	}
 }
 
-static void Player_DrawUI( Player_s* player, float averageFPS )
+static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDuration_s* eventDurations, u32 eventCount )
 {
 	const u32 lineHeight = FontContext_GetLineHeight( &player->fontContext );
 	u32 cursorY = lineHeight / 2;
@@ -692,6 +722,14 @@ static void Player_DrawUI( Player_s* player, float averageFPS )
 		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
 	cursorY += lineHeight;
 
+	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+	{
+		const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
+		const char* txt = String_Format( "%*s%s: %dus", eventDuration->depth * 2, "", eventDuration->name, eventDuration->durationUS );
+		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), txt );
+		cursorY += lineHeight;
+	}
+
 	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
 }
 
@@ -703,43 +741,70 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 	Player_ProcessInputs( player, dt );
 
-	if ( PlayerStream_IsValid( player ) )
+	GPUEvent_BeginFrame( frameID );
+
 	{
-		if ( player->targetFrameID < player->curFrameID )
-			player->curFrameID = (float)player->targetFrameID;
+		GPUEvent_Begin( s_gpuEventDraw );
+
+		if ( PlayerStream_IsValid( player ) )
+		{
+			if ( player->targetFrameID < player->curFrameID )
+				player->curFrameID = (float)player->targetFrameID;
 		
-		const u32 frameID = (u32)(player->curFrameID + FLT_EPSILON);
+			const u32 frameID = (u32)(player->curFrameID + FLT_EPSILON);
 		
-		TraceContext_UpdateFrame( &player->traceContext, frameID, player->stack );
+			TraceContext_UpdateFrame( &player->traceContext, frameID, player->stack );
 
-		Vec3 right, up, forward;
-		TraceContext_GetFrameBasis( &player->traceContext, &right, &up, &forward );
+			Vec3 right, up, forward;
+			TraceContext_GetFrameBasis( &player->traceContext, &right, &up, &forward );
 		
-		const Mat4x4 lookAt = Mat4x4_Basis( &right, &up, &forward );
-		Camera_UpdateBasis( &player->camera, &lookAt );
+			const Mat4x4 lookAt = Mat4x4_Basis( &right, &up, &forward );
+			Camera_UpdateBasis( &player->camera, &lookAt );
 
-		View_s view;
-		Camera_MakeView( &player->camera, &view );
+			View_s view;
+			Camera_MakeView( &player->camera, &view );
 
-		TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &player->traceOptions, player->stack );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, &view, &player->traceOptions, player->stack );
 
-		if ( frameID < player->targetFrameID )
-			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
+			if ( frameID < player->targetFrameID )
+				player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
+		}
+		else
+		{
+			Camera_UpdateBasis( &player->camera, nullptr );
+
+			View_s view;
+			Camera_MakeView( &player->camera, &view );
+
+			PlayerScene_Draw( player, &view );
+		}
+
+		GPUEvent_End();
 	}
-	else
+
+	GPUEventDuration_s* eventDurations;
+	const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
+
+	if ( !player->hideUI )
+		Player_DrawUI( player, averageFPS, eventDurations, eventCount );
+
 	{
-		Camera_UpdateBasis( &player->camera, nullptr );
+		GPUEvent_Begin( s_gpuEventCopy );
+		
+		GPUColorRenderTarget_Copy( &GPUSurfaceContext_Get()->surface, &player->mainRenderTargetSet.colorBuffers[0] );
 
-		View_s view;
-		Camera_MakeView( &player->camera, &view );
-
-		PlayerScene_Draw( player, &view );
+		GPUEvent_End();
 	}
 
-	Player_DrawUI( player, averageFPS );
+	{
+		GPUEvent_Begin( s_gpuEventPresent );
 
-	GPUColorRenderTarget_Copy( &GPUSurfaceContext_Get()->surface, &player->mainRenderTargetSet.colorBuffers[0] );
-	GPUSurfaceContext_Present();
+		GPUSurfaceContext_Present();
+
+		GPUEvent_End();
+	}
+
+	GPUEvent_EndFrame();
 
 	player->traceOptions.logReadBack = false;
 }

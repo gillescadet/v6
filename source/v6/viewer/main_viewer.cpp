@@ -94,6 +94,9 @@ static const u32 VIDEO_FPS						= 75;
 static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 
+static const u32 s_gpuEventCapture				= GPUEvent_Register( "Capture", true );
+static const u32 s_gpuEventComposeSurface		= GPUEvent_Register( "Compose Surface", true );
+
 static Win_s									s_win;
 #if V6_USE_HMD
 v6::u32		s_hmdState							= v6::HMD_TRACKING_STATE_OFF;
@@ -1878,7 +1881,7 @@ void CRenderingDevice::DrawDebug( const View_s* view, u32 eye )
 
 void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* samplePos, const Vec3 basis[3] )
 {
-	GPUEvent_Begin( "Capture" );
+	GPUEvent_Begin( s_gpuEventCapture );
 		
 	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 	renderTargetSetBindingDesc.clear = true;
@@ -1960,7 +1963,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 #if HLSL_STEREO == 1
 	// Render
 
-	GPUEvent_Begin( "Compose Surface" );
+	GPUEvent_Begin( s_gpuEventComposeSurface );
 
 	// set
 

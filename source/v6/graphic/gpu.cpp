@@ -16,18 +16,60 @@
 
 BEGIN_V6_NAMESPACE
 
+static const u32 EVENT_BUFFER_COUNT			= 3;
+static const u32 EVENT_MAX_COUNT			= 32;
+static const u32 EVENT_NAME_MAX_SIZE		= 64;
+static const u32 EVENT_STACK_MAX_SIZE		= 16;
+static const u32 EVENT_TIMING_FRAME_COUNT	= 32;
+static const u32 VERTEX_INPUT_MAX_COUNT		= 6;
+
+struct GPUEventContext_s
+{
+	char				eventNames[EVENT_MAX_COUNT][EVENT_NAME_MAX_SIZE];
+	bool				eventProfiles[EVENT_MAX_COUNT];
+	u32					eventCount;
+
+	struct
+	{
+		GPUQuery_s		frequency;
+		GPUQuery_s		begins[EVENT_MAX_COUNT];
+		GPUQuery_s		ends[EVENT_MAX_COUNT];
+	}					queries[EVENT_BUFFER_COUNT];
+
+	struct
+	{
+		u32				frameID;
+		u32				stackIDs[EVENT_STACK_MAX_SIZE];
+		u32				stackSize;
+	}					state;
+
+	struct
+	{
+		GPUEventID_t	ids[EVENT_MAX_COUNT];
+		u8				depths[EVENT_MAX_COUNT];
+		u32				count;
+	}					hierarchies[EVENT_BUFFER_COUNT];
+
+	struct
+	{
+		u32				durations[EVENT_MAX_COUNT][EVENT_TIMING_FRAME_COUNT];
+		u64				durationSums[EVENT_MAX_COUNT];
+	}					timings;
+
+	GPUEventDuration_s	eventDurations[EVENT_MAX_COUNT];
+};
+
 struct BasicVertex_s
 {
 	Vec3 position;
 	Color_s color;
 };
 
-static const u32 VERTEX_INPUT_MAX_COUNT = 6;
-
 ID3D11Device*						g_device = nullptr;
 ID3D11DeviceContext*				g_deviceContext = nullptr;
 static ID3DUserDefinedAnnotation*	s_userDefinedAnnotation = nullptr;
 
+GPUEventContext_s					s_eventContext = {};
 GPUSurfaceContext_s					s_surfaceContext = {};
 GPUQueryContext_s					s_queryContext = {};
 GPUShaderContext_s					s_shaderContext = {};
@@ -59,129 +101,185 @@ static u32 DXGIFormat_Size( DXGI_FORMAT format )
 	}
 }
 
-void GPUDevice_Set( ID3D11Device* device )
+GPUEventID_t GPUEvent_Register( const char* eventName, bool profile )
 {
-	V6_ASSERT( device );
-	V6_ASSERT( g_device == nullptr );
-
-	g_device = device;
-	g_device->AddRef();
-	g_device->GetImmediateContext( &g_deviceContext );
-	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
-}
-
-void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug )
-{
-	V6_ASSERT( g_device == nullptr );
-
-	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
-
-	swapChainDesc.BufferDesc.Width = width;
-	swapChainDesc.BufferDesc.Height = height;
-	swapChainDesc.BufferDesc.RefreshRate.Numerator = 60;
-	swapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
-	swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-
-	swapChainDesc.SampleDesc.Count = 1;
-	swapChainDesc.SampleDesc.Quality = 0;
-
-	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
-	swapChainDesc.BufferCount = 2;
-	swapChainDesc.OutputWindow = (HWND)hWnd;
-	swapChainDesc.Windowed = true;
-	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-	swapChainDesc.Flags = 0;
-
-	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_1 };
-	
-	D3D_FEATURE_LEVEL featureLevel;
-	V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
-		NULL,
-		D3D_DRIVER_TYPE_HARDWARE,
-		NULL,
-		(debug ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
-		pFeatureLevels,
-		1,
-		D3D11_SDK_VERSION,
-		&swapChainDesc,
-		&s_surfaceContext.swapChain,
-		&g_device,
-		&featureLevel,
-		&g_deviceContext ) );
-
-	V6_ASSERT( featureLevel == D3D_FEATURE_LEVEL_11_1 );
-	
-	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
-
-#if 0
-	for ( u32 sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount++)
+	if ( s_eventContext.eventCount == 0 )
 	{
-		u32 maxQualityLevel;
-		HRESULT hr = m_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, MSAA_SAMPLE_QUALITY, &maxQualityLevel );
-		
-		if ( hr != S_OK )
-			break;
-		
-		if ( maxQualityLevel > 0 )
-			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
-	}
-#endif
-
-	V6_ASSERT_D3D11( s_surfaceContext.swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&s_surfaceContext.surface.tex ) );
-
-	V6_ASSERT_D3D11( g_device->CreateRenderTargetView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.rtv ) );
-	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
-	s_surfaceContext.initialized = true;
-}
-
-void GPUDevice_Release()
-{
-	V6_ASSERT( g_device );
-
-	if ( s_surfaceContext.initialized )
-	{
-		g_deviceContext->ClearState();
-
-		V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
-		V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
-		V6_RELEASE_D3D11( s_surfaceContext.surface.uav );
-		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
-		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
+		strcpy_s( s_eventContext.eventNames[0], EVENT_NAME_MAX_SIZE-1, "Frame" );
+		s_eventContext.eventProfiles[0] = true;
+		s_eventContext.eventCount = 1;
 	}
 
-	if ( s_queryContext.initialized )
-		GPUQueryContext_Release();
+	V6_ASSERT( s_eventContext.eventCount < EVENT_MAX_COUNT );
+	const GPUEventID_t eventID = s_eventContext.eventCount;
 
-	if ( s_surfaceContext.initialized )
-		GPUShaderContext_Release();
+	strcpy_s( s_eventContext.eventNames[eventID], EVENT_NAME_MAX_SIZE-1, eventName );
+	s_eventContext.eventProfiles[eventID] = profile;
 
-	V6_RELEASE_D3D11( s_userDefinedAnnotation );
-	V6_RELEASE_D3D11( g_deviceContext );
-	V6_RELEASE_D3D11( g_device );
+	++s_eventContext.eventCount;
+	return eventID;
 }
 
-void GPUEvent_Begin( const char* eventName )
+void GPUEvent_Begin( GPUEventID_t eventID )
 {
-	const u32 maxLen = 256;
-	const u32 len = (u32)strlen( eventName );
-	V6_ASSERT( len < maxLen );
-	WCHAR eventNameW[maxLen + 1];
-	MultiByteToWideChar( CP_ACP, 0, eventName, len, eventNameW, maxLen );
-	eventNameW[len] = 0;
+	V6_ASSERT( eventID < s_eventContext.eventCount );
 
-	s_userDefinedAnnotation->BeginEvent( eventNameW );
+	const u32 bufferID = s_eventContext.state.frameID % EVENT_BUFFER_COUNT;
+	const u32 depth = s_eventContext.state.stackSize;
+	
+	V6_ASSERT( depth < EVENT_STACK_MAX_SIZE );
+	s_eventContext.state.stackIDs[s_eventContext.state.stackSize] = eventID;
+	++s_eventContext.state.stackSize;
+
+	if ( s_eventContext.eventProfiles[eventID] )
+	{
+		{
+			if ( s_eventContext.queries[bufferID].begins[eventID].query == nullptr )
+				GPUQuery_CreateTimeStamp( &s_eventContext.queries[bufferID].begins[eventID] );
+
+			GPUQuery_WriteTimeStamp( &s_eventContext.queries[bufferID].begins[eventID] );
+		}
+
+		{
+			const u32 eventRank = s_eventContext.hierarchies[bufferID].count;
+			s_eventContext.hierarchies[bufferID].ids[eventRank] = eventID;
+			s_eventContext.hierarchies[bufferID].depths[eventRank] = depth;
+			++s_eventContext.hierarchies[bufferID].count;
+		}
+	}
+
+	{
+		const u32 len = (u32)strlen( s_eventContext.eventNames[eventID] );
+		WCHAR eventNameW[EVENT_NAME_MAX_SIZE+1];
+		MultiByteToWideChar( CP_ACP, 0, s_eventContext.eventNames[eventID], len, eventNameW, EVENT_NAME_MAX_SIZE );
+		eventNameW[len] = 0;
+		
+		s_userDefinedAnnotation->BeginEvent( eventNameW );
+	}
 }
 
-void GPUEvent_BeginW( const wchar_t* eventNameW )
+void GPUEvent_BeginFrame( u32 frameID )
 {
-	s_userDefinedAnnotation->BeginEvent( eventNameW );
+	if ( s_eventContext.eventCount == 0 )
+		return;
+
+	const u32 bufferID = frameID % EVENT_BUFFER_COUNT;
+
+	{
+		if ( s_eventContext.queries[bufferID].frequency.query == nullptr )
+			GPUQuery_CreateTimeStampDisjoint( &s_eventContext.queries[bufferID].frequency );
+
+		GPUQuery_BeginTimeStampDisjoint( &s_eventContext.queries[bufferID].frequency );
+	}
+
+	V6_ASSERT( s_eventContext.state.stackSize == 0 );
+	s_eventContext.state.frameID = frameID;
+
+	s_eventContext.hierarchies[bufferID].count = 0;
+
+	GPUEvent_Begin( 0 );
+
+	V6_ASSERT( s_eventContext.state.stackSize == 1 );
+	V6_ASSERT( s_eventContext.state.stackIDs[0] == 0 );
 }
 
 void GPUEvent_End()
 {
 	s_userDefinedAnnotation->EndEvent();
+
+	V6_ASSERT( s_eventContext.state.stackSize > 0 );
+	--s_eventContext.state.stackSize;
+	const GPUEventID_t eventID = s_eventContext.state.stackIDs[s_eventContext.state.stackSize];
+
+	if ( s_eventContext.eventProfiles[eventID] )
+	{
+		const u32 bufferID = s_eventContext.state.frameID % EVENT_BUFFER_COUNT;
+		
+		if ( s_eventContext.queries[bufferID].ends[eventID].query == nullptr )
+			GPUQuery_CreateTimeStamp( &s_eventContext.queries[bufferID].ends[eventID] );
+
+		GPUQuery_WriteTimeStamp( &s_eventContext.queries[bufferID].ends[eventID] );
+	}
+}
+
+void GPUEvent_EndFrame()
+{
+	if ( s_eventContext.eventCount == 0 )
+		return;
+
+	V6_ASSERT( s_eventContext.state.stackSize == 1 );
+	V6_ASSERT( s_eventContext.state.stackIDs[0] == 0 );
+	
+	GPUEvent_End();
+
+	V6_ASSERT( s_eventContext.state.stackSize == 0 );
+
+	{
+		const u32 bufferID = s_eventContext.state.frameID % EVENT_BUFFER_COUNT;
+		
+		GPUQuery_EndTimeStampDisjoint( &s_eventContext.queries[bufferID].frequency );
+	}
+}
+
+u32 GPUEvent_UpdateDurations( GPUEventDuration_s** eventDurations )
+{
+	const u32 prevBufferID = (s_eventContext.state.frameID + 1) % EVENT_BUFFER_COUNT;
+	if ( s_eventContext.hierarchies[prevBufferID].count == 0 )
+		return 0;
+
+	GPUQuery_s* frequency = &s_eventContext.queries[prevBufferID].frequency;
+	if ( !GPUQuery_ReadTimeStampDisjoint( frequency ) )
+		return 0;
+
+	const u32 eventCount = s_eventContext.hierarchies[prevBufferID].count;
+	*eventDurations = s_eventContext.eventDurations;
+
+	const u32 timingFrameID = s_eventContext.state.frameID % EVENT_TIMING_FRAME_COUNT;
+	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+	{
+		const GPUEventID_t eventID = s_eventContext.hierarchies[prevBufferID].ids[eventRank];
+
+		GPUQuery_ReadTimeStamp( &s_eventContext.queries[prevBufferID].begins[eventID] );
+		GPUQuery_ReadTimeStamp( &s_eventContext.queries[prevBufferID].ends[eventID] );
+
+		const float time = GPUQuery_GetElpasedTime( &s_eventContext.queries[prevBufferID].begins[eventID], &s_eventContext.queries[prevBufferID].ends[eventID], frequency );
+		const u32 timeUS = (u32)(Min( time, 1.0f ) * 1000000.0f);
+
+		s_eventContext.timings.durationSums[eventID] -= s_eventContext.timings.durations[eventID][timingFrameID];
+		s_eventContext.timings.durations[eventID][timingFrameID] = timeUS;
+		s_eventContext.timings.durationSums[eventID] += timeUS;
+
+		(*eventDurations)[eventRank].id = eventID;
+		(*eventDurations)[eventRank].depth = s_eventContext.hierarchies[prevBufferID].depths[eventRank];
+		(*eventDurations)[eventRank].name = s_eventContext.eventNames[eventID];
+		(*eventDurations)[eventRank].durationUS = (u32)(s_eventContext.timings.durationSums[eventID] / EVENT_TIMING_FRAME_COUNT);
+	}
+
+	s_eventContext.hierarchies[prevBufferID].count = 0;
+
+	return eventCount;
+}
+
+static void GPUEventContext_Release()
+{
+	for ( GPUEventID_t eventID = 0; eventID < s_eventContext.eventCount; ++eventID )
+	{
+		for ( u32 bufferID = 0; bufferID < EVENT_BUFFER_COUNT; ++bufferID )
+		{
+			if ( s_eventContext.queries[bufferID].begins[eventID].query )
+				GPUQuery_Release( &s_eventContext.queries[bufferID].begins[eventID] );
+			if ( s_eventContext.queries[bufferID].ends[eventID].query )
+				GPUQuery_Release( &s_eventContext.queries[bufferID].ends[eventID] );
+		}
+	}
+
+	for ( u32 bufferID = 0; bufferID < EVENT_BUFFER_COUNT; ++bufferID )
+	{
+		if ( s_eventContext.queries[bufferID].frequency.query )
+			GPUQuery_Release( &s_eventContext.queries[bufferID].frequency );
+	}
+
+	memset( &s_eventContext, 0, sizeof( s_eventContext ) );
 }
 
 void GPUResource_LogMemory( const char* res, u32 size, const char* name )
@@ -1540,7 +1638,7 @@ void GPUQueryContext_Release()
 {
 	V6_ASSERT( s_queryContext.initialized );
 
-	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
+	for ( u32 bufferID = 0; bufferID < EVENT_BUFFER_COUNT; ++bufferID )
 	{
 		for ( u32 queryID = 0; queryID < GPUQueryContext_s::QUERY_MAX_COUNT; ++queryID )
 		{
@@ -1832,6 +1930,111 @@ void GPUSurfaceContext_Present()
 {
 	V6_ASSERT( s_surfaceContext.initialized );
 	s_surfaceContext.swapChain->Present( 0, 0 );
+}
+
+void GPUDevice_Set( ID3D11Device* device )
+{
+	V6_ASSERT( device );
+	V6_ASSERT( g_device == nullptr );
+
+	g_device = device;
+	g_device->AddRef();
+	g_device->GetImmediateContext( &g_deviceContext );
+	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
+}
+
+void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug )
+{
+	V6_ASSERT( g_device == nullptr );
+
+	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+
+	swapChainDesc.BufferDesc.Width = width;
+	swapChainDesc.BufferDesc.Height = height;
+	swapChainDesc.BufferDesc.RefreshRate.Numerator = 60;
+	swapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
+	swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+	swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+
+	swapChainDesc.SampleDesc.Count = 1;
+	swapChainDesc.SampleDesc.Quality = 0;
+
+	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
+	swapChainDesc.BufferCount = 2;
+	swapChainDesc.OutputWindow = (HWND)hWnd;
+	swapChainDesc.Windowed = true;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+	swapChainDesc.Flags = 0;
+
+	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_1 };
+	
+	D3D_FEATURE_LEVEL featureLevel;
+	V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
+		NULL,
+		D3D_DRIVER_TYPE_HARDWARE,
+		NULL,
+		(debug ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
+		pFeatureLevels,
+		1,
+		D3D11_SDK_VERSION,
+		&swapChainDesc,
+		&s_surfaceContext.swapChain,
+		&g_device,
+		&featureLevel,
+		&g_deviceContext ) );
+
+	V6_ASSERT( featureLevel == D3D_FEATURE_LEVEL_11_1 );
+	
+	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
+
+#if 0
+	for ( u32 sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount++)
+	{
+		u32 maxQualityLevel;
+		HRESULT hr = m_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, MSAA_SAMPLE_QUALITY, &maxQualityLevel );
+		
+		if ( hr != S_OK )
+			break;
+		
+		if ( maxQualityLevel > 0 )
+			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
+	}
+#endif
+
+	V6_ASSERT_D3D11( s_surfaceContext.swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&s_surfaceContext.surface.tex ) );
+
+	V6_ASSERT_D3D11( g_device->CreateRenderTargetView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.rtv ) );
+	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
+	s_surfaceContext.initialized = true;
+}
+
+void GPUDevice_Release()
+{
+	V6_ASSERT( g_device );
+
+	if ( s_surfaceContext.initialized )
+	{
+		g_deviceContext->ClearState();
+
+		V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
+		V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
+		V6_RELEASE_D3D11( s_surfaceContext.surface.uav );
+		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
+		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
+	}
+
+	if ( s_queryContext.initialized )
+		GPUQueryContext_Release();
+
+	if ( s_surfaceContext.initialized )
+		GPUShaderContext_Release();
+
+	GPUEventContext_Release();
+
+	V6_RELEASE_D3D11( s_userDefinedAnnotation );
+	V6_RELEASE_D3D11( g_deviceContext );
+	V6_RELEASE_D3D11( g_device );
 }
 
 END_V6_NAMESPACE
