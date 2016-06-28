@@ -33,6 +33,20 @@ struct ImageBlock_s
 Plot_s* s_plot = nullptr;
 #endif // #if MAIN_COMPRESSOR_DEBUG == 1
 
+//----------------------------------------------------------------------------------------------------
+
+void OutputMessage( const char * format, ... )
+{
+  char buffer[4096];
+  va_list args;
+  va_start( args, format );
+  vsprintf_s( buffer, sizeof( buffer ), format, args);
+  va_end( args );
+
+  printf( buffer );
+}
+
+//----------------------------------------------------------------------------------------------------
 
 static int CompareRGBAByAlpha( const void* rgba1, const void* rgba2 )
 {

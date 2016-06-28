@@ -16,11 +16,24 @@ struct Camera_s
 	Vec3			up;
 	Vec3			forward;
 	float			znear;
+	float			zfar;
 	float			fov;
 	float			aspectRatio;
 	float			yaw;
 	float			pitch;
 	float			ipdHalf;
+};
+
+struct ViewEyeInfo_s
+{
+	Mat4x4			projMatrix;
+	
+	Vec3			offset;
+
+	float			tanHalfFOVLeft;
+	float			tanHalfFOVRight;
+	float			tanHalfFOVUp;
+	float			tanHalfFOVDown;
 };
 
 struct View_s
@@ -39,9 +52,10 @@ struct View_s
 	float			tanHalfFOVDown;
 };
 
-void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt, float ipd );
-void	Camera_MakeView( Camera_s* camera, View_s* view, u32 eye );
-void	Camera_UpdateBasis( Camera_s* camera, const Mat4x4* lookAt );
+void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float zfar, float fov, float aspectRatio, float ipd );
+void	Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye );
+void	Camera_MakeView( View_s* view, const Camera_s* camera, const ViewEyeInfo_s* eyeInfo );
+void	Camera_UpdateBasis( Camera_s* camera, float preYaw, const Mat4x4* preRotationMatrix );
 
 END_V6_NAMESPACE
 

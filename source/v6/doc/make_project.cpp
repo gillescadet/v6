@@ -331,6 +331,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/win.cpp",							PROJECT_PLAYER },
 	{ "source/v6/graphic/font.cpp",						PROJECT_PLAYER },
 	{ "source/v6/graphic/gpu.cpp",						PROJECT_PLAYER },
+	{ "source/v6/graphic/hmd.cpp",						PROJECT_PLAYER },
 	{ "source/v6/graphic/scene.cpp",					PROJECT_PLAYER },
 	{ "source/v6/graphic/trace.cpp",					PROJECT_PLAYER },
 	{ "source/v6/graphic/view.cpp",						PROJECT_PLAYER },

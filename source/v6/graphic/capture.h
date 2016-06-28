@@ -42,8 +42,8 @@ struct CaptureContext_s
 };
 
 // any thread
-Vec3	CaptureContext_ComputeSamplePos( CaptureContext_s* captureContext, const Vec3* origin, u32 sampleID );
 void	CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc );
+Vec3	CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampleID );
 void	CaptureContext_Release( CaptureContext_s* captureContext );
 
 // render thread

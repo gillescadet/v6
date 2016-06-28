@@ -14,6 +14,8 @@
 #define V6_ASSERT_D3D11( EXP )	{ HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 #define V6_RELEASE_D3D11( EXP )	{ V6_ASSERT( EXP ); EXP->Release(); EXP = nullptr; }
 
+#define V6_GPU_EVENT_SCOPE( ID ) GPUEventScope_s s_gpuEventScope_##ID( ID )
+
 BEGIN_V6_NAMESPACE
 
 class IAllocator;
@@ -251,6 +253,15 @@ struct GPUEventDuration_s
 	u8								depth;
 };
 
+void GPUEvent_Begin( GPUEventID_t eventID );
+void GPUEvent_End();
+
+struct GPUEventScope_s
+{
+	GPUEventScope_s( GPUEventID_t id ) { GPUEvent_Begin( id ); }
+	~GPUEventScope_s() { GPUEvent_End(); }
+};
+
 void						GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, const char* name );
 void						GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void* data, u32 count, u32 flags, const char* name );
 void						GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count, u32 flags, const char* name );
@@ -264,6 +275,7 @@ template < typename T >
 void						GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, u32 srcCount );
 
 void						GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug );
+ID3D11Device*				GPUDevice_Get();
 void						GPUDevice_Set( ID3D11Device* device );
 void						GPUDevice_Release();
 

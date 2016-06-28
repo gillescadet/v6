@@ -817,16 +817,14 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 	traceContext->frameState.resetJitter = false;
 }
 
-void TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* right, Vec3* up, Vec3* forward )
+float TraceContext_GetFrameYaw( TraceContext_s* traceContext  )
 {
 	V6_ASSERT( traceContext->frameState.sequenceID < traceContext->stream->desc.sequenceCount );
 	const VideoSequence_s* sequence = &traceContext->stream->sequences[traceContext->frameState.sequenceID];
 
 	V6_ASSERT( traceContext->frameState.frameRank < sequence->desc.frameCount );
 	const CodecFrameDesc_s* frameDesc = &sequence->frameDescArray[traceContext->frameState.frameRank];
-	*right = frameDesc->gridBasis[0];
-	*up = frameDesc->gridBasis[1];
-	*forward = frameDesc->gridBasis[2];
+	return frameDesc->gridYaw;
 }
 
 void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack )
@@ -927,9 +925,6 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 
 		CodecFrameDesc_s* frameDesc = &sequence->frameDescArray[frameRank];
 		traceContext->frameState.origin = frameDesc->gridOrigin;
-		traceContext->frameState.basis[0] = frameDesc->gridBasis[0];
-		traceContext->frameState.basis[1] = frameDesc->gridBasis[1];
-		traceContext->frameState.basis[2] = frameDesc->gridBasis[2];
 		traceContext->frameState.bufferID = frameID & 1;
 	
 		GPUTraceResources_s* traceRes = traceContext->res;

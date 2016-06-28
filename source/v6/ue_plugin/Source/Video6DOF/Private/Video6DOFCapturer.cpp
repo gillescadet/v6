@@ -93,9 +93,7 @@ static void Scene_End()
 		{
 			v6::CodecRawFrameDesc_s frameDesc = {};
 			frameDesc.gridOrigin = s_captureOrigin;
-			frameDesc.gridBasis[0] = v6::Vec3_Make( 1, 0, 0 );
-			frameDesc.gridBasis[1] = v6::Vec3_Make( 0, 0, 1 );
-			frameDesc.gridBasis[2] = v6::Vec3_Make( 0, 1, 0 );
+			frameDesc.gridYaw = 0.0f;
 			frameDesc.frameID = s_captureFrameID;
 			frameDesc.frameRate = s_targetFPS;
 			frameDesc.sampleCount = s_sampleCount;
@@ -121,7 +119,8 @@ static void Scene_End()
 
 static void Scene_Begin( FSceneViewFamily* viewFamily )
 {
-	v6::GPUEvent_Begin( "Video6DOF Capture" );
+	static const v6::GPUEventID_t s_captureEvent = v6::GPUEvent_Register( "Video6DOF Capture", true );
+	v6::GPUEvent_Begin( s_captureEvent );
 	s_dynamicRHIOriginal->RHIBindDebugLabelName( viewFamily->RenderTarget->GetRenderTargetTexture(), TEXT( "SceneColorVideo6DOF" ) );
 	s_captureRenderTarget = __GetD3D11TextureFromRHITexture( viewFamily->RenderTarget->GetRenderTargetTexture() );
 	s_colorRenderTarget = nullptr;
@@ -159,6 +158,23 @@ public:
 	}
 };
 
+BEGIN_V6_NAMESPACE
+
+void OutputMessage( const char* format, ... )
+{
+#if 0
+	char buffer[4096];
+	va_list args;
+	va_start( args, format );
+	vsprintf_s( buffer, sizeof( buffer ), format, args);
+	va_end( args );
+
+	UE_LOG( LogVideo6DOF, Log, TEXT( buffer ) );
+#endif
+}
+
+END_V6_NAMESPACE
+
 static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* up, FVector* lookAt )
 {
 	static const FVector lookAts[6] = 
@@ -186,7 +202,12 @@ static void ComputeOrthoBasisFromFace( uint32 faceID, FVector* right, FVector* u
 	*right = *up ^ *lookAt;
 }
 
-static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& origin, const FVector& samplePos, uint32 frameID, uint32 faceID, CaptureState_e captureState )
+static v6::Vec3 TranformVectorFromUserSpace( const FVector* v )
+{
+	return v6::Vec3_Make( v->X, v->Z, v->Y ); // swapped Y/Z
+}
+
+static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetAntiAliasing( false );
@@ -206,14 +227,14 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
 
-	FVector right, up, lookAt;
-	ComputeOrthoBasisFromFace( faceID, &right, &up, &lookAt );
+	FVector rightUserSpace, upUserSpace, lookAtUserSpace;
+	ComputeOrthoBasisFromFace( faceID, &rightUserSpace, &upUserSpace, &lookAtUserSpace );
 
 	FSceneViewInitOptions viewInitOptions;
 	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, renderTargetResource->GetSizeXY().X, renderTargetResource->GetSizeXY().Y ) );
 	viewInitOptions.ViewFamily = &viewFamily;
-	viewInitOptions.ViewOrigin = samplePos;
-	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( right, up, lookAt, FVector::ZeroVector );
+	viewInitOptions.ViewOrigin = samplePosUserSpace;
+	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( rightUserSpace, upUserSpace, lookAtUserSpace, FVector::ZeroVector );
 	viewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix( v6::DegToRad( 90.0f ) * 0.5f, 1.0f, 1.0f, GNearClippingPlane );
 
 	FSceneView* newView = new FSceneView( viewInitOptions );
@@ -222,17 +243,17 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
 
 	FPostProcessSettings postProcessSettings;
-	newView->StartFinalPostprocessSettings( origin );
+	newView->StartFinalPostprocessSettings( originUserSpace );
 	newView->OverridePostProcessSettings( postProcessSettings, 1.0f );
 	newView->EndFinalPostprocessSettings( viewInitOptions );
 
 	s_captureState = captureState;
 	s_captureFrameID = frameID;
-	s_captureSamplePos = v6::Vec3_Make( samplePos.X, samplePos.Y, samplePos.Z );
-	s_captureFaceBasis[0] = v6::Vec3_Make( right.X, right.Y, right.Z );
-	s_captureFaceBasis[1] = v6::Vec3_Make( up.X, up.Y, up.Z );
-	s_captureFaceBasis[2] = v6::Vec3_Make( lookAt.X, lookAt.Y, lookAt.Z );
-	s_captureOrigin = v6::Vec3_Make( origin.X, origin.Y, origin.Z );
+	s_captureSamplePos = TranformVectorFromUserSpace( &samplePosUserSpace );
+	s_captureFaceBasis[0] = TranformVectorFromUserSpace( &rightUserSpace );
+	s_captureFaceBasis[1] = TranformVectorFromUserSpace( &upUserSpace );
+	s_captureFaceBasis[2] = TranformVectorFromUserSpace( &lookAtUserSpace );
+	s_captureOrigin = TranformVectorFromUserSpace( &originUserSpace );
 	s_captureRenderTarget = nullptr;
 
 	FCanvas canvas( renderTargetResource, nullptr, GWorld, GWorld->Scene->GetFeatureLevel() );
@@ -242,7 +263,7 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	FlushRenderingCommands();
 }
 
-static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameID )
+static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, uint32 frameID )
 {
 	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
 	renderTargetTexture->AddToRoot();
@@ -264,8 +285,8 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameI
 
 	for ( uint32 sampleID = 0; sampleID < s_sampleCount; ++sampleID )
 	{
-		const v6::Vec3 gridOrigin = v6::Vec3_Make( origin.X, origin.Y, origin.Z );
-		const v6::Vec3 samplePos = v6::CaptureContext_ComputeSamplePos( &s_captureContext, &gridOrigin, sampleID );
+		const v6::Vec3 gridCenterUserSpace = v6::Vec3_Make( originUserSpace.X, originUserSpace.Y, originUserSpace.Z );
+		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + v6::CaptureContext_GetSampleOffset( &s_captureContext, sampleID );
 
 		for ( uint32 faceID = 0; faceID < 6; ++faceID )
 		{
@@ -277,7 +298,7 @@ static void Scene_CaptureCube( uint32 size, const FVector& origin, uint32 frameI
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
 
-			Scene_CaptureFace( renderTargetResource, origin, FVector( samplePos.x, samplePos.y, samplePos.z ), frameID, faceID, captureState );
+			Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), frameID, faceID, captureState );
 		}
 	}
 

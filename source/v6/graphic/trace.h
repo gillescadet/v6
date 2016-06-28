@@ -52,7 +52,6 @@ struct TraceFrameState_s
 {
 	Mat4x4					prevWorldToProjs[2];
 	Vec3					origin;
-	Vec3					basis[3];
 	Vec2					jitter;
 	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
 	u32						groupCounts[CODEC_BUCKET_COUNT];
@@ -75,11 +74,11 @@ struct TraceContext_s
 	u32						resCellItemCount;
 };
 
-void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );
-void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, IStack* stack );
-void TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* right, Vec3* up, Vec3* forward );
-void TraceContext_Release( TraceContext_s* traceContext );
-void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack );
+void	TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );
+void	TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, IStack* stack );
+float	TraceContext_GetFrameYaw( TraceContext_s* traceContext );
+void	TraceContext_Release( TraceContext_s* traceContext );
+void	TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack );
 
 END_V6_NAMESPACE
 

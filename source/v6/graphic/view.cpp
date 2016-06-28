@@ -6,19 +6,20 @@
 
 BEGIN_V6_NAMESPACE
 
-void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float fov, float aspectRatio, const Mat4x4* lookAt, float ipd )
+void Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float zfar, float fov, float aspectRatio, float ipd )
 {
 	camera->pos = *pos;
 	camera->znear = znear;
+	camera->zfar = zfar;
 	camera->fov = fov;
 	camera->aspectRatio = aspectRatio;
 	camera->yaw = 0.0f;
 	camera->pitch = 0.0f;
 	camera->ipdHalf = ipd * 0.5f;
-	Camera_UpdateBasis( camera, lookAt );
+	Camera_UpdateBasis( camera, 0.0f, nullptr );
 }
 
-void Camera_MakeView( Camera_s* camera, View_s* view, u32 eye )
+void Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye )
 {
 	const Vec3 eyeOffset = camera->right * camera->ipdHalf;
 
@@ -38,22 +39,38 @@ void Camera_MakeView( Camera_s* camera, View_s* view, u32 eye )
 	view->tanHalfFOVDown = tanHalfFovV;
 }
 
-void Camera_UpdateBasis( Camera_s* camera, const Mat4x4* lookAt )
+void Camera_MakeView( View_s* view, const Camera_s* camera, const ViewEyeInfo_s* eyeInfo )
 {
-	static const Mat4x4 s_identityMatrix = Mat4x4_Identity();
-	const Mat4x4* const poseMatrix = lookAt ? lookAt : &s_identityMatrix;
+	view->org = camera->pos + eyeInfo->offset;
+	view->forward = camera->forward;
+	view->right = camera->right;
+	view->up = camera->up;
 
-	Mat4x4 poseYawMatrix;
-	Mat4x4 orientationMatrix;
-	const Mat4x4 yawMatrix = Mat4x4_RotationY( camera->yaw );
-	const Mat4x4 pitchMatrix = Mat4x4_RotationX( camera->pitch );
-	Mat4x4_Mul( &poseYawMatrix, *poseMatrix, yawMatrix );
-	Mat4x4_Mul( &orientationMatrix, poseYawMatrix, pitchMatrix );
+	view->viewMatrix = Mat4x4_View( &view->org, &camera->right, &camera->up, &camera->forward );
+	view->projMatrix = eyeInfo->projMatrix;
 
-	orientationMatrix.GetZAxis( &camera->forward );
+	view->tanHalfFOVLeft = eyeInfo->tanHalfFOVLeft;
+	view->tanHalfFOVRight = eyeInfo->tanHalfFOVRight;
+	view->tanHalfFOVUp = eyeInfo->tanHalfFOVUp;
+	view->tanHalfFOVDown = eyeInfo->tanHalfFOVDown;
+}
+
+void Camera_UpdateBasis( Camera_s* camera, float preYaw, const Mat4x4* preRotationMatrix )
+{
+	Mat4x4 cameraRotationMatrix;
+	Mat4x4_Mul3x3( &cameraRotationMatrix, Mat4x4_RotationY( preYaw + camera->yaw ), Mat4x4_RotationX( camera->pitch ) );
+
+	Mat4x4 finalMatrix;
+
+	if ( preRotationMatrix )
+		Mat4x4_Mul3x3( &finalMatrix, *preRotationMatrix, cameraRotationMatrix );
+	else
+		finalMatrix = cameraRotationMatrix;
+
+	finalMatrix.GetZAxis( &camera->forward );
 	camera->forward = -camera->forward;
-	orientationMatrix.GetXAxis( &camera->right );
-	orientationMatrix.GetYAxis( &camera->up );
+	finalMatrix.GetXAxis( &camera->right );
+	finalMatrix.GetYAxis( &camera->up );
 }
 
 END_V6_NAMESPACE

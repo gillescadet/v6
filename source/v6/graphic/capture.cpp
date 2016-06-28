@@ -526,11 +526,9 @@ void CaptureContext_End( CaptureContext_s* captureContext )
 	PackColor( captureContext );
 }
 
-Vec3 CaptureContext_ComputeSamplePos( CaptureContext_s* captureContext, const Vec3* origin, u32 sampleID )
+Vec3 CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampleID )
 {
-	const u32 gridMacroHalfWidth = 1 << (captureContext->desc.gridMacroShift-1);
-	const Vec3 gridCenter = Codec_ComputeGridCenter( origin, captureContext->desc.gridScaleMin, gridMacroHalfWidth );
-	return gridCenter + captureContext->sampleOffsets[sampleID];
+	return captureContext->sampleOffsets[sampleID];
 }
 
 u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView )

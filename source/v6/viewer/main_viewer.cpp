@@ -45,7 +45,7 @@
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			1
 
@@ -77,6 +77,7 @@ static const u32 EYE_COUNT						= 1;
 static const float IPD							= 0.0f;
 #endif
 static const float ZNEAR						= GRID_MIN_SCALE * 0.5f;
+static const float ZFAR							= GRID_MAX_SCALE * 2.0f;
 #if V6_SIMPLE_SCENE == 1
 static const float FOV							= DegToRad( 90.0f );
 #else
@@ -299,7 +300,6 @@ struct SceneContext_s
 	IStack*			stack;
 	ObjScene_s		objScene;
 	Scene_s*		scene;
-	Signal_s		deviceReady;
 	Signal_s		loadDone;
 };
 
@@ -353,7 +353,6 @@ static float s_yaw					= 0.0f;
 static float s_pitch				= 0.0f;
 static Vec3 s_headOffset			= Vec3_Zero();
 static Vec3 s_buildOrigin			= Vec3_Zero();
-static Vec3 s_buildBasis[3]			= { Vec3_Make( 1, 0, 0 ), Vec3_Make( 0, 1, 0 ), Vec3_Make( 0, 0, 1 ) };
 
 static bool s_logReadBack			= false;
 
@@ -371,6 +370,21 @@ static const float				s_defaultPathSpeed = 100.0f;
 static PathPlayer_s				s_pathPlayer;
 
 static GPURenderTargetSet_s		s_mainRenderTargetSet;
+
+//----------------------------------------------------------------------------------------------------
+
+void OutputMessage( const char * format, ... )
+{
+  char buffer[4096];
+  va_list args;
+  va_start( args, format );
+  vsprintf_s( buffer, sizeof( buffer ), format, args);
+  va_end( args );
+
+  printf( buffer );
+}
+
+//----------------------------------------------------------------------------------------------------
 
 static void Path_Init( Path_s* path )
 {
@@ -452,6 +466,8 @@ static void Path_Save( const Path_s* paths, u32 pathCount, SceneViewer_s* scene 
 		sceneInfo->dirty = true;
 	}
 }
+
+//----------------------------------------------------------------------------------------------------
 
 static void PathPlayer_Init( PathPlayer_s* pathlayer )
 {
@@ -587,6 +603,8 @@ static bool PathPlayer_AddTimeStep( PathPlayer_s* pathPlayer, float dt )
 
 	return true;
 }
+
+//----------------------------------------------------------------------------------------------------
 
 static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 {
@@ -761,6 +779,8 @@ static void Viewer_OnMouseEvent( const MouseEvent_s* mouseEvent )
 	}
 }
 
+//----------------------------------------------------------------------------------------------------
+
 static const bool IsBakingMode( DrawMode_e drawMode )
 {
 	return drawMode == DRAW_MODE_BLOCK && g_sample < SAMPLE_MAX_COUNT;
@@ -804,28 +824,6 @@ static void RenderingView_MakeForStereo( View_s* renderingView, const Vec3* org,
 	renderingView->tanHalfFOVUp = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVDown = renderingView->tanHalfFOVLeft;
 }
-
-#if V6_USE_HMD
-
-static void RenderingView_MakeForHMD( View_s* renderingView, const HmdEyePose_s* eyePose, const Vec3* orgOffset, float yawOffset, u32 eye )
-{
-	const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
-	Mat4x4_Mul( &renderingView->viewMatrix, yawMatrix, eyePose->lookAt );
-	renderingView->org = *orgOffset + renderingView->viewMatrix.GetTranslation();
-	renderingView->forward = -renderingView->viewMatrix.GetZAxis()->Normalized();
-	renderingView->right = renderingView->viewMatrix.GetXAxis()->Normalized();
-	renderingView->up = renderingView->viewMatrix.GetYAxis()->Normalized();
-	Mat4x4_SetTranslation( &renderingView->viewMatrix, renderingView->org );
-	Mat4x4_AffineInverse( &renderingView->viewMatrix );
-	renderingView->projMatrix = eyePose->projection;
-	renderingView->eye = eye;
-	renderingView->tanHalfFOVLeft = eyePose->tanHalfFOVLeft;
-	renderingView->tanHalfFOVRight = eyePose->tanHalfFOVRight;
-	renderingView->tanHalfFOVUp = eyePose->tanHalfFOVUp;
-	renderingView->tanHalfFOVDown = eyePose->tanHalfFOVDown;
-}
-
-#endif // #if V6_USE_HMD
 
 static void Cube_GetLookAt( Vec3& lookAt, Vec3& up, CubeAxis_e axis )
 {
@@ -1160,7 +1158,6 @@ static void SceneContext_Create( SceneContext_s* sceneContext, IStack* stack )
 
 	memset( sceneContext, 0, sizeof( SceneContext_s ) );
 	sceneContext->stack = stack;
-	Signal_Create( &sceneContext->deviceReady );
 	Signal_Create( &sceneContext->loadDone );
 }
 
@@ -1173,15 +1170,9 @@ static void SceneContext_Release( SceneContext_s* sceneContext )
 {
 	if ( sceneContext->scene )
 		Scene_Release( sceneContext->scene );
-	Signal_Release( &sceneContext->deviceReady );
 	Signal_Release( &sceneContext->loadDone );
 
 	sceneContext->stack->pop();
-}
-
-static void SceneContext_SetDeviceReady( SceneContext_s* sceneContext )
-{
-	Signal_Emit( &sceneContext->deviceReady );
 }
 
 static void SceneContext_Load( SceneContext_s* sceneContext )
@@ -1206,8 +1197,6 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	
 	V6_MSG( "%d meshes loaded\n",  sceneContext->objScene.meshCount );
 	
-	Signal_Wait( &sceneContext->deviceReady );
-
 	V6_MSG( "Init scene\n" );
 
 	ObjScene_s* objScene = &sceneContext->objScene;
@@ -1744,12 +1733,12 @@ public:
 	void Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* sampleOffset, const Vec3 basis[3] );
 	bool Create(int nWidth, int nHeight, IAllocator* heap, IStack* stack );
 	void Draw( float dt );
-	void DrawCameraPath( const View_s* view, u32 eye );
-	void DrawDebug( const View_s* view, u32 eye );
-	void DrawWorld( const View_s* view, u32 eye );
+	void DrawCameraPath( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
+	void DrawDebug( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
+	void DrawWorld( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
 	bool HasValidRawFrameFile( u32 frameID );
 	bool InitTraceMode( u32 frameCount );
-	void Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight );
+	void Output( GPURenderTargetSet_s* renderTargetSet );
 	void Release();
 	void ReleaseTraceMode();
 	void ResetDrawMode();
@@ -1814,7 +1803,7 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 	return true;
 }
 
-void CRenderingDevice::DrawWorld( const View_s* view, u32 eye )
+void CRenderingDevice::DrawWorld( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye )
 {
 	u32 flags = 0;
 
@@ -1828,25 +1817,25 @@ void CRenderingDevice::DrawWorld( const View_s* view, u32 eye )
 	renderTargetSetBindingDesc.blendMode = GPU_BLEND_MODE_OPAQUE;
 #endif
 
-	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
+	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( s_activeScene, view, flags );
 
-	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
+	GPURenderTargetSet_Unbind( renderTargetSet );
 }
 
-void CRenderingDevice::DrawCameraPath( const View_s* view, u32 eye )
+void CRenderingDevice::DrawCameraPath( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye )
 {
 	const GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 
-	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
+	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( m_pathGeoScene, view, 0 );
 
-	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
+	GPURenderTargetSet_Unbind( renderTargetSet );
 }
 
-void CRenderingDevice::DrawDebug( const View_s* view, u32 eye )
+void CRenderingDevice::DrawDebug( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye )
 {	
 	if ( g_traceGrid )
 	{		
@@ -1857,11 +1846,11 @@ void CRenderingDevice::DrawDebug( const View_s* view, u32 eye )
 	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 	renderTargetSetBindingDesc.noZ = g_transparentDebug;
 
-	GPURenderTargetSet_Bind( &s_mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
+	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( m_debugScene, view, 0 );
 
-	GPURenderTargetSet_Unbind( &s_mainRenderTargetSet );
+	GPURenderTargetSet_Unbind( renderTargetSet );
 }
 
 void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTargetSet, const Vec3* samplePos, const Vec3 basis[3] )
@@ -1941,7 +1930,7 @@ void CRenderingDevice::ReleaseTraceMode()
 	m_heap->deleteInstance( m_traceContext );
 }
 
-void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderResourceView* srvRight )
+void CRenderingDevice::Output( GPURenderTargetSet_s* renderTargetSet )
 {
 	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
@@ -1956,8 +1945,8 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 	g_deviceContext->CSSetConstantBuffers( hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
 
-	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &srvLeft );
-	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &srvRight );
+	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &renderTargetSet->colorBuffers[0].srv );
+	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &renderTargetSet->colorBuffers[1].srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &surfaceContext->surface.uav, nullptr );
 		
 	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
@@ -1984,9 +1973,7 @@ void CRenderingDevice::Output( ID3D11ShaderResourceView* srvLeft, ID3D11ShaderRe
 
 	GPUEvent_End();
 #else	
-	ID3D11Resource* colorBuffer;
-	srvLeft->GetResource( &colorBuffer );
-	g_deviceContext->CopyResource( surfaceContext->surface.tex, colorBuffer );
+	g_deviceContext->CopyResource( surfaceContext->surface.tex, renderTargetSet->colorBuffers[0].tex );
 #endif
 }
 
@@ -2022,9 +2009,9 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 
-	if ( frameDesc.gridBasis[0] != s_buildBasis[0] || frameDesc.gridBasis[1] != s_buildBasis[1] || frameDesc.gridBasis[2] != s_buildBasis[2] )
+	if ( frameDesc.gridYaw != 0.0f )
 	{
-		V6_ERROR( "Stream basis is not compatible.\n" );
+		V6_ERROR( "Stream yaw is not compatible.\n" );
 		return false;
 	}
 
@@ -2086,9 +2073,7 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 		{
 			CodecRawFrameDesc_s frameDesc = {};
 			frameDesc.gridOrigin = s_buildOrigin;
-			frameDesc.gridBasis[0] = s_buildBasis[0];
-			frameDesc.gridBasis[1] = s_buildBasis[1];
-			frameDesc.gridBasis[2] = s_buildBasis[2];
+			frameDesc.gridYaw = 0.0f;
 			frameDesc.frameID = frameID;
 			frameDesc.frameRate = VIDEO_FPS;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
@@ -2163,7 +2148,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	V6_MSG( "Capturing sample #%03d...", g_sample );
 
-	const Vec3 samplePos = CaptureContext_ComputeSamplePos( &m_captureContext, &s_buildOrigin, g_sample );
+	const Vec3 samplePos = s_buildOrigin + CaptureContext_GetSampleOffset( &m_captureContext, g_sample );
 
 	u32 sumLeafCount = 0;
 
@@ -2244,14 +2229,27 @@ void CRenderingDevice::Draw( float dt )
 	const static float MOUSE_ROTATION_SPEED = 0.5f;
 	
 	Mat4x4 orientationMatrix;
+	GPURenderTargetSet_s* renderTargetSet = nullptr;
 #if V6_USE_HMD
-	HmdRenderTarget_s renderTargets[2];
+	HmdRenderTarget_s hmdColorRenderTargets[2];
 	HmdEyePose_s eyePoses[2];
-	s_hmdState = Hmd_BeginRendering( renderTargets, eyePoses, ZNEAR, ZFAR );
+	s_hmdState = Hmd_BeginRendering( hmdColorRenderTargets, eyePoses, ZNEAR, ZFAR );
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 		Mat4x4_Mul3x3( &orientationMatrix, yawMatrix, eyePoses[0].lookAt );
+		
+		static GPURenderTargetSet_s	s_hmdRenderTargetSet;
+		s_hmdRenderTargetSet = s_mainRenderTargetSet;
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+		{
+			s_hmdRenderTargetSet.colorBuffers[eye].tex = (ID3D11Texture2D*)hmdColorRenderTargets[eye].tex;
+			s_hmdRenderTargetSet.colorBuffers[eye].rtv = (ID3D11RenderTargetView*)hmdColorRenderTargets[eye].rtv;
+			s_hmdRenderTargetSet.colorBuffers[eye].srv = (ID3D11ShaderResourceView*)hmdColorRenderTargets[eye].srv;
+			s_hmdRenderTargetSet.colorBuffers[eye].uav = (ID3D11UnorderedAccessView*)hmdColorRenderTargets[eye].uav;
+		}
+		
+		renderTargetSet = &s_hmdRenderTargetSet;
 	}
 	else
 #endif // #if V6_USE_HMD
@@ -2262,6 +2260,8 @@ void CRenderingDevice::Draw( float dt )
 		const Mat4x4 yawMatrix = Mat4x4_RotationY( s_yaw );
 		const Mat4x4 pitchMatrix = Mat4x4_RotationX( s_pitch );
 		Mat4x4_Mul( &orientationMatrix, yawMatrix, pitchMatrix );
+
+		renderTargetSet = &s_mainRenderTargetSet;
 	}
 
 	Vec3 forward, right, up;
@@ -2311,26 +2311,21 @@ void CRenderingDevice::Draw( float dt )
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-		{
-			RenderingView_MakeForHMD( &views[eye], &eyePoses[eye], &s_headOffset, s_yaw, eye );
-			views[eye].texture2D = (ID3D11Texture2D*)renderTargets[eye].texture2D;
-			views[eye].rtv = (ID3D11RenderTargetView*)renderTargets[eye].rtv;
-			views[eye].uav = (ID3D11UnorderedAccessView*)renderTargets[eye].uav;
-		}
+			Hmd_MakeView( &views[eye], &eyePoses[eye], &s_headOffset, s_yaw, eye );
 	}
 	else
 #endif // #if V6_USE_HMD
 	{
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			RenderingView_MakeForStereo( &views[eye], &s_headOffset, &forward, &up, &right, eye, m_aspectRatio );
-}
+	}
 
 	if ( g_drawMode == DRAW_MODE_DEFAULT )
 	{
 		// draw mode
 
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-			DrawWorld( &views[eye], eye );
+			DrawWorld( &views[eye], renderTargetSet, eye );
 		
 		PathPlayer_AddTimeStep( &s_pathPlayer, dt );
 	}	
@@ -2388,7 +2383,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showOverdraw = g_showOverdraw;
 					options.randomBackground = g_randomBackground;
 					options.noTSAA = g_noTSAA;
-					TraceContext_DrawFrame( m_traceContext, &s_mainRenderTargetSet, views, &options, m_stack );
+					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options, m_stack );
 				}
 
 				s_logReadBack = false;
@@ -2402,9 +2397,7 @@ void CRenderingDevice::Draw( float dt )
 #if V6_USE_HMD
 	if ( s_hmdState & HMD_TRACKING_STATE_ON )
 	{
-		HmdOuput_s output;
-		if ( Hmd_EndRendering( &output ) )
-			g_deviceContext->CopyResource( surfaceContext->surface.buf, (ID3D11Texture2D*)output.texture2D );
+		Hmd_EndRendering();
 	}
 	else
 #endif // #if V6_USE_HMD
@@ -2412,14 +2405,14 @@ void CRenderingDevice::Draw( float dt )
 		if ( g_showPath )
 		{
 			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-				DrawCameraPath( &views[eye], eye );
+				DrawCameraPath( &views[eye], renderTargetSet, eye );
 		}
 
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-			DrawDebug( &views[eye], eye );
-
-		Output( s_mainRenderTargetSet.colorBuffers[LEFT_EYE].srv, s_mainRenderTargetSet.colorBuffers[RIGHT_EYE].srv );
+			DrawDebug( &views[eye], renderTargetSet, eye );
 	}
+	
+	Output( renderTargetSet );
 }
 
 void CRenderingDevice::Release()
@@ -2451,6 +2444,42 @@ int main()
 	v6::CHeap heap;
 	v6::Stack stack( &heap, 200 * 1024 * 1024 );
 
+#if V6_USE_HMD
+	if ( !v6::Hmd_Init() )
+	{
+		V6_ERROR( "Call to Hmd_Init failed!\n" );
+		return -1;
+	}
+
+	v6::Vec2 recommendedFOV = v6::Hmd_GetRecommendedFOV();
+	v6::u32 renderTargetHalfSize = v6::GRID_WIDTH >> 2;
+	v6::Vec2i renterTargerSize = v6::Vec2i_Make( (int)(renderTargetHalfSize * recommendedFOV.x), (int)(renderTargetHalfSize * recommendedFOV.y) );
+	renterTargerSize.x = (renterTargerSize.x + 7) & ~7;
+	renterTargerSize.y = (renterTargerSize.y + 7) & ~7;
+#else
+	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::GRID_WIDTH >> 1, v6::GRID_WIDTH >> 1 );
+#endif // #if V6_USE_HMD
+
+	const char* const title = "V6";
+
+	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
+		return 1;
+
+	v6::CRenderingDevice oRenderingDevice;
+	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, &heap, &stack ) )
+	{
+		V6_ERROR( "Call to CRenderingDevice::Create failed!\n" );
+		return -1;
+	}
+
+#if V6_USE_HMD
+	if ( !v6::Hmd_CreateResources( v6::g_device, &renterTargerSize, false ) )
+	{
+		V6_ERROR( "Call to Hmd_CreateResources failed!\n" );
+		return -1;
+	}
+#endif // #if V6_USE_HMD
+
 #if V6_LOAD_EXTERNAL == 1
 	v6::Stack stackScene( &heap, 400 * 1024 * 1024 );
 
@@ -2469,56 +2498,6 @@ int main()
 	SceneContext_SetFilename( &sceneContext, filename );
 
 	v6::Job_Launch( v6::SceneContext_Load, &sceneContext );
-#endif	
-
-	const char* const title = "V6";
-
-#if V6_USE_HMD
-	if ( !v6::Hmd_Init() )
-	{
-		V6_ERROR( "Call to Hmd_Init failed!\n" );
-		return -1;
-	}
-
-	const v6::Vec2i renterTargerSize = v6::Hmd_GetRecommendedRenderTargetSize();
-	v6::u32 maxRenderTargetSize = v6::GRID_WIDTH >> 1;
-	if ( renterTargerSize.x > (int)maxRenderTargetSize )
-	{
-		renterTargerSize.y = (renterTargerSize.y * maxRenderTargetSize) / renterTargerSize.x;
-		renterTargerSize.x = maxRenderTargetSize;
-		
-	}
-	if ( renterTargerSize.y > (int)maxRenderTargetSize)
-	{
-		renterTargerSize.x = (renterTargerSize.x  * maxRenderTargetSize) / renterTargerSize.y;
-		renterTargerSize.y = maxRenderTargetSize;
-	}
-	renterTargerSize.x = (renterTargerSize.x + 7) & ~7;
-	renterTargerSize.y = (renterTargerSize.y + 7) & ~7;
-#else
-	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::GRID_WIDTH >> 1, v6::GRID_WIDTH >> 1 );
-#endif // #if V6_USE_HMD
-
-	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
-		return 1;
-
-	v6::CRenderingDevice oRenderingDevice;
-	if ( !oRenderingDevice.Create( renterTargerSize.x, renterTargerSize.y, &heap, &stack ) )
-	{
-		V6_ERROR( "Call to CRenderingDevice::Create failed!\n" );
-		return -1;
-	}
-
-#if V6_USE_HMD
-	if ( !v6::Hmd_CreateResources( v6::g_device, &renterTargerSize ) )
-	{
-		V6_ERROR( "Call to Hmd_CreateResources failed!\n" );
-		return -1;
-	}
-#endif // #if V6_USE_HMD
-
-#if V6_LOAD_EXTERNAL == 1
-	SceneContext_SetDeviceReady( &sceneContext );
 #endif
 
 	v6::Win_Show( &v6::s_win, true );
@@ -2544,10 +2523,12 @@ int main()
 			dt = v6::Min( v6::ConvertTicksToSeconds( frameDelta ), 0.1f );
 #if !V6_USE_HMD
 			if ( dt + 0.0001f >= 1.0f / v6::HMD_FPS )
+#endif // #if !V6_USE_HMD
+			{
 				break;
+			}
 			SwitchToThread();
 			frameUpdatedTick = v6::GetTickCount();
-#endif // #if !V6_USE_HMD
 		}
 		dts[frameId & (tMaxCount-1)] = dt;
 

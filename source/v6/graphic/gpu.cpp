@@ -1901,6 +1901,12 @@ void GPUSurfaceContext_Present()
 	s_surfaceContext.swapChain->Present( 0, 0 );
 }
 
+ID3D11Device* GPUDevice_Get()
+{
+	V6_ASSERT( g_device != nullptr );
+	return g_device;
+}
+
 void GPUDevice_Set( ID3D11Device* device )
 {
 	V6_ASSERT( device );

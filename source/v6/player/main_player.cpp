@@ -15,6 +15,7 @@
 #include <v6/core/win.h>
 #include <v6/graphic/font.h>
 #include <v6/graphic/gpu.h>
+#include <v6/graphic/hmd.h>
 #include <v6/graphic/scene.h>
 #include <v6/graphic/trace.h>
 #include <v6/graphic/view.h>
@@ -22,12 +23,16 @@
 
 #pragma comment( lib, "d3d11.lib" )
 
-#define V6_D3D_DEBUG			1
+#define V6_D3D_DEBUG			0
 #define V6_STEREO				1
+#define V6_ENABLE_HMD			1
+#define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 
 BEGIN_V6_NAMESPACE
 
+static const GPUEventID_t s_gpuEventUpdate		= GPUEvent_Register( "Update", true );
 static const GPUEventID_t s_gpuEventDraw		= GPUEvent_Register( "Draw", true );
+static const GPUEventID_t s_gpuEventHMD			= GPUEvent_Register( "HMD", true );
 static const GPUEventID_t s_gpuEventCopy		= GPUEvent_Register( "Copy", true );
 static const GPUEventID_t s_gpuEventPresent		= GPUEvent_Register( "Present", true );
 
@@ -35,7 +40,8 @@ extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
 static const u32	PLAY_RATE				= 75; 
-static const float	ZNEAR					= 10.0f;
+static const float	ZNEAR_DEFAULT			= 10.0f;
+static const float	ZFAR_DEFAULT			= 5000.0f;
 static const float	MOUSE_ROTATION_SPEED	= 0.5f;
 static const float	KEY_TRANSLATION_SPEED	= 200.0f;
 #if V6_STEREO == 1
@@ -45,6 +51,10 @@ static const float IPD						= 6.5f;
 static const u32 EYE_COUNT					= 1;
 static const float IPD						= 0.0f;
 #endif
+
+static const u32 s_ouputMessageBufferCount = 3;
+static char s_ouputMessageBuffers[s_ouputMessageBufferCount][4096] = {};
+static u32 s_ouputMessageCount = 0;
 
 enum
 {
@@ -97,11 +107,15 @@ enum CommandAction_e
 	COMMAND_ACTION_END_FRAME,
 	COMMAND_ACTION_PREV_FRAME,
 	COMMAND_ACTION_NEXT_FRAME,
+	
+	COMMAND_ACTION_HMD_RECENTER,
+
 	COMMAND_ACTION_TRACE_OPTION_BUCKET,
 	COMMAND_ACTION_TRACE_OPTION_LOG,
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
+
 	COMMAND_ACTION_UI,
 };
 
@@ -118,6 +132,7 @@ struct Player_s
 	CommandBuffer_s			commandBuffer;
 	Win_s					win;
 	GPURenderTargetSet_s	mainRenderTargetSet;
+	GPURenderTargetSet_s	createdRenderTargetSet;
 	Camera_s				camera;
 	Scene_s					scene;
 	VideoStream_s			stream;
@@ -127,6 +142,7 @@ struct Player_s
 	bool					hideUI;
 	float					curFrameID;
 	u32						targetFrameID;
+	u32						hmdState;
 
 	// inputs
 	bool					mousePressed;
@@ -139,6 +155,21 @@ struct Player_s
 	char					commandLine[256];
 	u32						commandLineSize;
 };
+
+//----------------------------------------------------------------------------------------------------
+
+void OutputMessage( const char * format, ... )
+{
+	const u32 bufferID = s_ouputMessageCount % s_ouputMessageBufferCount;
+	va_list args;
+	va_start( args, format );
+	vsprintf_s( s_ouputMessageBuffers[bufferID], sizeof( s_ouputMessageBuffers[bufferID] ), format, args);
+	va_end( args );
+
+	printf( s_ouputMessageBuffers[bufferID] );
+
+	++s_ouputMessageCount;
+}
 
 //----------------------------------------------------------------------------------------------------
 
@@ -177,12 +208,12 @@ static void FrameTimer_ComputeNewFrameInfo( FrameTimer_s* frameTimer, FrameInfo_
 	{
 		frameDelta = frameUpdatedTick - frameTimer->frameTickLast;
 		frameInfo->dt = Min( ConvertTicksToSeconds( frameDelta ), frameTimer->dtMax );
-//#if !V6_USE_HMD
+#if V6_USE_HMD == 0
 		if ( frameInfo->dt + 0.0001f >= frameTimer->dtMin )
+#endif // #if V6_USE_HMD == 0
 			break;
 		SwitchToThread();
 		frameUpdatedTick = GetTickCount();
-//#endif // #if !V6_USE_HMD
 	}
 	frameTimer->frameTickLast = frameUpdatedTick;
 	
@@ -229,7 +260,7 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 static void PlayerScene_Create( Player_s* player )
 {
-	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, nullptr, IPD );
+	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR_DEFAULT, ZFAR_DEFAULT, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, IPD );
 	
 	Scene_Create( &player->scene );
 
@@ -240,7 +271,7 @@ static void PlayerScene_Create( Player_s* player )
 	Material_Create( &player->scene.materials[materialBasicID], PlayerMaterial_DrawBasic );
 		
 	const u32 mainBoxID = Scene_GetNewEntityID( &player->scene );
-	Entity_Create( &player->scene.entities[mainBoxID], materialBasicID, meshWireFrameBoxID, Vec3_Make( 0.0f, 0.0f, 0.0f), ZNEAR * 2.0f );
+	Entity_Create( &player->scene.entities[mainBoxID], materialBasicID, meshWireFrameBoxID, Vec3_Make( 0.0f, 0.0f, 0.0f), ZNEAR_DEFAULT * 2.0f );
 }
 
 static void PlayerScene_Release( Player_s* player )
@@ -283,7 +314,8 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 	renderTargetSetCreationDesc.writable = true;
 	renderTargetSetCreationDesc.stereo = V6_STEREO;
 
-	GPURenderTargetSet_Create( &player->mainRenderTargetSet, &renderTargetSetCreationDesc );
+	GPURenderTargetSet_Create( &player->createdRenderTargetSet, &renderTargetSetCreationDesc );
+	player->mainRenderTargetSet = player->createdRenderTargetSet;
 
 	GPUShaderContext_CreateEmpty();
 
@@ -310,7 +342,7 @@ static void PlayerDevice_Release( Player_s* player )
 {
 	FontContext_Release( &player->fontContext );
 
-	GPURenderTargetSet_Release( &player->mainRenderTargetSet );
+	GPURenderTargetSet_Release( &player->createdRenderTargetSet );
 
 	GPUDevice_Release();
 }
@@ -369,6 +401,13 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 		}
 
 		break;
+
+	case 'H':
+		if ( strcmp( commandLine, "HMD RECENTER" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_HMD_RECENTER;
+			return;
+		}
 
 	case 'L':
 		if ( strcmp( commandLine, "LOG" ) == 0 )
@@ -476,6 +515,8 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 				player->camera.pos = player->stream.desc.sequenceCount > 0 ? player->stream.sequences[0].frameDescArray[0].gridOrigin : Vec3_Zero();
 				player->camera.yaw = 0.0f;
 				player->camera.pitch = 0.0f;
+				player->camera.znear = player->stream.desc.gridScaleMin * 0.5f;
+				player->camera.zfar = player->stream.desc.gridScaleMax * 2.0f;
 				V6_MSG( "Loaded stream %s\n", commandBuffer.arg );
 			}
 		}
@@ -487,6 +528,8 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			player->camera.pos = Vec3_Zero();
 			player->camera.yaw = 0.0f;
 			player->camera.pitch = 0.0f;
+			player->camera.znear = ZNEAR_DEFAULT;
+			player->camera.zfar = ZFAR_DEFAULT;
 		}
 		break;
 	case COMMAND_ACTION_PLAY:
@@ -540,6 +583,14 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			}
 		}
 		break;
+
+#if V6_USE_HMD == 1
+	case COMMAND_ACTION_HMD_RECENTER:
+		Hmd_Recenter();
+		V6_MSG( "HMD recentered.");
+		break;
+#endif
+
 	case COMMAND_ACTION_TRACE_OPTION_BUCKET:
 		player->traceOptions.showBucket = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showBucket;
 		break;
@@ -555,6 +606,7 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_TRACE_OPTION_TSAA:
 		player->traceOptions.noTSAA = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noTSAA;
 		break;
+
 	case COMMAND_ACTION_UI:
 		player->hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->hideUI;
 		break;
@@ -669,6 +721,10 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY;
 		break;
+	case 0x42:
+	case 'R':
+		player->commandBuffer.action = COMMAND_ACTION_HMD_RECENTER;
+		break;
 	case 'U':
 		player->commandBuffer.action = COMMAND_ACTION_UI;
 		player->commandBuffer.arg[0] = 2;
@@ -738,24 +794,70 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDuration_s* eventDurations, u32 eventCount )
 {
 	const u32 lineHeight = FontContext_GetLineHeight( &player->fontContext );
-	u32 cursorY = lineHeight / 2;
 
-	FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
-	cursorY += lineHeight;
+	// top left
 
-	if ( PlayerStream_IsValid( player ) )
-		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
-	else
-		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
-	cursorY += lineHeight;
-
-	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 	{
-		const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
-		const char* txt = String_Format( "%*s%s: %dus", eventDuration->depth * 2, "", eventDuration->name, eventDuration->durationUS );
-		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), txt );
+		const u32 cursorX = 8;
+		u32 cursorY = lineHeight / 2;
+
+		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
 		cursorY += lineHeight;
+
+		if ( PlayerStream_IsValid( player ) )
+			FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
+		else
+			FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
+		cursorY += lineHeight;
+
+		for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+		{
+			const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
+			const char* txt = String_Format( "%*s%s: %dus", eventDuration->depth * 2, "", eventDuration->name, eventDuration->durationUS );
+			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), txt );
+			cursorY += lineHeight;
+		}
 	}
+
+	// bottom left
+
+	{
+		const u32 cursorX = 8;
+		u32 cursorY = player->mainRenderTargetSet.height - lineHeight * 2;
+
+		for ( u32 messageOffset = 0; messageOffset < Min( s_ouputMessageCount, s_ouputMessageBufferCount ); ++messageOffset )
+		{
+			const u32 bufferID = (s_ouputMessageCount - messageOffset - 1) % s_ouputMessageBufferCount;
+			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), s_ouputMessageBuffers[bufferID] );
+			cursorY -= lineHeight;
+		}
+	}
+
+	// top right
+
+#if V6_USE_HMD == 1
+	{
+		u32 cursorX = player->mainRenderTargetSet.width - 160;
+		u32 cursorY = lineHeight / 2;
+		
+		if ( player->hmdState & HMD_TRACKING_STATE_ON )
+		{
+			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: rotation tracked" );
+			cursorY += lineHeight;
+
+			if ( player->hmdState & HMD_TRACKING_STATE_POS )
+			{
+				FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: position tracked" );
+				cursorY += lineHeight;
+			}
+		}
+		else
+		{
+			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: off" );
+			cursorY += lineHeight;
+		}
+	}
+#endif // #if V6_USE_HMD == 1
 
 	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
 }
@@ -775,7 +877,7 @@ static void Player_CopyToSurface( Player_s* player )
 	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[0].srv );
 	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[1].srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &surfaceContext->surface.uav, nullptr );
-		
+
 	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_COMPOSESURFACE].m_computeShader, nullptr, 0 );
 
 	{
@@ -784,7 +886,7 @@ static void Player_CopyToSurface( Player_s* player )
 		cbCompose->c_composeFrameWidth = player->mainRenderTargetSet.width;
 
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
-	}		
+	}
 
 	V6_ASSERT( (player->mainRenderTargetSet.width & 0x7) == 0 );
 	V6_ASSERT( (player->mainRenderTargetSet.height & 0x7) == 0 );
@@ -807,75 +909,124 @@ static void Player_CopyToSurface( Player_s* player )
 
 static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float averageFPS )
 {
+	// CPU updates
+
 	String_ResetInternalBuffer();
 	
 	PlayerCommandBuffer_Process( player );
 
 	Player_ProcessInputs( player, dt );
 
+	// GPU frame
+
 	GPUEvent_BeginFrame( frameID );
 
+	player->mainRenderTargetSet = player->createdRenderTargetSet;
+
+	float frameYaw = 0.0f;
+	if ( PlayerStream_IsValid( player ) )
 	{
-		GPUEvent_Begin( s_gpuEventDraw );
+		// update stream GPU data
+
+		if ( player->targetFrameID < player->curFrameID )
+			player->curFrameID = (float)player->targetFrameID;
+		
+		const u32 streamFrameID = (u32)(player->curFrameID + FLT_EPSILON);
+		
+		{
+			V6_GPU_EVENT_SCOPE( s_gpuEventUpdate );
+			TraceContext_UpdateFrame( &player->traceContext, streamFrameID, player->stack );
+		}
+
+		frameYaw = TraceContext_GetFrameYaw( &player->traceContext );
+
+		if ( streamFrameID < player->targetFrameID )
+			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
+	}
+
+	// update view with inputs
+
+	Mat4x4 headOrientation = Mat4x4_Identity();
+	ViewEyeInfo_s eyeInfos[2] = {};
+
+#if V6_USE_HMD == 1
+	{
+		HmdRenderTarget_s hmdColorRenderTargets[2];
+		HmdEyePose_s hmdEyePoses[2];
+		
+		player->hmdState = Hmd_BeginRendering( hmdColorRenderTargets, hmdEyePoses, player->camera.znear, player->camera.zfar );
+		if ( player->hmdState & HMD_TRACKING_STATE_ON )
+		{
+			headOrientation = hmdEyePoses[0].lookAt;
+				
+			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+			{
+				player->mainRenderTargetSet.colorBuffers[eye].tex = (ID3D11Texture2D*)hmdColorRenderTargets[eye].tex;
+				player->mainRenderTargetSet.colorBuffers[eye].rtv = (ID3D11RenderTargetView*)hmdColorRenderTargets[eye].rtv;
+				player->mainRenderTargetSet.colorBuffers[eye].srv = (ID3D11ShaderResourceView*)hmdColorRenderTargets[eye].srv;
+				player->mainRenderTargetSet.colorBuffers[eye].uav = (ID3D11UnorderedAccessView*)hmdColorRenderTargets[eye].uav;
+
+				eyeInfos[eye].offset = hmdEyePoses[eye].lookAt.GetTranslation();
+				eyeInfos[eye].projMatrix = hmdEyePoses[eye].projection;
+				eyeInfos[eye].tanHalfFOVLeft = hmdEyePoses[eye].tanHalfFOVLeft;
+				eyeInfos[eye].tanHalfFOVRight = hmdEyePoses[eye].tanHalfFOVRight;
+				eyeInfos[eye].tanHalfFOVUp = hmdEyePoses[eye].tanHalfFOVUp;
+				eyeInfos[eye].tanHalfFOVDown = hmdEyePoses[eye].tanHalfFOVDown;
+			}
+		}
+	}
+#endif // #if V6_USE_HMD == 1
+
+	Camera_UpdateBasis( &player->camera, frameYaw, &headOrientation );
+
+	View_s views[EYE_COUNT];
+	for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+	{
+		if ( player->hmdState & HMD_TRACKING_STATE_ON )
+			Camera_MakeView( &views[eye], &player->camera, &eyeInfos[eye] );
+		else
+			Camera_MakeView( &views[eye], &player->camera, eye );
+	}
+
+	// draw
+
+	{
+		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
 		if ( PlayerStream_IsValid( player ) )
-		{
-			if ( player->targetFrameID < player->curFrameID )
-				player->curFrameID = (float)player->targetFrameID;
-		
-			const u32 frameID = (u32)(player->curFrameID + FLT_EPSILON);
-		
-			TraceContext_UpdateFrame( &player->traceContext, frameID, player->stack );
-
-			Vec3 right, up, forward;
-			TraceContext_GetFrameBasis( &player->traceContext, &right, &up, &forward );
-		
-			const Mat4x4 lookAt = Mat4x4_Basis( &right, &up, &forward );
-			Camera_UpdateBasis( &player->camera, &lookAt );
-
-			View_s views[EYE_COUNT];
-			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-				Camera_MakeView( &player->camera, &views[eye], eye );
-
 			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, player->stack );
-
-			if ( frameID < player->targetFrameID )
-				player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
-		}
 		else
-		{
-			Camera_UpdateBasis( &player->camera, nullptr );
-
-			View_s views[2];
-			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-				Camera_MakeView( &player->camera, &views[eye], eye );
-
 			PlayerScene_Draw( player, views );
-		}
-
-		GPUEvent_End();
 	}
 
-	GPUEventDuration_s* eventDurations;
-	const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
-
-	if ( !player->hideUI )
-		Player_DrawUI( player, averageFPS, eventDurations, eventCount );
+	// draw UI
 
 	{
-		GPUEvent_Begin( s_gpuEventCopy );
-		
+		GPUEventDuration_s* eventDurations;
+		const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
+
+		if ( !player->hideUI )
+			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
+	}
+
+	// present draw
+
+#if V6_USE_HMD == 1
+	if ( player->hmdState & HMD_TRACKING_STATE_ON )
+	{
+		V6_GPU_EVENT_SCOPE( s_gpuEventHMD );
+		Hmd_EndRendering();
+	}
+#endif // #if V6_USE_HMD == 1
+
+	{
+		V6_GPU_EVENT_SCOPE( s_gpuEventCopy );
 		Player_CopyToSurface( player );
-
-		GPUEvent_End();
 	}
 
 	{
-		GPUEvent_Begin( s_gpuEventPresent );
-
+		V6_GPU_EVENT_SCOPE( s_gpuEventPresent );
 		GPUSurfaceContext_Present();
-
-		GPUEvent_End();
 	}
 
 	GPUEvent_EndFrame();
@@ -883,9 +1034,27 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	player->traceOptions.logReadBack = false;
 }
 
-static bool Player_Create( Player_s* player, u32 width, u32 height, IAllocator* heap, IStack* stack )
+static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight, IAllocator* heap, IStack* stack )
 {
 	memset( player, 0, sizeof( *player ) );
+
+#if V6_USE_HMD == 1
+	if ( !v6::Hmd_Init() )
+	{
+		V6_ERROR( "Call to Hmd_Init failed!\n" );
+		return false;
+	}
+
+	v6::Vec2 recommendedFOV = v6::Hmd_GetRecommendedFOV();
+	v6::u32 renderTargetHalfSize = defaultWidth >> 1;
+	u32 width = (u32)(renderTargetHalfSize * recommendedFOV.x);
+	u32 height = (u32)(renderTargetHalfSize * recommendedFOV.y);
+	width = (width + 7) & ~7;
+	height = (height + 7) & ~7;
+#else
+	const u32 width = defaultWidth;
+	const u32 height = defaultHeight;
+#endif // #if V6_USE_HMD == 1
 
 	player->commandLineSize = (u32)-1;
 
@@ -899,6 +1068,15 @@ static bool Player_Create( Player_s* player, u32 width, u32 height, IAllocator* 
 
 	PlayerDevice_Create( player, width, height );
 
+#if V6_USE_HMD == 1
+	if ( !v6::Hmd_CreateResources( GPUDevice_Get(), &Vec2i_Make( width, height ), false ) )
+	{
+		V6_ERROR( "Call to Hmd_CreateResources failed!\n" );
+		PlayerDevice_Release( player );
+		return false;
+	}
+#endif // #if V6_USE_HMD == 1
+
 	PlayerScene_Create( player );
 
 	return true;
@@ -909,6 +1087,10 @@ static void Player_Release( Player_s* player )
 	if ( PlayerStream_IsValid( player ) )
 		PlayerStream_Release( player );
 	PlayerScene_Release( player );
+#if V6_USE_HMD == 1
+	Hmd_ReleaseResources();
+	Hmd_Shutdown();
+#endif // #if V6_USE_HMD == 1
 	PlayerDevice_Release( player );
 }
 
@@ -923,10 +1105,10 @@ int main( int argc, char** argv )
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 
-	const v6::u32 width = 512;
-	const v6::u32 height = 512;
+	const v6::u32 defaultWidth = 512;
+	const v6::u32 defaultHeight = 512;
 
-	if ( !v6::Player_Create( player, width, height, &heap, &stack ) )
+	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, &heap, &stack ) )
 		return -1;
 
 	if ( argc >= 2 )

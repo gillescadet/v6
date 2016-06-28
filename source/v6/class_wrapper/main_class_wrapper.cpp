@@ -5,10 +5,25 @@
 #include <v6/core/filesystem.h>
 #include <v6/core/memory.h>
 
-using namespace v6;
-
 #define TEMPLATE		static const char* const
 #define TEXT(...)		#__VA_ARGS__
+
+BEGIN_V6_NAMESPACE
+
+//----------------------------------------------------------------------------------------------------
+
+void OutputMessage( const char * format, ... )
+{
+  char buffer[4096];
+  va_list args;
+  va_start( args, format );
+  vsprintf_s( buffer, sizeof( buffer ), format, args);
+  va_end( args );
+
+  printf( buffer );
+}
+
+//----------------------------------------------------------------------------------------------------
 
 bool IsNewLine( char car )
 {
@@ -265,15 +280,17 @@ void Parse( const char* className, const char* filenameSrc, IAllocator* allocato
 	V6_MSG( "};\n" );
 }
 
+END_V6_NAMESPACE
+
 int main()
 {
 	V6_MSG( "Class Wrapper 0.0\n" );
 
-	CHeap heap;
-	Stack stack( &heap, 100 * 1024 * 1024 );
+	v6::CHeap heap;
+	v6::Stack stack( &heap, 100 * 1024 * 1024 );
 
-	Parse( "FDynamicRHI",			"../../source/v6/class_wrapper/FDynamicRHI.txt",			&stack );
-	Parse( "IRHICommandContext",	"../../source/v6/class_wrapper/IRHICommandContext.txt",		&stack );
+	v6::Parse( "FDynamicRHI",			"../../source/v6/class_wrapper/FDynamicRHI.txt",			&stack );
+	v6::Parse( "IRHICommandContext",	"../../source/v6/class_wrapper/IRHICommandContext.txt",		&stack );
 
 	return 0;
 }

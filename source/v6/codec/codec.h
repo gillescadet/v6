@@ -12,10 +12,10 @@
 BEGIN_V6_NAMESPACE
 
 #define CODEC_RAWFRAME_MAGIC			"V6RF"
-#define CODEC_RAWFRAME_VERSION			4
+#define CODEC_RAWFRAME_VERSION			5
 
 #define CODEC_FRAME_MAGIC				"V6F"
-#define CODEC_FRAME_VERSION				4
+#define CODEC_FRAME_VERSION				5
 
 #define CODEC_SEQUENCE_MAGIC			"V6S"
 #define CODEC_SEQUENCE_VERSION			2
@@ -95,7 +95,7 @@ struct CodecSequenceData_s
 struct CodecRawFrameDesc_s
 {
 	Vec3			gridOrigin;
-	Vec3			gridBasis[3];
+	float			gridYaw;
 	u32				frameID;
 	u32				frameRate;
 	u32				sampleCount;
@@ -114,7 +114,7 @@ struct CodecRawFrameData_s
 struct CodecFrameDesc_s
 {
 	Vec3			gridOrigin;
-	Vec3			gridBasis[3];
+	float			gridYaw;
 	u16				frameRank;
 	u16				flags;
 	u32				blockCounts[CODEC_BUCKET_COUNT];

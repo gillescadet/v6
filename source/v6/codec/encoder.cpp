@@ -54,7 +54,7 @@ struct RawFrame_s
 	u32			blockCount;
 	u32			refFrameRank;
 	Vec3		gridOrigin;
-	Vec3		gridBasis[3];
+	float		gridYaw;
 	Vec3i		gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i		gridMax[CODEC_MIP_MAX_COUNT];
 	u32			blockCountPerMip[CODEC_MIP_MAX_COUNT];
@@ -459,9 +459,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	}
 
 	frame->gridOrigin = desc.gridOrigin;
-	frame->gridBasis[0] = desc.gridBasis[0];
-	frame->gridBasis[1] = desc.gridBasis[1];
-	frame->gridBasis[2] = desc.gridBasis[2];
+	frame->gridYaw = desc.gridYaw;
 	frame->refFrameRank = (u32)-1;
 
 #if ENCODER_DEBUG == 1
@@ -1143,9 +1141,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 	CodecFrameDesc_s frameDesc = {};
 	frameDesc.gridOrigin = frame->gridOrigin;
-	frameDesc.gridBasis[0] = frame->gridBasis[0];
-	frameDesc.gridBasis[1] = frame->gridBasis[1];
-	frameDesc.gridBasis[2] = frame->gridBasis[2];
+	frameDesc.gridYaw = frame->gridYaw;
 	frameDesc.frameRank = frameRank;
 
 	if ( refFrame )
