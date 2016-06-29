@@ -116,13 +116,19 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_MIP,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
 
-	COMMAND_ACTION_UI,
+	COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER,
+	COMMAND_ACTION_PLAYER_OPTION_UI,
 };
 
 struct CommandBuffer_s
 {
 	CommandAction_e			action;
 	char					arg[256];
+};
+
+struct PlayerOptions_s
+{
+	bool					hideUI;
 };
 
 struct Player_s
@@ -139,7 +145,7 @@ struct Player_s
 	FontContext_s			fontContext;
 	TraceContext_s			traceContext;
 	TraceOptions_s			traceOptions;
-	bool					hideUI;
+	PlayerOptions_s			playerOptions;
 	float					curFrameID;
 	u32						targetFrameID;
 	u32						hmdState;
@@ -452,6 +458,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 
 		break;
 
+	case 'S':
+		if ( strcmp( commandLine, "SHARPEN_FILTER ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "SHARPEN_FILTER OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
 	case 'T':
 		if ( strcmp( commandLine, "TSAA ON" ) == 0 )
 		{
@@ -472,14 +495,14 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 	case 'U':
 		if ( strcmp( commandLine, "UI ON" ) == 0 )
 		{
-			commandBuffer->action = COMMAND_ACTION_UI;
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_UI;
 			commandBuffer->arg[0] = 1;
 			return;
 		}
 
 		if ( strcmp( commandLine, "UI OFF" ) == 0 )
 		{
-			commandBuffer->action = COMMAND_ACTION_UI;
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_UI;
 			commandBuffer->arg[0] = 0;
 			return;
 		}
@@ -607,8 +630,11 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		player->traceOptions.noTSAA = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noTSAA;
 		break;
 
-	case COMMAND_ACTION_UI:
-		player->hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->hideUI;
+	case COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER:
+		player->traceOptions.noSharpenFilter = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noSharpenFilter;
+		break;
+	case COMMAND_ACTION_PLAYER_OPTION_UI:
+		player->playerOptions.hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideUI;
 		break;
 	}
 
@@ -692,6 +718,10 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'C':
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
+	case 'F':
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 'I':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_LOG;
 		break;
@@ -725,8 +755,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'R':
 		player->commandBuffer.action = COMMAND_ACTION_HMD_RECENTER;
 		break;
+	case 'S':
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 'U':
-		player->commandBuffer.action = COMMAND_ACTION_UI;
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_UI;
 		player->commandBuffer.arg[0] = 2;
 		break;
 	}
@@ -1005,7 +1039,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		GPUEventDuration_s* eventDurations;
 		const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
 
-		if ( !player->hideUI )
+		if ( !player->playerOptions.hideUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
 	}
 
@@ -1101,7 +1135,7 @@ END_V6_NAMESPACE
 int main( int argc, char** argv )
 {
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 100 * 1024 * 1024 );
+	v6::Stack stack( &heap, 200 * 1024 * 1024 );
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 

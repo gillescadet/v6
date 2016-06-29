@@ -10,21 +10,21 @@ Texture2D< float4 > inputHistory		: REGISTER_SRV( HLSL_HISTORY_SLOT );
 RWTexture2D< float4 > outputColors		: REGISTER_UAV( HLSL_COLOR_SLOT );
 
 [ numthreads( 8, 8, 1 ) ]
-void main_pixel_filter_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID )
+void main_pixel_tsaa_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID )
 {
-	const float2 inputUnjitter = 1.0f - float2( c_filterJitter.x, 1.0f - c_filterJitter.y );
+	const float2 inputUnjitter = 1.0f - float2( c_tsaaJitter.x, 1.0f - c_tsaaJitter.y );
 
-	const uint displacementPixelID = mad( DTid.y, c_filterFrameSize.x, DTid.x );
+	const uint displacementPixelID = mad( DTid.y, c_tsaaFrameSize.x, DTid.x );
 	const uint displacementF16 = inputDisplacements[displacementPixelID];
-	const float2 displacement = f16tof32( uint2( displacementF16 >> 16, displacementF16 & 0xFFFF ) ) * c_filterFrameSize;
+	const float2 displacement = f16tof32( uint2( displacementF16 >> 16, displacementF16 & 0xFFFF ) ) * c_tsaaFrameSize;
 
 	const float2 curColorCoords = float2( DTid.x, DTid.y ) + inputUnjitter;
 	const float2 prevColorCoords = float2( DTid.x, DTid.y ) + float2( -displacement.x, displacement.y ) + float2( 0.5f, 0.5f );
 	
-	const float2 curColorUVs = curColorCoords * c_filterInvFrameSize;
-	const float2 prevColorUVs = prevColorCoords * c_filterInvFrameSize;
+	const float2 curColorUVs = curColorCoords * c_tsaaInvFrameSize;
+	const float2 prevColorUVs = prevColorCoords * c_tsaaInvFrameSize;
 
-	float blendFactor = c_filterBlendFactor;
+	float blendFactor = c_tsaaBlendFactor;
 	if ( any( prevColorUVs != saturate( prevColorUVs) ) )
 		blendFactor = 1.0f;
 

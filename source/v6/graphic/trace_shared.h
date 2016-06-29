@@ -100,13 +100,13 @@ CBUFFER( CBBlend, 2 )
 	float				c_blendPad;
 };
 
-CBUFFER( CBFilter, 3 )
+CBUFFER( CBTSAA, 3 )
 {
-	float2				c_filterJitter;
-	float				c_filterBlendFactor;
-	float				c_filterPad;
-	float2				c_filterFrameSize;
-	float2				c_filterInvFrameSize;
+	float2				c_tsaaJitter;
+	float				c_tsaaBlendFactor;
+	float				c_tsaaPad;
+	float2				c_tsaaFrameSize;
+	float2				c_tsaaInvFrameSize;
 };
 
 struct BlockRange

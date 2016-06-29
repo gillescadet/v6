@@ -1319,7 +1319,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		return false;
 	}
 
-	Stack stack( heap, 400 * 1024 * 1024 );
+	Stack stack( heap, 500 * 1024 * 1024 );
 
 	ContextStream_s streamContext = {};
 	streamContext.heap = heap;

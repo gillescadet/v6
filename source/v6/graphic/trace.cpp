@@ -28,7 +28,7 @@ struct GPUTraceResources_s
 	GPUConstantBuffer_s		cbCull;
 	GPUConstantBuffer_s		cbTrace;
 	GPUConstantBuffer_s		cbBlend;
-	GPUConstantBuffer_s		cbFilter;
+	GPUConstantBuffer_s		cbTSAA;
 
 	GPUBuffer_s				blockPos;
 	GPUBuffer_s				blockData;
@@ -42,7 +42,7 @@ struct GPUTraceResources_s
 	GPUBuffer_s				cellItemCounters;
 
 	GPUTexture2D_s			colors;
-	GPUTexture2D_s			histories[2];
+	GPUTexture2D_s			histories[2][2];
 	GPUBuffer_s				displacements;
 
 	ID3D11SamplerState*		bilinearSamplerState;
@@ -55,7 +55,8 @@ struct GPUTraceResources_s
 	GPUCompute_s			computeTraceInit;
 	GPUCompute_s			computeTrace[2][CODEC_BUCKET_COUNT];
 	GPUCompute_s			computeBlend[2];
-	GPUCompute_s			computeFilter;
+	GPUCompute_s			computeTSAA;
+	GPUCompute_s			computeSharpen;
 };
 
 static const GPUEventID_t s_gpuEventCull			= GPUEvent_Register( "Cull", true );
@@ -64,7 +65,8 @@ static const GPUEventID_t s_gpuEventTrace			= GPUEvent_Register( "Trace", true )
 static const GPUEventID_t s_gpuEventInitTrace		= GPUEvent_Register( "Init Trace", false );
 static const GPUEventID_t s_gpuEventTraceBucket		= GPUEvent_Register( "Trace Bucket", false );
 static const GPUEventID_t s_gpuEventBlend			= GPUEvent_Register( "Blend", true );
-static const GPUEventID_t s_gpuEventFilter			= GPUEvent_Register( "Filter", true );
+static const GPUEventID_t s_gpuEventTSAA			= GPUEvent_Register( "TSAA", true );
+static const GPUEventID_t s_gpuEventSharpen			= GPUEvent_Register( "Sharpen", true );
 
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
@@ -233,6 +235,16 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
 			Mat4x4_Mul( &worldToProjs[eye], views[eye].projMatrix, views[eye].viewMatrix );
 
+		if ( traceContext->frameState.resetJitter )
+		{
+			for ( u32 eye = 0; eye < eyeCount; ++eye )
+				traceContext->frameState.prevWorldToProjs[eye] = worldToProjs[eye];
+			traceContext->frameState.jitterID = 0;
+		}
+
+		traceContext->frameState.curHistoryBufferID = traceContext->frameState.jitterID & 1;
+		traceContext->frameState.prevHistoryBufferID = traceContext->frameState.curHistoryBufferID ^ 1;
+
 		if ( options->noTSAA )
 		{
 			traceContext->frameState.jitter = Vec2_Make( 0.5f, 0.5f );
@@ -241,12 +253,6 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		{
 			traceContext->frameState.jitter = Vec2_Make( HaltonSequence< 2 >( traceContext->frameState.jitterID ), HaltonSequence< 3 >( traceContext->frameState.jitterID ) );
 			traceContext->frameState.jitterID = (traceContext->frameState.jitterID + 1) % TRACE_TSAA_SAMPLE_COUNT;
-		}
-
-		if ( traceContext->frameState.resetJitter )
-		{
-			for ( u32 eye = 0; eye < eyeCount; ++eye )
-				traceContext->frameState.prevWorldToProjs[eye] = worldToProjs[eye];
 		}
 
 		v6::hlsl::CBTrace* cbTrace = (v6::hlsl::CBTrace*)GPUConstantBuffer_MapWrite( &traceRes->cbTrace );
@@ -524,55 +530,81 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 	GPUEvent_End();
 }
 
-static void FilterPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, u32 eye, const TraceOptions_s* options )
+static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, u32 eye, const TraceOptions_s* options )
 {
 	GPUTraceResources_s* traceRes = traceContext->res;
 
-	// Render
-
-	GPUEvent_Begin( s_gpuEventFilter );
-	
-	// Set
-
-	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBFilterSlot, 1, &traceRes->cbFilter.buf );
-
-	g_deviceContext->CSSetSamplers( HLSL_BILINEAR_SLOT, 1, &traceRes->bilinearSamplerState );
-
-	g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &traceRes->colors.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_HISTORY_SLOT, 1, &traceRes->histories[eye].srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &renderTargetSet->colorBuffers[eye].uav, nullptr );
-	g_deviceContext->CSSetShader( traceRes->computeFilter.m_computeShader, nullptr, 0 );
-	
 	{
-		const Vec2 frameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
+		GPUEvent_Begin( s_gpuEventTSAA );
+	
+		// Set
 
-		v6::hlsl::CBFilter* cbFilter = (v6::hlsl::CBFilter*)GPUConstantBuffer_MapWrite( &traceRes->cbFilter );
+		g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBTSAASlot, 1, &traceRes->cbTSAA.buf );
 
-		cbFilter->c_filterJitter = Vec2_Make( traceContext->frameState.jitter.x, traceContext->frameState.jitter.y );
-		cbFilter->c_filterBlendFactor = traceContext->frameState.resetJitter ? 1.0f : TRACE_TSAA_BLEND_FACTOR;
-		cbFilter->c_filterFrameSize = frameSize;
-		cbFilter->c_filterInvFrameSize = 1.0f / frameSize;
+		g_deviceContext->CSSetSamplers( HLSL_BILINEAR_SLOT, 1, &traceRes->bilinearSamplerState );
 
-		GPUConstantBuffer_UnmapWrite( &traceRes->cbFilter );
+		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &traceRes->colors.srv );
+		g_deviceContext->CSSetShaderResources( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.srv );
+		g_deviceContext->CSSetShaderResources( HLSL_HISTORY_SLOT, 1, &traceRes->histories[traceContext->frameState.prevHistoryBufferID][eye].srv );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &traceRes->histories[traceContext->frameState.curHistoryBufferID][eye].uav, nullptr );
+		g_deviceContext->CSSetShader( traceRes->computeTSAA.m_computeShader, nullptr, 0 );
+	
+		{
+			const Vec2 frameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
+
+			v6::hlsl::CBTSAA* cbTSAA = (v6::hlsl::CBTSAA*)GPUConstantBuffer_MapWrite( &traceRes->cbTSAA );
+
+			cbTSAA->c_tsaaJitter = Vec2_Make( traceContext->frameState.jitter.x, traceContext->frameState.jitter.y );
+			cbTSAA->c_tsaaBlendFactor = traceContext->frameState.resetJitter ? 1.0f : TRACE_TSAA_BLEND_FACTOR;
+			cbTSAA->c_tsaaFrameSize = frameSize;
+			cbTSAA->c_tsaaInvFrameSize = 1.0f / frameSize;
+
+			GPUConstantBuffer_UnmapWrite( &traceRes->cbTSAA );
+		}
+
+		V6_ASSERT( (traceContext->desc.screenWidth & 0x7) == 0 );
+		V6_ASSERT( (traceContext->desc.screenHeight & 0x7) == 0 );
+		const u32 pixelGroupWidth = traceContext->desc.screenWidth >> 3;
+		const u32 pixelGroupHeight = traceContext->desc.screenHeight >> 3;
+		g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+		// unset
+		static const void* nulls[8] = {};
+		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetShaderResources( HLSL_DISPLACEMENT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetShaderResources( HLSL_HISTORY_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+		GPUEvent_End();
 	}
 
-	V6_ASSERT( (traceContext->desc.screenWidth & 0x7) == 0 );
-	V6_ASSERT( (traceContext->desc.screenHeight & 0x7) == 0 );
-	const u32 pixelGroupWidth = traceContext->desc.screenWidth >> 3;
-	const u32 pixelGroupHeight = traceContext->desc.screenHeight >> 3;
-	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+	if ( options->noSharpenFilter )
+	{
+		g_deviceContext->CopyResource( renderTargetSet->colorBuffers[eye].tex, traceRes->histories[traceContext->frameState.curHistoryBufferID][eye].tex );
+	}
+	else
+	{
+		GPUEvent_Begin( s_gpuEventSharpen );
+	
+		// Set
 
-	// unset
-	static const void* nulls[8] = {};
-	g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_DISPLACEMENT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_HISTORY_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &traceRes->histories[traceContext->frameState.curHistoryBufferID][eye].srv );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &renderTargetSet->colorBuffers[eye].uav, nullptr );
+		g_deviceContext->CSSetShader( traceRes->computeSharpen.m_computeShader, nullptr, 0 );
 
-	g_deviceContext->CopyResource( traceRes->histories[eye].tex, renderTargetSet->colorBuffers[eye].tex );
+		V6_ASSERT( (traceContext->desc.screenWidth & 0x7) == 0 );
+		V6_ASSERT( (traceContext->desc.screenHeight & 0x7) == 0 );
+		const u32 pixelGroupWidth = traceContext->desc.screenWidth >> 3;
+		const u32 pixelGroupHeight = traceContext->desc.screenHeight >> 3;
+		g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
-	GPUEvent_End();
+		// unset
+		static const void* nulls[8] = {};
+		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+		GPUEvent_End();
+	}
 }
 
 static void SequenceContext_Update( SequenceContext_s* sequenceContext, const VideoStream_s* stream, const VideoSequence_s* sequence )
@@ -683,7 +715,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUConstantBuffer_Create( &res->cbCull, sizeof( v6::hlsl::CBCull ), "cull" );
 	GPUConstantBuffer_Create( &res->cbTrace, sizeof( v6::hlsl::CBTrace ), "trace" );
 	GPUConstantBuffer_Create( &res->cbBlend, sizeof( v6::hlsl::CBBlend), "blend" );
-	GPUConstantBuffer_Create( &res->cbFilter, sizeof( v6::hlsl::CBFilter), "filter" );
+	GPUConstantBuffer_Create( &res->cbTSAA, sizeof( v6::hlsl::CBTSAA), "tsaa" );
 
 	GPUBuffer_CreateTyped( &res->traceCell, DXGI_FORMAT_R32_UINT, traceContext->resPassedBlockCount * 2, 0, "traceCell" );
 	GPUBuffer_CreateIndirectArgs( &res->traceIndirectArgs, trace_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "traceIndirectArgs" );
@@ -695,9 +727,12 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUBuffer_CreateStructured( &res->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
 	GPUBuffer_CreateStructured( &res->traceCellStats, sizeof( hlsl::BlockTraceCellStats ), HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceCellStats" );
 
-	GPUTexture2D_CreateRW( &res->colors, traceDesc->screenWidth, traceDesc->screenHeight, "pixelColors" );
-	for ( u32 eye = 0; eye < eyeCount; ++eye )
-		GPUTexture2D_CreateRW( &res->histories[eye], traceDesc->screenWidth, traceDesc->screenHeight, eye == 0 ? (traceDesc->stereo ? "pixelHistoryLeft" : "pixelHistory") : "pixelHistoryRight" );
+	GPUTexture2D_CreateRW( &res->colors, traceDesc->screenWidth, traceDesc->screenHeight, "pixelColors0" );
+	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
+	{
+		for ( u32 eye = 0; eye < eyeCount; ++eye )
+			GPUTexture2D_CreateRW( &res->histories[bufferID][eye], traceDesc->screenWidth, traceDesc->screenHeight, eye == 0 ? (traceDesc->stereo ? "pixelHistoryLeft" : "pixelHistory") : "pixelHistoryRight" );
+	}
 	GPUBuffer_CreateTyped( &res->displacements, DXGI_FORMAT_R32_UINT, traceDesc->screenWidth * traceDesc->screenHeight, 0, "pixelDisplacements" );
 
 	{
@@ -735,7 +770,8 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	for ( u32 option = 0; option < 2; ++option )
 		GPUCompute_CreateFromSource( &res->computeBlend[option], hlsl::g_main_pixel_blend_cs_options[option], hlsl::g_sizeof_pixel_blend_cs_options[option] );
 
-	GPUCompute_CreateFromSource( &res->computeFilter, hlsl::g_main_pixel_filter_cs, hlsl::g_sizeof_pixel_filter_cs );
+	GPUCompute_CreateFromSource( &res->computeTSAA, hlsl::g_main_pixel_tsaa_cs, sizeof( hlsl::g_main_pixel_tsaa_cs ) );
+	GPUCompute_CreateFromSource( &res->computeSharpen, hlsl::g_main_pixel_sharpen_cs, sizeof( hlsl::g_main_pixel_sharpen_cs ) );
 
 	traceContext->res = res;
 	s_gpuTraceResourcesCreated = true;
@@ -758,7 +794,7 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	GPUConstantBuffer_Release( &res->cbCull );
 	GPUConstantBuffer_Release( &res->cbTrace );
 	GPUConstantBuffer_Release( &res->cbBlend );
-	GPUConstantBuffer_Release( &res->cbFilter );
+	GPUConstantBuffer_Release( &res->cbTSAA );
 
 	GPUBuffer_Release( &res->traceCell );
 	GPUBuffer_Release( &res->traceIndirectArgs );
@@ -771,8 +807,11 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	GPUBuffer_Release( &res->traceCellStats );
 	
 	GPUTexture2D_Release( &res->colors );
-	for ( u32 eye = 0; eye < eyeCount; ++eye )
-		GPUTexture2D_Release( &res->histories[eye] );
+	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
+	{
+		for ( u32 eye = 0; eye < eyeCount; ++eye )
+			GPUTexture2D_Release( &res->histories[bufferID][eye] );
+	}
 	GPUBuffer_Release( &res->displacements );
 
 	V6_RELEASE_D3D11( res->bilinearSamplerState );
@@ -790,7 +829,8 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	}
 	for ( u32 option = 0; option < 2; ++option )
 		GPUCompute_Release( &res->computeBlend[option] );
-	GPUCompute_Release( &res->computeFilter );
+	GPUCompute_Release( &res->computeTSAA );
+	GPUCompute_Release( &res->computeSharpen );
 
 	s_gpuTraceResourcesCreated = false;
 }
@@ -810,7 +850,7 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 		else
 		{
 			BlendPixel( traceContext, traceContext->res->colors.uav, eye, options );
-			FilterPixel( traceContext, renderTargetSet, eye, options );
+			TSAAPixel( traceContext, renderTargetSet, eye, options );
 		}
 	}
 
