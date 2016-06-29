@@ -755,10 +755,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'R':
 		player->commandBuffer.action = COMMAND_ACTION_HMD_RECENTER;
 		break;
-	case 'S':
-		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
-		player->commandBuffer.arg[0] = 2;
-		break;
 	case 'U':
 		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_UI;
 		player->commandBuffer.arg[0] = 2;
