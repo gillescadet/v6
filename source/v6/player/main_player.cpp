@@ -9,7 +9,7 @@
 #include <v6/core/windows_end.h>
 
 #include <v6/codec/decoder.h>
-#include <v6/core/memory.h>
+#include <v6/core/memory.h>	
 #include <v6/core/string.h>
 #include <v6/core/time.h>
 #include <v6/core/win.h>
@@ -108,7 +108,7 @@ enum CommandAction_e
 	COMMAND_ACTION_PREV_FRAME,
 	COMMAND_ACTION_NEXT_FRAME,
 	
-	COMMAND_ACTION_HMD_RECENTER,
+	COMMAND_ACTION_CAMERA_RECENTER,
 
 	COMMAND_ACTION_TRACE_OPTION_BUCKET,
 	COMMAND_ACTION_TRACE_OPTION_LOG,
@@ -169,25 +169,12 @@ void OutputMessage( const char * format, ... )
 	const u32 bufferID = s_ouputMessageCount % s_ouputMessageBufferCount;
 	va_list args;
 	va_start( args, format );
-	vsprintf_s( s_ouputMessageBuffers[bufferID], sizeof( s_ouputMessageBuffers[bufferID] ), format, args);
+	vsprintf_s( s_ouputMessageBuffers[bufferID], sizeof( s_ouputMessageBuffers[bufferID] ), format, args );
 	va_end( args );
 
-	printf( s_ouputMessageBuffers[bufferID] );
+	fputs( s_ouputMessageBuffers[bufferID], stdout );
 
 	++s_ouputMessageCount;
-}
-
-//----------------------------------------------------------------------------------------------------
-
-static u32 CheckMemory( const u8* p, u8 val, u32 size )
-{
-	for ( u32 i = 0; i < size; ++i )
-	{
-		if ( p[i] != val )
-			return i;
-	}
-
-	return size;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -236,6 +223,17 @@ static void FrameTimer_ComputeNewFrameInfo( FrameTimer_s* frameTimer, FrameInfo_
 
 //----------------------------------------------------------------------------------------------------
 
+static void PlayerCamera_Recenter( Player_s* player )
+{
+	player->camera.pos = Vec3_Zero();
+	player->camera.yaw = 0.0f;
+	player->camera.pitch = 0.0f;
+	player->camera.znear = ZNEAR_DEFAULT;
+	player->camera.zfar = ZFAR_DEFAULT;
+}
+
+//----------------------------------------------------------------------------------------------------
+
 static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags )
 {
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
@@ -266,7 +264,7 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 static void PlayerScene_Create( Player_s* player )
 {
-	Camera_Create( &player->camera, &Vec3_Zero(), ZNEAR_DEFAULT, ZFAR_DEFAULT, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height, IPD );
+	Camera_Create( &player->camera, ZNEAR_DEFAULT, ZFAR_DEFAULT, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height );
 	
 	Scene_Create( &player->scene );
 
@@ -408,10 +406,10 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 
 		break;
 
-	case 'H':
-		if ( strcmp( commandLine, "HMD RECENTER" ) == 0 )
+	case 'C':
+		if ( strcmp( commandLine, "CAMERA RECENTER" ) == 0 )
 		{
-			commandBuffer->action = COMMAND_ACTION_HMD_RECENTER;
+			commandBuffer->action = COMMAND_ACTION_CAMERA_RECENTER;
 			return;
 		}
 
@@ -535,11 +533,10 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			}
 			else
 			{
-				player->camera.pos = player->stream.desc.sequenceCount > 0 ? player->stream.sequences[0].frameDescArray[0].gridOrigin : Vec3_Zero();
-				player->camera.yaw = 0.0f;
-				player->camera.pitch = 0.0f;
-				player->camera.znear = player->stream.desc.gridScaleMin * 0.5f;
-				player->camera.zfar = player->stream.desc.gridScaleMax * 2.0f;
+				PlayerCamera_Recenter( player );
+#if V6_ENABLE_HMD == 1
+				Hmd_Recenter();
+#endif // #if V6_ENABLE_HMD == 1
 				V6_MSG( "Loaded stream %s\n", commandBuffer.arg );
 			}
 		}
@@ -548,11 +545,7 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		{
 			if ( PlayerStream_IsValid( player ) )
 				PlayerStream_Release( player );
-			player->camera.pos = Vec3_Zero();
-			player->camera.yaw = 0.0f;
-			player->camera.pitch = 0.0f;
-			player->camera.znear = ZNEAR_DEFAULT;
-			player->camera.zfar = ZFAR_DEFAULT;
+			PlayerCamera_Recenter( player );
 		}
 		break;
 	case COMMAND_ACTION_PLAY:
@@ -607,12 +600,14 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		}
 		break;
 
+
+	case COMMAND_ACTION_CAMERA_RECENTER:
+		PlayerCamera_Recenter( player );
 #if V6_USE_HMD == 1
-	case COMMAND_ACTION_HMD_RECENTER:
 		Hmd_Recenter();
-		V6_MSG( "HMD recentered.");
-		break;
 #endif
+		V6_MSG( "Camera recentered.");
+		break;
 
 	case COMMAND_ACTION_TRACE_OPTION_BUCKET:
 		player->traceOptions.showBucket = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showBucket;
@@ -729,6 +724,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_TSAA;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 0x74:
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
@@ -748,12 +744,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 0x42:
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY;
 		break;
-	case 0x42:
 	case 'R':
-		player->commandBuffer.action = COMMAND_ACTION_HMD_RECENTER;
+		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
 		break;
 	case 'U':
 		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_UI;
@@ -953,6 +949,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 	player->mainRenderTargetSet = player->createdRenderTargetSet;
 
+	Vec3 frameOrigin = Vec3_Zero();
 	float frameYaw = 0.0f;
 	if ( PlayerStream_IsValid( player ) )
 	{
@@ -968,54 +965,56 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 			TraceContext_UpdateFrame( &player->traceContext, streamFrameID, player->stack );
 		}
 
-		frameYaw = TraceContext_GetFrameYaw( &player->traceContext );
+		TraceContext_GetFrameBasis( &player->traceContext, &frameOrigin, &frameYaw );
 
 		if ( streamFrameID < player->targetFrameID )
 			player->curFrameID = fmodf( player->curFrameID + (float)player->stream.desc.frameRate / PLAY_RATE, (float)player->stream.desc.frameCount );
 	}
 
+	Camera_SetPosOffset( &player->camera, &frameOrigin );
+	Camera_SetYawOffset( &player->camera, frameYaw );
+
 	// update view with inputs
 
-	Mat4x4 headOrientation = Mat4x4_Identity();
-	ViewEyeInfo_s eyeInfos[2] = {};
+	View_s views[EYE_COUNT];
 
 #if V6_USE_HMD == 1
-	{
-		HmdRenderTarget_s hmdColorRenderTargets[2];
-		HmdEyePose_s hmdEyePoses[2];
+	HmdRenderTarget_s hmdColorRenderTargets[2];
+	HmdEyePose_s hmdEyePoses[2];
 		
-		player->hmdState = Hmd_BeginRendering( hmdColorRenderTargets, hmdEyePoses, player->camera.znear, player->camera.zfar );
-		if ( player->hmdState & HMD_TRACKING_STATE_ON )
-		{
-			headOrientation = hmdEyePoses[0].lookAt;
-				
-			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-			{
-				player->mainRenderTargetSet.colorBuffers[eye].tex = (ID3D11Texture2D*)hmdColorRenderTargets[eye].tex;
-				player->mainRenderTargetSet.colorBuffers[eye].rtv = (ID3D11RenderTargetView*)hmdColorRenderTargets[eye].rtv;
-				player->mainRenderTargetSet.colorBuffers[eye].srv = (ID3D11ShaderResourceView*)hmdColorRenderTargets[eye].srv;
-				player->mainRenderTargetSet.colorBuffers[eye].uav = (ID3D11UnorderedAccessView*)hmdColorRenderTargets[eye].uav;
+	player->hmdState = Hmd_BeginRendering( hmdColorRenderTargets, hmdEyePoses, player->camera.znear, player->camera.zfar );
+	if ( player->hmdState & HMD_TRACKING_STATE_ON )
+	{
+		Vec3 eyePos[2];
+		eyePos[0] = hmdEyePoses[0].lookAt.GetTranslation();
+		eyePos[1] = hmdEyePoses[1].lookAt.GetTranslation();
+		Camera_SetStereoUsingOrientation( &player->camera, &hmdEyePoses[0].lookAt, eyePos );
+		Camera_UpdateBasis( &player->camera );
 
-				eyeInfos[eye].offset = hmdEyePoses[eye].lookAt.GetTranslation();
-				eyeInfos[eye].projMatrix = hmdEyePoses[eye].projection;
-				eyeInfos[eye].tanHalfFOVLeft = hmdEyePoses[eye].tanHalfFOVLeft;
-				eyeInfos[eye].tanHalfFOVRight = hmdEyePoses[eye].tanHalfFOVRight;
-				eyeInfos[eye].tanHalfFOVUp = hmdEyePoses[eye].tanHalfFOVUp;
-				eyeInfos[eye].tanHalfFOVDown = hmdEyePoses[eye].tanHalfFOVDown;
-			}
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+		{
+			player->mainRenderTargetSet.colorBuffers[eye].tex = (ID3D11Texture2D*)hmdColorRenderTargets[eye].tex;
+			player->mainRenderTargetSet.colorBuffers[eye].rtv = (ID3D11RenderTargetView*)hmdColorRenderTargets[eye].rtv;
+			player->mainRenderTargetSet.colorBuffers[eye].srv = (ID3D11ShaderResourceView*)hmdColorRenderTargets[eye].srv;
+			player->mainRenderTargetSet.colorBuffers[eye].uav = (ID3D11UnorderedAccessView*)hmdColorRenderTargets[eye].uav;
+
+			ViewProjection_s viewProjection;
+			viewProjection.projMatrix = hmdEyePoses[eye].projection;
+			viewProjection.tanHalfFOVLeft = hmdEyePoses[eye].tanHalfFOVLeft;
+			viewProjection.tanHalfFOVRight = hmdEyePoses[eye].tanHalfFOVRight;
+			viewProjection.tanHalfFOVUp = hmdEyePoses[eye].tanHalfFOVUp;
+			viewProjection.tanHalfFOVDown = hmdEyePoses[eye].tanHalfFOVDown;
+
+			Camera_MakeView( &views[eye], &player->camera, eye, &viewProjection );
 		}
 	}
+	else
 #endif // #if V6_USE_HMD == 1
-
-	Camera_UpdateBasis( &player->camera, frameYaw, &headOrientation );
-
-	View_s views[EYE_COUNT];
-	for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 	{
-		if ( player->hmdState & HMD_TRACKING_STATE_ON )
-			Camera_MakeView( &views[eye], &player->camera, &eyeInfos[eye] );
-		else
-			Camera_MakeView( &views[eye], &player->camera, eye );
+		Camera_SetStereoUsingIPD( &player->camera, IPD );
+		Camera_UpdateBasis( &player->camera );
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+			Camera_MakeView( &views[eye], &player->camera, eye, nullptr );
 	}
 
 	// draw

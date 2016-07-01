@@ -914,6 +914,8 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	u32 frameBlockRangeCount = 0;
 	u32 frameBlockCount = 0;
 	u32 frameBlockGroupCount = 0;
+
+	u16* rangeIDs = data->rangeIDs;
 		
 	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 	{
@@ -936,12 +938,13 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 
 		for ( u32 rangeRank = 0; rangeRank < bucketBlockRangeCount; ++rangeRank )
 		{
-			const u32 rangeID = data->rangeIDs[rangeRank];
+			const u32 rangeID = rangeIDs[rangeRank];
 			const u32 blockCount = context->rangeDefs[bucket][rangeID].frameRank8_mip4_blockCount20 & 0xFFFFF;
 			frameBlockCount += blockCount;
 			frameBlockGroupCount += (blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 		}
 
+		rangeIDs += bucketBlockRangeCount;
 		frameBlockRangeCount += bucketBlockRangeCount;
 	}
 

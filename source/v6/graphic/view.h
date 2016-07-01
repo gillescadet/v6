@@ -11,24 +11,30 @@ BEGIN_V6_NAMESPACE
 
 struct Camera_s
 {
+	Mat4x4			stereoOrientation;
+	Vec3			stereoEyePosLS[2];
+	Vec3			stereoEyePosWS[2];
+
 	Vec3			pos;
+	Vec3			posOffset;
+
 	Vec3			right;
 	Vec3			up;
 	Vec3			forward;
+
 	float			znear;
 	float			zfar;
 	float			fov;
 	float			aspectRatio;
+
 	float			yaw;
+	float			yawOffset;
 	float			pitch;
-	float			ipdHalf;
 };
 
-struct ViewEyeInfo_s
+struct ViewProjection_s
 {
 	Mat4x4			projMatrix;
-	
-	Vec3			offset;
 
 	float			tanHalfFOVLeft;
 	float			tanHalfFOVRight;
@@ -52,10 +58,15 @@ struct View_s
 	float			tanHalfFOVDown;
 };
 
-void	Camera_Create( Camera_s* camera, const Vec3* pos, float znear, float zfar, float fov, float aspectRatio, float ipd );
-void	Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye );
-void	Camera_MakeView( View_s* view, const Camera_s* camera, const ViewEyeInfo_s* eyeInfo );
-void	Camera_UpdateBasis( Camera_s* camera, float preYaw, const Mat4x4* preRotationMatrix );
+void	Camera_Create( Camera_s* camera, float znear, float zfar, float fov, float aspectRatio );
+void	Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye, const ViewProjection_s* overridenViewProjection );
+void	Camera_SetPosOffset( Camera_s* camera, const Vec3* pos );
+void	Camera_SetStereoUsingIPD( Camera_s* camera, float ipd );
+void	Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyePos[2] );
+void	Camera_SetYawOffset( Camera_s* camera, float yaw );
+void	Camera_ResetOffsets( Camera_s* camera );
+void	Camera_ResetStereo( Camera_s* camera );
+void	Camera_UpdateBasis( Camera_s* camera );
 
 END_V6_NAMESPACE
 

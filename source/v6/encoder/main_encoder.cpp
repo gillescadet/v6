@@ -14,13 +14,13 @@ BEGIN_V6_NAMESPACE
 
 void OutputMessage( const char * format, ... )
 {
-  char buffer[4096];
-  va_list args;
-  va_start( args, format );
-  vsprintf_s( buffer, sizeof( buffer ), format, args);
-  va_end( args );
+	char buffer[4096];
+	va_list args;
+	va_start( args, format );
+	vsprintf_s( buffer, sizeof( buffer ), format, args);
+	va_end( args );
 
-  printf( buffer );
+	fputs( buffer, stdout );
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ int main()
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 
 	const v6::u32 frameOffset	= 0;
-	const v6::u32 frameCount	= 1;
+	const v6::u32 frameCount	= 75;
 	const v6::u32 playRate		= 75;
 #endif
 

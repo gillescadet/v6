@@ -609,7 +609,7 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 		V6_ERROR( "LZ4 compression failed.\n" );
 		return false;
 	}
-	// V6_MSG( "LZ4 compression: %5.2f%%.\n", chunkLZ4Size * 100.0f / chunkSize );
+	// V6_MSG( "LZ4 compression: %5.2f\%.\n", chunkLZ4Size * 100.0f / chunkSize );
 #endif
 
 	CodecFrameHeader_s frameHeader = {};

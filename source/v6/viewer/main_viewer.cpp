@@ -45,7 +45,7 @@
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			1
 
@@ -375,13 +375,13 @@ static GPURenderTargetSet_s		s_mainRenderTargetSet;
 
 void OutputMessage( const char * format, ... )
 {
-  char buffer[4096];
-  va_list args;
-  va_start( args, format );
-  vsprintf_s( buffer, sizeof( buffer ), format, args);
-  va_end( args );
+	char buffer[4096];
+	va_list args;
+	va_start( args, format );
+	vsprintf_s( buffer, sizeof( buffer ), format, args);
+	va_end( args );
 
-  printf( buffer );
+	fputs( buffer, stdout );
 }
 
 //----------------------------------------------------------------------------------------------------

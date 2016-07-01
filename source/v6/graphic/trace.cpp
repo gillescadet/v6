@@ -857,14 +857,16 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 	traceContext->frameState.resetJitter = false;
 }
 
-float TraceContext_GetFrameYaw( TraceContext_s* traceContext  )
+void TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* origin, float* yaw )
 {
 	V6_ASSERT( traceContext->frameState.sequenceID < traceContext->stream->desc.sequenceCount );
 	const VideoSequence_s* sequence = &traceContext->stream->sequences[traceContext->frameState.sequenceID];
 
 	V6_ASSERT( traceContext->frameState.frameRank < sequence->desc.frameCount );
 	const CodecFrameDesc_s* frameDesc = &sequence->frameDescArray[traceContext->frameState.frameRank];
-	return frameDesc->gridYaw;
+	
+	*origin = frameDesc->gridOrigin;
+	*yaw = frameDesc->gridYaw;
 }
 
 void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack )
