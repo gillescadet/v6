@@ -15,7 +15,7 @@ RWBuffer< uint > traceIndirectArgs						: REGISTER_UAV( HLSL_TRACE_INDIRECT_ARGS
 RWStructuredBuffer< BlockCullStats > blockCullStats		: REGISTER_UAV( HLSL_CULL_STATS_SLOT );
 #endif // #if BLOCK_GET_STATS == 1
 
-#if 1
+#if 0
 
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
@@ -113,18 +113,12 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 	}
 }
 
-#elif 0
+#elif 1
 
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 {
-	// 1840
-
-	// A: 75us (75us)
-
-	// dispatch calls
-
-	// B: 65us (140us)
+	// 90 us
 
 	const uint traceBlockOffset = trace_blockOffset( GRID_CELL_BUCKET-1 ) + trace_blockCount( GRID_CELL_BUCKET-1 );
 	if ( DTid.x == 0 )
@@ -140,26 +134,41 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 	InterlockedAdd( blockCullStats[0].blockInputCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-	// C: 1700us (1840us)
-
 	if ( blockRank < range.blockCount && c_cullBlockGroupCount > 0 )
 	{
+		// 100 us (190 us)
+
 #if BLOCK_GET_STATS == 1
 		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-		// C1: 1460us (1600us)
-
-		// bottleneck
-
 		const uint blockPosID = range.blockPosOffset + blockRank;
-		const uint packedBlockPos = blockPositions[DTid.x];
+		const uint packedBlockPos = blockPositions[blockPosID];
 
-		// C2: 160us (0us)
+		const uint mip = packedBlockPos >> 28;
+		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
+		const uint gridMacroMask = (1 << c_cullGridMacroShift)-1;
+		const uint blockPosX = range.macroGridOffset.x + ((blockPos >> (c_cullGridMacroShift*0)) & gridMacroMask);
+		const uint blockPosY = range.macroGridOffset.y + ((blockPos >> (c_cullGridMacroShift*1)) & gridMacroMask);
+		const uint blockPosZ = range.macroGridOffset.z + ((blockPos >> (c_cullGridMacroShift*2)) & gridMacroMask);
 
-		if ( packedBlockPos == 0xFFFFFFFF )
+		uint insidePlaneCount = 0;
 		{
-#if 0
+			const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
+			const float gridScale = c_cullCentersAndGridScales[mip].w;
+			const float cellSize = gridScale * 2.0f * c_cullInvGridWidth;
+			const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_cullCentersAndGridScales[mip].xyz;
+			const float deltaCenterWS = cellSize * 2;
+			const float4 centerWS = float4( posMinWS + deltaCenterWS, 1.0f );
+			for ( uint plane = 0; plane < 4; ++plane )
+				insidePlaneCount += dot( centerWS, c_cullFrustumPlanes[plane] ) > 0.0f;
+		}
+		const bool inside = insidePlaneCount == 4;
+
+		// 400us
+
+		if ( inside )
+		{
 			uint traceBlockRank = 0;
 			InterlockedAdd( trace_blockCount( GRID_CELL_BUCKET ), 1, traceBlockRank );
 
@@ -186,9 +195,6 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
 			InterlockedAdd( blockCullStats[0].cellOutputCounts[mip], GRID_CELL_COUNT );
 #endif // #if BLOCK_GET_STATS == 1
-#else
-			traceCells[DTid.x] = 1;
-#endif
 		}
 	}
 }
