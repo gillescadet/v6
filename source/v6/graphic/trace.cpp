@@ -690,7 +690,7 @@ static void SequenceContext_Update( SequenceContext_s* sequenceContext, const Vi
 
 void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream )
 {
-	static_assert( CODEC_BLOCK_THREAD_GROUP_SIZE == HLSL_BLOCK_THREAD_GROUP_SIZE, "CODEC_BLOCK_THREAD_GROUP_SIZE == HLSL_BLOCK_THREAD_GROUP_SIZE" );
+	V6_STATIC_ASSERT( CODEC_BLOCK_THREAD_GROUP_SIZE == HLSL_BLOCK_THREAD_GROUP_SIZE );
 
 	memset( traceContext, 0, sizeof( *traceContext ) );
 	

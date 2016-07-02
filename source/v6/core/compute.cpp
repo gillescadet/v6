@@ -86,7 +86,7 @@ void InterlockedOr( uint& value, uint mask, uint& prevValue )
 	prevValue = Atomic_Or( &value, mask );
 }
 
-void AllMemoryBarrierWithGroupSync()
+void GroupMemoryBarrierWithGroupSync()
 {
 	const uint barrier = v6::s_barrier;
 	if ( v6::Atomic_Inc( &v6::s_concurrentBarrierCounts[barrier] ) + 1 < v6::s_threadGroupSize )

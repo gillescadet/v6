@@ -141,7 +141,7 @@ void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, ui
 		SamplePixel( bufferBasePos, borderGroupID );
 	}
 		
-	AllMemoryBarrierWithGroupSync();
+	GroupMemoryBarrierWithGroupSync();
 
 	float this_depth = g_pixelBuffers[groupID.y][groupID.x].pixels[4].depth;
 	uint this_r8g8b8_none8 = g_pixelBuffers[groupID.y][groupID.x].pixels[4].r8g8b8_none8;

@@ -517,7 +517,7 @@ if_nz r1.z
   store_structured g0.xyzw, r1.z, r1.y, r10.xyzw
   store_structured g0.xyz, r1.z, r1.w, r3.xyzx
 endif 
-sync_uglobal_g_t
+sync_g_t
 ld_structured r1.xyz, r2.y, r3.w, g0.xyzx
 ld_structured r3.xyz, vThreadIDInGroup.y, r4.w, g0.xyzx
 lt r1.w, r3.x, r1.x
@@ -563,10 +563,10 @@ ret
 
 const BYTE g_main_pixel_blend_cs[] =
 {
-     68,  88,  66,  67,  21, 105, 
-     87, 125, 119,  85,  56,   9, 
-     23, 164,  66, 238, 171, 196, 
-    249,  19,   1,   0,   0,   0, 
+     68,  88,  66,  67,  31,  20, 
+     71, 179, 128,   2,  93,  23, 
+    206, 111, 179, 118,  70,   7, 
+     52,  11,   1,   0,   0,   0, 
      56,  59,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
     100,   4,   0,   0, 116,   4, 
@@ -2846,7 +2846,7 @@ const BYTE g_main_pixel_blend_cs[] =
      58,   0,  16,   0,   1,   0, 
       0,   0,  70,   2,  16,   0, 
       3,   0,   0,   0,  21,   0, 
-      0,   1, 190,  88,   0,   1, 
+      0,   1, 190,  24,   0,   1, 
     167,   0,   0,   9, 114,   0, 
      16,   0,   1,   0,   0,   0, 
      26,   0,  16,   0,   2,   0, 
