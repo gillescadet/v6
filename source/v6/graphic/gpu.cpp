@@ -14,6 +14,8 @@
 #include <v6/core/thread.h>
 #include <v6/graphic/gpu.h>
 
+#define GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE 1
+
 BEGIN_V6_NAMESPACE
 
 static const u32 EVENT_BUFFER_COUNT			= 3;
@@ -586,12 +588,19 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
+#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
+#else
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+#endif
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
 		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
+#else
+		bufferDesc.CPUAccessFlags = 0;
+#endif
 		bufferDesc.MiscFlags = 0;
 		bufferDesc.StructureByteStride = 0;
 		
@@ -682,12 +691,19 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
+#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
 		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
+#else
 		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+#endif
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
 		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
+#else
+		bufferDesc.CPUAccessFlags = 0;
+#endif
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 		bufferDesc.StructureByteStride = elementSize;
 		
@@ -808,18 +824,7 @@ void GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer )
 void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount )
 {
 	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
-#if 0
-	D3D11_BOX dstBox;
-	dstBox.left = dstOffset * sizeof( T );
-	dstBox.right = (dstOffset + srcCount) * sizeof( T );
-	dstBox.front = 0;
-	dstBox.back = 1;
-	dstBox.top = 0;
-	dstBox.bottom = 1;
-
-	const u32 size = dstBox.right - dstBox.left;
-	g_deviceContext->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
-#else
+#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
 	D3D11_MAPPED_SUBRESOURCE res;
 	const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
 	if ( mapResult == S_OK )
@@ -831,6 +836,17 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcDat
 	{
 		V6_ERROR( "ID3D11DeviceContext::Map() failed with error code 0x%08X\n", mapResult );
 	}
+#else
+	D3D11_BOX dstBox;
+	dstBox.left = dstOffset * sizeOfSrcElem;
+	dstBox.right = (dstOffset + srcCount) * sizeOfSrcElem;
+	dstBox.front = 0;
+	dstBox.back = 1;
+	dstBox.top = 0;
+	dstBox.bottom = 1;
+
+	const u32 size = dstBox.right - dstBox.left;
+	g_deviceContext->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
 #endif
 }
 

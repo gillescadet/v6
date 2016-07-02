@@ -121,7 +121,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 					
 					win->onKeyEvent( &keyEvent );
 
-#if 1
+#if 0
 					V6_MSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
 						raw->data.keyboard.MakeCode, 
 						raw->data.keyboard.Flags, 

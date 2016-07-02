@@ -15,6 +15,8 @@ RWBuffer< uint > traceIndirectArgs						: REGISTER_UAV( HLSL_TRACE_INDIRECT_ARGS
 RWStructuredBuffer< BlockCullStats > blockCullStats		: REGISTER_UAV( HLSL_CULL_STATS_SLOT );
 #endif // #if BLOCK_GET_STATS == 1
 
+#if 1
+
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 {
@@ -109,5 +111,96 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 #endif // #if BLOCK_GET_STATS == 1
 		}
 	}
-
 }
+
+#elif 0
+
+[ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
+void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
+{
+	// 1840
+
+	// A: 75us (75us)
+
+	// dispatch calls
+
+	// B: 65us (140us)
+
+	const uint traceBlockOffset = trace_blockOffset( GRID_CELL_BUCKET-1 ) + trace_blockCount( GRID_CELL_BUCKET-1 );
+	if ( DTid.x == 0 )
+		trace_blockOffset( GRID_CELL_BUCKET ) = traceBlockOffset;
+
+	const uint blockGroupID = c_cullBlockGroupOffset + Gid.x;
+	const uint rangeID = blockGroups[blockGroupID];
+
+	const BlockRange range = blockRanges[c_cullBlockRangeOffset + rangeID];
+	const uint blockRank = DTid.x - range.firstThreadID;
+
+#if BLOCK_GET_STATS == 1
+	InterlockedAdd( blockCullStats[0].blockInputCount, 1 );
+#endif // #if BLOCK_GET_STATS == 1
+
+	// C: 1700us (1840us)
+
+	if ( blockRank < range.blockCount && c_cullBlockGroupCount > 0 )
+	{
+#if BLOCK_GET_STATS == 1
+		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );
+#endif // #if BLOCK_GET_STATS == 1
+
+		// C1: 1460us (1600us)
+
+		// bottleneck
+
+		const uint blockPosID = range.blockPosOffset + blockRank;
+		const uint packedBlockPos = blockPositions[DTid.x];
+
+		// C2: 160us (0us)
+
+		if ( packedBlockPos == 0xFFFFFFFF )
+		{
+#if 0
+			uint traceBlockRank = 0;
+			InterlockedAdd( trace_blockCount( GRID_CELL_BUCKET ), 1, traceBlockRank );
+
+			const uint tracePackedBlockPos = (mip << 28) | (blockPosZ << (c_cullGridMacroShift*2)) | (blockPosY << c_cullGridMacroShift) | blockPosX;
+			const uint traceBlockID = traceBlockOffset + traceBlockRank;
+			const uint blockDataID = range.blockDataOffset + blockRank * GRID_CELL_COUNT;
+			traceCells[traceBlockID * 2 + 0] = tracePackedBlockPos;
+#if BLOCK_GET_STATS == 1
+			uint historyColor;
+			if ( range.frameDistance == 0 )
+				historyColor = 0;
+			else if ( range.frameDistance < 5 )
+				historyColor = 1;
+			else if ( range.frameDistance < 10 )
+				historyColor = 2;
+			else
+				historyColor = 3;
+			traceCells[traceBlockID * 2 + 1] = (historyColor << 30) | blockDataID;
+#else
+			traceCells[traceBlockID * 2 + 1] = blockDataID;
+#endif
+
+#if BLOCK_GET_STATS == 1
+			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
+			InterlockedAdd( blockCullStats[0].cellOutputCounts[mip], GRID_CELL_COUNT );
+#endif // #if BLOCK_GET_STATS == 1
+#else
+			traceCells[DTid.x] = 1;
+#endif
+		}
+	}
+}
+
+#else
+
+[ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
+void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
+{
+	const uint packedBlockPos = blockPositions[DTid.x];
+	if ( packedBlockPos == 0xFFFFFFFF )
+		InterlockedAdd( traceCells[0], packedBlockPos );
+}
+
+#endif
