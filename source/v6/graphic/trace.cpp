@@ -189,11 +189,16 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 			ReadBack_Log( "blockCull", blockCullStats->blockProcessedCount, "blockProcessedCount" );
 			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
 			V6_ASSERT( blockCullStats->blockPassedCount <= traceContext->resPassedBlockCount );
+			u32 cellOutputCount = 0;
 			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
 			{
 				if ( blockCullStats->cellOutputCounts[mip] )
+				{
 					ReadBack_Log( "blockCull", blockCullStats->cellOutputCounts[mip], String_Format( "cellOutputCount.mip[%d]", mip ) );
+					cellOutputCount += blockCullStats->cellOutputCounts[mip];
+				}
 			}
+			ReadBack_Log( "blockCull", cellOutputCount, "cellOutputCount" );
 
 			GPUBuffer_UnmapReadBack( &traceRes->cullStats );
 		}
@@ -386,11 +391,16 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			const hlsl::BlockTraceStats* blockTraceStats = (hlsl::BlockTraceStats*)GPUBuffer_MapReadBack( &traceRes->traceStats );
 
 			ReadBack_Log( "blockTrace", blockTraceStats->cellInputCount, "cellInputCount" );
+			u32 cellProcessedCount = 0;
 			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip  )
 			{
 				if ( blockTraceStats->cellProcessedCounts[mip] )
+				{
 					ReadBack_Log( "blockTrace", blockTraceStats->cellProcessedCounts[mip], String_Format( "cellProcessedCounts.mip[%d]", mip ) );
+					cellProcessedCount += blockTraceStats->cellProcessedCounts[mip];
+				}
 			}
+			ReadBack_Log( "blockTrace", cellProcessedCount, "cellProcessedCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
 			u32 cellItemCount = 0;
 			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip  )
@@ -401,6 +411,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 					cellItemCount += blockTraceStats->cellItemCounts[mip];
 				}
 			}
+			ReadBack_Log( "blockTrace", cellItemCount, "cellItemCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->cellItemMaxCountPerPixel, "cellItemMaxCountPerPixel" );
 			V6_ASSERT( cellItemCount < traceContext->resCellItemCount );
 

@@ -396,7 +396,7 @@ void Hmd_Recenter()
 {
 	V6_ASSERT( s_session != nullptr );
 	
-	//ovr_RecenterTrackingOrigin( s_session );
+	ovr_RecenterTrackingOrigin( s_session );
 }
 
 END_V6_NAMESPACE

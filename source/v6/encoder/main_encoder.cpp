@@ -52,11 +52,11 @@ int main()
 #endif
 
 #if 1
-	const char* streamFilename = "D:/tmp/v6/ue.v6";
+	const char* streamFilename = "D:/tmp/v6/ue_1024.v6";
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 
 	const v6::u32 frameOffset	= 0;
-	const v6::u32 frameCount	= 75;
+	const v6::u32 frameCount	= 1;
 	const v6::u32 playRate		= 75;
 #endif
 

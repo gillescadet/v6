@@ -23,7 +23,7 @@
 
 static const uint32			s_targetFPS			= 75;
 static const uint32			s_sampleCount		= 9;
-static const uint32			s_gridMacroShift	= 8;
+static const uint32			s_gridMacroShift	= 9;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
 static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);
@@ -42,6 +42,7 @@ v6::CaptureContext_s		s_captureContext;
 CaptureState_e				s_captureState;
 v6::u32						s_captureFrameID;
 v6::Vec3					s_captureOrigin;
+float						s_captureYaw;
 v6::Vec3					s_captureSamplePos;
 v6::Vec3					s_captureFaceBasis[3];
 FD3D11TextureBase*			s_captureRenderTarget;
@@ -93,7 +94,7 @@ static void Scene_End()
 		{
 			v6::CodecRawFrameDesc_s frameDesc = {};
 			frameDesc.gridOrigin = s_captureOrigin;
-			frameDesc.gridYaw = 0.0f;
+			frameDesc.gridYaw = s_captureYaw;
 			frameDesc.frameID = s_captureFrameID;
 			frameDesc.frameRate = s_targetFPS;
 			frameDesc.sampleCount = s_sampleCount;
@@ -207,7 +208,7 @@ static v6::Vec3 TranformVectorFromUserSpace( const FVector* v )
 	return v6::Vec3_Make( v->X, v->Z, v->Y ); // swapped Y/Z
 }
 
-static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
+static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetAntiAliasing( false );
@@ -254,6 +255,8 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	s_captureFaceBasis[1] = TranformVectorFromUserSpace( &upUserSpace );
 	s_captureFaceBasis[2] = TranformVectorFromUserSpace( &lookAtUserSpace );
 	s_captureOrigin = TranformVectorFromUserSpace( &originUserSpace );
+	const v6::Vec3 forward = TranformVectorFromUserSpace( &forwardUserSpace );
+	s_captureYaw = atan2( -forward.x, -forward.z );
 	s_captureRenderTarget = nullptr;
 
 	FCanvas canvas( renderTargetResource, nullptr, GWorld, GWorld->Scene->GetFeatureLevel() );
@@ -263,7 +266,7 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	FlushRenderingCommands();
 }
 
-static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, uint32 frameID )
+static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID )
 {
 	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
 	renderTargetTexture->AddToRoot();
@@ -298,7 +301,7 @@ static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, uint
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
 
-			Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), frameID, faceID, captureState );
+			Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), forwardUserSpace, frameID, faceID, captureState );
 		}
 	}
 
@@ -390,7 +393,7 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 		return;
 	
 	case EVideo6DOFCapturerState::CAPTURE:
-		Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureFrameID );
+		Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureOrientation.GetForwardVector(), m_captureFrameID );
 		++m_captureFrameID;
 		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameCount );
 

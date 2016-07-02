@@ -25,7 +25,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 
 BEGIN_V6_NAMESPACE
@@ -115,9 +115,10 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
+	COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER,
 
-	COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER,
 	COMMAND_ACTION_PLAYER_OPTION_UI,
+	COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD,
 };
 
 struct CommandBuffer_s
@@ -129,6 +130,7 @@ struct CommandBuffer_s
 struct PlayerOptions_s
 {
 	bool					hideUI;
+	bool					lockHMD;
 };
 
 struct Player_s
@@ -413,6 +415,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 			return;
 		}
 
+	case 'H':
+		if ( strcmp( commandLine, "HMD_LOCK ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "HMD_LOCK OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
 	case 'L':
 		if ( strcmp( commandLine, "LOG" ) == 0 )
 		{
@@ -459,14 +478,14 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 	case 'S':
 		if ( strcmp( commandLine, "SHARPEN_FILTER ON" ) == 0 )
 		{
-			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
 			commandBuffer->arg[0] = 1;
 			return;
 		}
 
 		if ( strcmp( commandLine, "SHARPEN_FILTER OFF" ) == 0 )
 		{
-			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
 			commandBuffer->arg[0] = 0;
 			return;
 		}
@@ -624,12 +643,15 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_TRACE_OPTION_TSAA:
 		player->traceOptions.noTSAA = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noTSAA;
 		break;
-
-	case COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER:
+	case COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER:
 		player->traceOptions.noSharpenFilter = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noSharpenFilter;
 		break;
+
 	case COMMAND_ACTION_PLAYER_OPTION_UI:
 		player->playerOptions.hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideUI;
+		break;
+	case COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD:
+		player->playerOptions.lockHMD = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockHMD;
 		break;
 	}
 
@@ -714,7 +736,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
 	case 'F':
-		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_SHARPEN_FILTER;
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
 		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'I':
@@ -724,12 +746,17 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_TSAA;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 'K':
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 0x74:
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6" );
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
+			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_512.v6" );
+			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_1024.v6" );
 		}
 		break;
 	case 'N':
@@ -839,7 +866,7 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 		{
 			const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
-			const char* txt = String_Format( "%*s%s: %dus", eventDuration->depth * 2, "", eventDuration->name, eventDuration->durationUS );
+			const char* txt = String_Format( "%*s%-10s : %5d us", eventDuration->depth * 4, "", eventDuration->name, eventDuration->durationUS );
 			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), txt );
 			cursorY += lineHeight;
 		}
@@ -988,7 +1015,10 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		Vec3 eyePos[2];
 		eyePos[0] = hmdEyePoses[0].lookAt.GetTranslation();
 		eyePos[1] = hmdEyePoses[1].lookAt.GetTranslation();
-		Camera_SetStereoUsingOrientation( &player->camera, &hmdEyePoses[0].lookAt, eyePos );
+		if ( player->playerOptions.lockHMD )
+			Camera_SetStereoUsingIPD( &player->camera, IPD );
+		else
+			Camera_SetStereoUsingOrientation( &player->camera, &hmdEyePoses[0].lookAt, eyePos );
 		Camera_UpdateBasis( &player->camera );
 
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
@@ -1036,6 +1066,15 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 		if ( !player->playerOptions.hideUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
+
+		if ( player->traceOptions.logReadBack )
+		{
+			for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+			{
+				const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
+				V6_MSG( "%*s%-10s : %5d us\n", eventDuration->depth * 4, "", eventDuration->name, eventDuration->durationUS );
+			}
+		}
 	}
 
 	// present draw
@@ -1130,12 +1169,12 @@ END_V6_NAMESPACE
 int main( int argc, char** argv )
 {
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 200 * 1024 * 1024 );
+	v6::Stack stack( &heap, 400 * 1024 * 1024 );
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 
-	const v6::u32 defaultWidth = 512;
-	const v6::u32 defaultHeight = 512;
+	const v6::u32 defaultWidth = 1024;
+	const v6::u32 defaultHeight = 1024;
 
 	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, &heap, &stack ) )
 		return -1;

@@ -109,4 +109,5 @@ void main( uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID )
 #endif // #if BLOCK_GET_STATS == 1
 		}
 	}
+
 }

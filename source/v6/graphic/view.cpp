@@ -60,7 +60,6 @@ void Camera_ResetStereo( Camera_s* camera )
 	camera->stereoEyePosLS[1] = Vec3_Zero();
 }
 
-
 void Camera_UpdateBasis( Camera_s* camera )
 {
 	Mat4x4 cameraRotationMatrix;
@@ -74,6 +73,7 @@ void Camera_UpdateBasis( Camera_s* camera )
 	finalMatrix.GetXAxis( &camera->right );
 	finalMatrix.GetYAxis( &camera->up );
 
+	// note: should be better to rotate the eye offsets around the center eye instead or rotating around the stereo basis
 	Mat4x4_TransformDir( &camera->stereoEyePosWS[0], cameraRotationMatrix, camera->stereoEyePosLS[0] );
 	Mat4x4_TransformDir( &camera->stereoEyePosWS[1], cameraRotationMatrix, camera->stereoEyePosLS[1] );
 
