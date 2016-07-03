@@ -307,7 +307,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			cbTrace->c_traceEyes[eye] = tracePerEye;
 
 			cbTrace->c_traceGetStats = options->logReadBack;
-			cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
+			cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showBucket ? HLSL_BLOCK_SHOW_FLAG_BUCKETS : 0);
 		}
 
 		cbTrace->c_traceJitter = traceContext->frameState.jitter;

@@ -88,7 +88,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		float3 boxMaxRS[2];
 		float pixelDepth[2];
 		uint2 pixelDisplacementsF16[2];
-		float2 curPixelCoords[2];
+		float2 curPixelJitteredCoords[2];
+		float2 curPixelSides[2];
 
 		{
 			const uint blockRank = cellID >> GRID_CELL_SHIFT;
@@ -141,24 +142,24 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			const float halfCellSize = c_traceGridScales[mip].y;
 			// optimization: do everything in camera relative space
 			// optimization: add bias inside grid center
-			const float3 cellPosWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_traceGridCenters[mip].xyz;
+			const float3 cellCenterWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_traceGridCenters[mip].xyz;
 
 			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
 				{
 					// optimization: do everything in camera relative space
-					const float3 cellPosRS = cellPosWS - c_traceEyes[eye].org; 
-					boxMinRS[eye] = cellPosRS - halfCellSize;
-					boxMaxRS[eye] = cellPosRS + halfCellSize;
+					const float3 cellCenterRS = cellCenterWS - c_traceEyes[eye].org; 
+					boxMinRS[eye] = cellCenterRS - halfCellSize;
+					boxMaxRS[eye] = cellCenterRS + halfCellSize;
 				}
 
 				float2 prevPixelUV;
 
 				{
 					float4 prevCellPosCS;
-					prevCellPosCS.x = dot( c_traceEyes[eye].prevWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
-					prevCellPosCS.y = dot( c_traceEyes[eye].prevWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
-					prevCellPosCS.w = dot( c_traceEyes[eye].prevWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
+					prevCellPosCS.x = dot( c_traceEyes[eye].prevWorldToProj[0].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
+					prevCellPosCS.y = dot( c_traceEyes[eye].prevWorldToProj[1].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
+					prevCellPosCS.w = dot( c_traceEyes[eye].prevWorldToProj[3].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
 					const float2 prevCellScreenPos = prevCellPosCS.xy * rcp( prevCellPosCS.w );
 			
 					prevPixelUV = mad( prevCellScreenPos, 0.5f, 0.5f );
@@ -166,16 +167,19 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 				{
 					float4 curCellPosCS;
-					curCellPosCS.x = dot( c_traceEyes[eye].curWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[0].w;
-					curCellPosCS.y = dot( c_traceEyes[eye].curWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[1].w;
-					curCellPosCS.w = dot( c_traceEyes[eye].curWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[3].w;
+					curCellPosCS.x = dot( c_traceEyes[eye].curWorldToProj[0].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[0].w;
+					curCellPosCS.y = dot( c_traceEyes[eye].curWorldToProj[1].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[1].w;
+					curCellPosCS.w = dot( c_traceEyes[eye].curWorldToProj[3].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[3].w;
 					const float2 curCellScreenPos = curCellPosCS.xy * rcp( curCellPosCS.w );
 			
 					pixelDepth[eye] = curCellPosCS.w;
 
 					const float2 curPixelUV = mad( curCellScreenPos, 0.5f, 0.5f );
 					pixelDisplacementsF16[eye] = f32tof16( curPixelUV - prevPixelUV );
-					curPixelCoords[eye] = floor( curPixelUV * c_traceFrameSize ) + c_traceJitter;
+					const float2 curPixelCoords = curPixelUV * c_traceFrameSize;
+					curPixelJitteredCoords[eye] = floor( curPixelCoords ) + c_traceJitter;
+					curPixelSides[eye].x = curPixelCoords.x < curPixelJitteredCoords[eye].x ? -1.0f : 1.0f;
+					curPixelSides[eye].y = curPixelCoords.y < curPixelJitteredCoords[eye].y ? -1.0f : 1.0f;
 				}
 			}
 		}
@@ -185,28 +189,27 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			InterlockedAdd( blockTraceStats[0].cellProcessedCounts[mip], 1 );
 #endif // #if BLOCK_DEBUG == 1
 
-		// if ( valid + dot( curPixelCoords[0], curPixelCoords[1] ) == 0.170977f )
+		// if ( valid + dot( curPixelJitteredCoords[0], curPixelJitteredCoords[1] ) == 0.170977f )
 		if ( valid )
 		{
 			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
-				if ( IsValidCoords( curPixelCoords[eye] ) )
+				if ( IsValidCoords( curPixelJitteredCoords[eye] ) )
 				{
 					// 4100 us (6730 us)
 
 					uint hitMask9 = 0;
 					{
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 1;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 2;
+						float2 offsets[4];
+						offsets[0] = float2( 0.0f,                 0.0f );
+						offsets[1] = float2( curPixelSides[eye].x, 0.0f );
+						offsets[2] = float2( 0.0f,                 curPixelSides[eye].y );
+						offsets[3] = float2( curPixelSides[eye].x, curPixelSides[eye].y );
 
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 3;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 4;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1,  0, boxMinRS[eye], boxMaxRS[eye], eye ) << 5;
-						
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 6;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye],  0, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 7;
-						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 8;
+						hitMask9 |= TraceCell( blockCellID, curPixelJitteredCoords[eye], offsets[0].x, offsets[0].y, boxMinRS[eye], boxMaxRS[eye], eye ) << uint( offsets[0].x + (offsets[0].y * 3.0f + 4.0f) );
+						hitMask9 |= TraceCell( blockCellID, curPixelJitteredCoords[eye], offsets[1].x, offsets[1].y, boxMinRS[eye], boxMaxRS[eye], eye ) << uint( offsets[1].x + (offsets[1].y * 3.0f + 4.0f) );
+						hitMask9 |= TraceCell( blockCellID, curPixelJitteredCoords[eye], offsets[2].x, offsets[2].y, boxMinRS[eye], boxMaxRS[eye], eye ) << uint( offsets[2].x + (offsets[2].y * 3.0f + 4.0f) );
+						hitMask9 |= TraceCell( blockCellID, curPixelJitteredCoords[eye], offsets[3].x, offsets[3].y, boxMinRS[eye], boxMaxRS[eye], eye ) << uint( offsets[3].x + (offsets[3].y * 3.0f + 4.0f) );
 					}
 
 					// 1040 us (7770 us)
@@ -215,7 +218,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					{
 						const int2 frameSize = int2( c_traceFrameSize.xy );
 						const int cellItemCountPerPage = frameSize.x * c_traceEyeCount * frameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
-						const uint2 cellItemPixelCoords = uint2( curPixelCoords[eye].x + eye * frameSize.x, curPixelCoords[eye].y );
+						const uint2 cellItemPixelCoords = uint2( curPixelJitteredCoords[eye].x + eye * frameSize.x, curPixelJitteredCoords[eye].y );
 						const uint pixelID = (mad( cellItemPixelCoords.y >> 3, (frameSize.x * c_traceEyeCount) >> 3, cellItemPixelCoords.x >> 3 ) << 6) + mad( cellItemPixelCoords.y & 7, 8, cellItemPixelCoords.x & 7 );
 
 						uint blockCellItemRank = 0;

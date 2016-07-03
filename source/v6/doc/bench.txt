@@ -673,8 +673,7 @@ Frame      : 969274 us
     Copy       :   141 us
     Present    : 968759 us
 
-Bench:
-
+Bench: RS1024_V3 + skip cells without samples (RS1024_V4)
 Loaded stream D:/tmp/v6/ue_1024.v6
 blockCull        blockInputCount               :    1939328
 blockCull        blockProcessedCount           :    1938106
@@ -728,3 +727,58 @@ Frame      : 846029 us
     Font       :     0 us
     Copy       :   140 us
     Present    : 843778 us
+
+Bench: RS1024_V4 + reduce ray/box test to 4 per cell (RS1024_V5)
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        cellOutputCount.mip[2]        :     924352
+blockCull        cellOutputCount.mip[3]        :    3324096
+blockCull        cellOutputCount.mip[4]        :    1128848
+blockCull        cellOutputCount.mip[5]        :     401692
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    5807008
+blockTrace       cellInputCount                :    5807104
+blockTrace       cellProcessedCounts.mip[2]    :     924352
+blockTrace       cellProcessedCounts.mip[3]    :    3324096
+blockTrace       cellProcessedCounts.mip[4]    :    1128848
+blockTrace       cellProcessedCounts.mip[5]    :     401692
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    5807008
+blockTrace       pixelSampleCount              :    8399134
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    5831652
+blockTrace       2_pixelSampleCount            :     819147
+blockTrace       3_pixelSampleCount            :     192304
+blockTrace       4_pixelSampleCount            :      88069
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :     967707
+blockTrace       cellItemCount.mip[3]          :    3908436
+blockTrace       cellItemCount.mip[4]          :    1400389
+blockTrace       cellItemCount.mip[5]          :     606564
+blockTrace       cellItemCount.mip[6]          :      48073
+blockTrace       cellItemCount.mip[7]          :          3
+blockTrace       cellItemCount                 :    6931172
+blockTrace       cellItemMaxCountPerPixel      :         34
+blockTrace       traceCellStatCount            :   42184012
+Frame      : 13227 us
+    Update     :     0 us
+    Draw       : 12747 us
+        Cull       :   242 us
+        Trace      :  6165 us
+        Blend      :  2947 us
+        TSAA       :   136 us
+        Sharpen    :    90 us
+        Blend      :  2947 us
+        TSAA       :   136 us
+        Sharpen    :    90 us
+    Font       :     0 us
+    Copy       :   141 us
+    Present    :   337 us
