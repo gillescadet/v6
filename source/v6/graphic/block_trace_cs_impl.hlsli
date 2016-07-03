@@ -33,7 +33,7 @@ bool TraceCell( uint blockCellID, float2 pixelCoords, float x, float y, float3 b
 	const float3 rayInvDir = rcp( rayDir );
 	const float3 t0 = boxMinRS * rayInvDir;
 	const float3 t1 = boxMaxRS * rayInvDir;
-	// optimization: direction is know, t0 and t1 could be ordered statically
+	// optimization: if direction is known, t0 and t1 could be ordered statically
 	const float3 tMin = min( t0, t1 );
 	const float3 tMax = max( t0, t1 );
 	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
@@ -78,6 +78,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
 	{
+		// 2630 us (0 us)
+
 		uint blockCellID;
 		bool valid;
 		uint mip;
@@ -153,25 +155,25 @@ void main( uint3 DTid : SV_DispatchThreadID )
 				float2 prevPixelUV;
 
 				{
-					float4 cellPosCS;
-					cellPosCS.x = mul( c_traceEyes[eye].prevWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
-					cellPosCS.y = mul( c_traceEyes[eye].prevWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
-					cellPosCS.w = mul( c_traceEyes[eye].prevWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
-					const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
+					float4 prevCellPosCS;
+					prevCellPosCS.x = dot( c_traceEyes[eye].prevWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
+					prevCellPosCS.y = dot( c_traceEyes[eye].prevWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
+					prevCellPosCS.w = dot( c_traceEyes[eye].prevWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
+					const float2 prevCellScreenPos = prevCellPosCS.xy * rcp( prevCellPosCS.w );
 			
-					prevPixelUV = mad( cellScreenPos, 0.5f, 0.5f );
+					prevPixelUV = mad( prevCellScreenPos, 0.5f, 0.5f );
 				}
 
 				{
-					float4 cellPosCS;
-					cellPosCS.x = mul( c_traceEyes[eye].curWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[0].w;
-					cellPosCS.y = mul( c_traceEyes[eye].curWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[1].w;
-					cellPosCS.w = mul( c_traceEyes[eye].curWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[3].w;
-					const float2 cellScreenPos = cellPosCS.xy * rcp( cellPosCS.w );
+					float4 curCellPosCS;
+					curCellPosCS.x = dot( c_traceEyes[eye].curWorldToProj[0].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[0].w;
+					curCellPosCS.y = dot( c_traceEyes[eye].curWorldToProj[1].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[1].w;
+					curCellPosCS.w = dot( c_traceEyes[eye].curWorldToProj[3].xyz, cellPosWS ) + c_traceEyes[eye].curWorldToProj[3].w;
+					const float2 curCellScreenPos = curCellPosCS.xy * rcp( curCellPosCS.w );
 			
-					pixelDepth[eye] = cellPosCS.w;
+					pixelDepth[eye] = curCellPosCS.w;
 
-					const float2 curPixelUV = mad( cellScreenPos, 0.5f, 0.5f );
+					const float2 curPixelUV = mad( curCellScreenPos, 0.5f, 0.5f );
 					pixelDisplacementsF16[eye] = f32tof16( curPixelUV - prevPixelUV );
 					curPixelCoords[eye] = floor( curPixelUV * c_traceFrameSize ) + c_traceJitter;
 				}
@@ -183,12 +185,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			InterlockedAdd( blockTraceStats[0].cellProcessedCounts[mip], 1 );
 #endif // #if BLOCK_DEBUG == 1
 
+		// if ( valid + dot( curPixelCoords[0], curPixelCoords[1] ) == 0.170977f )
 		if ( valid )
 		{
 			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
 				if ( IsValidCoords( curPixelCoords[eye] ) )
 				{
+					// 4100 us (6730 us)
+
 					uint hitMask9 = 0;
 					{
 						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], -1, -1, boxMinRS[eye], boxMaxRS[eye], eye ) << 0;
@@ -204,6 +209,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 						hitMask9 |= TraceCell( blockCellID, curPixelCoords[eye], +1, +1, boxMinRS[eye], boxMaxRS[eye], eye ) << 8;
 					}
 
+					// 1040 us (7770 us)
+
+					if ( hitMask9 != 0 )
 					{
 						const int2 frameSize = int2( c_traceFrameSize.xy );
 						const int cellItemCountPerPage = frameSize.x * c_traceEyeCount * frameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
@@ -226,7 +234,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #if BLOCK_DEBUG == 1
 							if ( c_traceGetStats )
 							{
-								InterlockedAdd( blockTraceStats[0].pixelSampleCount, countbits( hitMask9 ) );
+								const uint pixelSampleCount = countbits( hitMask9 );
+								InterlockedAdd( blockTraceStats[0].pixelSampleCount, pixelSampleCount );
+								InterlockedAdd( blockTraceStats[0].pixelSampleDistribution[pixelSampleCount], 1 );
 								InterlockedAdd( blockTraceStats[0].cellItemCounts[mip], 1 );
 							}
 #endif // #if BLOCK_DEBUG == 1

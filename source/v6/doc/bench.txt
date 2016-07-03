@@ -672,3 +672,59 @@ Frame      : 969274 us
     Font       :     0 us
     Copy       :   141 us
     Present    : 968759 us
+
+Bench:
+
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        cellOutputCount.mip[2]        :     924352
+blockCull        cellOutputCount.mip[3]        :    3324096
+blockCull        cellOutputCount.mip[4]        :    1128848
+blockCull        cellOutputCount.mip[5]        :     401692
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    5807008
+blockTrace       cellInputCount                :    5807104
+blockTrace       cellProcessedCounts.mip[2]    :     924352
+blockTrace       cellProcessedCounts.mip[3]    :    3324096
+blockTrace       cellProcessedCounts.mip[4]    :    1128848
+blockTrace       cellProcessedCounts.mip[5]    :     401692
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    5807008
+blockTrace       pixelSampleCount              :    8443269
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    5839883
+blockTrace       2_pixelSampleCount            :     820758
+blockTrace       3_pixelSampleCount            :     177678
+blockTrace       4_pixelSampleCount            :     103669
+blockTrace       5_pixelSampleCount            :       2832
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :     968068
+blockTrace       cellItemCount.mip[3]          :    3920482
+blockTrace       cellItemCount.mip[4]          :    1403404
+blockTrace       cellItemCount.mip[5]          :     604741
+blockTrace       cellItemCount.mip[6]          :      48122
+blockTrace       cellItemCount.mip[7]          :          3
+blockTrace       cellItemCount                 :    6944820
+blockTrace       cellItemMaxCountPerPixel      :         31
+blockTrace       traceCellStatCount            :   94914027
+Frame      : 846029 us
+    Update     :     0 us
+    Draw       : 14271 us
+        Cull       :   241 us
+        Trace      :  7689 us
+        Blend      :  2946 us
+        TSAA       :   136 us
+        Sharpen    :    90 us
+        Blend      :  2946 us
+        TSAA       :   136 us
+        Sharpen    :    90 us
+    Font       :     0 us
+    Copy       :   140 us
+    Present    : 843778 us

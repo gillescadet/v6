@@ -139,6 +139,7 @@ struct BlockTraceStats
 	uint	cellInputCount;
 	uint	cellProcessedCounts[HLSL_MIP_MAX_COUNT];
 	uint	pixelSampleCount;
+	uint	pixelSampleDistribution[10];
 	uint	cellItemCounts[HLSL_MIP_MAX_COUNT];
 	uint	cellItemMaxCountPerPixel;
 	uint	traceCellStatCount;

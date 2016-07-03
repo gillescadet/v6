@@ -402,6 +402,8 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 			}
 			ReadBack_Log( "blockTrace", cellProcessedCount, "cellProcessedCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
+			for ( u32 pixelSampleCount = 0; pixelSampleCount <= 9; ++pixelSampleCount )
+				ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleDistribution[pixelSampleCount], String_Format( "%d_pixelSampleCount", pixelSampleCount ) );
 			u32 cellItemCount = 0;
 			for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip  )
 			{
