@@ -525,6 +525,7 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 
 		cbBlend->c_blendEye = eye;
 		cbBlend->c_blendEyeCount = traceContext->desc.stereo ? 2 : 1;
+		cbBlend->c_blendDepth24Norm = ((1<<24) - 1) / traceContext->stream->desc.gridScaleMax;
 
 		GPUConstantBuffer_UnmapWrite( &traceRes->cbBlend  );
 	}

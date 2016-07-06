@@ -101,7 +101,7 @@ CBUFFER( CBBlend, 2 )
 	uint				c_blendEyeCount;
 	uint2				c_blendFrameSize;
 	float3				c_blendBackColor;
-	float				c_blendPad;
+	float				c_blendDepth24Norm;
 };
 
 CBUFFER( CBTSAA, 3 )
