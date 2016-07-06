@@ -243,7 +243,11 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		if ( traceContext->frameState.resetJitter )
 		{
 			for ( u32 eye = 0; eye < eyeCount; ++eye )
-				traceContext->frameState.prevWorldToProjs[eye] = worldToProjs[eye];
+			{
+				traceContext->frameState.prevWorldToProjsX[eye] = worldToProjs[eye].m_row0;
+				traceContext->frameState.prevWorldToProjsY[eye] = worldToProjs[eye].m_row1;
+				traceContext->frameState.prevWorldToProjsW[eye] = worldToProjs[eye].m_row3;
+			}
 			traceContext->frameState.jitterID = 0;
 		}
 
@@ -282,14 +286,12 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
 		{	
 			hlsl::TracePerEye tracePerEye;
-			tracePerEye.prevWorldToProj[0] = traceContext->frameState.prevWorldToProjs[eye].m_row0;
-			tracePerEye.prevWorldToProj[1] = traceContext->frameState.prevWorldToProjs[eye].m_row1;
-			tracePerEye.prevWorldToProj[2] = traceContext->frameState.prevWorldToProjs[eye].m_row2;
-			tracePerEye.prevWorldToProj[3] = traceContext->frameState.prevWorldToProjs[eye].m_row3;
-			tracePerEye.curWorldToProj[0] = worldToProjs[eye].m_row0;
-			tracePerEye.curWorldToProj[1] = worldToProjs[eye].m_row1;
-			tracePerEye.curWorldToProj[2] = worldToProjs[eye].m_row2;
-			tracePerEye.curWorldToProj[3] = worldToProjs[eye].m_row3;
+			tracePerEye.prevWorldToProjX = traceContext->frameState.prevWorldToProjsX[eye];
+			tracePerEye.prevWorldToProjY = traceContext->frameState.prevWorldToProjsY[eye];
+			tracePerEye.prevWorldToProjW = traceContext->frameState.prevWorldToProjsW[eye];
+			tracePerEye.curWorldToProjX = worldToProjs[eye].m_row0;
+			tracePerEye.curWorldToProjY = worldToProjs[eye].m_row1;
+			tracePerEye.curWorldToProjW = worldToProjs[eye].m_row3;
 
 			const float scaleRight = (views[eye].tanHalfFOVLeft + views[eye].tanHalfFOVRight) / frameSize.x;
 			const float scaleUp = (views[eye].tanHalfFOVUp + views[eye].tanHalfFOVDown) / frameSize.y;
@@ -316,10 +318,9 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
 		{
-			traceContext->frameState.prevWorldToProjs[eye].m_row0 = worldToProjs[eye].m_row0;
-			traceContext->frameState.prevWorldToProjs[eye].m_row1 = worldToProjs[eye].m_row1;
-			traceContext->frameState.prevWorldToProjs[eye].m_row2 = worldToProjs[eye].m_row2;
-			traceContext->frameState.prevWorldToProjs[eye].m_row3 = worldToProjs[eye].m_row3;
+			traceContext->frameState.prevWorldToProjsX[eye] = worldToProjs[eye].m_row0;
+			traceContext->frameState.prevWorldToProjsY[eye] = worldToProjs[eye].m_row1;
+			traceContext->frameState.prevWorldToProjsW[eye] = worldToProjs[eye].m_row3;
 		}
 	}
 
@@ -401,6 +402,7 @@ static void TraceBlock( TraceContext_s* traceContext, const View_s* views, const
 				}
 			}
 			ReadBack_Log( "blockTrace", cellProcessedCount, "cellProcessedCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->cellValidCount, "cellValidCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleCount, "pixelSampleCount" );
 			for ( u32 pixelSampleCount = 0; pixelSampleCount <= 9; ++pixelSampleCount )
 				ReadBack_Log( "blockTrace", blockTraceStats->pixelSampleDistribution[pixelSampleCount], String_Format( "%d_pixelSampleCount", pixelSampleCount ) );

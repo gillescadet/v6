@@ -26,20 +26,23 @@ bool IsValidCoords( float2 pixelCoords )
 
 bool TraceCell( uint blockCellID, float2 pixelCoords, float x, float y, float3 boxMinRS, float3 boxMaxRS, uint eye )
 {
-	const float2 frameSize = c_traceFrameSize.xy;
-
-	const float2 otherPixelCoords = pixelCoords + float2( x, y );
-	const float3 rayDir = mad( otherPixelCoords.y, c_traceEyes[eye].rayDirUp, mad( otherPixelCoords.x, c_traceEyes[eye].rayDirRight, c_traceEyes[eye].rayDirBase ) );
-	const float3 rayInvDir = rcp( rayDir );
-	const float3 t0 = boxMinRS * rayInvDir;
-	const float3 t1 = boxMaxRS * rayInvDir;
 	// optimization: if direction is known, t0 and t1 could be ordered statically
-	const float3 tMin = min( t0, t1 );
-	const float3 tMax = max( t0, t1 );
-	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
-	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );
-	const bool hit = (tIn <= tOut) && IsValidCoords( otherPixelCoords );
 
+	const float2 frameSize = c_traceFrameSize.xy;
+																																											// | and | cmpf | addf | mulf | madf | minf | maxf | divf |
+	const float2 otherPixelCoords = pixelCoords + float2( x, y );																											// |     |      |    2 |      |      |      |      |      |
+	const float3 rayDir = mad( otherPixelCoords.y, c_traceEyes[eye].rayDirUp, mad( otherPixelCoords.x, c_traceEyes[eye].rayDirRight, c_traceEyes[eye].rayDirBase ) );		// |     |      |      |      |    6 |      |      |      |
+	const float3 rayInvDir = rcp( rayDir );																																	// |     |      |      |      |      |      |      |    3 |
+	const float3 t0 = boxMinRS * rayInvDir;																																	// |     |      |      |    3 |      |      |      |      |
+	const float3 t1 = boxMaxRS * rayInvDir;																																	// |     |      |      |    3 |      |      |      |      |
+	const float3 tMin = min( t0, t1 );																																		// |     |      |      |      |      |    3 |      |      |
+	const float3 tMax = max( t0, t1 );																																		// |     |      |      |      |      |      |    3 |      |
+	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );																													// |     |      |      |      |      |      |    2 |      |
+	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );																												// |     |      |      |      |      |    2 |      |      |
+	const bool hit = (tIn <= tOut) && IsValidCoords( otherPixelCoords );																									// |   4 |    5 |      |      |      |      |      |      |
+																																											// |-----|------|------|------|------|------|------|------|
+																																											// |   4 |    5 |    2 |    6 |    6 |    5 |    5 |    3 |
+																																											// => 45 cycles
 #if BLOCK_DEBUG == 1
 	if ( c_traceGetStats )
 	{
@@ -78,8 +81,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	if ( cellID < trace_blockCount( GRID_CELL_BUCKET ) * GRID_CELL_COUNT )
 	{
-		// 2630 us (0 us)
-
 		uint blockCellID;
 		bool valid;
 		uint mip;
@@ -92,6 +93,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		float2 curPixelSides[2];
 
 		{
+			// 550 us (0 us)
+
 			const uint blockRank = cellID >> GRID_CELL_SHIFT;
 			const uint cellRank = cellID & GRID_CELL_MASK;
 
@@ -140,43 +143,46 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 			const float gridScale = c_traceGridScales[mip].x;
 			const float halfCellSize = c_traceGridScales[mip].y;
-			// optimization: do everything in camera relative space
-			// optimization: add bias inside grid center
 			const float3 cellCenterWS = mad( cellCoords, halfCellSize * 2.0, -gridScale + halfCellSize ) + c_traceGridCenters[mip].xyz;
+
+			// 1000 us (estimation)
 
 			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
 				{
-					// optimization: do everything in camera relative space
 					const float3 cellCenterRS = cellCenterWS - c_traceEyes[eye].org; 
 					boxMinRS[eye] = cellCenterRS - halfCellSize;
 					boxMaxRS[eye] = cellCenterRS + halfCellSize;
 				}
 
-				float2 prevPixelUV;
-
+				float2 prevPixelCoords;
 				{
+					// 200 us
+
 					float4 prevCellPosCS;
-					prevCellPosCS.x = dot( c_traceEyes[eye].prevWorldToProj[0].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[0].w;
-					prevCellPosCS.y = dot( c_traceEyes[eye].prevWorldToProj[1].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[1].w;
-					prevCellPosCS.w = dot( c_traceEyes[eye].prevWorldToProj[3].xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProj[3].w;
+					prevCellPosCS.x = dot( c_traceEyes[eye].prevWorldToProjX.xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProjX.w;
+					prevCellPosCS.y = dot( c_traceEyes[eye].prevWorldToProjY.xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProjY.w;
+					prevCellPosCS.w = dot( c_traceEyes[eye].prevWorldToProjW.xyz, cellCenterWS ) + c_traceEyes[eye].prevWorldToProjW.w;
 					const float2 prevCellScreenPos = prevCellPosCS.xy * rcp( prevCellPosCS.w );
 			
-					prevPixelUV = mad( prevCellScreenPos, 0.5f, 0.5f );
+					const float2 prevPixelUV = mad( prevCellScreenPos, 0.5f, 0.5f );
+					prevPixelCoords = prevPixelUV * c_traceFrameSize;
 				}
 
 				{
+					// 250 us (estimation)
+
 					float4 curCellPosCS;
-					curCellPosCS.x = dot( c_traceEyes[eye].curWorldToProj[0].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[0].w;
-					curCellPosCS.y = dot( c_traceEyes[eye].curWorldToProj[1].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[1].w;
-					curCellPosCS.w = dot( c_traceEyes[eye].curWorldToProj[3].xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProj[3].w;
+					curCellPosCS.x = dot( c_traceEyes[eye].curWorldToProjX.xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProjX.w;
+					curCellPosCS.y = dot( c_traceEyes[eye].curWorldToProjY.xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProjY.w;
+					curCellPosCS.w = dot( c_traceEyes[eye].curWorldToProjW.xyz, cellCenterWS ) + c_traceEyes[eye].curWorldToProjW.w;
 					const float2 curCellScreenPos = curCellPosCS.xy * rcp( curCellPosCS.w );
 			
 					pixelDepth[eye] = curCellPosCS.w;
 
 					const float2 curPixelUV = mad( curCellScreenPos, 0.5f, 0.5f );
-					pixelDisplacementsF16[eye] = f32tof16( curPixelUV - prevPixelUV );
 					const float2 curPixelCoords = curPixelUV * c_traceFrameSize;
+					pixelDisplacementsF16[eye] = f32tof16( curPixelCoords - prevPixelCoords );
 					curPixelJitteredCoords[eye] = floor( curPixelCoords ) + c_traceJitter;
 					curPixelSides[eye].x = curPixelCoords.x < curPixelJitteredCoords[eye].x ? -1.0f : 1.0f;
 					curPixelSides[eye].y = curPixelCoords.y < curPixelJitteredCoords[eye].y ? -1.0f : 1.0f;
@@ -189,16 +195,16 @@ void main( uint3 DTid : SV_DispatchThreadID )
 			InterlockedAdd( blockTraceStats[0].cellProcessedCounts[mip], 1 );
 #endif // #if BLOCK_DEBUG == 1
 
-		// if ( valid + dot( curPixelJitteredCoords[0], curPixelJitteredCoords[1] ) == 0.170977f )
 		if ( valid )
 		{
 			for ( uint eye = 0; eye < c_traceEyeCount; ++eye )
 			{
 				if ( IsValidCoords( curPixelJitteredCoords[eye] ) )
 				{
-					// 4100 us (6730 us)
+					// 2880 us (5540 us)
 
 					uint hitMask9 = 0;
+
 					{
 						float2 offsets[4];
 						offsets[0] = float2( 0.0f,                 0.0f );
@@ -212,7 +218,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 						hitMask9 |= TraceCell( blockCellID, curPixelJitteredCoords[eye], offsets[3].x, offsets[3].y, boxMinRS[eye], boxMaxRS[eye], eye ) << uint( offsets[3].x + (offsets[3].y * 3.0f + 4.0f) );
 					}
 
-					// 1040 us (7770 us)
+					// 540 us (6080 us)
 
 					if ( hitMask9 != 0 )
 					{
@@ -252,6 +258,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					}
 				}
 			}
+
+#if BLOCK_DEBUG == 1
+			if ( c_traceGetStats )
+				InterlockedAdd( blockTraceStats[0].cellValidCount, 1 );
+#endif // #if BLOCK_DEBUG == 1
 		}
 	}
 }

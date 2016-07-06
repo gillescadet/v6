@@ -58,8 +58,12 @@ CBUFFER( CBCull, 0 )
 
 struct TracePerEye
 {
-	float4				prevWorldToProj[4];
-	float4				curWorldToProj[4];
+	float4				prevWorldToProjX;
+	float4				prevWorldToProjY;
+	float4				prevWorldToProjW;
+	float4				curWorldToProjX;
+	float4				curWorldToProjY;
+	float4				curWorldToProjW;
 	
 	float3				org;
 	float				pad0;
@@ -138,6 +142,7 @@ struct BlockTraceStats
 {
 	uint	cellInputCount;
 	uint	cellProcessedCounts[HLSL_MIP_MAX_COUNT];
+	uint	cellValidCount;
 	uint	pixelSampleCount;
 	uint	pixelSampleDistribution[10];
 	uint	cellItemCounts[HLSL_MIP_MAX_COUNT];

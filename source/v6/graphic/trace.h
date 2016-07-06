@@ -51,7 +51,9 @@ struct TraceOptions_s
 
 struct TraceFrameState_s
 {
-	Mat4x4					prevWorldToProjs[2];
+	Vec4					prevWorldToProjsX[2];
+	Vec4					prevWorldToProjsY[2];
+	Vec4					prevWorldToProjsW[2];
 	Vec3					origin;
 	Vec2					jitter;
 	u32						blockRangeCounts[CODEC_BUCKET_COUNT];

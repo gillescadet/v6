@@ -40,7 +40,7 @@ void main_pixel_tsaa_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Group
 
 	const uint displacementPixelID = mad( DTid.y, c_tsaaFrameSize.x, DTid.x );
 	const uint displacementF16 = inputDisplacements[displacementPixelID];
-	const float2 displacement = f16tof32( uint2( displacementF16 >> 16, displacementF16 & 0xFFFF ) ) * c_tsaaFrameSize;
+	const float2 displacement = f16tof32( uint2( displacementF16 >> 16, displacementF16 & 0xFFFF ) );
 
 	const float2 curColorCoords = float2( DTid.x, DTid.y ) + inputUnjitter;
 	const float2 prevColorCoords = float2( DTid.x, DTid.y ) + float2( -displacement.x, displacement.y ) + float2( 0.5f, 0.5f );

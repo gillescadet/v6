@@ -14,7 +14,7 @@
 #include <v6/core/thread.h>
 #include <v6/graphic/gpu.h>
 
-#define GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE 1
+#define GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE 0
 
 BEGIN_V6_NAMESPACE
 
