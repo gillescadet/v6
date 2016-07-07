@@ -782,3 +782,59 @@ Frame      : 13227 us
     Font       :     0 us
     Copy       :   141 us
     Present    :   337 us
+
+Bench: RS1024_V5 + reduce shared memory size for blending (RS1024_V6)
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        cellOutputCount.mip[2]        :     924352
+blockCull        cellOutputCount.mip[3]        :    3324096
+blockCull        cellOutputCount.mip[4]        :    1128848
+blockCull        cellOutputCount.mip[5]        :     401692
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    5807008
+blockTrace       cellInputCount                :    5807104
+blockTrace       cellProcessedCounts.mip[2]    :     924352
+blockTrace       cellProcessedCounts.mip[3]    :    3324096
+blockTrace       cellProcessedCounts.mip[4]    :    1128848
+blockTrace       cellProcessedCounts.mip[5]    :     401692
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    5807008
+blockTrace       cellValidCount                :    5303351
+blockTrace       pixelSampleCount              :    8422083
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    5846884
+blockTrace       2_pixelSampleCount            :     824888
+blockTrace       3_pixelSampleCount            :     190481
+blockTrace       4_pixelSampleCount            :      88495
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :     966990
+blockTrace       cellItemCount.mip[3]          :    3928161
+blockTrace       cellItemCount.mip[4]          :    1401660
+blockTrace       cellItemCount.mip[5]          :     605817
+blockTrace       cellItemCount.mip[6]          :      48118
+blockTrace       cellItemCount.mip[7]          :          2
+blockTrace       cellItemCount                 :    6950748
+blockTrace       cellItemMaxCountPerPixel      :         33
+blockTrace       traceCellStatCount            :   42184012
+Frame      : 13232 us
+    Update     :     0 us
+    Draw       : 10698 us
+        Cull       :   240 us
+        Trace      :  6090 us
+        Blend      :  1957 us
+        TSAA       :   136 us
+        Sharpen    :    91 us
+        Blend      :  1957 us
+        TSAA       :   136 us
+        Sharpen    :    91 us
+    Font       :     0 us
+    Copy       :   141 us
+    Present    :  2391 us
