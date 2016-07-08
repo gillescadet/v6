@@ -222,23 +222,39 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 					if ( hitMask9 != 0 )
 					{
-						const int2 frameSize = int2( c_traceFrameSize.xy );
-						const int cellItemCountPerPage = frameSize.x * c_traceEyeCount * frameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
-						const uint2 cellItemPixelCoords = uint2( curPixelJitteredCoords[eye].x + eye * frameSize.x, curPixelJitteredCoords[eye].y );
-						const uint pixelID = (mad( cellItemPixelCoords.y >> 3, (frameSize.x * c_traceEyeCount) >> 3, cellItemPixelCoords.x >> 3 ) << 6) + mad( cellItemPixelCoords.y & 7, 8, cellItemPixelCoords.x & 7 );
+						const uint2 cellItemPixelCoords = uint2( curPixelJitteredCoords[eye].x + eye * c_traceFrameSize.x, curPixelJitteredCoords[eye].y );
 
-						uint blockCellItemRank = 0;
-						InterlockedAdd( blockCellItemCounters[pixelID], 1, blockCellItemRank );
+						const uint2 cellBufferSize = uint2( c_traceFrameSize.x * 2, c_traceFrameSize.y );
+						const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+						const uint bw = cellBufferSize.x >> 3;
+						const uint bh = cellBufferSize.y >> 3;
+						const uint bx = cellItemPixelCoords.x >> 3;
+						const uint by = cellItemPixelCoords.y >> 3;
+						const uint gx = cellItemPixelCoords.x & 7;
+						const uint gy = cellItemPixelCoords.y & 7;
 
-						if ( blockCellItemRank < HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT )
+						const uint tileOffset = (by * bw + bx) << 6;
+						const uint groupOffset = (gy << 3) + gx;
+
+						const uint cellCounterID = tileOffset + groupOffset;
+
+						uint cellItemRank;
+						InterlockedAdd( blockCellItemCounters[cellCounterID], 1, cellItemRank );
+
+						if ( cellItemRank < HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT )
 						{
-							const uint blockCellItemPage = blockCellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
-							const uint blockCellItemRankInPage = blockCellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
-							const uint blockCellItemID = blockCellItemPage * cellItemCountPerPage + HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT * pixelID + blockCellItemRankInPage;
-					
-							blockCellItems[blockCellItemID].hitMask1_depth31 = ((hitMask9 & 0x100) << 23) | asuint( pixelDepth[eye] );
-							blockCellItems[blockCellItemID].r8g8b8_hitMask8 = rgb_none | (hitMask9 & 0xFF);
-							blockCellItems[blockCellItemID].xdsp16_ydsp16 = (pixelDisplacementsF16[eye].x << 16) | pixelDisplacementsF16[eye].y;
+							const uint page = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+							const uint plane = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
+
+							const uint cellItemID =
+								page * pageSize +
+								(plane << 6) +
+								(tileOffset << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT) + 
+								groupOffset;
+
+							blockCellItems[cellItemID].hitMask1_depth31 = ((hitMask9 & 0x100) << 23) | asuint( pixelDepth[eye] );
+							blockCellItems[cellItemID].r8g8b8_hitMask8 = rgb_none | (hitMask9 & 0xFF);
+							blockCellItems[cellItemID].xdsp16_ydsp16 = (pixelDisplacementsF16[eye].x << 16) | pixelDisplacementsF16[eye].y;
 
 #if BLOCK_DEBUG == 1
 							if ( c_traceGetStats )
@@ -253,7 +269,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 #if BLOCK_DEBUG == 1
 						if ( c_traceGetStats )
-							InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, blockCellItemRank );
+							InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, cellItemRank );
 #endif // #if BLOCK_DEBUG == 1
 					}
 				}

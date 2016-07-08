@@ -99,14 +99,14 @@ CBUFFER( CBTrace, 1 )
 
 CBUFFER( CBBlend, 2 )
 {
-	uint				c_blendEye;
-	uint				c_blendEyeCount;
 	uint2				c_blendFrameSize;
+	uint2				c_blendCellItemTileSize;
 	float3				c_blendBackColor;
 	float				c_blendDepth24Norm;
+	uint				c_blendEye;
+	uint				c_blendEyeCount;
 	uint				c_blendGetStats;
 	uint				c_blendShowOverdraw;
-	uint2				c_blendPad;
 };
 
 CBUFFER( CBTSAA, 3 )

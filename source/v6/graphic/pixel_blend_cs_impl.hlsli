@@ -20,7 +20,7 @@ RWStructuredBuffer< BlendStats > blendStats			: REGISTER_UAV( HLSL_BLEND_STATS_S
 
 struct PixelContext_s
 {
-	uint pixelID;
+	uint pixelOffset;
 	uint cellItemCount;
 };
 
@@ -94,18 +94,22 @@ void ComputeBorderGroupIDAndHitMask( out uint2 borderGroupID, out uint hitMask, 
 	}
 }
 
-void InitPixelContext( int2 bufferBasePos, uint2 groupID )
+void InitPixelContext( int2 bufferPos, uint2 groupID, uint2 Gid, uint2 GTid )
 {
 	PixelContext_s pixelContext;
-	pixelContext.pixelID = 0;
+	pixelContext.pixelOffset = 0;
 	pixelContext.cellItemCount = 0;
 
-	const int2 bufferPos = bufferBasePos + groupID;
 	const uint2 pixelCoords = uint2( bufferPos.x - c_blendEye * c_blendFrameSize.x, bufferPos.y );
 	if ( pixelCoords.x < (uint)c_blendFrameSize.x && pixelCoords.y < (uint)c_blendFrameSize.y )
 	{
-		pixelContext.pixelID = (mad( bufferPos.y >> 3, (c_blendFrameSize.x * c_blendEyeCount) >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
-		pixelContext.cellItemCount = min( cellItemCounters[pixelContext.pixelID], HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
+		const uint tileOffset = (Gid.y * c_blendCellItemTileSize.x + Gid.x) << 6;
+		const uint groupOffset = (GTid.y << 3) + GTid.x;
+
+		const uint cellCounterID = tileOffset + groupOffset;
+
+		pixelContext.pixelOffset = (tileOffset << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT) + groupOffset;
+		pixelContext.cellItemCount = min( cellItemCounters[cellCounterID], HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
 	}
 
 	gs_pixelContexts[groupID.y][groupID.x] = pixelContext;
@@ -149,9 +153,9 @@ void LoadPixelCandidate( int2 bufferBasePos, uint2 groupID, uint hitMask, uint c
 		}
 #endif // #if BLEND_DEBUG == 1
 
-		const uint blockCellItemPage = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
-		const uint blockCellItemRankInPage = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
-		const uint blockCellItemID = blockCellItemPage * cellItemCountPerPage + HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT * pixelContext.pixelID + blockCellItemRankInPage;
+		const uint page = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+		const uint plane = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
+		const uint blockCellItemID = page * cellItemCountPerPage + (plane << 6) + pixelContext.pixelOffset;
 		const BlockCellItem blockCellItem = blockCellItems[blockCellItemID];
 
 		PixelData_s pixelCandidate;
@@ -195,7 +199,7 @@ void OuputPixelData( out float3 out_color, out uint out_displacement, uint2 grou
 	out_displacement = pixelData.xdsp16_ydsp16;
 }
 
-void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, uint2 GTid )
+void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, uint2 Gid, uint2 GTid )
 {
 	if ( GTid.x == 0 && GTid.y == 0 )
 		gs_maxCellItemCount = 0;
@@ -212,9 +216,9 @@ void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, ui
 
 	GroupMemoryBarrierWithGroupSync(); // ensure gs_maxCellItemCount == 0
 
-	InitPixelContext( bufferBasePos, groupID );
+	InitPixelContext( bufferPos, groupID, Gid, GTid );
 	if ( borderHitMask )
-		InitPixelContext( bufferBasePos, borderGroupID );
+		InitPixelContext( bufferPos, borderGroupID, Gid, GTid );
 
 	GroupMemoryBarrierWithGroupSync(); // ensure gs_maxCellItemCount is set
 
@@ -236,7 +240,7 @@ void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, ui
 
 #else
 
-void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, uint2 GTid )
+void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, uint2 Gid, uint2 GTid )
 {
 	const int cellItemCountPerPage = c_blendFrameSize.x * c_blendEyeCount * c_blendFrameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
 
@@ -289,7 +293,7 @@ float3 ComputeOverdrawColor( uint2 bufferPos )
 }
 
 [ numthreads( 8, 8, 1 ) ]
-void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
+void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID )
 {
 	const uint2 screenBufferPos = uint2( DTid.x, c_blendFrameSize.y - DTid.y - 1 );
 	const uint2 stereoBuffPos = uint2( DTid.x + c_blendEye * c_blendFrameSize.x, DTid.y );
@@ -310,7 +314,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 	else
 #endif // #if BLEND_DEBUG == 1
 	{
-		Blend( color, displacement, stereoBuffPos, GTid.xy );
+		Blend( color, displacement, stereoBuffPos, Gid.xy, GTid.xy );
 	}
 
 	outputColors[screenBufferPos] = float4( color, 1.0f );

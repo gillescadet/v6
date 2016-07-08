@@ -1162,9 +1162,53 @@ static void Player_Release( Player_s* player )
 	PlayerDevice_Release( player );
 }
 
+static void Test()
+{
+	const u32 MAX_CELL_ITEM = 32;
+	const u32 CELL_PER_PAGE_PER_PIXEL_SHIFT = 2;
+	const u32 CELL_PER_PAGE_PER_PIXEL = 1 << CELL_PER_PAGE_PER_PIXEL_SHIFT;
+	const u32 CELL_PER_PAGE_PER_PIXEL_MASK = CELL_PER_PAGE_PER_PIXEL-1;
+
+	const u32 w = 1024;
+	const u32 h = 512;
+
+	const u32 x = rand() % w;
+	const u32 y = rand() % h;
+	const u32 cellItemRank = rand() % MAX_CELL_ITEM;
+	
+
+	{
+		const u32 pageSize = (w * h) << CELL_PER_PAGE_PER_PIXEL_SHIFT;
+
+		const u32 bw = w >> 3;
+		const u32 bh = h >> 3;
+
+		const u32 bx = x >> 3;
+		const u32 by = y >> 3;
+
+		const u32 gx = x & 7;
+		const u32 gy = y & 7;
+
+		const u32 tileOffset = (by * bw + bx) << 6;
+		const u32 groupOffset = (gy << 3) + gx;
+		const u32 cellCounterID = tileOffset + groupOffset;
+		
+		const u32 page = cellItemRank >> CELL_PER_PAGE_PER_PIXEL_SHIFT;
+		const u32 plane = cellItemRank & CELL_PER_PAGE_PER_PIXEL_MASK;
+
+		const u32 cellItemID = 
+			page * pageSize +
+			(tileOffset << CELL_PER_PAGE_PER_PIXEL_SHIFT) + 
+			(plane << 6) +
+			groupOffset;
+	}
+}
+
 END_V6_NAMESPACE
 
 //----------------------------------------------------------------------------------------------------
+
+#if 1
 
 int main( int argc, char** argv )
 {
@@ -1202,3 +1246,14 @@ int main( int argc, char** argv )
 
 	return 0;
 }
+
+#else
+
+int main( int argc, char** argv )
+{
+	v6::Test();
+
+	return 0;
+}
+
+#endif
