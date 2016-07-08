@@ -23,8 +23,8 @@
 // ------------------------------ ---------- ------- ----------- ---- --------
 // bilinearSampler                   sampler      NA          NA    0        1
 // inputColors                       texture  float4          2d    0        1
-// inputDisplacements                texture    uint         buf    1        1
-// inputHistory                      texture  float4          2d    2        1
+// inputDisplacements                texture    uint         buf    2        1
+// inputHistory                      texture  float4          2d    3        1
 // outputColors                          UAV  float4          2d    0        1
 // CBTSAA                            cbuffer      NA          NA    3        1
 //
@@ -46,8 +46,8 @@ dcl_globalFlags refactoringAllowed
 dcl_constantbuffer cb3[2], immediateIndexed
 dcl_sampler s0, mode_default
 dcl_resource_texture2d (float,float,float,float) t0
-dcl_resource_buffer (uint,uint,uint,uint) t1
-dcl_resource_texture2d (float,float,float,float) t2
+dcl_resource_buffer (uint,uint,uint,uint) t2
+dcl_resource_texture2d (float,float,float,float) t3
 dcl_uav_typed_texture2d (float,float,float,float) u0
 dcl_input vThreadID.xy
 dcl_temps 7
@@ -55,7 +55,7 @@ dcl_thread_group 8, 8, 1
 utof r0.xyzw, vThreadID.yxxy
 mad r0.x, r0.x, cb3[1].x, r0.y
 ftou r0.x, r0.x
-ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r0.xxxx, t1.xyzw
+ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r0.xxxx, t2.xyzw
 ushr r0.y, r0.x, l(16)
 and r0.x, r0.x, l(0x0000ffff)
 f16tof32 r1.y, r0.x
@@ -64,7 +64,7 @@ mov r1.z, -r0.x
 add r0.xy, r0.zwzz, r1.zyzz
 add r0.xy, r0.xyxx, l(0.500000, 0.500000, 0.000000, 0.000000)
 mul r0.xy, r0.xyxx, cb3[1].zwzz
-sample_l_indexable(texture2d)(float,float,float,float) r1.xyz, r0.xyxx, t2.xyzw, s0, l(0.000000)
+sample_l_indexable(texture2d)(float,float,float,float) r1.xyz, r0.xyxx, t3.xyzw, s0, l(0.000000)
 add r2.y, -r1.z, r1.x
 mad r1.x, r2.y, l(0.500000), r1.z
 add r2.z, -r1.x, r1.y
@@ -134,10 +134,10 @@ ret
 
 const BYTE g_main_pixel_tsaa_cs[] =
 {
-     68,  88,  66,  67, 196, 173, 
-    167,   5, 120, 242, 213, 130, 
-    251, 158, 122, 152, 189,  40, 
-    212, 148,   1,   0,   0,   0, 
+     68,  88,  66,  67,  90,  57, 
+    104,  63,  16,  17,  43,  59, 
+    183, 174, 215, 217, 141, 204, 
+    124, 215,   1,   0,   0,   0, 
     184,  13,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
      60,   3,   0,   0,  76,   3, 
@@ -168,12 +168,12 @@ const BYTE g_main_pixel_tsaa_cs[] =
       0,   0,   2,   0,   0,   0, 
       4,   0,   0,   0,   1,   0, 
       0,   0, 255, 255, 255, 255, 
-      1,   0,   0,   0,   1,   0, 
+      2,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
      43,   1,   0,   0,   2,   0, 
       0,   0,   5,   0,   0,   0, 
       4,   0,   0,   0, 255, 255, 
-    255, 255,   2,   0,   0,   0, 
+    255, 255,   3,   0,   0,   0, 
       1,   0,   0,   0,  13,   0, 
       0,   0,  56,   1,   0,   0, 
       4,   0,   0,   0,   5,   0, 
@@ -289,10 +289,10 @@ const BYTE g_main_pixel_tsaa_cs[] =
       0, 112,  16,   0,   0,   0, 
       0,   0,  85,  85,   0,   0, 
      88,   8,   0,   4,   0, 112, 
-     16,   0,   1,   0,   0,   0, 
+     16,   0,   2,   0,   0,   0, 
      68,  68,   0,   0,  88,  24, 
       0,   4,   0, 112,  16,   0, 
-      2,   0,   0,   0,  85,  85, 
+      3,   0,   0,   0,  85,  85, 
       0,   0, 156,  24,   0,   4, 
       0, 224,  17,   0,   0,   0, 
       0,   0,  85,  85,   0,   0, 
@@ -319,7 +319,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
      18,   0,  16,   0,   0,   0, 
       0,   0,   6,   0,  16,   0, 
       0,   0,   0,   0,  70, 126, 
-     16,   0,   1,   0,   0,   0, 
+     16,   0,   2,   0,   0,   0, 
      85,   0,   0,   7,  34,   0, 
      16,   0,   0,   0,   0,   0, 
      10,   0,  16,   0,   0,   0, 
@@ -362,7 +362,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
      16,   0,   1,   0,   0,   0, 
      70,   0,  16,   0,   0,   0, 
       0,   0,  70, 126,  16,   0, 
-      2,   0,   0,   0,   0,  96, 
+      3,   0,   0,   0,   0,  96, 
      16,   0,   0,   0,   0,   0, 
       1,  64,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   8, 

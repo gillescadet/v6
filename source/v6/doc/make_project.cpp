@@ -420,7 +420,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_blend_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_blend_cs_impl.hlsli",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/pixel_blend_overdraw_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/pixel_blend_debug_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_sharpen_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_tsaa_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },

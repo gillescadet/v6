@@ -19,8 +19,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BILINEAR_SLOT							0
 
 #define HLSL_COLOR_SLOT								0
-#define HLSL_DISPLACEMENT_SLOT						1
-#define HLSL_HISTORY_SLOT							2
+#define HLSL_DEPTH24_SLOT							1
+#define HLSL_DISPLACEMENT_SLOT						2
+#define HLSL_HISTORY_SLOT							3
 
 #define HLSL_BLOCK_POS_SLOT							0
 #define HLSL_BLOCK_DATA_SLOT						1
@@ -33,6 +34,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_TRACE_INDIRECT_ARGS_SLOT				8
 #define HLSL_TRACE_STATS_SLOT						9
 #define HLSL_TRACE_CELL_STATS_SLOT					10
+#define HLSL_BLEND_STATS_SLOT						11
 
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT		2
 #define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT		(1 << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT)
@@ -102,6 +104,9 @@ CBUFFER( CBBlend, 2 )
 	uint2				c_blendFrameSize;
 	float3				c_blendBackColor;
 	float				c_blendDepth24Norm;
+	uint				c_blendGetStats;
+	uint				c_blendShowOverdraw;
+	uint2				c_blendPad;
 };
 
 CBUFFER( CBTSAA, 3 )
@@ -162,6 +167,15 @@ struct BlockTraceCellStats
 	float	tIn;
 	float	tOut;
 	bool	hit;
+};
+
+struct BlendStats
+{
+	uint	pixelInputCount;
+	uint	cellItemHitInputCount;
+	uint	cellItemBorderInputCount;
+	uint	cellItemHitProcessedCount;
+	uint	cellItemBorderProcessedCount;
 };
 
 #define trace_cellGroupCountX_offset( BUCKET )				(BUCKET * 3 + 0)

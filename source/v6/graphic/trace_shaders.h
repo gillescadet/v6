@@ -107,18 +107,18 @@ static const u32 g_sizeof_block_trace_cs[2][HLSL_BUCKET_COUNT] =
 };
 
 #include <v6/graphic/pixel_blend_cs_bytecode.h>
-#include <v6/graphic/pixel_blend_overdraw_cs_bytecode.h>
+#include <v6/graphic/pixel_blend_debug_cs_bytecode.h>
 
 static const u8* g_main_pixel_blend_cs_options[2] = 
 {
 	g_main_pixel_blend_cs,
-	g_main_pixel_blend_overdraw_cs,
+	g_main_pixel_blend_debug_cs,
 };
 
 static const u32 g_sizeof_pixel_blend_cs_options[2] = 
 {
 	sizeof( g_main_pixel_blend_cs ),
-	sizeof( g_main_pixel_blend_overdraw_cs ),
+	sizeof( g_main_pixel_blend_debug_cs ),
 };
 
 #include <v6/graphic/pixel_tsaa_cs_bytecode.h>

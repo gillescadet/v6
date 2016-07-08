@@ -50,6 +50,7 @@ struct GPUTraceResources_s
 	GPUBuffer_s				cullStats;
 	GPUBuffer_s				traceStats;
 	GPUBuffer_s				traceCellStats;
+	GPUBuffer_s				blendStats;
 
 	GPUCompute_s			computeCull[2][CODEC_BUCKET_COUNT];
 	GPUCompute_s			computeTraceInit;
@@ -85,6 +86,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 	GPUEvent_Begin( s_gpuEventCull );
 
 	// Clear
+
 	u32 values[4] = {};
 	g_deviceContext->ClearUnorderedAccessViewUint( traceRes->traceIndirectArgs.uav, values );
 	if ( options->logReadBack )
@@ -488,9 +490,13 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 {
 	GPUTraceResources_s* traceRes = traceContext->res;
 
-	// Render
-
 	GPUEvent_Begin( s_gpuEventBlend );
+
+	// Clear
+
+	u32 values[4] = {};
+	if ( options->logReadBack )
+		g_deviceContext->ClearUnorderedAccessViewUint( traceRes->blendStats.uav, values );
 	
 	// Set
 
@@ -500,7 +506,10 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, &traceRes->cellItemCounters.srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &outputColors, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.uav, nullptr );
-	const u32 shaderOption = options->showOverdraw ? 1 : 0;
+	if ( options->logReadBack )
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLEND_STATS_SLOT, 1, &traceRes->blendStats.uav, nullptr );
+
+	const u32 shaderOption = (options->logReadBack || options->showOverdraw) ? 1 : 0;
 	g_deviceContext->CSSetShader( traceRes->computeBlend[shaderOption].m_computeShader, nullptr, 0 );
 	
 	{
@@ -527,6 +536,9 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbBlend->c_blendEyeCount = traceContext->desc.stereo ? 2 : 1;
 		cbBlend->c_blendDepth24Norm = ((1<<24) - 1) / traceContext->stream->desc.gridScaleMax;
 
+		cbBlend->c_blendGetStats = options->logReadBack;
+		cbBlend->c_blendShowOverdraw = options->showOverdraw;
+
 		GPUConstantBuffer_UnmapWrite( &traceRes->cbBlend  );
 	}
 
@@ -542,8 +554,29 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_ITEM_COUNT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	if ( options->logReadBack )
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLEND_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
 	GPUEvent_End();
+
+	if ( options->logReadBack )
+	{
+		V6_MSG( "\n" );
+
+		{
+			const hlsl::BlendStats* blendStats = (hlsl::BlendStats*)GPUBuffer_MapReadBack( &traceRes->blendStats );
+
+			ReadBack_Log( "pixelBlend", blendStats->pixelInputCount, "pixelInputCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemHitInputCount, "cellItemHitInputCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemBorderInputCount, "cellItemBorderInputCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemHitInputCount + blendStats->cellItemBorderInputCount, "cellItemInputCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemHitProcessedCount, "cellItemHitProcessedCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemBorderProcessedCount, "cellItemBorderProcessedCount" );
+			ReadBack_Log( "pixelBlend", blendStats->cellItemHitProcessedCount + blendStats->cellItemBorderProcessedCount, "cellItemProcessedCount" );
+
+			GPUBuffer_UnmapReadBack( &traceRes->blendStats );
+		}
+	}
 }
 
 static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, u32 eye, const TraceOptions_s* options )
@@ -742,8 +775,9 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUBuffer_CreateStructured( &res->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( &res->traceStats, sizeof( hlsl::BlockTraceStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceStats" );
 	GPUBuffer_CreateStructured( &res->traceCellStats, sizeof( hlsl::BlockTraceCellStats ), HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockTraceCellStats" );
+	GPUBuffer_CreateStructured( &res->blendStats, sizeof( hlsl::BlendStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blendStats" );
 
-	GPUTexture2D_CreateRW( &res->colors, traceDesc->screenWidth, traceDesc->screenHeight, "pixelColors0" );
+	GPUTexture2D_CreateRW( &res->colors, traceDesc->screenWidth, traceDesc->screenHeight, "pixelColors" );
 	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
 	{
 		for ( u32 eye = 0; eye < eyeCount; ++eye )
@@ -821,6 +855,7 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	GPUBuffer_Release( &res->cullStats );
 	GPUBuffer_Release( &res->traceStats );
 	GPUBuffer_Release( &res->traceCellStats );
+	GPUBuffer_Release( &res->blendStats );
 	
 	GPUTexture2D_Release( &res->colors );
 	for ( u32 bufferID = 0; bufferID < 2; ++bufferID )
