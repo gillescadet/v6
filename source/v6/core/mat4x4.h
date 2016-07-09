@@ -303,10 +303,9 @@ V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* right, const Vec3* up
 	return m;
 }
 
-V6_INLINE Mat4x4 Mat4x4_Projection( float n, float fov, float aspectRatio )
+V6_INLINE Mat4x4 Mat4x4_Projection( float n, float tanHalfFov, float aspectRatio )
 {
-	const float tanHalf = Tan( fov * 0.5f );
-	const float h = 1.0f / tanHalf;
+	const float h = 1.0f / tanHalfFov;
 	const float w = h / aspectRatio;
 
 	Mat4x4 m;

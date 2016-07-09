@@ -224,7 +224,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					{
 						const uint2 cellItemPixelCoords = uint2( curPixelJitteredCoords[eye].x + eye * c_traceFrameSize.x, curPixelJitteredCoords[eye].y );
 
-						const uint2 cellBufferSize = uint2( c_traceFrameSize.x * 2, c_traceFrameSize.y );
+						const uint2 cellBufferSize = uint2( c_traceFrameSize.x * c_traceEyeCount, c_traceFrameSize.y );
 						const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
 						const uint bw = cellBufferSize.x >> 3;
 						const uint bh = cellBufferSize.y >> 3;

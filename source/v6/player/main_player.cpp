@@ -26,6 +26,7 @@
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
 #define V6_ENABLE_HMD			0
+#define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 
 BEGIN_V6_NAMESPACE
@@ -264,9 +265,9 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 //----------------------------------------------------------------------------------------------------
 
-static void PlayerScene_Create( Player_s* player )
+static void PlayerScene_Create( Player_s* player, float tanHalfFovPerPixel )
 {
-	Camera_Create( &player->camera, ZNEAR_DEFAULT, ZFAR_DEFAULT, DegToRad( 90.0f ), (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height );
+	Camera_Create( &player->camera, ZNEAR_DEFAULT, ZFAR_DEFAULT, tanHalfFovPerPixel * player->mainRenderTargetSet.height, (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height );
 	
 	Scene_Create( &player->scene );
 
@@ -309,7 +310,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 #if V6_D3D_DEBUG == 1
 	debugDevice = true;
 #endif
-	GPUDevice_CreateWithSurfaceContext( width * EYE_COUNT, height, player->win.hWnd, debugDevice );
+	GPUDevice_CreateWithSurfaceContext( player->win.size.x, player->win.size.y, player->win.hWnd, debugDevice );
 	
 	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 	renderTargetSetCreationDesc.name = "main";
@@ -1085,12 +1086,14 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		V6_GPU_EVENT_SCOPE( s_gpuEventHMD );
 		Hmd_EndRendering();
 	}
-#endif // #if V6_USE_HMD == 1
+#endif // #if V6_USE_HMD == 
 
+#if V6_ENABLE_MIRRORING == 1
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventCopy );
 		Player_CopyToSurface( player );
 	}
+#endif // #if V6_ENABLE_MIRRORING == 1
 
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventPresent );
@@ -1102,7 +1105,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	player->traceOptions.logReadBack = false;
 }
 
-static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight, IAllocator* heap, IStack* stack )
+static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight, float defaultTanHalfFovPerPixel, IAllocator* heap, IStack* stack )
 {
 	memset( player, 0, sizeof( *player ) );
 
@@ -1114,7 +1117,7 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	}
 
 	v6::Vec2 recommendedFOV = v6::Hmd_GetRecommendedFOV();
-	v6::u32 renderTargetHalfSize = defaultWidth >> 1;
+	v6::u32 renderTargetHalfSize = defaultHeight >> 1;
 	u32 width = (u32)(renderTargetHalfSize * recommendedFOV.x);
 	u32 height = (u32)(renderTargetHalfSize * recommendedFOV.y);
 	width = (width + 7) & ~7;
@@ -1124,9 +1127,17 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	const u32 height = defaultHeight;
 #endif // #if V6_USE_HMD == 1
 
+#if V6_ENABLE_MIRRORING == 1
+	const u32 windowWidth = width * EYE_COUNT;
+	const u32 windowHeight = height;
+#else
+	const u32 windowWidth = 800;
+	const u32 windowHeight = 600;
+#endif
+
 	player->commandLineSize = (u32)-1;
 
-	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, width * EYE_COUNT, height, true ) )
+	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, windowWidth, windowHeight, true ) )
 		return false;
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
 	Win_RegisterMouseEvent( &player->win, Player_OnMouseEvent );
@@ -1145,7 +1156,7 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	}
 #endif // #if V6_USE_HMD == 1
 
-	PlayerScene_Create( player );
+	PlayerScene_Create( player, defaultTanHalfFovPerPixel );
 
 	return true;
 }
@@ -1217,10 +1228,26 @@ int main( int argc, char** argv )
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 
+#if 0
+	// HD
+	const v6::u32 defaultWidth = 960;
+	const v6::u32 defaultHeight = 1080;
+#endif
+
+#if 0
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
+#endif
+	
+#if 1
+	// DK2
+	const v6::u32 defaultWidth = 1104;
+	const v6::u32 defaultHeight = 1368;
+#endif
 
-	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, &heap, &stack ) )
+	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
+
+	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, defaultTanHalfFovPerPixel, &heap, &stack ) )
 		return -1;
 
 	if ( argc >= 2 )

@@ -24,7 +24,7 @@ struct Camera_s
 
 	float			znear;
 	float			zfar;
-	float			fov;
+	float			tanHalfFov;
 	float			aspectRatio;
 
 	float			yaw;
@@ -58,7 +58,7 @@ struct View_s
 	float			tanHalfFOVDown;
 };
 
-void	Camera_Create( Camera_s* camera, float znear, float zfar, float fov, float aspectRatio );
+void	Camera_Create( Camera_s* camera, float znear, float zfar, float tanFov, float aspectRatio );
 void	Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye, const ViewProjection_s* overridenViewProjection );
 void	Camera_SetPosOffset( Camera_s* camera, const Vec3* pos );
 void	Camera_SetStereoUsingIPD( Camera_s* camera, float ipd );

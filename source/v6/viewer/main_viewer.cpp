@@ -810,14 +810,15 @@ static const char* ModeToString( DrawMode_e drawMode )
 
 static void RenderingView_MakeForStereo( View_s* renderingView, const Vec3* org, const Vec3* forward, const Vec3* up, const Vec3* right, const u32 eye, float aspectRatio )
 {
+	const float tanHalfFOV = Tan( FOV * 0.5f );
 	const Vec3 eyeOffset = *right * 0.5f * IPD;
 	renderingView->org = *org + (eye == 0 ? -eyeOffset : eyeOffset);
 	renderingView->forward = *forward;
 	renderingView->right = *right;
 	renderingView->up = *up;
 	renderingView->viewMatrix = Mat4x4_View( &renderingView->org, right, up, forward );
-	renderingView->projMatrix = Mat4x4_Projection( ZNEAR, FOV, aspectRatio );
-	renderingView->tanHalfFOVLeft = Tan( FOV * 0.5f );
+	renderingView->projMatrix = Mat4x4_Projection( ZNEAR, tanHalfFOV, aspectRatio );
+	renderingView->tanHalfFOVLeft = tanHalfFOV;
 	renderingView->tanHalfFOVRight = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVUp = renderingView->tanHalfFOVLeft;
 	renderingView->tanHalfFOVDown = renderingView->tanHalfFOVLeft;
@@ -1863,7 +1864,7 @@ void CRenderingDevice::Capture_Render( GPURenderTargetSet_s* cubeFaceRenderTarge
 	// View
 	View_s view;
 	Cube_MakeViewMatrix( &view.viewMatrix, *samplePos, basis );
-	view.projMatrix = Mat4x4_Projection( ZNEAR, DegToRad( 90.0f ), 1.0f );
+	view.projMatrix = Mat4x4_Projection( ZNEAR, Tan( DegToRad( 45.0f ) ), 1.0f );
 
 	Scene_Draw( s_activeScene, &view, RENDER_FLAGS_IS_CAPTURING );
 

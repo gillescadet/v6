@@ -6,13 +6,13 @@
 
 BEGIN_V6_NAMESPACE
 
-void Camera_Create( Camera_s* camera, float znear, float zfar, float fov, float aspectRatio )
+void Camera_Create( Camera_s* camera, float znear, float zfar, float tanHalfFov, float aspectRatio )
 {
 	memset( camera, 0, sizeof( *camera ) );
 
 	camera->znear = znear;
 	camera->zfar = zfar;
-	camera->fov = fov;
+	camera->tanHalfFov = tanHalfFov;
 	camera->aspectRatio = aspectRatio;
 
 	camera->stereoOrientation = Mat4x4_Identity();
@@ -46,7 +46,6 @@ void Camera_SetStereoUsingIPD( Camera_s* camera, float ipd )
 }
 
 void Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyePos[2] )
-
 {
 	camera->stereoOrientation = *orientation;
 	camera->stereoEyePosLS[0] = eyePos[0];
@@ -102,10 +101,10 @@ void Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye, const ViewP
 	}
 	else
 	{
-		view->projMatrix = Mat4x4_Projection( camera->znear, camera->fov, camera->aspectRatio );
+		view->projMatrix = Mat4x4_Projection( camera->znear, camera->tanHalfFov, camera->aspectRatio );
 
-		const float tanHalfFovH = Tan( 0.5f * camera->fov );
-		const float tanHalfFovV = tanHalfFovH / camera->aspectRatio;
+		const float tanHalfFovV = camera->tanHalfFov;
+		const float tanHalfFovH = camera->tanHalfFov * camera->aspectRatio;
 		view->tanHalfFOVLeft = tanHalfFovH;
 		view->tanHalfFOVRight = tanHalfFovH;
 		view->tanHalfFOVUp = tanHalfFovV;

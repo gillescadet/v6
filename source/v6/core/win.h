@@ -43,6 +43,7 @@ struct Win_s
 	void*			hWnd;
 	OnKeyEvent_f	onKeyEvent;
 	OnMouseEvent_f	onMouseEvent;
+	Vec2i			size;
 	bool			isMain;
 	Vec2i			mouseCursorPos;
 	bool			mouseCaptured;

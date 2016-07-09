@@ -214,6 +214,7 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 	const Vec2u dim = Vec2u_Make( rect.right - rect.left, rect.bottom - rect.top );
 
 	win->owner = owner;
+	win->size = Vec2i_Make( width, height );
 	win->isMain = isMain;
 	s_windowToRegister = win;
 

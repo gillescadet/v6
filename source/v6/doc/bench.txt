@@ -908,3 +908,84 @@ Frame      : 13232 us
     Font       :     0 us
     Copy       :   140 us
     Present    :  3911 us
+
+Bench: reference HMD 1024 (HMD1024_V0)
+hmd.type                      : ovrHmd_E3_2015
+hmd.productName               : Oculus Rift DK2
+hmd.manufacturer              : Oculus VR
+hmd.defaultEyeFov[0]          : up 53.0944, down 53.0944, left 46.6321, right 47.5277
+hmd.defaultEyeFov[1]          : up 53.0944, down 53.0944, left 47.5277, right 46.6321
+hmd.maxEyeFov[0]              : up 61.8251, down 61.8251, left 58.3924, right 59.1754
+hmd.maxEyeFov[1]              : up 61.8251, down 61.8251, left 59.1754, right 58.3924
+hmd.resolution                : 1920x1080
+hmd.displayRefreshRate        : 75 hz
+hmd.renderTarget              : 1104x1368
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     463485
+blockCull        cellOutputCount.mip[2]        :    1820456
+blockCull        cellOutputCount.mip[3]        :    3481664
+blockCull        cellOutputCount.mip[4]        :    1194216
+blockCull        cellOutputCount.mip[5]        :     434152
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    6958508
+blockTrace       cellInputCount                :    6958592
+blockTrace       cellProcessedCounts.mip[2]    :    1820456
+blockTrace       cellProcessedCounts.mip[3]    :    3481664
+blockTrace       cellProcessedCounts.mip[4]    :    1194216
+blockTrace       cellProcessedCounts.mip[5]    :     434152
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    6958508
+blockTrace       cellValidCount                :    6383699
+blockTrace       pixelSampleCount              :   11360375
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    6959626
+blockTrace       2_pixelSampleCount            :    1407881
+blockTrace       3_pixelSampleCount            :     299469
+blockTrace       4_pixelSampleCount            :     171645
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :    2473408
+blockTrace       cellItemCount.mip[3]          :    4152466
+blockTrace       cellItemCount.mip[4]          :    1515292
+blockTrace       cellItemCount.mip[5]          :     649315
+blockTrace       cellItemCount.mip[6]          :      48137
+blockTrace       cellItemCount.mip[7]          :          3
+blockTrace       cellItemCount                 :    8838621
+blockTrace       cellItemMaxCountPerPixel      :         46
+blockTrace       traceCellStatCount            :   50441248
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8092224
+pixelBlend       cellItemBorderInputCount      :    4551876
+pixelBlend       cellItemInputCount            :   12644100
+pixelBlend       cellItemHitProcessedCount     :    4411870
+pixelBlend       cellItemBorderProcessedCount  :    2470919
+pixelBlend       cellItemProcessedCount        :    6882789
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8127552
+pixelBlend       cellItemBorderInputCount      :    4571748
+pixelBlend       cellItemInputCount            :   12699300
+pixelBlend       cellItemHitProcessedCount     :    4426751
+pixelBlend       cellItemBorderProcessedCount  :    2479869
+pixelBlend       cellItemProcessedCount        :    6906620
+Frame      : 26664 us
+    Update     :     0 us
+    Draw       : 22968 us
+        Cull       :   472 us
+        Trace      : 14931 us
+        Blend      :  3081 us
+        TSAA       :   330 us
+        Sharpen    :   269 us
+        Blend      :  3081 us
+        TSAA       :   330 us
+        Sharpen    :   269 us
+    Font       :     0 us
+    HMD        :  3185 us
+    Copy       :   253 us
+    Present    :   254 us

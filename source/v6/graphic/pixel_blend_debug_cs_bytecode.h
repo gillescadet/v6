@@ -193,7 +193,7 @@ else
     bfi r7.x, l(3), l(0), r1.x, r7.x
     bfi r7.xz, l(24, 0, 26, 0), l(8, 0, 6, 0), r3.wwww, r7.xxxx
     ld_indexable(buffer)(uint,uint,uint,uint) r3.w, r7.zzzz, t5.yzwx
-    umin r7.y, r3.w, l(32)
+    umin r7.y, r3.w, l(16)
   else 
     mov r7.xy, l(0,0,0,0)
   endif 
@@ -216,7 +216,7 @@ else
       bfi r1.x, l(3), l(0), r1.x, r1.y
       bfi r7.xz, l(24, 0, 26, 0), l(8, 0, 6, 0), r3.wwww, r1.xxxx
       ld_indexable(buffer)(uint,uint,uint,uint) r1.x, r7.zzzz, t5.xyzw
-      umin r7.y, r1.x, l(32)
+      umin r7.y, r1.x, l(16)
     else 
       mov r7.xy, l(0,0,0,0)
     endif 
@@ -391,10 +391,10 @@ ret
 
 const BYTE g_main_pixel_blend_debug_cs[] =
 {
-     68,  88,  66,  67, 253, 138, 
-    217,  31, 115, 164, 103, 118, 
-    143,  28, 174,  70, 192, 110, 
-    234,  65,   1,   0,   0,   0, 
+     68,  88,  66,  67, 245, 130, 
+      1,  89, 178, 114, 248, 228, 
+     37,  26,  55, 138,  13, 187, 
+    123, 154,   1,   0,   0,   0, 
      20,  35,   0,   0,   6,   0, 
       0,   0,  56,   0,   0,   0, 
       0,   6,   0,   0,  16,   6, 
@@ -1116,7 +1116,7 @@ const BYTE g_main_pixel_blend_debug_cs[] =
      34,   0,  16,   0,   7,   0, 
       0,   0,  58,   0,  16,   0, 
       3,   0,   0,   0,   1,  64, 
-      0,   0,  32,   0,   0,   0, 
+      0,   0,  16,   0,   0,   0, 
      18,   0,   0,   1,  54,   0, 
       0,   8,  50,   0,  16,   0, 
       7,   0,   0,   0,   2,  64, 
@@ -1234,7 +1234,7 @@ const BYTE g_main_pixel_blend_debug_cs[] =
      34,   0,  16,   0,   7,   0, 
       0,   0,  10,   0,  16,   0, 
       1,   0,   0,   0,   1,  64, 
-      0,   0,  32,   0,   0,   0, 
+      0,   0,  16,   0,   0,   0, 
      18,   0,   0,   1,  54,   0, 
       0,   8,  50,   0,  16,   0, 
       7,   0,   0,   0,   2,  64, 

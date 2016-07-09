@@ -105,7 +105,6 @@ void InitPixelContext( int2 bufferBasePos, uint2 groupID )
 	if ( pixelCoords.x < (uint)c_blendFrameSize.x && pixelCoords.y < (uint)c_blendFrameSize.y )
 	{
 		const uint2 cellBufferSize = uint2( c_blendFrameSize.x * c_blendEyeCount, c_blendFrameSize.y );
-		const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
 		const uint bw = cellBufferSize.x >> 3;
 		const uint bh = cellBufferSize.y >> 3;
 		const uint bx = bufferPos.x >> 3;
@@ -252,19 +251,30 @@ void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, ui
 
 void Blend( out float3 out_color, out uint out_displacement, uint2 bufferPos, uint2 GTid )
 {
-	const int cellItemCountPerPage = c_blendFrameSize.x * c_blendEyeCount * c_blendFrameSize.y * HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT;
+	const uint2 cellBufferSize = uint2( c_blendFrameSize.x * c_blendEyeCount, c_blendFrameSize.y );
+	const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+	const uint bw = cellBufferSize.x >> 3;
+	const uint bh = cellBufferSize.y >> 3;
+	const uint bx = bufferPos.x >> 3;
+	const uint by = bufferPos.y >> 3;
+	const uint gx = bufferPos.x & 7;
+	const uint gy = bufferPos.y & 7;
 
-	const uint2 pixelCoords = uint2( bufferPos.x - c_blendEye * c_blendFrameSize.x, bufferPos.y );
-	const uint pixelID = (mad( bufferPos.y >> 3, (c_blendFrameSize.x * c_blendEyeCount) >> 3, bufferPos.x >> 3 ) << 6) + mad( bufferPos.y & 7, 8, bufferPos.x & 7 );
-	const uint cellItemCount = min( cellItemCounters[pixelID], HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
+	const uint tileOffset = (by * bw + bx) << 6;
+	const uint groupOffset = (gy << 3) + gx;
+
+	const uint cellCounterID = tileOffset + groupOffset;
+
+	const uint pixelOffset = (tileOffset << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT) + groupOffset;
+	const uint cellItemCount = min( cellItemCounters[cellCounterID], HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT );
 
 	uint d = 0;
 
 	for ( uint cellItemRank = 0; cellItemRank < cellItemCount; ++cellItemRank )
 	{
-		const uint blockCellItemPage = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
-		const uint blockCellItemRankInPage = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
-		const uint blockCellItemID = blockCellItemPage * cellItemCountPerPage + HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT * pixelID + blockCellItemRankInPage;
+		const uint page = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+		const uint plane = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
+		const uint blockCellItemID = page * pageSize + (plane << 6) + pixelOffset;
 		const BlockCellItem blockCellItem = blockCellItems[blockCellItemID];
 
 		const uint hitMask9 = ((blockCellItem.hitMask1_depth31 >> 23) & 0x100) | (blockCellItem.r8g8b8_hitMask8 & 0xFF);
