@@ -11,10 +11,6 @@
 #define END_V6_HLSL_NAMESPACE
 
 #define CBUFFER( NAME, SLOT )				cbuffer NAME : register( b##SLOT )
-#define TYPEDBUFFER( NAME, TYPE, SLOT )		Buffer< TYPE > NAME : register( t##SLOT )
-
-#define DEFINE( NAME )
-#define OUTPUT( TYPE )						out TYPE
 
 #else // #ifdef HLSL
 
@@ -34,15 +30,13 @@
 BEGIN_V6_HLSL_NAMESPACE
 
 #define CBUFFER( NAME, SLOT )				static const uint NAME##Slot = SLOT; struct NAME
-#define TYPEDBUFFER( NAME, TYPE, SLOT )		TYPE* NAME
 
 #define row_major
-
-#define OUTPUT( TYPE )						TYPE&
 
 typedef unsigned int uint;
 
 typedef v6::Vec2i		int2;
+typedef v6::Vec3i		int3;
 typedef v6::Vec4i		int4;
 
 typedef v6::Vec2u		uint2;
@@ -52,24 +46,7 @@ typedef v6::Vec4u		uint4;
 typedef v6::Vec2		float2;
 typedef v6::Vec3		float3;
 typedef v6::Vec4		float4;
-typedef v6::Mat4x4	matrix;
-
-struct int3 : Vec3i
-{
-	int3() {}
-	int3( const Vec3i& v )
-	{
-		x = v.x;
-		y = v.y;
-		z = v.z;
-	}
-	int3( int vx, int vy, int vz )
-	{
-		x = vx;
-		y = vy;
-		z = vz;
-	}
-};
+typedef v6::Mat4x4		matrix;
 
 END_V6_HLSL_NAMESPACE
 

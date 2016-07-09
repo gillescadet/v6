@@ -838,3 +838,73 @@ Frame      : 13232 us
     Font       :     0 us
     Copy       :   141 us
     Present    :  2391 us
+
+Bench: RS1024_V6 + reorgornize cell items memory for better parallel read (RS1024_V7)
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        cellOutputCount.mip[2]        :     924352
+blockCull        cellOutputCount.mip[3]        :    3324096
+blockCull        cellOutputCount.mip[4]        :    1128848
+blockCull        cellOutputCount.mip[5]        :     401692
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    5807008
+blockTrace       cellInputCount                :    5807104
+blockTrace       cellProcessedCounts.mip[2]    :     924352
+blockTrace       cellProcessedCounts.mip[3]    :    3324096
+blockTrace       cellProcessedCounts.mip[4]    :    1128848
+blockTrace       cellProcessedCounts.mip[5]    :     401692
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    5807008
+blockTrace       cellValidCount                :    5303351
+blockTrace       pixelSampleCount              :    8416087
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    5839468
+blockTrace       2_pixelSampleCount            :     825118
+blockTrace       3_pixelSampleCount            :     194829
+blockTrace       4_pixelSampleCount            :      85474
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :     969036
+blockTrace       cellItemCount.mip[3]          :    3919517
+blockTrace       cellItemCount.mip[4]          :    1403198
+blockTrace       cellItemCount.mip[5]          :     605006
+blockTrace       cellItemCount.mip[6]          :      48131
+blockTrace       cellItemCount.mip[7]          :          1
+blockTrace       cellItemCount                 :    6944889
+blockTrace       cellItemMaxCountPerPixel      :         33
+blockTrace       traceCellStatCount            :   42184012
+pixelBlend       pixelInputCount               :    1048576
+pixelBlend       cellItemHitInputCount         :    6479744
+pixelBlend       cellItemBorderInputCount      :    3644856
+pixelBlend       cellItemInputCount            :   10124600
+pixelBlend       cellItemHitProcessedCount     :    3469109
+pixelBlend       cellItemBorderProcessedCount  :    1950807
+pixelBlend       cellItemProcessedCount        :    5419916
+pixelBlend       pixelInputCount               :    1048576
+pixelBlend       cellItemHitInputCount         :    6518592
+pixelBlend       cellItemBorderInputCount      :    3666708
+pixelBlend       cellItemInputCount            :   10185300
+pixelBlend       cellItemHitProcessedCount     :    3475780
+pixelBlend       cellItemBorderProcessedCount  :    1943881
+pixelBlend       cellItemProcessedCount        :    5419661
+Frame      : 13232 us
+    Update     :     0 us
+    Draw       :  9179 us
+        Cull       :   240 us
+        Trace      :  6070 us
+        Blend      :  1201 us
+        TSAA       :   136 us
+        Sharpen    :    91 us
+        Blend      :  1201 us
+        TSAA       :   136 us
+        Sharpen    :    91 us
+    Font       :     0 us
+    Copy       :   140 us
+    Present    :  3911 us

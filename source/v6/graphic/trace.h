@@ -44,7 +44,6 @@ struct TraceOptions_s
 	bool					showMip;
 	bool					showBucket;
 	bool					showOverdraw;
-	bool					randomBackground;
 	bool					noTSAA;
 	bool					noSharpenFilter;
 };

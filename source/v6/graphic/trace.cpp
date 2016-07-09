@@ -519,28 +519,12 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbBlend->c_blendFrameSize.y = traceContext->desc.screenHeight;
 
 		const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
-		cbBlend->c_blendCellItemTileSize.x = (traceContext->desc.screenWidth >> 3) * eyeCount;
-		cbBlend->c_blendCellItemTileSize.y = traceContext->desc.screenHeight >> 3;
-
-		if ( options->randomBackground )
-		{
-			const float r = RandFloat();
-			cbBlend->c_blendBackColor.x = 1.0f; 
-			cbBlend->c_blendBackColor.y = r;
-			cbBlend->c_blendBackColor.z = r;
-		}
-		else
-		{
-			cbBlend->c_blendBackColor.x = 0.0f; 
-			cbBlend->c_blendBackColor.y = 0.0f; 
-			cbBlend->c_blendBackColor.z = 0.0f; 
-		}
-		
-		cbBlend->c_blendDepth24Norm = ((1<<24) - 1) / traceContext->stream->desc.gridScaleMax;
 		
 		cbBlend->c_blendEye = eye;
 		cbBlend->c_blendEyeCount = traceContext->desc.stereo ? 2 : 1;
-
+		
+		cbBlend->c_blendDepth24Norm = ((1<<24) - 1) / traceContext->stream->desc.gridScaleMax;
+		
 		cbBlend->c_blendGetStats = options->logReadBack;
 		cbBlend->c_blendShowOverdraw = options->showOverdraw;
 

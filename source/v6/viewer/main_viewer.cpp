@@ -337,7 +337,6 @@ static bool g_showBucket			= false;
 static bool g_showOverdraw			= false;
 static bool g_showHistory			= false;
 static int g_pixelMode				= 0;
-static bool g_randomBackground		= false;
 static bool g_traceGrid				= false;
 #if V6_SIMPLE_SCENE == 1
 static bool g_useMSAA				= false;
@@ -713,7 +712,6 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'S': g_keyDownPressed = keyEvent->pressed; break;
 		case 'U': if ( keyEvent->pressed ) { s_activeScene->info.dirty = false; }; break;
 		case 'W': g_keyUpPressed = keyEvent->pressed; break;
-		case 'X': g_randomBackground = keyEvent->pressed ? !g_randomBackground : g_randomBackground; break;
 		case 'Z': if ( keyEvent->pressed ) { g_reloadShaders = true; }; break;
 		case ' ':
 			if ( keyEvent->pressed ) 
@@ -2381,7 +2379,6 @@ void CRenderingDevice::Draw( float dt )
 					options.showMip = g_showMip;
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
-					options.randomBackground = g_randomBackground;
 					options.noTSAA = g_noTSAA;
 					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options, m_stack );
 				}
