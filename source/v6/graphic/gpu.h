@@ -59,8 +59,9 @@ enum
 
 enum GPUBufferCreationFlag_e
 {
-	GPUBUFFER_CREATION_FLAG_READ_BACK	= 1 << 0,
-	GPUBUFFER_CREATION_FLAG_DYNAMIC		= 1 << 1,
+	GPUBUFFER_CREATION_FLAG_READ_BACK				= 1 << 0,
+	GPUBUFFER_CREATION_FLAG_UPDATE					= 1 << 1,
+	GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE		= 1 << 2
 };
 
 struct GPUBuffer_s
@@ -70,6 +71,7 @@ struct GPUBuffer_s
 	ID3D11ShaderResourceView*		srv;
 	ID3D11UnorderedAccessView*		uav;
 	u32								size;
+	u32								flags;
 };
 
 enum GPUTextureMipMapState_e
@@ -233,10 +235,12 @@ struct GPUShaderContext_s
 	static const u32				CONSTANT_BUFFER_MAX_COUNT = 64;
 	static const u32				COMPUTE_MAX_COUNT = 64;
 	static const u32				SHADER_MAX_COUNT = 64;
+	static const u32				BUFFER_MAX_COUNT = 64;
 
 	GPUConstantBuffer_s				constantBuffers[CONSTANT_BUFFER_MAX_COUNT];
 	GPUCompute_s					computes[COMPUTE_MAX_COUNT];
 	GPUShader_s						shaders[SHADER_MAX_COUNT];
+	GPUBuffer_s						buffers[BUFFER_MAX_COUNT];
 
 	ID3D11SamplerState*				trilinearSamplerState;
 
@@ -248,7 +252,8 @@ typedef u16 GPUEventID_t;
 struct GPUEventDuration_s
 {
 	const char*						name;
-	u32								durationUS;
+	u32								avgDurationUS;
+	u32								curDurationUS;
 	GPUEventID_t					id;
 	u8								depth;
 };

@@ -341,6 +341,7 @@ static ProjectFile_s s_projectFiles[] =
 
 	// player - HLSL
 	{ "source/v6/graphic/common_shared.h",				PROJECT_PLAYER },
+	{ "source/v6/player/frame_metrics_cs.hlsl",			PROJECT_PLAYER },
 	{ "source/v6/player/player_basic.hlsli",			PROJECT_PLAYER },
 	{ "source/v6/player/player_basic_ps.hlsl",			PROJECT_PLAYER },
 	{ "source/v6/player/player_basic_vs.hlsl",			PROJECT_PLAYER },

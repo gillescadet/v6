@@ -989,3 +989,74 @@ Frame      : 26664 us
     HMD        :  3185 us
     Copy       :   253 us
     Present    :   254 us
+
+Bench: reference Stereo 1368 (RS1368_V0)
+rt.resolution: 1104x1368
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     461290
+blockCull        cellOutputCount.mip[2]        :    1823548
+blockCull        cellOutputCount.mip[3]        :    3459312
+blockCull        cellOutputCount.mip[4]        :    1186952
+blockCull        cellOutputCount.mip[5]        :     428588
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    6926420
+blockTrace       cellInputCount                :    6926528
+blockTrace       cellProcessedCounts.mip[2]    :    1823548
+blockTrace       cellProcessedCounts.mip[3]    :    3459312
+blockTrace       cellProcessedCounts.mip[4]    :    1186952
+blockTrace       cellProcessedCounts.mip[5]    :     428588
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    6926420
+blockTrace       cellValidCount                :    6357062
+blockTrace       pixelSampleCount              :   11344453
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    6978007
+blockTrace       2_pixelSampleCount            :    1392113
+blockTrace       3_pixelSampleCount            :     296776
+blockTrace       4_pixelSampleCount            :     172973
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :    2485517
+blockTrace       cellItemCount.mip[3]          :    4146658
+blockTrace       cellItemCount.mip[4]          :    1510433
+blockTrace       cellItemCount.mip[5]          :     649197
+blockTrace       cellItemCount.mip[6]          :      48062
+blockTrace       cellItemCount.mip[7]          :          2
+blockTrace       cellItemCount                 :    8839869
+blockTrace       cellItemMaxCountPerPixel      :         52
+blockTrace       traceCellStatCount            :   50531232
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8553024
+pixelBlend       cellItemBorderInputCount      :    4811076
+pixelBlend       cellItemInputCount            :   13364100
+pixelBlend       cellItemHitProcessedCount     :    4416084
+pixelBlend       cellItemBorderProcessedCount  :    2483456
+pixelBlend       cellItemProcessedCount        :    6899540
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8563712
+pixelBlend       cellItemBorderInputCount      :    4817088
+pixelBlend       cellItemInputCount            :   13380800
+pixelBlend       cellItemHitProcessedCount     :    4423785
+pixelBlend       cellItemBorderProcessedCount  :    2480402
+pixelBlend       cellItemProcessedCount        :    6904187
+Frame      : 13232 us
+    Update     :     0 us
+    Draw       : 11119 us
+        Cull       :   245 us
+        Trace      :  7196 us
+        Blend      :  1520 us
+        TSAA       :   179 us
+        Sharpen    :   128 us
+        Blend      :  1520 us
+        TSAA       :   179 us
+        Sharpen    :   128 us
+    Font       :     0 us
+    Copy       :   200 us
+    Present    :  1911 us

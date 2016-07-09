@@ -50,7 +50,7 @@ void FontContext_Create( FontContext_s* fontContext )
 	fontContext->characterCount = 0;
 
 	GPUConstantBuffer_Create( &res->cb, sizeof( v6::hlsl::CBFont ), "font" );
-	GPUBuffer_CreateStructured( &res->characters, sizeof( hlsl::Character ), s_gpuCharacterMaxCount, GPUBUFFER_CREATION_FLAG_DYNAMIC, "fontCharacters" );
+	GPUBuffer_CreateStructured( &res->characters, sizeof( hlsl::Character ), s_gpuCharacterMaxCount, GPUBUFFER_CREATION_FLAG_UPDATE, "fontCharacters" );
 
 	GPUTexture2D_CreateCompressed( &res->fontBitmap, g_fontBitmapSize.x, g_fontBitmapSize.y, (void*)(g_fontBitmap + 128), true, "fontColors" );
 

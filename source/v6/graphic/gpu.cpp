@@ -14,8 +14,6 @@
 #include <v6/core/thread.h>
 #include <v6/graphic/gpu.h>
 
-#define GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE 1
-
 BEGIN_V6_NAMESPACE
 
 static const u32 EVENT_BUFFER_COUNT			= 3;
@@ -253,7 +251,8 @@ u32 GPUEvent_UpdateDurations( GPUEventDuration_s** eventDurations )
 		(*eventDurations)[eventRank].id = eventID;
 		(*eventDurations)[eventRank].depth = s_eventContext.hierarchies[prevBufferID].depths[eventRank];
 		(*eventDurations)[eventRank].name = s_eventContext.eventNames[eventID];
-		(*eventDurations)[eventRank].durationUS = (u32)(s_eventContext.timings.durationSums[eventID] / EVENT_TIMING_FRAME_COUNT);
+		(*eventDurations)[eventRank].avgDurationUS = (u32)(s_eventContext.timings.durationSums[eventID] / EVENT_TIMING_FRAME_COUNT);
+		(*eventDurations)[eventRank].curDurationUS = timeUS;
 	}
 
 	s_eventContext.hierarchies[prevBufferID].count = 0;
@@ -492,6 +491,7 @@ void GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, co
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * sizeof( u32 );
+	buffer->flags = flags;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
@@ -547,6 +547,7 @@ void GPUBuffer_CreateIndirectArgsWithStaticData( GPUBuffer_s* buffer, const void
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * sizeof( u32 );
+	buffer->flags = flags;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
@@ -584,23 +585,18 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * DXGIFormat_Size( format );
+	buffer->flags = flags;
+
+	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
-#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
-		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
-#else
-		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
-#endif
+		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+		if ( !isCPUWrite )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
-#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
-		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
-#else
-		bufferDesc.CPUAccessFlags = 0;
-#endif
+		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = 0;
 		bufferDesc.StructureByteStride = 0;
 		
@@ -632,7 +628,7 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
 
-	if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+	if ( !isCPUWrite )
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = format;
@@ -650,6 +646,7 @@ void GPUBuffer_CreateTypedWithStaticData( GPUBuffer_s* buffer, const void* data,
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * DXGIFormat_Size( format );
+	buffer->flags = flags;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
@@ -687,23 +684,18 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * elementSize;
+	buffer->flags = flags;
+
+	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
-#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
-		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
-#else
-		bufferDesc.Usage = D3D11_USAGE_DEFAULT;
-#endif
+		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+		if ( !isCPUWrite )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
-#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
-		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
-#else
-		bufferDesc.CPUAccessFlags = 0;
-#endif
+		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 		bufferDesc.StructureByteStride = elementSize;
 		
@@ -735,7 +727,7 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
 
-	if ( (flags & GPUBUFFER_CREATION_FLAG_DYNAMIC) == 0 )
+	if ( !isCPUWrite )
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = DXGI_FORMAT_UNKNOWN;
@@ -753,6 +745,7 @@ void GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* 
 	memset( buffer, 0, sizeof( *buffer ) );
 
 	buffer->size = count * elementSize;
+	buffer->flags = flags;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
@@ -824,30 +817,39 @@ void GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer )
 void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount )
 {
 	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
-#if GPU_UPDATE_BUFFER_USING_MAP_WRITE_NO_OVERWRITE == 1
-	D3D11_MAPPED_SUBRESOURCE res;
-	const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
-	if ( mapResult == S_OK )
+	
+	const bool isCPUWrite = (dstBuffer->flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
+	V6_ASSERT( isCPUWrite );
+
+	if ( dstBuffer->flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE )
 	{
-		memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );
-		g_deviceContext->Unmap( dstBuffer->buf, 0 );
+		D3D11_MAPPED_SUBRESOURCE res;
+		const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
+		if ( mapResult == S_OK )
+		{
+			memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );
+			g_deviceContext->Unmap( dstBuffer->buf, 0 );
+		}
+		else
+		{
+			V6_ERROR( "ID3D11DeviceContext::Map() failed with error code 0x%08X\n", mapResult );
+		}
 	}
 	else
 	{
-		V6_ERROR( "ID3D11DeviceContext::Map() failed with error code 0x%08X\n", mapResult );
-	}
-#else
-	D3D11_BOX dstBox;
-	dstBox.left = dstOffset * sizeOfSrcElem;
-	dstBox.right = (dstOffset + srcCount) * sizeOfSrcElem;
-	dstBox.front = 0;
-	dstBox.back = 1;
-	dstBox.top = 0;
-	dstBox.bottom = 1;
+		V6_ASSERT( dstBuffer->flags & GPUBUFFER_CREATION_FLAG_UPDATE );
 
-	const u32 size = dstBox.right - dstBox.left;
-	g_deviceContext->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
-#endif
+		D3D11_BOX dstBox;
+		dstBox.left = dstOffset * sizeOfSrcElem;
+		dstBox.right = (dstOffset + srcCount) * sizeOfSrcElem;
+		dstBox.front = 0;
+		dstBox.back = 1;
+		dstBox.top = 0;
+		dstBox.bottom = 1;
+
+		const u32 size = dstBox.right - dstBox.left;
+		g_deviceContext->UpdateSubresource( dstBuffer->buf, 0, &dstBox, srcData, size, size );
+	}
 }
 
 void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name )
@@ -1893,6 +1895,10 @@ void GPUShaderContext_Release()
 	for ( u32 shaderID = 0; shaderID < GPUShaderContext_s::SHADER_MAX_COUNT; ++shaderID )
 		if ( s_shaderContext.shaders[shaderID].m_vertexShader )
 			GPUShader_Release( &s_shaderContext.shaders[shaderID] );
+	
+	for ( u32 bufferID = 0; bufferID < GPUShaderContext_s::BUFFER_MAX_COUNT; ++bufferID )
+		if ( s_shaderContext.buffers[bufferID].buf )
+			GPUBuffer_Release( &s_shaderContext.buffers[bufferID] );
 
 	V6_RELEASE_D3D11( s_shaderContext.trilinearSamplerState );
 

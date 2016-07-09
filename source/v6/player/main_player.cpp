@@ -33,6 +33,7 @@ BEGIN_V6_NAMESPACE
 
 static const GPUEventID_t s_gpuEventUpdate		= GPUEvent_Register( "Update", true );
 static const GPUEventID_t s_gpuEventDraw		= GPUEvent_Register( "Draw", true );
+static const GPUEventID_t s_gpuEventMetrics		= GPUEvent_Register( "Metrics", true );
 static const GPUEventID_t s_gpuEventHMD			= GPUEvent_Register( "HMD", true );
 static const GPUEventID_t s_gpuEventCopy		= GPUEvent_Register( "Copy", true );
 static const GPUEventID_t s_gpuEventPresent		= GPUEvent_Register( "Present", true );
@@ -61,8 +62,16 @@ enum
 {
 	CONSTANT_BUFFER_BASIC,
 	CONSTANT_BUFFER_COMPOSE,
+	CONSTANT_BUFFER_FRAMEMETRICS,
 
 	CONSTANT_BUFFER_COUNT
+};
+
+enum
+{
+	BUFFER_FRAMEMETRICS,
+
+	BUFFER_COUNT
 };
 
 enum
@@ -75,6 +84,7 @@ enum
 enum
 {
 	COMPUTE_COMPOSESURFACE,
+	COMPUTE_FRAMEMETRICS,
 
 	COMPUTE_COUNT
 };
@@ -95,6 +105,13 @@ struct FrameTimer_s
 	float	dtMax;
 	u64		frameDurations[32];
 	u64		frameDurationSum;
+};
+
+struct FrameMetrics_s
+{
+	static const u32		WIDTH = HLSL_FRAME_METRICS_WIDTH;
+	u32						frameID;
+	hlsl::FrameMetrics_s	data[WIDTH];
 };
 
 enum CommandAction_e
@@ -149,6 +166,7 @@ struct Player_s
 	TraceContext_s			traceContext;
 	TraceOptions_s			traceOptions;
 	PlayerOptions_s			playerOptions;
+	FrameMetrics_s			frameMetrics;
 	float					curFrameID;
 	u32						targetFrameID;
 	u32						hmdState;
@@ -331,6 +349,10 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( hlsl::CBBasic ), "basic" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( hlsl::CBCompose ), "compose" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS], sizeof( hlsl::CBFrameMetrics ), "frameMetrics" );
+
+	static_assert( BUFFER_COUNT <= GPUShaderContext_s::BUFFER_MAX_COUNT, "Out of buffer" );
+	GPUBuffer_CreateStructured( &shaderContext->buffers[BUFFER_FRAMEMETRICS], sizeof( hlsl::FrameMetrics_s ), FrameMetrics_s::WIDTH, GPUBUFFER_CREATION_FLAG_UPDATE, "frameMetrics" );
 
 	{
 		ScopedStack scopedStack( player->stack );
@@ -340,6 +362,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 
 		static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
 		GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", player->stack );
+		GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_FRAMEMETRICS], "frame_metrics_cs.cso", player->stack );
 	}
 
 	FontContext_Create( &player->fontContext );
@@ -867,7 +890,7 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 		{
 			const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
-			const char* txt = String_Format( "%*s%-10s : %5d us", eventDuration->depth * 4, "", eventDuration->name, eventDuration->durationUS );
+			const char* txt = String_Format( "%*s%-10s : %5d us", eventDuration->depth * 4, "", eventDuration->name, eventDuration->avgDurationUS );
 			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), txt );
 			cursorY += lineHeight;
 		}
@@ -914,6 +937,69 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 #endif // #if V6_USE_HMD == 1
 
 	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
+}
+
+static void Player_UpdateMetrics( Player_s* player, u32 frameID, const GPUEventDuration_s* eventDurations, u32 eventCount )
+{
+	const GPUEventDuration_s* eventDraw = nullptr;
+	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+	{
+		if ( eventDurations[eventRank].id == s_gpuEventDraw )
+		{
+			eventDraw = &eventDurations[eventRank];
+			break;
+		}
+	}
+
+	if ( !eventDraw )
+		return;
+
+	player->frameMetrics.frameID = frameID % FrameMetrics_s::WIDTH;
+	player->frameMetrics.data[player->frameMetrics.frameID].drawTimeUS = eventDraw->curDurationUS;
+
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+	GPUBuffer_Update( &shaderContext->buffers[BUFFER_FRAMEMETRICS], 0, player->frameMetrics.data, FrameMetrics_s::WIDTH );
+}
+
+static void Player_DrawMetrics( Player_s* player )
+{
+	// set
+
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	g_deviceContext->CSSetConstantBuffers( hlsl::CBFrameMetricsSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS].buf );
+
+	g_deviceContext->CSSetShaderResources( HLSL_FRAME_METRICS_SLOT, 1, &shaderContext->buffers[BUFFER_FRAMEMETRICS].srv );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[0].uav, nullptr );
+
+	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_FRAMEMETRICS].m_computeShader, nullptr, 0 );
+
+	const Vec2u frameMetricsRTSize = Vec2u_Make( player->mainRenderTargetSet.width - 16, 200 );
+	const Vec2u frameMetricsRTOffset = Vec2u_Make( 8, player->mainRenderTargetSet.height - frameMetricsRTSize.y - 100 - 8 );
+
+	{
+		hlsl::CBFrameMetrics* cbFrameMetrics = (hlsl::CBFrameMetrics*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
+		
+		cbFrameMetrics->c_frameMetricsRTSize = frameMetricsRTSize;
+		cbFrameMetrics->c_frameMetricsRTOffset = frameMetricsRTOffset;
+	
+		cbFrameMetrics->c_frameMetricsScale = Vec2_Make( 1.0f, 25.0f * 0.001f );
+		cbFrameMetrics->c_frameMetricsBias = -5000.0f;
+		cbFrameMetrics->c_frameMetricsEnd = player->frameMetrics.frameID;
+
+		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
+	}
+
+	V6_ASSERT( (frameMetricsRTSize.x & 0x7) == 0 );
+	V6_ASSERT( (frameMetricsRTSize.y & 0x7) == 0 );
+	const u32 pixelGroupWidth = frameMetricsRTSize.x >> 3;
+	const u32 pixelGroupHeight = frameMetricsRTSize.y >> 3;
+	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
+
+	// unset
+	static const void* nulls[8] = {};
+	g_deviceContext->CSSetShaderResources( HLSL_FRAME_METRICS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 }
 
 static void Player_CopyToSurface( Player_s* player )
@@ -1068,12 +1154,19 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		if ( !player->playerOptions.hideUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
 
+		{
+			V6_GPU_EVENT_SCOPE( s_gpuEventMetrics );
+
+			Player_UpdateMetrics( player, frameID, eventDurations, eventCount );
+			Player_DrawMetrics( player );
+		}
+
 		if ( player->traceOptions.logReadBack )
 		{
 			for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 			{
 				const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
-				V6_MSG( "%*s%-10s : %5d us\n", eventDuration->depth * 4, "", eventDuration->name, eventDuration->durationUS );
+				V6_MSG( "%*s%-10s : %5d us\n", eventDuration->depth * 4, "", eventDuration->name, eventDuration->avgDurationUS );
 			}
 		}
 	}
@@ -1125,6 +1218,7 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 #else
 	const u32 width = defaultWidth;
 	const u32 height = defaultHeight;
+	V6_MSG( "rt.resolution: %dx%d\n", width, height );
 #endif // #if V6_USE_HMD == 1
 
 #if V6_ENABLE_MIRRORING == 1
