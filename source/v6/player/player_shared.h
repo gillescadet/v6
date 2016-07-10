@@ -7,7 +7,7 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
-#define HLSL_FRAME_METRICS_WIDTH					4096
+#define HLSL_FRAME_METRICS_WIDTH					(30 * 75)
 
 #define HLSL_SURFACE_SLOT							0
 #define HLSL_LCOLOR_SLOT							1
@@ -23,7 +23,8 @@ CBUFFER( CBBasic, 0 )
 CBUFFER( CBCompose, 2 )
 {
 	uint				c_composeFrameWidth;
-	uint3				c_composeunused;
+	float2				c_composeFrameInvSize;
+	uint				c_composeunused;
 };
 
 CBUFFER( CBFrameMetrics, 3 )
@@ -31,9 +32,15 @@ CBUFFER( CBFrameMetrics, 3 )
 	uint2				c_frameMetricsRTSize;
 	uint2				c_frameMetricsRTOffset;
 	
-	float2				c_frameMetricsScale;
-	float				c_frameMetricsBias;
 	uint				c_frameMetricsEnd;
+	float				c_frameMetricsScale;
+	float				c_frameMetricsBias;
+	float				c_frameMetricsMarkerPad1;
+
+	float				c_frameMetricsMarkerMin;
+	float				c_frameMetricsMarkerMid;
+	float				c_frameMetricsMarkerMax;
+	float				c_frameMetricsMarkerPad2;
 };
 
 struct FrameMetrics_s

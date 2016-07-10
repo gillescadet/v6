@@ -135,6 +135,7 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
 	COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER,
 
+	COMMAND_ACTION_PLAYER_OPTION_METRICS,
 	COMMAND_ACTION_PLAYER_OPTION_UI,
 	COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD,
 };
@@ -147,6 +148,7 @@ struct CommandBuffer_s
 
 struct PlayerOptions_s
 {
+	bool					hideMetrics;
 	bool					hideUI;
 	bool					lockHMD;
 };
@@ -466,6 +468,20 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 		break;
 
 	case 'M':
+		if ( strcmp( commandLine, "METRICS ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_METRICS;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "METRICS OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_METRICS;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
 		if ( strcmp( commandLine, "MIP ON" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_MIP;
@@ -671,6 +687,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		player->traceOptions.noSharpenFilter = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->traceOptions.noSharpenFilter;
 		break;
 
+	case COMMAND_ACTION_PLAYER_OPTION_METRICS:
+		player->playerOptions.hideMetrics = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideMetrics;
+		break;
 	case COMMAND_ACTION_PLAYER_OPTION_UI:
 		player->playerOptions.hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideUI;
 		break;
@@ -801,6 +820,10 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		break;
 	case 'R':
 		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
+		break;
+	case 'T':
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_METRICS;
+		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'U':
 		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_UI;
@@ -956,16 +979,19 @@ static void Player_UpdateMetrics( Player_s* player, u32 frameID, const GPUEventD
 
 	player->frameMetrics.frameID = frameID % FrameMetrics_s::WIDTH;
 	player->frameMetrics.data[player->frameMetrics.frameID].drawTimeUS = eventDraw->curDurationUS;
-
-	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
-	GPUBuffer_Update( &shaderContext->buffers[BUFFER_FRAMEMETRICS], 0, player->frameMetrics.data, FrameMetrics_s::WIDTH );
 }
 
 static void Player_DrawMetrics( Player_s* player )
 {
-	// set
+	V6_GPU_EVENT_SCOPE( s_gpuEventMetrics );
 
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	// update buffer
+
+	GPUBuffer_Update( &shaderContext->buffers[BUFFER_FRAMEMETRICS], 0, player->frameMetrics.data, FrameMetrics_s::WIDTH );
+
+	// set
 
 	g_deviceContext->CSSetConstantBuffers( hlsl::CBFrameMetricsSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS].buf );
 
@@ -983,9 +1009,13 @@ static void Player_DrawMetrics( Player_s* player )
 		cbFrameMetrics->c_frameMetricsRTSize = frameMetricsRTSize;
 		cbFrameMetrics->c_frameMetricsRTOffset = frameMetricsRTOffset;
 	
-		cbFrameMetrics->c_frameMetricsScale = Vec2_Make( 1.0f, 25.0f * 0.001f );
-		cbFrameMetrics->c_frameMetricsBias = -5000.0f;
 		cbFrameMetrics->c_frameMetricsEnd = player->frameMetrics.frameID;
+		cbFrameMetrics->c_frameMetricsScale = 25.0f * 0.001f;
+		cbFrameMetrics->c_frameMetricsBias = -5000.0f;
+
+		cbFrameMetrics->c_frameMetricsMarkerMin = 7000.0f;
+		cbFrameMetrics->c_frameMetricsMarkerMid = 9000.0f;
+		cbFrameMetrics->c_frameMetricsMarkerMax = 11000.0f;
 
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
 	}
@@ -1024,6 +1054,7 @@ static void Player_CopyToSurface( Player_s* player )
 		hlsl::CBCompose* cbCompose = (hlsl::CBCompose*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 		
 		cbCompose->c_composeFrameWidth = player->mainRenderTargetSet.width;
+		cbCompose->c_composeFrameInvSize = Vec2_Make( 1.0f / player->mainRenderTargetSet.width, 1.0f / player->mainRenderTargetSet.height );
 
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 	}
@@ -1154,12 +1185,9 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		if ( !player->playerOptions.hideUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
 
-		{
-			V6_GPU_EVENT_SCOPE( s_gpuEventMetrics );
-
-			Player_UpdateMetrics( player, frameID, eventDurations, eventCount );
+		Player_UpdateMetrics( player, frameID, eventDurations, eventCount );
+		if ( !player->playerOptions.hideMetrics )
 			Player_DrawMetrics( player );
-		}
 
 		if ( player->traceOptions.logReadBack )
 		{
@@ -1269,43 +1297,10 @@ static void Player_Release( Player_s* player )
 
 static void Test()
 {
-	const u32 MAX_CELL_ITEM = 32;
-	const u32 CELL_PER_PAGE_PER_PIXEL_SHIFT = 2;
-	const u32 CELL_PER_PAGE_PER_PIXEL = 1 << CELL_PER_PAGE_PER_PIXEL_SHIFT;
-	const u32 CELL_PER_PAGE_PER_PIXEL_MASK = CELL_PER_PAGE_PER_PIXEL-1;
-
-	const u32 w = 1024;
-	const u32 h = 512;
-
-	const u32 x = rand() % w;
-	const u32 y = rand() % h;
-	const u32 cellItemRank = rand() % MAX_CELL_ITEM;
-	
-
+	for ( u32 x = 0; x < 16; ++x )
 	{
-		const u32 pageSize = (w * h) << CELL_PER_PAGE_PER_PIXEL_SHIFT;
-
-		const u32 bw = w >> 3;
-		const u32 bh = h >> 3;
-
-		const u32 bx = x >> 3;
-		const u32 by = y >> 3;
-
-		const u32 gx = x & 7;
-		const u32 gy = y & 7;
-
-		const u32 tileOffset = (by * bw + bx) << 6;
-		const u32 groupOffset = (gy << 3) + gx;
-		const u32 cellCounterID = tileOffset + groupOffset;
-		
-		const u32 page = cellItemRank >> CELL_PER_PAGE_PER_PIXEL_SHIFT;
-		const u32 plane = cellItemRank & CELL_PER_PAGE_PER_PIXEL_MASK;
-
-		const u32 cellItemID = 
-			page * pageSize +
-			(tileOffset << CELL_PER_PAGE_PER_PIXEL_SHIFT) + 
-			(plane << 6) +
-			groupOffset;
+		const u32 cursor = (75 + 3 - 16 + x) % 75;
+		V6_MSG( "cursor: %d\n", cursor );
 	}
 }
 

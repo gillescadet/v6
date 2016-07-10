@@ -8,7 +8,15 @@ RWTexture2D< float4 > surfaceColors : REGISTER_UAV( HLSL_SURFACE_SLOT );
 
 float4 ComputeColor( uint2 pixelCoords, Texture2D< float4 > frameColors )
 {
-	return float4( frameColors[pixelCoords.xy].rgb, 0.0f );
+	float3 color = frameColors[pixelCoords.xy].rgb;
+
+#if 0
+	const float2 uv = pixelCoords * c_composeFrameInvSize;
+	const float2 clip = uv * 2.0f - 1.0f;
+	
+	color += float3( 0.0f, 1.0f, 0.0f ) * (dot( clip, clip ) >= 1.0f );
+#endif
+	return float4( color, 0.0f );
 }
 
 [numthreads(8, 8, 1)]
