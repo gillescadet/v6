@@ -69,6 +69,58 @@ bool TraceCell( uint blockCellID, float2 pixelCoords, float x, float y, float3 b
 	return hit;
 }
 
+void OutputCell( uint2 centerPixelCoords, int offsetX, int offsetY, uint hitMask9, float pixelDepth, uint rgb_none, uint2 pixelDisplacementF16, uint mip )
+{
+	const uint2 cellItemPixelCoords = centerPixelCoords + int2( offsetX, offsetY );
+
+	const uint2 cellBufferSize = uint2( c_traceFrameSize.x * c_traceEyeCount, c_traceFrameSize.y );
+	const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+	const uint bw = cellBufferSize.x >> 3;
+	const uint bh = cellBufferSize.y >> 3;
+	const uint bx = cellItemPixelCoords.x >> 3;
+	const uint by = cellItemPixelCoords.y >> 3;
+	const uint gx = cellItemPixelCoords.x & 7;
+	const uint gy = cellItemPixelCoords.y & 7;
+
+	const uint tileOffset = (by * bw + bx) << 6;
+	const uint groupOffset = (gy << 3) + gx;
+
+	const uint cellCounterID = tileOffset + groupOffset;
+
+	uint cellItemRank;
+	InterlockedAdd( blockCellItemCounters[cellCounterID], 1, cellItemRank );
+
+	if ( cellItemRank < HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT )
+	{
+		const uint page = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
+		const uint plane = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
+
+		const uint cellItemID =
+			page * pageSize +
+			(plane << 6) +
+			(tileOffset << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT) + 
+			groupOffset;
+
+		blockCellItems[cellItemID].hitMask1_depth31 = ((hitMask9 & 0x100) << 23) | asuint( pixelDepth );
+		blockCellItems[cellItemID].r8g8b8_hitMask8 = rgb_none | (hitMask9 & 0xFF);
+		blockCellItems[cellItemID].xdsp16_ydsp16 = (pixelDisplacementF16.x << 16) | pixelDisplacementF16.y;
+
+#if BLOCK_DEBUG == 1
+		if ( c_traceGetStats )
+		{
+			const uint pixelSampleCount = countbits( hitMask9 );
+			InterlockedAdd( blockTraceStats[0].pixelSampleCount, pixelSampleCount );
+			InterlockedAdd( blockTraceStats[0].pixelSampleDistribution[pixelSampleCount], 1 );
+			InterlockedAdd( blockTraceStats[0].cellItemCounts[mip], 1 );
+		}
+#endif // #if BLOCK_DEBUG == 1
+	}
+
+#if BLOCK_DEBUG == 1
+	if ( c_traceGetStats )
+		InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, cellItemRank );
+#endif // #if BLOCK_DEBUG == 1
+}
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
@@ -223,54 +275,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 					if ( hitMask9 != 0 )
 					{
 						const uint2 cellItemPixelCoords = uint2( curPixelJitteredCoords[eye].x + eye * c_traceFrameSize.x, curPixelJitteredCoords[eye].y );
-
-						const uint2 cellBufferSize = uint2( c_traceFrameSize.x * c_traceEyeCount, c_traceFrameSize.y );
-						const uint pageSize = (cellBufferSize.x * cellBufferSize.y) << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
-						const uint bw = cellBufferSize.x >> 3;
-						const uint bh = cellBufferSize.y >> 3;
-						const uint bx = cellItemPixelCoords.x >> 3;
-						const uint by = cellItemPixelCoords.y >> 3;
-						const uint gx = cellItemPixelCoords.x & 7;
-						const uint gy = cellItemPixelCoords.y & 7;
-
-						const uint tileOffset = (by * bw + bx) << 6;
-						const uint groupOffset = (gy << 3) + gx;
-
-						const uint cellCounterID = tileOffset + groupOffset;
-
-						uint cellItemRank;
-						InterlockedAdd( blockCellItemCounters[cellCounterID], 1, cellItemRank );
-
-						if ( cellItemRank < HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT )
-						{
-							const uint page = cellItemRank >> HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT;
-							const uint plane = cellItemRank & HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK;
-
-							const uint cellItemID =
-								page * pageSize +
-								(plane << 6) +
-								(tileOffset << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT) + 
-								groupOffset;
-
-							blockCellItems[cellItemID].hitMask1_depth31 = ((hitMask9 & 0x100) << 23) | asuint( pixelDepth[eye] );
-							blockCellItems[cellItemID].r8g8b8_hitMask8 = rgb_none | (hitMask9 & 0xFF);
-							blockCellItems[cellItemID].xdsp16_ydsp16 = (pixelDisplacementsF16[eye].x << 16) | pixelDisplacementsF16[eye].y;
-
-#if BLOCK_DEBUG == 1
-							if ( c_traceGetStats )
-							{
-								const uint pixelSampleCount = countbits( hitMask9 );
-								InterlockedAdd( blockTraceStats[0].pixelSampleCount, pixelSampleCount );
-								InterlockedAdd( blockTraceStats[0].pixelSampleDistribution[pixelSampleCount], 1 );
-								InterlockedAdd( blockTraceStats[0].cellItemCounts[mip], 1 );
-							}
-#endif // #if BLOCK_DEBUG == 1
-						}
-
-#if BLOCK_DEBUG == 1
-						if ( c_traceGetStats )
-							InterlockedMax( blockTraceStats[0].cellItemMaxCountPerPixel, cellItemRank );
-#endif // #if BLOCK_DEBUG == 1
+						OutputCell( cellItemPixelCoords, 0, 0, hitMask9, pixelDepth[eye], rgb_none, pixelDisplacementsF16[eye], mip );
 					}
 				}
 			}

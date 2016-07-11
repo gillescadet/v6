@@ -1324,6 +1324,11 @@ int main( int argc, char** argv )
 #endif
 
 #if 0
+	const v6::u32 defaultWidth = 256;
+	const v6::u32 defaultHeight = 256;
+#endif
+
+#if 0
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
