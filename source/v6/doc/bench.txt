@@ -1060,3 +1060,75 @@ Frame      : 13232 us
     Font       :     0 us
     Copy       :   200 us
     Present    :  1911 us
+
+Bench: RS1368_V0 + minor code optmization of blending (RS1368_V1)
+rt.resolution: 1104x1368
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     461290
+blockCull        cellOutputCount.mip[2]        :    1823548
+blockCull        cellOutputCount.mip[3]        :    3459312
+blockCull        cellOutputCount.mip[4]        :    1186952
+blockCull        cellOutputCount.mip[5]        :     428588
+blockCull        cellOutputCount.mip[6]        :      28012
+blockCull        cellOutputCount.mip[7]        :          8
+blockCull        cellOutputCount               :    6926420
+blockTrace       cellInputCount                :    6926528
+blockTrace       cellProcessedCounts.mip[2]    :    1823548
+blockTrace       cellProcessedCounts.mip[3]    :    3459312
+blockTrace       cellProcessedCounts.mip[4]    :    1186952
+blockTrace       cellProcessedCounts.mip[5]    :     428588
+blockTrace       cellProcessedCounts.mip[6]    :      28012
+blockTrace       cellProcessedCounts.mip[7]    :          8
+blockTrace       cellProcessedCount            :    6926420
+blockTrace       cellValidCount                :    6357062
+blockTrace       pixelSampleCount              :   11351680
+blockTrace       0_pixelSampleCount            :          0
+blockTrace       1_pixelSampleCount            :    6976448
+blockTrace       2_pixelSampleCount            :    1396345
+blockTrace       3_pixelSampleCount            :     296770
+blockTrace       4_pixelSampleCount            :     173058
+blockTrace       5_pixelSampleCount            :          0
+blockTrace       6_pixelSampleCount            :          0
+blockTrace       7_pixelSampleCount            :          0
+blockTrace       8_pixelSampleCount            :          0
+blockTrace       9_pixelSampleCount            :          0
+blockTrace       cellItemCount.mip[2]          :    2484491
+blockTrace       cellItemCount.mip[3]          :    4150058
+blockTrace       cellItemCount.mip[4]          :    1511456
+blockTrace       cellItemCount.mip[5]          :     648573
+blockTrace       cellItemCount.mip[6]          :      48040
+blockTrace       cellItemCount.mip[7]          :          3
+blockTrace       cellItemCount                 :    8842621
+blockTrace       cellItemMaxCountPerPixel      :         54
+blockTrace       traceCellStatCount            :   50531232
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8060544
+pixelBlend       cellItemBorderInputCount      :    4534056
+pixelBlend       cellItemInputCount            :   12594600
+pixelBlend       cellItemHitProcessedCount     :    4415732
+pixelBlend       cellItemBorderProcessedCount  :    2483209
+pixelBlend       cellItemProcessedCount        :    6898941
+pixelBlend       pixelInputCount               :    1510272
+pixelBlend       cellItemHitInputCount         :    8061120
+pixelBlend       cellItemBorderInputCount      :    4534380
+pixelBlend       cellItemInputCount            :   12595500
+pixelBlend       cellItemHitProcessedCount     :    4426889
+pixelBlend       cellItemBorderProcessedCount  :    2477793
+pixelBlend       cellItemProcessedCount        :    6904682
+Frame      : 13235 us
+    Update     :     0 us
+    Draw       : 10931 us
+        Cull       :   246 us
+        Trace      :  7196 us
+        Blend_L    :  1441 us
+        TSAA_L     :   179 us
+        Sharpen_L  :   128 us
+        Blend_R    :  1427 us
+        TSAA_R     :   178 us
+        Sharpen_R  :   130 us
+    Font       :     0 us
+    Metrics    :    31 us
+    Copy       :   200 us
+    Present    :  2070 us

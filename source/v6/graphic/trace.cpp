@@ -518,6 +518,9 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbBlend->c_blendFrameSize.x = traceContext->desc.screenWidth;
 		cbBlend->c_blendFrameSize.y = traceContext->desc.screenHeight;
 
+		cbBlend->c_blendFrameInvSize.x = 1.0f / traceContext->desc.screenWidth;
+		cbBlend->c_blendFrameInvSize.y = 1.0f / traceContext->desc.screenHeight;
+
 		const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 		
 		cbBlend->c_blendEye = eye;

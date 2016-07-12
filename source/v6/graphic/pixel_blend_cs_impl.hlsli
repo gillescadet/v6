@@ -135,6 +135,12 @@ void ClearPixelDataAndDepth( uint2 groupID )
 	gs_pixelDepths[groupID.y][groupID.x].depth24_xgroup4_ygroup4 = 0xFFFFFFFF;
 }
 
+void DispatchPixel( uint bit, uint hitMask9, uint2 groupID, int offsetX, int offsetY, uint depth24_xgroup4_ygroup4 )
+{
+	const uint d24 = ( hitMask9 & (1 << bit) ) ? depth24_xgroup4_ygroup4 : 0xFFFFFFFF;
+	InterlockedMin( gs_pixelDepths[groupID.y+offsetY][groupID.x+offsetX].depth24_xgroup4_ygroup4, d24 );
+}
+
 void LoadPixelCandidate( int2 bufferBasePos, uint2 groupID, uint hitMask, uint cellItemRank, uint cellItemCountPerPage )
 {
 	PixelContext_s pixelContext = gs_pixelContexts[groupID.y][groupID.x];
@@ -175,17 +181,17 @@ void LoadPixelCandidate( int2 bufferBasePos, uint2 groupID, uint hitMask, uint c
 		const uint hitMask9 = (((blockCellItem.hitMask1_depth31 >> 23) & 0x100) | (blockCellItem.r8g8b8_hitMask8 & 0xFF)) & hitMask;
 		const uint depth24_xgroup4_ygroup4 = (uint( asfloat( blockCellItem.hitMask1_depth31 & 0x7FFFFFFF ) * c_blendDepth24Norm ) << 8) | (groupID.x << 4) | groupID.y;
 
-		if ( hitMask9 & (1 << 0) ) InterlockedMin( gs_pixelDepths[groupID.y-1][groupID.x-1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 1) ) InterlockedMin( gs_pixelDepths[groupID.y-1][groupID.x  ].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 2) ) InterlockedMin( gs_pixelDepths[groupID.y-1][groupID.x+1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 0, hitMask9, groupID, -1, -1, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 1, hitMask9, groupID,  0, -1, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 2, hitMask9, groupID, +1, -1, depth24_xgroup4_ygroup4 );
 
-		if ( hitMask9 & (1 << 3) ) InterlockedMin( gs_pixelDepths[groupID.y  ][groupID.x-1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 4) ) InterlockedMin( gs_pixelDepths[groupID.y  ][groupID.x  ].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 5) ) InterlockedMin( gs_pixelDepths[groupID.y  ][groupID.x+1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 3, hitMask9, groupID, -1,  0, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 4, hitMask9, groupID,  0,  0, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 5, hitMask9, groupID, +1,  0, depth24_xgroup4_ygroup4 );
 
-		if ( hitMask9 & (1 << 6) ) InterlockedMin( gs_pixelDepths[groupID.y+1][groupID.x-1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 7) ) InterlockedMin( gs_pixelDepths[groupID.y+1][groupID.x  ].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
-		if ( hitMask9 & (1 << 8) ) InterlockedMin( gs_pixelDepths[groupID.y+1][groupID.x+1].depth24_xgroup4_ygroup4, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 6, hitMask9, groupID, -1, +1, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 7, hitMask9, groupID,  0, +1, depth24_xgroup4_ygroup4 );
+		DispatchPixel( 8, hitMask9, groupID, +1, +1, depth24_xgroup4_ygroup4 );
 	}
 }
 
@@ -296,15 +302,15 @@ float3 ComputeOverdrawColor( uint2 bufferPos )
 	const uint step = cellItemCounters[pixelID];
 	
 	float3 color;
-	if ( step < 1 )
+	if ( step == 0 )
 		color = float3( 0.0f, 0.0f, 0.0f );
-	else if ( step < 2 )
+	else if ( step == 1 )
 		color = float3( 0.0f, 0.0f, 1.0f );
-	else if ( step < 4 )
+	else if ( step == 2 )
 		color = float3( 0.0f, 0.5f, 0.5f );
-	else if ( step < 8 )
+	else if ( step == 3 )
 		color = float3( 0.0f, 1.0f, 0.0f );
-	else if ( step < 16 )
+	else if ( step == 4 )
 		color = float3( 0.5f, 0.5f, 0.0f );
 	else
 		color = float3( 1.0f, 0.0f, 0.0f );
@@ -336,6 +342,11 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID )
 	{
 		Blend( color, displacement, stereoBuffPos, GTid.xy );
 	}
+
+#if 0
+	if ( length( screenBufferPos * c_blendFrameInvSize * 2.0f - 1.0f ) > 1.0f )
+		color += float3( 1.0f, 0.0f, 0.0f );
+#endif
 
 	outputColors[screenBufferPos] = float4( color, 1.0f );
 	outputDisplacements[pixelID] = displacement;

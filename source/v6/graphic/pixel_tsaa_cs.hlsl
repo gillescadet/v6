@@ -64,7 +64,7 @@ void main_pixel_tsaa_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Group
 
 	const float3 prevUnclampedColor = RGBtoYCoGg( inputHistory.SampleLevel( bilinearSampler, prevColorUVs, 0 ).rgb );
 	const float3 prevClampedColor = clamp( prevUnclampedColor, minColor, maxColor );
-	const float prevClampingFactor = saturate( length( displacement ) * (1.0f / 8.0f) );
+	const float prevClampingFactor = saturate( length( displacement ) * (1.0f / 2.0f) );
 	const float3 prevColor = lerp( prevUnclampedColor, prevClampedColor, prevClampingFactor );
 	
 	outputColors[DTid.xy] = float4( YCoGgtoRGB( lerp( prevColor, curColor, blendFactor ) ), 0.0f );
