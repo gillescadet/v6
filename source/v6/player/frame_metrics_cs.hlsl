@@ -35,15 +35,15 @@ void main_frame_metrics_cs( uint3 DTid : SV_DispatchThreadID )
 	}
 
 	t = min( t, c_frameMetricsRTSize.y - 1 );
-	const float plotFade = 1.0f - saturate( abs( t - y ) * 0.5f );
+	const float plotFade = (uint)t == y || (uint)t == y-1;
 
 	const float tMin = TimeUSToY( c_frameMetricsMarkerMin );
 	const float tMid = TimeUSToY( c_frameMetricsMarkerMid );
 	const float tMax = TimeUSToY( c_frameMetricsMarkerMax );
 
-	const float plotMin = 1.0f - saturate( abs( tMin - y ) );
-	const float plotMid = 1.0f - saturate( abs( tMid - y ) );
-	const float plotMax = 1.0f - saturate( abs( tMax - y ) );
+	const float plotMin = (uint)tMin == y;
+	const float plotMid = (uint)tMid == y;
+	const float plotMax = (uint)tMax == y;
 
 	float3 finalColor = float3( plotFade, plotFade, plotFade );
 	finalColor.r += plotMax;
@@ -51,7 +51,7 @@ void main_frame_metrics_cs( uint3 DTid : SV_DispatchThreadID )
 	finalColor.b += plotMid;
 
 	if ( (cursor % 75) == 0 )
-		finalColor += float3( 0.1f, 0.1f, 0.1f );
+		finalColor += float3( 0.05f, 0.05f, 0.05f );
 
 	surfaceColors[DTid.xy + c_frameMetricsRTOffset] = float4( finalColor, 0.0f );
 }

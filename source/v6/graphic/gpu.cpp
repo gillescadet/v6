@@ -6,6 +6,7 @@
 #include <d3d11_1.h>
 #include <v6/core/windows_end.h>
 
+#include <v6/core/bit.h>
 #include <v6/core/color.h>
 #include <v6/core/filesystem.h>
 #include <v6/core/math.h>
@@ -34,6 +35,8 @@ struct GPUEventContext_s
 		GPUQuery_s		frequency;
 		GPUQuery_s		begins[EVENT_MAX_COUNT];
 		GPUQuery_s		ends[EVENT_MAX_COUNT];
+		BitSet_s		startedSet;
+		u32				startedBits[BitSet_GetSize( EVENT_MAX_COUNT )];
 	}					queries[EVENT_BUFFER_COUNT];
 
 	struct
@@ -132,6 +135,10 @@ void GPUEvent_Begin( GPUEventID_t eventID )
 
 	if ( s_eventContext.eventProfiles[eventID] )
 	{
+		// Can not profile events that occur multiple times in a frame
+		V6_ASSERT( BitSet_GetBit( &s_eventContext.queries[bufferID].startedSet, eventID ) == 0 );
+		BitSet_SetBit( &s_eventContext.queries[bufferID].startedSet, eventID );
+
 		{
 			if ( s_eventContext.queries[bufferID].begins[eventID].query == nullptr )
 				GPUQuery_CreateTimeStamp( &s_eventContext.queries[bufferID].begins[eventID] );
@@ -165,6 +172,9 @@ void GPUEvent_BeginFrame( u32 frameID )
 	const u32 bufferID = frameID % EVENT_BUFFER_COUNT;
 
 	{
+		BitSet_Init( &s_eventContext.queries[bufferID].startedSet, s_eventContext.queries[bufferID].startedBits, EVENT_MAX_COUNT );
+		BitSet_Clear( &s_eventContext.queries[bufferID].startedSet );
+		
 		if ( s_eventContext.queries[bufferID].frequency.query == nullptr )
 			GPUQuery_CreateTimeStampDisjoint( &s_eventContext.queries[bufferID].frequency );
 

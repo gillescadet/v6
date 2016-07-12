@@ -45,10 +45,7 @@ V6_INLINE u32 Bit_GetFirstBitHigh( u64 value )
 	return _BitScanReverse64( &index, value ) == 0 ? (u32)-1 : (u32)index;
 }
 
-V6_INLINE u32 BitSet_GetSize( u32 count )
-{
-	return (count + 31) >> 5;
-}
+#define BitSet_GetSize( count ) ( (count + 31) >> 5 )
 
 V6_INLINE void BitSet_Init( BitSet_s* bitSet, u32* bits, u32 count )
 {

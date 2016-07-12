@@ -65,9 +65,9 @@ static const GPUEventID_t s_gpuEventCullBucket		= GPUEvent_Register( "Cull Bucke
 static const GPUEventID_t s_gpuEventTrace			= GPUEvent_Register( "Trace", true );
 static const GPUEventID_t s_gpuEventInitTrace		= GPUEvent_Register( "Init Trace", false );
 static const GPUEventID_t s_gpuEventTraceBucket		= GPUEvent_Register( "Trace Bucket", false );
-static const GPUEventID_t s_gpuEventBlend			= GPUEvent_Register( "Blend", true );
-static const GPUEventID_t s_gpuEventTSAA			= GPUEvent_Register( "TSAA", true );
-static const GPUEventID_t s_gpuEventSharpen			= GPUEvent_Register( "Sharpen", true );
+static const GPUEventID_t s_gpuEventBlends[2]		= { GPUEvent_Register( "Blend_L", true ), GPUEvent_Register( "Blend_R", true ) };
+static const GPUEventID_t s_gpuEventTSAAs[2]		= { GPUEvent_Register( "TSAA_L", true ), GPUEvent_Register( "TSAA_R", true ) };
+static const GPUEventID_t s_gpuEventSharpens[2]		= { GPUEvent_Register( "Sharpen_L", true ), GPUEvent_Register( "Sharpen_R", true ) };
 
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
@@ -490,7 +490,7 @@ static void BlendPixel( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 {
 	GPUTraceResources_s* traceRes = traceContext->res;
 
-	GPUEvent_Begin( s_gpuEventBlend );
+	GPUEvent_Begin( s_gpuEventBlends[eye] );
 
 	// Clear
 
@@ -573,7 +573,7 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 	GPUTraceResources_s* traceRes = traceContext->res;
 
 	{
-		GPUEvent_Begin( s_gpuEventTSAA );
+		GPUEvent_Begin( s_gpuEventTSAAs[eye] );
 	
 		// Set
 
@@ -622,7 +622,7 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 	}
 	else
 	{
-		GPUEvent_Begin( s_gpuEventSharpen );
+		GPUEvent_Begin( s_gpuEventSharpens[eye] );
 	
 		// Set
 
