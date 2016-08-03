@@ -68,7 +68,7 @@ public:
 		return *this;
 	}
 
-	void Normalize()
+	float Normalize()
 	{
 		float const fL = Length();
 		if (fL > FLT_EPSILON)
@@ -78,6 +78,7 @@ public:
 			y *= fInvL;
 			z *= fInvL;
 		}
+		return fL;
 	}
 
 	Vec3 Rcp() const
@@ -222,6 +223,11 @@ V6_INLINE Vec3 Cross(Vec3 const & v1, Vec3 const & v2)
 	v.y = v1.z * v2.x - v1.x * v2.z;
 	v.z = v1.x * v2.y - v1.y * v2.x;
 	return v;
+}
+
+V6_INLINE Vec3 Abs( Vec3 const & v )
+{
+	return v.Abs();
 }
 
 V6_INLINE Vec3 Min(Vec3 const & v1, Vec3 const & v2)

@@ -12,7 +12,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_SHOW_FLAG_HISTORY				4
 
 #define HLSL_BLOCK_THREAD_GROUP_SIZE				64
-#define HLSL_BLOCK_TRACE_CELL_STATS_MAX_COUNT		(10 * 1024)
+
+#define HLSL_BLOCK_DEBUG_BOX_MAX_COUNT				(64 * 1024)
 
 #define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
@@ -24,23 +25,22 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_HISTORY_SLOT							3
 
 #define HLSL_BLOCK_POS_SLOT							0
-#define HLSL_BLOCK_DATA_SLOT						1
-#define HLSL_BLOCK_RANGE_SLOT						2
-#define HLSL_BLOCK_GROUP_SLOT						3
-#define HLSL_BLOCK_CELL_ITEM_SLOT					4
-#define HLSL_BLOCK_CELL_ITEM_COUNT_SLOT				5
-#define HLSL_CULL_STATS_SLOT						6
-#define HLSL_TRACE_CELLS_SLOT						7
-#define HLSL_TRACE_INDIRECT_ARGS_SLOT				8
-#define HLSL_TRACE_STATS_SLOT						9
-#define HLSL_TRACE_CELL_STATS_SLOT					10
-#define HLSL_BLEND_STATS_SLOT						11
+#define HLSL_BLOCK_CELL_PRESENCE_SLOT				1
+#define HLSL_BLOCK_CELL_END_COLOR_SLOT				2
+#define HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT			3
+#define HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT			4
+#define HLSL_BLOCK_RANGE_SLOT						5
+#define HLSL_BLOCK_GROUP_SLOT						6
+#define HLSL_VISIBLE_BLOCK_SLOT						7
+#define HLSL_VISIBLE_BLOCK_CONTEXT_SLOT				8
+#define HLSL_BLOCK_PATCH_COUNTERS_SLOT				9
+#define HLSL_BLOCK_PATCHES_SLOT						10
+#define HLSL_CULL_STATS_SLOT						11
+#define HLSL_PROJECT_STATS_SLOT						12
+#define HLSL_TRACE_STATS_SLOT						13
+#define HLSL_TRACE_DEBUG_BOX_SLOT					14
 
-#define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT		2
-#define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT		(1 << HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_SHIFT)
-#define HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_MASK		(HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT-1)
-#define HLSL_CELL_ITEM_PAGE_COUNT					4
-#define HLSL_CELL_ITEM_PER_PIXEL_MAX_COUNT			(HLSL_CELL_ITEM_PER_PAGE_PER_PIXEL_COUNT * HLSL_CELL_ITEM_PAGE_COUNT)
+#define HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE			(64 * 16)
 
 CBUFFER( CBCull, 0 )
 {
@@ -54,33 +54,29 @@ CBUFFER( CBCull, 0 )
 	uint				c_cullPad1;
 
 	float4				c_cullCentersAndGridScales[HLSL_MIP_MAX_COUNT];
-	float4				c_cullFrustumPlanes[4];
-	
+	float4				c_cullFrustumPlanes[4]; // w is pre-negated
 };
 
-struct TracePerEye
+CBUFFER( CBProject, 1 )
 {
-	float4				prevWorldToProjX;
-	float4				prevWorldToProjY;
-	float4				prevWorldToProjW;
-	float4				curWorldToProjX;
-	float4				curWorldToProjY;
-	float4				curWorldToProjW;
-	
-	float3				org;
-	float				pad0;
+	float2				c_projectFrameSize;
+	uint2				c_projectFrameTileSize;
 
-	float3				rayDirBase;
-	float				pad1;
-	
-	float3				rayDirUp;
-	float				pad2;
-	
-	float3				rayDirRight;
-	float				pad3;
+	uint				c_projectGridMacroShift;
+	float				c_projectInvGridWidth;
+	float2				c_projectUnused;
+
+	float4				c_projectCentersAndGridScales[HLSL_MIP_MAX_COUNT];
+
+	float4				c_projectPrevWorldToProjX;
+	float4				c_projectPrevWorldToProjY;
+	float4				c_projectPrevWorldToProjW;
+	float4				c_projectCurWorldToProjX;
+	float4				c_projectCurWorldToProjY;
+	float4				c_projectCurWorldToProjW;
 };
 
-CBUFFER( CBTrace, 1 )
+CBUFFER( CBTrace, 2 )
 {	
 	float4				c_traceGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_traceGridCenters[HLSL_MIP_MAX_COUNT];
@@ -90,29 +86,19 @@ CBUFFER( CBTrace, 1 )
 	float2				c_traceJitter;
 
 	float2				c_traceFrameSize;
+	uint2				c_traceFrameTileSize;
+
+	float4				c_traceRayOrg;
+	float4				c_traceRayDirBase;
+	float4				c_traceRayDirUp;
+	float4				c_traceRayDirRight;
+	
 	uint				c_traceGetStats;
 	uint				c_traceShowFlag;
-
-	TracePerEye			c_traceEyes[2];
-	
+	uint2				c_traceUnused;
 };
 
-CBUFFER( CBBlend, 2 )
-{
-	uint2				c_blendFrameSize;
-	float2				c_blendFrameInvSize;
-
-	uint				c_blendEye;
-	uint				c_blendEyeCount;
-	float				c_blendDepth24Norm;
-	uint				c_blendPad1;
-
-	uint				c_blendGetStats;
-	uint				c_blendShowOverdraw;
-	uint2				c_blendPad2;
-};
-
-CBUFFER( CBTSAA, 3 )
+CBUFFER( CBTSAA, 2 )
 {
 	float2				c_tsaaJitter;
 	float				c_tsaaBlendFactor;
@@ -128,7 +114,27 @@ struct BlockRange
 	uint	firstThreadID;
 	uint	blockCount;
 	uint	blockPosOffset;
-	uint	blockDataOffset;
+};
+
+struct VisibleBlock
+{
+	uint blockPosID;
+	uint packedBlockPos;
+};
+
+struct VisibleBlockContext
+{
+	uint	count;
+	uint	groupCountX;
+	uint	groupCountY;
+	uint	groupCountZ;
+};
+
+struct BlockPatch
+{
+	uint	blockPosID24_x4_y4;
+	uint	packedBlockPos;
+	uint	none24_w4_h4;
 };
 
 struct BlockCellItem
@@ -143,56 +149,44 @@ struct BlockCullStats
 	uint	blockInputCount;
 	uint	blockProcessedCount;
 	uint	blockPassedCount;
-	uint	cellOutputCounts[HLSL_MIP_MAX_COUNT];
+	uint	maxBlockPosID;
+};
+
+struct BlockProjectStats 
+{
+	uint	blockInputCount;
+	uint	blockProcessedCount;
+	uint	blockPatchHeaderPixelCount;
+	uint	blockPatchHeaderCount;
+	uint	blockPatchDetailCount;
+	uint	blockPatchDetailPixelCount;
+	uint	blockPatchMaxPage;
+};
+
+struct BlockDebugBox
+{
+	float3	boxMinRS;
+	float3	boxMaxRS;
 };
 
 struct BlockTraceStats 
 {
-	uint	cellInputCount;
-	uint	cellProcessedCounts[HLSL_MIP_MAX_COUNT];
-	uint	cellValidCount;
-	uint	pixelSampleCount;
-	uint	pixelSampleDistribution[10];
-	uint	cellItemCounts[HLSL_MIP_MAX_COUNT];
-	uint	cellItemMaxCountPerPixel;
-	uint	traceCellStatCount;
+	uint			patchInputCount;
+	uint			pageMaxCount;
+	uint			pixelTraceCount;
+	uint			pixelDoneCount;
+	uint			tileDoneCount;
+	uint			tileStepCount;
+	uint			assertFailedBits;
+	uint			assertData[4];
+	float3			debugRayDir;
+	uint			debugBoxCount;
 };
 
-struct BlockTraceCellStats
-{
-	uint	blockCellID;
-	int2	pixelCoords;
-	int		x;
-	int		y;
-	float3	boxMinRS;
-	float3	boxMaxRS;
-	float3	rayDir;
-	float	tIn;
-	float	tOut;
-	bool	hit;
-};
-
-struct BlendStats
-{
-	uint	pixelInputCount;
-	uint	cellItemHitInputCount;
-	uint	cellItemBorderInputCount;
-	uint	cellItemHitProcessedCount;
-	uint	cellItemBorderProcessedCount;
-};
-
-#define trace_cellGroupCountX_offset( BUCKET )				(BUCKET * 3 + 0)
-#define trace_cellGroupCountY_offset( BUCKET )				(BUCKET * 3 + 1)
-#define trace_cellGroupCountZ_offset( BUCKET )				(BUCKET * 3 + 2)
-#define trace_blockOffset_offset( BUCKET )					(trace_cellGroupCountZ_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
-#define trace_blockCount_offset( BUCKET )					(trace_blockOffset_offset( HLSL_BUCKET_COUNT ) + BUCKET + 1)
-#define trace_all_offset									trace_blockCount_offset( HLSL_BUCKET_COUNT )
-
-#define trace_cellGroupCountX( BUCKET )						traceIndirectArgs[trace_cellGroupCountX_offset( BUCKET )]
-#define trace_cellGroupCountY( BUCKET )						traceIndirectArgs[trace_cellGroupCountY_offset( BUCKET )]
-#define trace_cellGroupCountZ( BUCKET )						traceIndirectArgs[trace_cellGroupCountZ_offset( BUCKET )]
-#define trace_blockOffset( BUCKET )							traceIndirectArgs[trace_blockOffset_offset( BUCKET )]
-#define trace_blockCount( BUCKET )							traceIndirectArgs[trace_blockCount_offset( BUCKET )]
+#define VISIBLEBLOCKCONTEXT_COUNT_OFFSET		0
+#define VISIBLEBLOCKCONTEXT_GROUPCOUNTX_OFFSET	1
+#define VISIBLEBLOCKCONTEXT_GROUPCOUNTY_OFFSET	2
+#define VISIBLEBLOCKCONTEXT_GROUPCOUNTZ_OFFSET	3
 
 END_V6_HLSL_NAMESPACE
 

@@ -1297,11 +1297,15 @@ static void Player_Release( Player_s* player )
 
 static void Test()
 {
-	for ( u32 x = 0; x < 16; ++x )
-	{
-		const u32 cursor = (75 + 3 - 16 + x) % 75;
-		V6_MSG( "cursor: %d\n", cursor );
-	}
+	u32 x = 7;
+	u32 w = 1;
+	u32 begin = x;
+	u32 end = x + w;
+	
+	const u32 maskBegin = (1 << begin) - 1;
+	const u32 maskEnd = (1 << end) - 1;
+	const u32 mask = maskEnd & ~maskBegin;
+	
 }
 
 END_V6_NAMESPACE
@@ -1319,6 +1323,12 @@ int main( int argc, char** argv )
 
 #if 0
 	// HD
+	const v6::u32 defaultWidth = 32;
+	const v6::u32 defaultHeight = 32;
+#endif
+
+#if 0
+	// HD
 	const v6::u32 defaultWidth = 960;
 	const v6::u32 defaultHeight = 1080;
 #endif
@@ -1328,12 +1338,12 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 256;
 #endif
 
-#if 0
+#if 1
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
 	
-#if 1
+#if 0
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;

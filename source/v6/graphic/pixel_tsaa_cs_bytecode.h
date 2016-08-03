@@ -26,7 +26,7 @@
 // inputDisplacements                texture    uint         buf    2        1
 // inputHistory                      texture  float4          2d    3        1
 // outputColors                          UAV  float4          2d    0        1
-// CBTSAA                            cbuffer      NA          NA    3        1
+// CBTSAA                            cbuffer      NA          NA    2        1
 //
 //
 //
@@ -43,7 +43,7 @@
 // no Output
 cs_5_0
 dcl_globalFlags refactoringAllowed
-dcl_constantbuffer cb3[2], immediateIndexed
+dcl_constantbuffer cb2[2], immediateIndexed
 dcl_sampler s0, mode_default
 dcl_resource_texture2d (float,float,float,float) t0
 dcl_resource_buffer (uint,uint,uint,uint) t2
@@ -84,20 +84,20 @@ add r3.z, -r0.w, r1.y
 mad r3.x, r3.z, l(0.500000), r0.w
 min r0.xyz, r0.xyzx, r3.xyzx
 max r1.xyz, r2.xyzx, r3.xyzx
-mov r2.xy, -cb3[0].yxyy
+mov r2.xy, -cb2[0].yxyy
 add r0.w, r2.x, l(1.000000)
 mov r2.z, -r0.w
 add r2.xy, r2.yzyy, l(1.000000, 1.000000, 0.000000, 0.000000)
 utof r3.xyzw, vThreadID.yxxy
 add r2.xy, r2.xyxx, r3.zwzz
-mul r2.xy, r2.xyxx, cb3[1].zwzz
+mul r2.xy, r2.xyxx, cb2[1].zwzz
 sample_l_indexable(texture2d)(float,float,float,float) r2.xyz, r2.xyxx, t0.xyzw, s0, l(0.000000)
 add r4.y, -r2.z, r2.x
 mad r0.w, r4.y, l(0.500000), r2.z
 add r4.z, -r0.w, r2.y
 mad r4.x, r4.z, l(0.500000), r0.w
 min r0.xyz, r0.xyzx, r4.xyzx
-mad r0.w, r3.x, cb3[1].x, r3.y
+mad r0.w, r3.x, cb2[1].x, r3.y
 ftou r0.w, r0.w
 ld_indexable(buffer)(uint,uint,uint,uint) r0.w, r0.wwww, t2.yzwx
 ushr r1.w, r0.w, l(16)
@@ -108,7 +108,7 @@ mov r2.z, -r2.x
 dp2 r0.w, r2.xyxx, r2.xyxx
 add r2.xy, r2.zyzz, r3.zwzz
 add r2.xy, r2.xyxx, l(0.500000, 0.500000, 0.000000, 0.000000)
-mul r2.xy, r2.xyxx, cb3[1].zwzz
+mul r2.xy, r2.xyxx, cb2[1].zwzz
 sqrt r0.w, r0.w
 mul r0.w, r0.w, l(0.500000)
 min r0.w, r0.w, l(1.000000)
@@ -126,7 +126,7 @@ add r1.xyz, -r0.xyzx, r4.xyzx
 mov_sat r2.zw, r2.xxxy
 ne r2.xy, r2.zwzz, r2.xyxx
 or r0.w, r2.y, r2.x
-movc r0.w, r0.w, l(1.000000), cb3[0].z
+movc r0.w, r0.w, l(1.000000), cb2[0].z
 mad r0.xyz, r0.wwww, r1.xyzx, r0.xyzx
 mad r0.x, -r0.z, l(0.500000), r0.x
 mad r1.z, -r0.y, l(0.500000), r0.x
@@ -140,10 +140,10 @@ ret
 
 const BYTE g_main_pixel_tsaa_cs[] =
 {
-     68,  88,  66,  67,   1,  76, 
-    183,  35, 162, 158,  76, 209, 
-    188, 225, 239,  86,  81,   3, 
-    120, 108,   1,   0,   0,   0, 
+     68,  88,  66,  67, 218,  20, 
+    147, 171,  85, 160, 253, 144, 
+    241, 161, 240, 212, 189, 170, 
+    249,   4,   1,   0,   0,   0, 
     100,  14,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
      60,   3,   0,   0,  76,   3, 
@@ -190,7 +190,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      3,   0,   0,   0,   1,   0, 
+      2,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
      98, 105, 108, 105, 110, 101, 
      97, 114,  83,  97, 109, 112, 
@@ -288,7 +288,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
       5,   0, 153,   2,   0,   0, 
     106,   8,   0,   1,  89,   0, 
       0,   4,  70, 142,  32,   0, 
-      3,   0,   0,   0,   2,   0, 
+      2,   0,   0,   0,   2,   0, 
       0,   0,  90,   0,   0,   3, 
       0,  96,  16,   0,   0,   0, 
       0,   0,  88,  24,   0,   4, 
@@ -474,7 +474,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
       0,   0,  54,   0,   0,   7, 
      50,   0,  16,   0,   2,   0, 
       0,   0,  22, 133,  32, 128, 
-     65,   0,   0,   0,   3,   0, 
+     65,   0,   0,   0,   2,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   7, 130,   0, 
      16,   0,   0,   0,   0,   0, 
@@ -502,7 +502,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
       0,   8,  50,   0,  16,   0, 
       2,   0,   0,   0,  70,   0, 
      16,   0,   2,   0,   0,   0, 
-    230, 138,  32,   0,   3,   0, 
+    230, 138,  32,   0,   2,   0, 
       0,   0,   1,   0,   0,   0, 
      72,   0,   0, 141, 194,   0, 
       0, 128,  67,  85,  21,   0, 
@@ -544,7 +544,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
      16,   0,   0,   0,   0,   0, 
      10,   0,  16,   0,   3,   0, 
       0,   0,  10, 128,  32,   0, 
-      3,   0,   0,   0,   1,   0, 
+      2,   0,   0,   0,   1,   0, 
       0,   0,  26,   0,  16,   0, 
       3,   0,   0,   0,  28,   0, 
       0,   5, 130,   0,  16,   0, 
@@ -596,7 +596,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
      16,   0,   2,   0,   0,   0, 
      70,   0,  16,   0,   2,   0, 
       0,   0, 230, 138,  32,   0, 
-      3,   0,   0,   0,   1,   0, 
+      2,   0,   0,   0,   1,   0, 
       0,   0,  75,   0,   0,   5, 
     130,   0,  16,   0,   0,   0, 
       0,   0,  58,   0,  16,   0, 
@@ -690,7 +690,7 @@ const BYTE g_main_pixel_tsaa_cs[] =
      16,   0,   0,   0,   0,   0, 
       1,  64,   0,   0,   0,   0, 
     128,  63,  42, 128,  32,   0, 
-      3,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,  50,   0,   0,   9, 
     114,   0,  16,   0,   0,   0, 
       0,   0, 246,  15,  16,   0, 

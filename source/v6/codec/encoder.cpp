@@ -2,6 +2,7 @@
 
 #include <v6/core/common.h>
 
+#include <v6/codec/compression.h>
 #include <v6/codec/encoder.h>
 #include <v6/codec/codec.h>
 #include <v6/core/bit.h>
@@ -97,7 +98,6 @@ struct Context_s
 	u32					rangeDefCounts[CODEC_BUCKET_COUNT];
 	u32					frameCount;
 	u32					blockPosCountPerSequence;
-	u32					blockDataCountPerSequence;
 };
 
 static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
@@ -910,7 +910,6 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	V6_ASSERT( RawFrame_IsRefFrame( frameRank, context ) );
 
 	u32 frameUniqueBlockPosCount = 0;
-	u32 frameUniqueBlockDataCount = 0;
 	u32 frameBlockRangeCount = 0;
 	u32 frameBlockCount = 0;
 	u32 frameBlockGroupCount = 0;
@@ -931,7 +930,6 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 			
 			const u32 blockCount = codecRange->frameRank8_mip4_blockCount20 & 0xFFFFF;
 			frameUniqueBlockPosCount += blockCount;
-			frameUniqueBlockDataCount += blockCount * cellPerBucketCount;
 		}
 
 		const u32 bucketBlockRangeCount = desc->blockRangeCounts[bucket];
@@ -953,10 +951,9 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	context->stream->desc.maxBlockGroupCountPerFrame = Max( context->stream->desc.maxBlockGroupCountPerFrame, frameBlockGroupCount );
 
 	context->blockPosCountPerSequence += frameUniqueBlockPosCount;
-	context->blockDataCountPerSequence += frameUniqueBlockDataCount;
 }
 
-static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameRank, IStreamWriter* blockPosWriter, IStreamWriter* blockDataWriter, Context_s* context )
+static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameRank, IStreamWriter* blockPosWriter, IStreamWriter* blockDataWriters[4], Context_s* context )
 {
 	const RawFrame_s* frame = &context->frames[frameRank];
 	BucketFrame_s* bucketFrame = &context->bucketFrames[bucket][frameRank];
@@ -966,7 +963,7 @@ static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameRank, IStreamWriter* bl
 	if ( bucketFrame->blockCount == 0 )
 		return 0;
 
-	const u32 perBucketCellCount = 1 << (bucket + 2);
+	const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 	for ( u32 sharedFrameRank = 0; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
 	{
@@ -998,13 +995,14 @@ static u32 BucketFrame_WriteBlocks( u32 bucket, u32 frameRank, IStreamWriter* bl
 						++cellCount;
 					} while ( cellPresence != 0 );
 				}
-				const u32 cellPerBucketCount = 1 << (2 + bucket);
-				while ( cellCount < cellPerBucketCount )
-				{
-					cellRGBA[cellCount] = ENCODER_EMPTY_CELL;
-					++cellCount;
-				}
-				blockDataWriter->Write( cellRGBA, cellCount * sizeof( u32 ) );
+
+				EncodedBlockEx_s encodedBlock;
+				Block_Encode_Optimize( &encodedBlock, cellRGBA, cellCount );
+				V6_ASSERT( encodedBlock.cellPresence == block->cellPresence );
+				blockDataWriters[0]->Write( &encodedBlock.cellPresence, sizeof( u64 ) );
+				blockDataWriters[1]->Write( &encodedBlock.cellEndColors, sizeof( u32 ) );
+				blockDataWriters[2]->Write( &encodedBlock.cellColorIndices[0], sizeof( u64 ) );
+				blockDataWriters[3]->Write( &encodedBlock.cellColorIndices[1], sizeof( u64 ) );
 			}
 		}
 	}
@@ -1080,8 +1078,14 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 	ScopedStack scopedStack( context->stack );
 
-	CBufferWriter memoryBlockPosWriter(		context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
-	CBufferWriter memoryBlockDataWriter(	context->stack->alloc( MulMB( 200 ) ),	MulMB( 200 ) );
+	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
+	CBufferWriter memoryBlockCellPresences(		context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
+	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
+	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
+	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
+
+	IStreamWriter* memoryBlockDataWriters[4] = { &memoryBlockCellPresences, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1 };
+
 	CBufferWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
 
 	u32 blockCounts[CODEC_BUCKET_COUNT] = {};
@@ -1093,7 +1097,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 	{
 		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
 		{
-			blockCounts[bucket] = BucketFrame_WriteBlocks( bucket, frameRank, &memoryBlockPosWriter, &memoryBlockDataWriter, context );
+			blockCounts[bucket] = BucketFrame_WriteBlocks( bucket, frameRank, &memoryBlockPosWriter, memoryBlockDataWriters, context );
 
 			for ( u32 refFrameRank = 0; refFrameRank <= frameRank; ++refFrameRank )
 				rangeCounts[bucket] += BucketFrame_WriteRangeIDs( bucket, refFrameRank, frameRank, &memoryRangeIDWriter, context );
@@ -1154,7 +1158,10 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 		CodecFrameData_s frameData = {};
 		frameData.blockPos = (u32*)memoryBlockPosWriter.GetBuffer();
-		frameData.blockData = (u32*)memoryBlockDataWriter.GetBuffer();
+		frameData.blockCellPresences = (u64*)memoryBlockCellPresences.GetBuffer();
+		frameData.blockCellEndColors = (u32*)memoryBlockCellEndColors.GetBuffer();
+		frameData.blockCellColorIndices0 = (u64*)memoryBlockCellColorIndices0.GetBuffer();
+		frameData.blockCellColorIndices1 = (u64*)memoryBlockCellColorIndices1.GetBuffer();
 		frameData.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
 
 		if ( !Codec_WriteFrame( streamWriter, &frameDesc, &frameData, context->stack ) )
@@ -1184,7 +1191,6 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 static void Context_UpdateLimits( Context_s* context )
 {
 	context->stream->desc.maxBlockPosCountPerSequence = Max( context->stream->desc.maxBlockPosCountPerSequence, context->blockPosCountPerSequence );
-	context->stream->desc.maxBlockDataCountPerSequence = Max( context->stream->desc.maxBlockDataCountPerSequence, context->blockDataCountPerSequence );
 }
 
 static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, u32 frameCount, ContextStream_s* streamContext )

@@ -44,10 +44,10 @@
 #define V6_LOAD_EXTERNAL		1
 #define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
-#define V6_STEREO				1
+#define V6_STEREO				0
 #define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
-#define V6_USE_CACHE			1
+#define V6_USE_CACHE			0
 
 #if V6_USE_HMD == 1
 #include <v6/graphic/hmd.h>
@@ -95,7 +95,7 @@ static const u32 VIDEO_FPS						= 75;
 static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 
-static const u32 s_gpuEventCapture				= GPUEvent_Register( "Capture", true );
+static const u32 s_gpuEventCapture				= GPUEvent_Register( "Capture", false );
 static const u32 s_gpuEventComposeSurface		= GPUEvent_Register( "Compose Surface", true );
 
 static Win_s									s_win;
@@ -1522,17 +1522,17 @@ void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 	
 	GPUMesh_CreateSphere( &scene->meshes[MESH_SPHERE_RED], Color_Make( 255, 0, 0, 255 ), 16, stack );
 	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_RED], Color_Make( 255, 0, 0, 255 ), false );
+	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_GREEN], Color_Make( 0, 255, 0, 255 ), false );
 	GPUMesh_CreateBox( &scene->meshes[MESH_BOX_BLUE], Color_Make( 0, 0, 255, 255 ), false );
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	
 	const u32 screenWidth = GRID_WIDTH >> 1;
-	//const float depth = -99.0001f;
+	// const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 4 );
-	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 8 );
-	// Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_BOX_BLUE, Vec3_Make( -pixelRadius * 32, 0, 0.5f * depth ), pixelRadius * 16 );
+	//Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 4 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 32 );
 
 	Path_Load( s_paths, PATH_COUNT, scene );
 	s_yaw = DegToRad( info.cameraYaw );
@@ -2559,7 +2559,11 @@ int main()
 			v6::g_reloadShaders = false;
 		}
 
+		v6::GPUEvent_BeginFrame( (v6::u32)frameId );
+
 		oRenderingDevice.Draw( dt );
+
+		v6::GPUEvent_EndFrame();
 
 		v6::GPUSurfaceContext_Present();
 

@@ -7,118 +7,51 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
-#include <v6/graphic/block_cull_x4_cs_bytecode.h>
-#include <v6/graphic/block_cull_x8_cs_bytecode.h>
-#include <v6/graphic/block_cull_x16_cs_bytecode.h>
-#include <v6/graphic/block_cull_x32_cs_bytecode.h>
-#include <v6/graphic/block_cull_x64_cs_bytecode.h>
+#include <v6/graphic/block_cull_optim_cs_bytecode.h>
+#include <v6/graphic/block_cull_stats_cs_bytecode.h>
 
-#include <v6/graphic/block_cull_stats_x4_cs_bytecode.h>
-#include <v6/graphic/block_cull_stats_x8_cs_bytecode.h>
-#include <v6/graphic/block_cull_stats_x16_cs_bytecode.h>
-#include <v6/graphic/block_cull_stats_x32_cs_bytecode.h>
-#include <v6/graphic/block_cull_stats_x64_cs_bytecode.h>
-
-static const u8* g_main_block_cull_cs[2][HLSL_BUCKET_COUNT] = 
+static const u8* g_main_block_cull_cs[2] = 
 {
-	{ 
-		g_main_block_cull_x4_cs,
-		g_main_block_cull_x8_cs,
-		g_main_block_cull_x16_cs,
-		g_main_block_cull_x32_cs,
-		g_main_block_cull_x64_cs,
-	},
-	{ 
-		g_main_block_cull_stats_x4_cs,
-		g_main_block_cull_stats_x8_cs,
-		g_main_block_cull_stats_x16_cs,
-		g_main_block_cull_stats_x32_cs,
-		g_main_block_cull_stats_x64_cs,
-	},
+	g_main_block_cull_optim_cs,
+	g_main_block_cull_stats_cs,
 };
 
-static const u32 g_sizeof_block_cull_cs[2][HLSL_BUCKET_COUNT] = 
+static const u32 g_sizeof_block_cull_cs[2] = 
 {
-	{ 
-		sizeof( g_main_block_cull_x4_cs ),
-		sizeof( g_main_block_cull_x8_cs ),
-		sizeof( g_main_block_cull_x16_cs ),
-		sizeof( g_main_block_cull_x32_cs ),
-		sizeof( g_main_block_cull_x64_cs ),
-	},
-	{ 
-		sizeof( g_main_block_cull_stats_x4_cs ),
-		sizeof( g_main_block_cull_stats_x8_cs ),
-		sizeof( g_main_block_cull_stats_x16_cs ),
-		sizeof( g_main_block_cull_stats_x32_cs ),
-		sizeof( g_main_block_cull_stats_x64_cs ),
-	},
+	sizeof( g_main_block_cull_optim_cs ),
+	sizeof( g_main_block_cull_stats_cs ),
 };
 
-#include <v6/graphic/block_trace_debug_x4_cs_bytecode.h>
-#include <v6/graphic/block_trace_debug_x8_cs_bytecode.h>
-#include <v6/graphic/block_trace_debug_x16_cs_bytecode.h>
-#include <v6/graphic/block_trace_debug_x32_cs_bytecode.h>
-#include <v6/graphic/block_trace_debug_x64_cs_bytecode.h>
+#include <v6/graphic/block_cull_post_cs_bytecode.h>
 
+#include <v6/graphic/block_project_optim_cs_bytecode.h>
+#include <v6/graphic/block_project_stats_cs_bytecode.h>
 
-#include <v6/graphic/block_trace_init_cs_bytecode.h>
-
-#include <v6/graphic/block_trace_x4_cs_bytecode.h>
-#include <v6/graphic/block_trace_x8_cs_bytecode.h>
-#include <v6/graphic/block_trace_x32_cs_bytecode.h>
-#include <v6/graphic/block_trace_x16_cs_bytecode.h>
-#include <v6/graphic/block_trace_x64_cs_bytecode.h>
-
-static const u8* g_main_block_trace_cs[2][HLSL_BUCKET_COUNT] = 
+static const u8* g_main_block_project_cs[2] = 
 {
-	{ 
-		g_main_block_trace_x4_cs,
-		g_main_block_trace_x8_cs,
-		g_main_block_trace_x16_cs,
-		g_main_block_trace_x32_cs,
-		g_main_block_trace_x64_cs,
-	},
-	{ 
-		g_main_block_trace_debug_x4_cs,
-		g_main_block_trace_debug_x8_cs,
-		g_main_block_trace_debug_x16_cs,
-		g_main_block_trace_debug_x32_cs,
-		g_main_block_trace_debug_x64_cs,
-	},
+	g_main_block_project_optim_cs,
+	g_main_block_project_stats_cs,
 };
 
-static const u32 g_sizeof_block_trace_cs[2][HLSL_BUCKET_COUNT] = 
+static const u32 g_sizeof_block_project_cs[2] = 
 {
-	{ 
-		sizeof( g_main_block_trace_x4_cs ),
-		sizeof( g_main_block_trace_x8_cs ),
-		sizeof( g_main_block_trace_x16_cs ),
-		sizeof( g_main_block_trace_x32_cs ),
-		sizeof( g_main_block_trace_x64_cs ),
-	},
-	{ 
-		sizeof( g_main_block_trace_debug_x4_cs ),
-		sizeof( g_main_block_trace_debug_x8_cs ),
-		sizeof( g_main_block_trace_debug_x16_cs ),
-		sizeof( g_main_block_trace_debug_x32_cs ),
-		sizeof( g_main_block_trace_debug_x64_cs ),
-	},
+	sizeof( g_main_block_project_optim_cs ),
+	sizeof( g_main_block_project_stats_cs ),
 };
 
-#include <v6/graphic/pixel_blend_cs_bytecode.h>
-#include <v6/graphic/pixel_blend_debug_cs_bytecode.h>
+#include <v6/graphic/block_trace_debug_cs_bytecode.h>
+#include <v6/graphic/block_trace_optim_cs_bytecode.h>
 
-static const u8* g_main_pixel_blend_cs_options[2] = 
+static const u8* g_main_block_trace_cs[2] = 
 {
-	g_main_pixel_blend_cs,
-	g_main_pixel_blend_debug_cs,
+	g_main_block_trace_optim_cs,
+	g_main_block_trace_debug_cs,
 };
 
-static const u32 g_sizeof_pixel_blend_cs_options[2] = 
+static const u32 g_sizeof_block_trace_cs[2] = 
 {
-	sizeof( g_main_pixel_blend_cs ),
-	sizeof( g_main_pixel_blend_debug_cs ),
+	sizeof( g_main_block_trace_optim_cs ),
+	sizeof( g_main_block_trace_debug_cs ),
 };
 
 #include <v6/graphic/pixel_tsaa_cs_bytecode.h>

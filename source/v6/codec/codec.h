@@ -32,7 +32,6 @@ BEGIN_V6_NAMESPACE
 
 #define CODEC_COLOR_ERROR_TOLERANCE		15
 #define CODEC_COLOR_COUNT_TOLERANCE		4
-#define CODEC_COLOR_COMPRESS			0
 
 #if V6_UE4_PLUGIN == 1
 #define CODEC_FRAME_COMPRESS			0
@@ -68,7 +67,6 @@ struct CodecStreamDesc_s
 	float			gridScaleMin;
 	float			gridScaleMax;
 	u32				maxBlockPosCountPerSequence;
-	u32				maxBlockDataCountPerSequence;
 	u32				maxBlockRangeCountPerFrame;
 	u32				maxBlockCountPerFrame;
 	u32				maxBlockGroupCountPerFrame;
@@ -124,7 +122,10 @@ struct CodecFrameDesc_s
 struct CodecFrameData_s
 {	
 	u32*			blockPos;
-	u32*			blockData;
+	u64*			blockCellPresences;
+	u32*			blockCellEndColors;
+	u64*			blockCellColorIndices0;
+	u64*			blockCellColorIndices1;
 	u16*			rangeIDs;
 };
 

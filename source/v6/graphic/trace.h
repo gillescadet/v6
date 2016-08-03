@@ -19,7 +19,6 @@ struct SequenceBlockRange_s
 	Vec3i					macroGridCoords;
 	u32						blockCount;
 	u32						blockPosOffset;
-	u32						blockDataOffset;
 };
 
 struct SequenceContext_s
@@ -27,7 +26,6 @@ struct SequenceContext_s
 	CodecRange_s*			rangeDefs[CODEC_BUCKET_COUNT];
 	SequenceBlockRange_s	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
 	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
-	u32						frameBlockDataOffsets[CODEC_FRAME_MAX_COUNT];
 };
 
 struct TraceDesc_s
@@ -53,6 +51,9 @@ struct TraceFrameState_s
 	Vec4					prevWorldToProjsX[2];
 	Vec4					prevWorldToProjsY[2];
 	Vec4					prevWorldToProjsW[2];
+	Vec4					curWorldToProjsX[2];
+	Vec4					curWorldToProjsY[2];
+	Vec4					curWorldToProjsW[2];
 	Vec3					origin;
 	Vec2					jitter;
 	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
@@ -74,8 +75,8 @@ struct TraceContext_s
 	GPUTraceResources_s*	res;
 	SequenceContext_s		sequenceContext;
 	TraceFrameState_s		frameState;
-	u32						resPassedBlockCount;
-	u32						resCellItemCount;
+	u32						resVisibleBlockMaxCount;
+	u32						resBlockPatchCountPerEye;
 };
 
 void	TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );

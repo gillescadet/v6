@@ -243,9 +243,10 @@ enum
 	PROJECT_LIBOVR			= 1 << 6,
 	PROJECT_LIBOVRKERNEL	= 1 << 7,
 	PROJECT_PLAYER			= 1 << 8,
-	PROJECT_VIEWER			= 1 << 9,
+	PROJECT_TRACER			= 1 << 9,
+	PROJECT_VIEWER			= 1 << 10,
 
-	PROJECT_COUNT			= 10
+	PROJECT_COUNT			= 11
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -267,6 +268,7 @@ static const Project_s s_projects[PROJECT_COUNT] =
 	{ PROJECT_LIBOVR,		"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"		, 0, true, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
 	{ PROJECT_LIBOVRKERNEL,	"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"	, 0, true, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
 	{ PROJECT_PLAYER,		"4185B5D4-480C-4E72-946F-90185611CE35", "player"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
+	{ PROJECT_TRACER,		"33EF0EB6-321C-49B1-8D7B-9637BCC97489", "tracer" },
 	{ PROJECT_VIEWER,		"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
 };
 
@@ -325,6 +327,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/optimization.cpp",				PROJECT_PLAYER },
 	{ "source/v6/core/string.cpp",						PROJECT_PLAYER },
+	{ "source/v6/core/plot.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/stream.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/thread.cpp",						PROJECT_PLAYER },
 	{ "source/v6/core/time.cpp",						PROJECT_PLAYER },
@@ -349,6 +352,11 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/player/player_shared.h",				PROJECT_PLAYER },
 	{ "source/v6/player/surface_compose_cs.hlsl",		PROJECT_PLAYER },
 
+	// tracer
+	{ "source/v6/core/plot.cpp",						PROJECT_TRACER },
+	{ "source/v6/core/string.cpp",						PROJECT_TRACER },
+	{ "source/v6/tracer/main_tracer.cpp",				PROJECT_TRACER },
+
 	// viewer
 	{ "source/v6/codec/codec.cpp",						PROJECT_VIEWER },
 	{ "source/v6/codec/compression.cpp",				PROJECT_VIEWER },
@@ -362,6 +370,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/obj_reader.cpp",					PROJECT_VIEWER },
 	{ "source/v6/core/optimization.cpp",				PROJECT_VIEWER },
+	{ "source/v6/core/plot.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/stream.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/string.cpp",						PROJECT_VIEWER },
 	{ "source/v6/core/thread.cpp",						PROJECT_VIEWER },
@@ -387,28 +396,15 @@ static ProjectFile_s s_projectFiles[] =
 
 	// viewer - HLSL
 	{ "source/v6/graphic/block_cull_cs_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/graphic/block_cull_stats_x4_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_x8_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_x16_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_x32_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_x64_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_x4_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_x8_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_x16_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_x32_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_x64_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_optim_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_post_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_cs_impl.hlsli",	PROJECT_VIEWER },
+	{ "source/v6/graphic/block_project_optim_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_stats_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/block_trace_cs_impl.hlsli",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_x4_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_x8_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_x16_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_x32_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_x64_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_init_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_x4_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_x8_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_x32_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_x16_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_x64_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_optim_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/capture_shaders.h",			PROJECT_VIEWER },
 	{ "source/v6/graphic/capture_shared.h",				PROJECT_VIEWER },
 	{ "source/v6/graphic/common_shared.h",				PROJECT_VIEWER },
@@ -421,9 +417,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
 	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/pixel_blend_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/pixel_blend_cs_impl.hlsli",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/pixel_blend_debug_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_sharpen_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_tsaa_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },

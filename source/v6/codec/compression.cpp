@@ -507,7 +507,7 @@ void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* enc
 {
 	// Decode min/max
 
-	const u32 color0 = (encodedBlock->cellEndColors >> 0 ) & 0xFFFF;
+	const u32 color0 = (encodedBlock->cellEndColors >>  0) & 0xFFFF;
 	const u32 color1 = (encodedBlock->cellEndColors >> 16) & 0xFFFF;
 
 	const u32 maxColorR = ((color0 >> 11) & 0x1F) << 3;
@@ -544,14 +544,14 @@ void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* enc
 
 	*cellCount = 0;
 
-	for ( u32 cellPos = 0; cellPos < 64; ++cellPos )
+	for ( u32 cellID = 0; cellID < 64; ++cellID )
 	{
-		if ( (encodedBlock->cellPresence & (1ll << cellPos)) == 0 )
+		if ( (encodedBlock->cellPresence & (1ll << cellID)) == 0 )
 			continue;
 
 		const u32 cellRank = *cellCount;
 		const u32 colorID = (encodedBlock->cellColorIndices[cellRank >> 5] >> ((cellRank << 1) & 0x3F)) & 3;
-		cellRGBA[cellRank] = (rs[colorID] << 24) | (gs[colorID] << 16) | (bs[colorID] << 8) | cellPos;
+		cellRGBA[cellRank] = (rs[colorID] << 24) | (gs[colorID] << 16) | (bs[colorID] << 8) | cellID;
 		++(*cellCount);
 	}
 }

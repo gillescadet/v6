@@ -39,10 +39,10 @@ struct GPUCaptureResources_s
 	GPUCompute_s				computePackColor;
 };
 
-static const GPUEventID_t s_gpuEventCollect			= GPUEvent_Register( "Collect", true );
-static const GPUEventID_t s_gpuEventBuildNode		= GPUEvent_Register( "BuildNode", true );
-static const GPUEventID_t s_gpuEventFillLeaf		= GPUEvent_Register( "FillLeaf", true );
-static const GPUEventID_t s_gpuEventPack			= GPUEvent_Register( "Pack", true );
+static const GPUEventID_t s_gpuEventCollect			= GPUEvent_Register( "Collect", false );
+static const GPUEventID_t s_gpuEventBuildNode		= GPUEvent_Register( "BuildNode", false );
+static const GPUEventID_t s_gpuEventFillLeaf		= GPUEvent_Register( "FillLeaf", false );
+static const GPUEventID_t s_gpuEventPack			= GPUEvent_Register( "Pack", false );
 
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
