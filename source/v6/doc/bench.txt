@@ -1132,3 +1132,63 @@ Frame      : 13235 us
     Metrics    :    31 us
     Copy       :   200 us
     Present    :  2070 us
+
+Bench: reference Stereo Trace 1024 (RST1024_V0)
+rt.resolution: 1024x1024
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        maxBlockPosID                 :    1938105
+blockProject     blockInputCount               :     387520
+blockProject     blockProcessedCount           :     387507
+blockProject     blockPatchHeaderPixelCount    :    9425261
+blockProject     blockPatchHeaderCount         :     387507
+blockProject     blockPatchDetailCount         :     853741
+blockProject     blockPatchDetailPixelCount    :    9425261
+blockProject     blockPatchMaxPage             :          4
+blockTrace       tileInputCount_with_1_pages   :      11867
+blockTrace       tileInputCount_with_2_pages   :       3646
+blockTrace       tileInputCount_with_3_pages   :        717
+blockTrace       tileInputCount_with_4_pages   :        146
+blockTrace       tileInputCount_with_5_pages   :          8
+blockTrace       tileInputCount                :      16384
+blockTrace       patchInputCount               :     852876
+blockTrace       pixelTraceCount               :    9422309
+blockTrace       pixelDoneCount                :    9422309
+blockTrace       tileDoneCount                 :      21934
+blockTrace       tileStepCount                 :     343447
+blockProject     blockInputCount               :     387520
+blockProject     blockProcessedCount           :     387507
+blockProject     blockPatchHeaderPixelCount    :    9457757
+blockProject     blockPatchHeaderCount         :     387507
+blockProject     blockPatchDetailCount         :     852139
+blockProject     blockPatchDetailPixelCount    :    9457757
+blockProject     blockPatchMaxPage             :          4
+blockTrace       tileInputCount_with_1_pages   :      11847
+blockTrace       tileInputCount_with_2_pages   :       3673
+blockTrace       tileInputCount_with_3_pages   :        719
+blockTrace       tileInputCount_with_4_pages   :        133
+blockTrace       tileInputCount_with_5_pages   :         12
+blockTrace       tileInputCount                :      16384
+blockTrace       patchInputCount               :     851276
+blockTrace       pixelTraceCount               :    9454804
+blockTrace       pixelDoneCount                :    9454804
+blockTrace       tileDoneCount                 :      21942
+blockTrace       tileStepCount                 :     344092
+Frame      : 815108 us
+    Update     :     0 us
+    Draw       : 13566 us
+        Cull       :   220 us
+        Project_L  :   443 us
+        Trace_L    :  6001 us
+        TSAA_L     :   136 us
+        Sharpen_L  :    91 us
+        Project_R  :   438 us
+        Trace_R    :  5999 us
+        TSAA_R     :   136 us
+        Sharpen_R  :    94 us
+    Font       :     0 us
+    Metrics    :    31 us
+    Copy       :   140 us
+    Present    : 812529 us

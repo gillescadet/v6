@@ -417,8 +417,17 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		{
 			const hlsl::BlockTraceStats* blockTraceStats = (hlsl::BlockTraceStats*)GPUBuffer_MapReadBack( &traceRes->traceStats );
 
+			u32 tileInputCount = 0;
+			for ( u32 page = 0; page < HLSL_BLOCK_PAGE_MAX_COUNT; ++page )
+			{
+				if ( blockTraceStats->tileInputCounts[page] )
+				{
+					ReadBack_Log( "blockTrace", blockTraceStats->tileInputCounts[page], String_Format( "tileInputCount_with_%d_pages", page + 1 ) );
+					tileInputCount += blockTraceStats->tileInputCounts[page];
+				}
+			}
+			ReadBack_Log( "blockTrace", tileInputCount, "tileInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->patchInputCount, "patchInputCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->pageMaxCount, "pageMaxCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelTraceCount, "pixelTraceCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelDoneCount, "pixelDoneCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->tileDoneCount, "tileDoneCount" );

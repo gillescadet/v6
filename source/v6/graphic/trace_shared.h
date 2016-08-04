@@ -7,6 +7,8 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
+#define HLSL_TRACE_DEBUG							0
+
 #define HLSL_BLOCK_SHOW_FLAG_MIPS					1
 #define HLSL_BLOCK_SHOW_FLAG_BUCKETS				2
 #define HLSL_BLOCK_SHOW_FLAG_HISTORY				4
@@ -40,7 +42,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_TRACE_STATS_SLOT						13
 #define HLSL_TRACE_DEBUG_BOX_SLOT					14
 
-#define HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE			(64 * 16)
+#define HLSL_BLOCK_PAGE_MAX_COUNT					16
+#define HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE			(64 * HLSL_BLOCK_PAGE_MAX_COUNT)
 
 CBUFFER( CBCull, 0 )
 {
@@ -165,8 +168,8 @@ struct BlockDebugBox
 
 struct BlockTraceStats 
 {
+	uint			tileInputCounts[HLSL_BLOCK_PAGE_MAX_COUNT];
 	uint			patchInputCount;
-	uint			pageMaxCount;
 	uint			pixelTraceCount;
 	uint			pixelDoneCount;
 	uint			tileDoneCount;

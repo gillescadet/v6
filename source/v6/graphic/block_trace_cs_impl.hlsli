@@ -13,7 +13,9 @@ RWTexture2D< float4 > outputColors						: REGISTER_UAV( HLSL_COLOR_SLOT );
 RWBuffer< uint > outputDisplacements					: REGISTER_UAV( HLSL_DISPLACEMENT_SLOT );
 #if BLOCK_DEBUG == 1
 RWStructuredBuffer< BlockTraceStats > blockTraceStats	: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
+#if HLSL_TRACE_DEBUG == 1
 RWStructuredBuffer< BlockDebugBox > blockDebugBox		: REGISTER_UAV( HLSL_TRACE_DEBUG_BOX_SLOT );
+#endif // #if HLSL_TRACE_DEBUG == 1
 #endif // #if BLOCK_DEBUG == 1
 
 struct ProjectPatch
@@ -199,8 +201,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		gs_pageCount = (gs_patchCount + 63) >> 6;
 
 #if BLOCK_DEBUG == 1
+		InterlockedAdd( blockTraceStats[0].tileInputCounts[max( 1, gs_pageCount ) - 1], 1 );
 		InterlockedAdd( blockTraceStats[0].patchInputCount, gs_patchCount );
-		InterlockedMax( blockTraceStats[0].pageMaxCount, gs_pageCount );
 #endif // #if BLOCK_DEBUG == 1
 	}
 
@@ -211,7 +213,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	const uint pageOffset = mad( tileOffset, 64, group );
 	const float2 jitteredCoords = float2( DTid.xy ) + c_traceJitter;
 
-#if BLOCK_DEBUG == 1
+#if BLOCK_DEBUG == 1 && HLSL_TRACE_DEBUG == 1
 	const float2 delta = float2( abs( jitteredCoords.x - 256.0f ), abs( jitteredCoords.y - 256.0f ) );
 	const float distance = sqrt( dot( delta, delta ) );
 	const bool debug = ( (jitteredCoords.x - 256.0f) == 15.5f ) && ( (jitteredCoords.y - 256.0f) == 0.5f );
@@ -278,7 +280,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			const uint blockPosID = blockPatch.blockPosID24_x4_y4 >> 8;
 			const uint64 blockCellPresence = blockCellPresences[blockPosID];
 
-#if BLOCK_DEBUG == 1
+#if BLOCK_DEBUG == 1 && HLSL_TRACE_DEBUG == 1
 			for ( uint cellRank = 0; cellRank < 64; ++cellRank )
 			{
 				if ( (cellRank < 32 && (blockCellPresence.low & (1 << cellRank))) || (cellRank >= 32 && (blockCellPresence.high & (1 << (cellRank-32)))) )
