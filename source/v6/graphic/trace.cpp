@@ -266,6 +266,7 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBProjectSlot, 1, &traceRes->cbProject.buf );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_SLOT, 1, &traceRes->visibleBlocks.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, &traceRes->visibleBlockContext.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, &traceRes->blockCellPresences.srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, &traceRes->blockPatchCounters.uav, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCHES_SLOT, 1, &traceRes->blockPatches.uav, nullptr );
 	if ( options->logReadBack )
@@ -279,6 +280,7 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 	// Unset
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCHES_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( options->logReadBack )

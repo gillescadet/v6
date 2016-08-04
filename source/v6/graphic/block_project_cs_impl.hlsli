@@ -4,6 +4,7 @@
 
 StructuredBuffer< VisibleBlock > visibleBlocks				: REGISTER_SRV( HLSL_VISIBLE_BLOCK_SLOT );
 Buffer< uint > visibleBlockContext							: REGISTER_SRV( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT );
+StructuredBuffer< uint64 > blockCellPresences				: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE_SLOT );
 
 RWBuffer< uint > blockPatchCounters							: REGISTER_UAV( HLSL_BLOCK_PATCH_COUNTERS_SLOT );
 RWStructuredBuffer< BlockPatch > blockPatches				: REGISTER_UAV( HLSL_BLOCK_PATCHES_SLOT );
@@ -56,6 +57,49 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint blockPosID = visibleBlock.blockPosID;
 		const uint packedBlockPos = visibleBlock.packedBlockPos;
 
+		uint3 cellMinRange;
+		uint3 cellMaxRange;
+
+		{
+			const uint64 blockCellPresence = blockCellPresences[blockPosID];
+
+			const uint blockCellPresenceLowAndHigh = blockCellPresence.low | blockCellPresence.high;
+
+			{
+				const uint x0 = (blockCellPresenceLowAndHigh & 0x11111111) != 0 ? 1 : 0;
+				const uint x1 = (blockCellPresenceLowAndHigh & 0x22222222) != 0 ? 2 : 0;
+				const uint x2 = (blockCellPresenceLowAndHigh & 0x44444444) != 0 ? 4 : 0;
+				const uint x3 = (blockCellPresenceLowAndHigh & 0x88888888) != 0 ? 8 : 0;
+				
+				const uint xRange = x0 | x1 | x2 | x3;
+				cellMinRange.x = firstbitlow( xRange );
+				cellMaxRange.x = firstbithigh( xRange );
+			}
+
+			{
+
+				const uint y0 = (blockCellPresenceLowAndHigh & 0x000F000F) != 0 ? 1 : 0;
+				const uint y1 = (blockCellPresenceLowAndHigh & 0x00F000F0) != 0 ? 2 : 0;
+				const uint y2 = (blockCellPresenceLowAndHigh & 0x0F000F00) != 0 ? 4 : 0;
+				const uint y3 = (blockCellPresenceLowAndHigh & 0xF000F000) != 0 ? 8 : 0;
+				
+				const uint yRange = y0 | y1 | y2 | y3;
+				cellMinRange.y = firstbitlow( yRange );
+				cellMaxRange.y = firstbithigh( yRange );
+			}
+
+			{
+				const uint z0 = (blockCellPresence.low  & 0x0000FFFF) != 0 ? 1 : 0;
+				const uint z1 = (blockCellPresence.low  & 0xFFFF0000) != 0 ? 2 : 0;
+				const uint z2 = (blockCellPresence.high & 0x0000FFFF) != 0 ? 4 : 0;
+				const uint z3 = (blockCellPresence.high & 0xFFFF0000) != 0 ? 8 : 0;
+
+				const uint zRange = z0 | z1 | z2 | z3;
+				cellMinRange.z = firstbitlow( zRange );
+				cellMaxRange.z = firstbithigh( zRange );
+			}
+		}
+
 		const uint mip = packedBlockPos >> 28;
 		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
 		const uint gridMacroMask = (1 << c_projectGridMacroShift)-1;
@@ -65,10 +109,11 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		const float gridScale = c_projectCentersAndGridScales[mip].w;
 		const float cellSize = gridScale * 2.0f * c_projectInvGridWidth;
-		const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
+		const uint3 cellCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
+		const uint3 cellMinCoords = cellCoords + cellMinRange;
 		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_projectCentersAndGridScales[mip].xyz;
+		const float3 posMaxWS = mad( float3( 1 + cellMaxRange - cellMinRange ), cellSize, posMinWS );
 
-		const float blockSize = cellSize * 4.0f;
 		float2 minBlockScreenPos;
 		float2 maxBlockScreenPos;
 		uint2 pixelDisplacementF16;
@@ -101,10 +146,10 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		for ( uint vertexID = 1; vertexID < 8; ++vertexID )
 		{
-			float3 vertexPosWS = posMinWS;
-			vertexPosWS.x += (vertexID & 1) ? blockSize : 0.0f;
-			vertexPosWS.y += (vertexID & 2) ? blockSize : 0.0f;
-			vertexPosWS.z += (vertexID & 4) ? blockSize : 0.0f;
+			float3 vertexPosWS;
+			vertexPosWS.x = (vertexID & 1) ? posMinWS.x : posMaxWS.x;
+			vertexPosWS.y = (vertexID & 2) ? posMinWS.y : posMaxWS.y;
+			vertexPosWS.z = (vertexID & 4) ? posMinWS.z : posMaxWS.z;
 
 			float4 vertexPosCS;
 			vertexPosCS.x = dot( c_projectCurWorldToProjX.xyz, vertexPosWS ) + c_projectCurWorldToProjX.w;
