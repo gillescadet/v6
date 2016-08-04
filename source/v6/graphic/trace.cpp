@@ -307,7 +307,7 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 	}
 }
 
-static void TraceBlock( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, u32 eye, const View_s* views, const TraceOptions_s* options, IStack* stack )
+static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView* outputColors, u32 eye, const View_s* views, const TraceOptions_s* options )
 {
 	static const void* nulls[8] = {};
 
@@ -379,7 +379,8 @@ static void TraceBlock( TraceContext_s* traceContext, GPURenderTargetSet_s* rend
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_END_COLOR_SLOT, 1, &traceRes->blockCellEndColors.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT, 1, &traceRes->blockCellColorIndices0.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT, 1, &traceRes->blockCellColorIndices1.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &renderTargetSet->colorBuffers[eye].uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &outputColors, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.uav, nullptr );
 	if ( options->logReadBack )
 	{
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, &traceRes->traceStats.uav, nullptr );
@@ -400,6 +401,7 @@ static void TraceBlock( TraceContext_s* traceContext, GPURenderTargetSet_s* rend
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( options->logReadBack )
 	{
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_TRACE_STATS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
@@ -756,7 +758,7 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	s_gpuTraceResourcesCreated = false;
 }
 
-void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, IStack* stack )
+void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options )
 {
 	const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
@@ -795,21 +797,20 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 	}
 
 	CullBlock( traceContext, views, options );
-#if 1
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 	{
 		ProjectBlock( traceContext, eye, options );
-		TraceBlock( traceContext, renderTargetSet, eye, views, options, stack );
+
+		if ( options->noTSAA )
+		{
+			TraceBlock( traceContext, renderTargetSet->colorBuffers[eye].uav, eye, views, options );
+		}
+		else
+		{
+			TraceBlock( traceContext, traceContext->res->colors.uav, eye, views, options );
+			TSAAPixel( traceContext, renderTargetSet, eye, options );
+		}
 	}
-	//if ( !options->noTSAA )
-		//TSAAPixel( traceContext, renderTargetSet, eye, options );
-#else
-	for ( u32 eye = 0; eye < eyeCount; ++eye )
-	{
-		u32 values[4] = {};
-		g_deviceContext->ClearUnorderedAccessViewUint( renderTargetSet->colorBuffers[eye].uav, values );
-	}
-#endif
 
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 	{

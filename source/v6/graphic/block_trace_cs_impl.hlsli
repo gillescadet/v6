@@ -10,6 +10,7 @@ StructuredBuffer< uint64 > blockCellColorIndices0		: REGISTER_SRV( HLSL_BLOCK_CE
 StructuredBuffer< uint64 > blockCellColorIndices1		: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT );
 
 RWTexture2D< float4 > outputColors						: REGISTER_UAV( HLSL_COLOR_SLOT );
+RWBuffer< uint > outputDisplacements					: REGISTER_UAV( HLSL_DISPLACEMENT_SLOT );
 #if BLOCK_DEBUG == 1
 RWStructuredBuffer< BlockTraceStats > blockTraceStats	: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
 RWStructuredBuffer< BlockDebugBox > blockDebugBox		: REGISTER_UAV( HLSL_TRACE_DEBUG_BOX_SLOT );
@@ -25,6 +26,7 @@ struct ProjectPatch
 	float	invCellSize;
 	uint64	blockCellPresence;
 	uint	blockColorPalette[4];
+	uint	xdsp16_ydsp16;
 };
 
 struct Hit
@@ -33,6 +35,7 @@ struct Hit
 	uint	blockColorPalette[4];
 	uint	cellRank;
 	float	depth;
+	uint	xdsp16_ydsp16;
 };
 
 groupshared ProjectPatch	gs_patches[64];
@@ -165,6 +168,7 @@ Hit Trace( Hit prevHit, float2 pixelCoords, uint patchRank )
 		hit.blockColorPalette = patch.blockColorPalette;
 		hit.cellRank = hitCellID < 32 ? cellLowRank : cellHighRank;
 		hit.depth = tIn;
+		hit.xdsp16_ydsp16 = patch.xdsp16_ydsp16;
 
 		return hit;
 	}
@@ -205,7 +209,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	uint remainingPatchCount = gs_patchCount;
 	const uint pageSize = (c_traceFrameTileSize.x * c_traceFrameTileSize.y) * 64;
 	const uint pageOffset = mad( tileOffset, 64, group );
-	const float2 jitteredCoords = float2( DTid.xy ) + 0.5f;
+	const float2 jitteredCoords = float2( DTid.xy ) + c_traceJitter;
 
 #if BLOCK_DEBUG == 1
 	const float2 delta = float2( abs( jitteredCoords.x - 256.0f ), abs( jitteredCoords.y - 256.0f ) );
@@ -344,6 +348,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			projectPatch.invCellSize = invCellSize;
 			projectPatch.blockCellPresence = blockCellPresence;
 			projectPatch.blockColorPalette = colorPalette;
+			projectPatch.xdsp16_ydsp16 = blockPatch.xdsp16_ydsp16;
 		}
 
 		gs_patches[group] = projectPatch;
@@ -400,6 +405,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	}
 
 	float3 groupColor = float3( 0.0f, 0.0f, 0.0f );
+
 	if ( hit.depth < HLSL_FLT_MAX )
 	{
 		uint64 colorIndices64;
@@ -420,4 +426,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 
 	const uint2 screenBufferPos = uint2( DTid.x, c_traceFrameSize.y - DTid.y - 1 );
 	outputColors[screenBufferPos] = float4( groupColor, 1.0f );
+
+	const uint pixelID = mad( screenBufferPos.y, c_traceFrameSize.x, screenBufferPos.x );
+	outputDisplacements[pixelID] = hit.xdsp16_ydsp16;
 }

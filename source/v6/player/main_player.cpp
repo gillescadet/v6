@@ -1171,7 +1171,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
 		if ( PlayerStream_IsValid( player ) )
-			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, player->stack );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions );
 		else
 			PlayerScene_Draw( player, views );
 	}

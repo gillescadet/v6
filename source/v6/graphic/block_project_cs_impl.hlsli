@@ -16,6 +16,7 @@ struct BlockPatchHeader
 	uint	xtile16_ytile16;
 	uint	blockPosID24_none8;
 	uint	packedBlockPos;
+	uint	xdsp16_ydsp16;
 };
 
 struct BlockPatchDetail
@@ -68,10 +69,37 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_projectCentersAndGridScales[mip].xyz;
 
 		const float blockSize = cellSize * 4.0f;
-		float2 minBlockScreenPos = float2( HLSL_FLT_MAX, HLSL_FLT_MAX );
-		float2 maxBlockScreenPos = float2( -HLSL_FLT_MAX, -HLSL_FLT_MAX );
+		float2 minBlockScreenPos;
+		float2 maxBlockScreenPos;
+		uint2 pixelDisplacementF16;
 
-		for ( uint vertexID = 0; vertexID < 8; ++vertexID )
+		{
+			float2 prevVertexScreenPos;
+			{
+				float4 vertexPosCS;
+				vertexPosCS.x = dot( c_projectPrevWorldToProjX.xyz, posMinWS ) + c_projectPrevWorldToProjX.w;
+				vertexPosCS.y = dot( c_projectPrevWorldToProjY.xyz, posMinWS ) + c_projectPrevWorldToProjY.w;
+				vertexPosCS.w = dot( c_projectPrevWorldToProjW.xyz, posMinWS ) + c_projectPrevWorldToProjW.w;
+				
+				prevVertexScreenPos = vertexPosCS.xy * rcp( vertexPosCS.w );
+			}
+
+			float2 curVertexScreenPos;
+			{
+				float4 vertexPosCS;
+				vertexPosCS.x = dot( c_projectCurWorldToProjX.xyz, posMinWS ) + c_projectCurWorldToProjX.w;
+				vertexPosCS.y = dot( c_projectCurWorldToProjY.xyz, posMinWS ) + c_projectCurWorldToProjY.w;
+				vertexPosCS.w = dot( c_projectCurWorldToProjW.xyz, posMinWS ) + c_projectCurWorldToProjW.w;
+				
+				curVertexScreenPos = vertexPosCS.xy * rcp( vertexPosCS.w );
+				minBlockScreenPos = curVertexScreenPos;
+				maxBlockScreenPos = curVertexScreenPos;
+			}
+
+			pixelDisplacementF16 = f32tof16( (curVertexScreenPos - prevVertexScreenPos) * 0.5f * c_projectFrameSize );
+		}
+
+		for ( uint vertexID = 1; vertexID < 8; ++vertexID )
 		{
 			float3 vertexPosWS = posMinWS;
 			vertexPosWS.x += (vertexID & 1) ? blockSize : 0.0f;
@@ -113,6 +141,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			patchHeader.xtile16_ytile16 = (minBlockTileCoords.x << 16) | minBlockTileCoords.y;
 			patchHeader.blockPosID24_none8 = blockPosID24_none8;
 			patchHeader.packedBlockPos = packedBlockPos;
+			patchHeader.xdsp16_ydsp16 = (pixelDisplacementF16.x << 16) | pixelDisplacementF16.y;
 
 			gs_patchHeaders[blockRank] = patchHeader;
 		}
@@ -175,6 +204,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			blockPatch.blockPosID24_x4_y4 = patchHeader.blockPosID24_none8 | ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 8) & 0xFF);
 			blockPatch.packedBlockPos = patchHeader.packedBlockPos;
 			blockPatch.none24_w4_h4 = patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 & 0xFF;
+			blockPatch.xdsp16_ydsp16 = patchHeader.xdsp16_ydsp16;
 
 			const uint page = patchRank >> 6;
 			const uint group = patchRank & 0x3F;

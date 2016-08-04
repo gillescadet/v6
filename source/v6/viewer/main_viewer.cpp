@@ -41,8 +41,8 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		1
-#define V6_SIMPLE_SCENE			0
+#define V6_LOAD_EXTERNAL		0
+#define V6_SIMPLE_SCENE			1
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			0
@@ -2381,7 +2381,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.noTSAA = g_noTSAA;
-					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options, m_stack );
+					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options );
 				}
 
 				s_logReadBack = false;

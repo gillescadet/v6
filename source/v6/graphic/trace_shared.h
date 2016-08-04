@@ -135,12 +135,6 @@ struct BlockPatch
 	uint	blockPosID24_x4_y4;
 	uint	packedBlockPos;
 	uint	none24_w4_h4;
-};
-
-struct BlockCellItem
-{
-	uint	hitMask1_depth31;
-	uint	r8g8b8_hitMask8;
 	uint	xdsp16_ydsp16;
 };
 
