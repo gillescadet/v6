@@ -22,6 +22,8 @@ struct ProjectPatch
 {
 	uint	blockPosID;
 	uint	none16_xMask8_yMask8;
+	uint3	cellMinRange;
+	uint3	cellExtent;
 	float3	boxMinRS;
 	float3	boxMaxRS;
 	float	cellSize;
@@ -84,7 +86,7 @@ float3 U32ToColor( uint v )
 	return float3( (colorHash >> 0) & 0xFF, (colorHash >> 8) & 0xFF, (colorHash >> 16) & 0xFF ) * (1.0f / 255.0f);
 }
 
-Hit Trace( Hit prevHit, float2 pixelCoords, uint patchRank )
+int Trace( inout Hit hit, float2 pixelCoords, uint patchRank )
 {
 	const ProjectPatch patch = gs_patches[patchRank];
 
@@ -99,20 +101,20 @@ Hit Trace( Hit prevHit, float2 pixelCoords, uint patchRank )
 	const float3 tMax = max( t0, t1 );
 	const float tIn = max( max( tMin.x, tMin.y ), tMin.z );
 	const float tOut = min( min( tMax.x, tMax.y ), tMax.z );
-	const float tValid = min( tOut, prevHit.depth );
+	const float tValid = min( tOut, hit.depth );
 
-	uint hitCellID = HLSL_UINT_MAX;
+	int hitCellID = HLSL_TRACE_STATE_MISS_BLOCK;
 	
 	if ( tIn < tValid )
 	{
 		const float3 coordIn = mad( rayDir, tIn, -patch.boxMinRS ) * patch.invCellSize;
-		const float3 coordClamped = min( trunc( coordIn ), 3.0f );
-		uint3 coords = uint3( coordClamped );
+		const float3 coordClamped = min( trunc( coordIn ), float3( patch.cellExtent ) );
+		uint3 relativeCoords = uint3( coordClamped );
 
 		const float3 tDelta = abs( rayInvDir ) * patch.cellSize;
 
 		const float3 tOffsetPos = coordClamped * tDelta;
-		const float3 tOffsetNeg = mad( tDelta, 3.0f, -tOffsetPos );
+		const float3 tOffsetNeg = mad( tDelta, float3( patch.cellExtent ), -tOffsetPos );
 
 		float3 tCur = tMin;
 		tCur.x += rayDir.x < 0.0f ? tOffsetNeg.x : tOffsetPos.x;
@@ -124,9 +126,12 @@ Hit Trace( Hit prevHit, float2 pixelCoords, uint patchRank )
 		coordsStep.y = rayDir.y < 0.0f ? -1 : 1;
 		coordsStep.z = rayDir.z < 0.0f ? -1 : 1;
 
+		hitCellID = HLSL_TRACE_STATE_MISS_CELL;
+
 		do
 		{
-			const uint curCellID = mad( coords.z, 16, mad( coords.y, 4, coords.x ) );
+			const uint3 cellCoords = relativeCoords + patch.cellMinRange;
+			const uint curCellID = mad( cellCoords.z, 16, mad( cellCoords.y, 4, cellCoords.x ) );
 
 			const uint isCellHigh = curCellID >> 5;
 			const uint isPresenceLow = (patch.blockCellPresence.low >> curCellID) & 1;
@@ -148,45 +153,27 @@ Hit Trace( Hit prevHit, float2 pixelCoords, uint patchRank )
 			tCur.y = nextAxisIsY ? tNext.y : tCur.y;
 			tCur.z = nextAxisIsZ ? tNext.z : tCur.z;
 
-			coords.x += nextAxisIsX ? coordsStep.x : 0;
-			coords.y += nextAxisIsY ? coordsStep.y : 0;
-			coords.z += nextAxisIsZ ? coordsStep.z : 0;
+			relativeCoords.x += nextAxisIsX ? coordsStep.x : 0;
+			relativeCoords.y += nextAxisIsY ? coordsStep.y : 0;
+			relativeCoords.z += nextAxisIsZ ? coordsStep.z : 0;
 
-		} while ( (coords.x < 4) & (coords.y < 4) & (coords.z < 4) );
+		} while ( (relativeCoords.x <= patch.cellExtent.x ) & (relativeCoords.y <= patch.cellExtent.y ) & (relativeCoords.z <= patch.cellExtent.z) );
 	}
 
-	if ( hitCellID == HLSL_UINT_MAX )
-	{
-		return prevHit;
-	}
-	else
+	if ( hitCellID >= HLSL_TRACE_STATE_HIT )
 	{
 		const uint cellMask = (1u << (hitCellID & 31)) - 1;
 		const uint cellLowRank = countbits( patch.blockCellPresence.low & cellMask );
 		const uint cellHighRank = countbits( patch.blockCellPresence.low ) + countbits( patch.blockCellPresence.high & cellMask );
 
-		Hit hit;
 		hit.blockPosID = patch.blockPosID;
 		hit.blockColorPalette = patch.blockColorPalette;
 		hit.cellRank = hitCellID < 32 ? cellLowRank : cellHighRank;
 		hit.depth = tIn;
 		hit.xdsp16_ydsp16 = patch.xdsp16_ydsp16;
-
-		return hit;
 	}
-}
 
-Hit Trace2( Hit prevHit, float2 pixelCoords, uint patchRank )
-{
-	const ProjectPatch patch = gs_patches[patchRank];
-
-	Hit hit;
-	hit.blockPosID = patch.blockPosID;
-	hit.blockColorPalette = patch.blockColorPalette;
-	hit.cellRank = 0;
-	hit.depth = 0;
-
-	return hit;
+	return hitCellID;
 }
 
 [ numthreads( 8, 8, 1 ) ]
@@ -205,6 +192,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		InterlockedAdd( blockTraceStats[0].patchInputCount, gs_patchCount );
 #endif // #if BLOCK_DEBUG == 1
 	}
+
+#if BLOCK_DEBUG == 1
+	InterlockedAdd( blockTraceStats[0].pixelInputCount, 1 );
+#endif // #if BLOCK_DEBUG == 1
 
 	GroupMemoryBarrierWithGroupSync();
 
@@ -242,17 +233,30 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			const uint blockPosY = (blockPos >> (c_traceGridMacroShift*1)) & gridMacroMask;
 			const uint blockPosZ = (blockPos >> (c_traceGridMacroShift*2)) & gridMacroMask;
 
+			uint3 cellMinRange;
+			cellMinRange.x = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 26) & 3;
+			cellMinRange.y = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 24) & 3;
+			cellMinRange.z = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 22) & 3;
+			
+			uint3 cellMaxRange;
+			cellMaxRange.x = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 20) & 3;
+			cellMaxRange.y = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 18) & 3;
+			cellMaxRange.z = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 16) & 3;
+
+			uint3 cellExtent = cellMaxRange - cellMinRange;
+
 			const float gridScale = c_traceGridScales[mip].x;
 			const float cellSize = c_traceGridScales[mip].y;
 			const float invCellSize = c_traceGridScales[mip].z;
-			const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
+			const uint3 cellCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
+			const uint3 cellMinCoords = cellCoords + cellMinRange;
 			const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_traceGridCenters[mip].xyz;
-			
-			const float3 boxMinRS = posMinWS - c_traceRayOrg.xyz; 
-			const float3 boxMaxRS = boxMinRS + cellSize * 4.0f;
 
-			const uint w = (blockPatch.none24_w4_h4 >> 4) & 0xF;
-			const uint h = (blockPatch.none24_w4_h4 >> 0) & 0xF;
+			const float3 boxMinRS = posMinWS - c_traceRayOrg.xyz; 
+			const float3 boxMaxRS = mad( float3( 1 + cellExtent ), cellSize, boxMinRS );
+
+			const uint w = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 4) & 0xF;
+			const uint h = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 0) & 0xF;
 
 #if BLOCK_DEBUG == 1
 			InterlockedAdd( blockTraceStats[0].pixelTraceCount, w * h );
@@ -261,8 +265,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			Assert( w > 0 && w <= 8, 0 );
 			Assert( h > 0 && h <= 8, 1 );
 	
-			const uint x = (blockPatch.blockPosID24_x4_y4 >> 4) & 0xF;
-			const uint y = (blockPatch.blockPosID24_x4_y4 >> 0) & 0xF;
+			const uint x = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 12) & 0xF;
+			const uint y = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >>  8) & 0xF;
 	
 			Assert( x + w <= 8, 2 );
 			Assert( y + h <= 8, 3 );
@@ -277,7 +281,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			Assert( firstbithigh( xMask ) == (x + w - 1), 8 );
 			Assert( firstbithigh( yMask ) == (y + h - 1), 9 );
 
-			const uint blockPosID = blockPatch.blockPosID24_x4_y4 >> 8;
+			const uint blockPosID = blockPatch.blockPosID;
 			const uint64 blockCellPresence = blockCellPresences[blockPosID];
 
 #if BLOCK_DEBUG == 1 && HLSL_TRACE_DEBUG == 1
@@ -344,6 +348,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	
 			projectPatch.blockPosID = blockPosID;
 			projectPatch.none16_xMask8_yMask8 = (xMask << 8) | yMask;
+			projectPatch.cellMinRange = cellMinRange;
+			projectPatch.cellExtent = cellExtent;
 			projectPatch.boxMinRS = boxMinRS;
 			projectPatch.boxMaxRS = boxMaxRS;
 			projectPatch.cellSize = cellSize;
@@ -387,22 +393,21 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 				const uint patchBit = firstbitlow( patchMask );
 				const uint patchRank = patchOffset - traceAddedPerStepMaxCount + patchBit;
 
-				hit = Trace( hit, jitteredCoords, patchRank );
+				const int hitCellID = Trace( hit, jitteredCoords, patchRank );
 
 				patchMask -= 1u << patchBit;
 
 #if BLOCK_DEBUG == 1
+				const uint hitState = max( 0, -hitCellID );
+				InterlockedAdd( blockTraceStats[0].pixelHitCounts[hitState], 1 );
 				InterlockedAdd( blockTraceStats[0].pixelDoneCount, 1 );
 #endif // #if BLOCK_DEBUG == 1
 			}
 		}
 
 #if BLOCK_DEBUG == 1
-		if ( group == 0 )
-		{
-			InterlockedAdd( blockTraceStats[0].tileDoneCount, 1 );
-			InterlockedAdd( blockTraceStats[0].tileStepCount, step );
-		}
+		InterlockedAdd( blockTraceStats[0].pixelPageCount, 1 );
+		InterlockedAdd( blockTraceStats[0].pixelStepCount, step );
 #endif // #if BLOCK_DEBUG == 1
 	}
 

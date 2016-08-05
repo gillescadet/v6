@@ -430,10 +430,14 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 			}
 			ReadBack_Log( "blockTrace", tileInputCount, "tileInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->patchInputCount, "patchInputCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelInputCount, "pixelInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelTraceCount, "pixelTraceCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[0], "pixelHitCount_hit" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[1], "pixelHitCount_miss_block" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[2], "pixelHitCount_miss_cell" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelDoneCount, "pixelDoneCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->tileDoneCount, "tileDoneCount" );
-			ReadBack_Log( "blockTrace", blockTraceStats->tileStepCount, "tileStepCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelPageCount, "pixelPageCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelStepCount, "pixelStepCount" );
 			if ( blockTraceStats->assertFailedBits )
 			{
 				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertFailedBits }, "assertFailedBits" );

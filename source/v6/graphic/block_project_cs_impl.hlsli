@@ -14,9 +14,9 @@ RWStructuredBuffer< BlockProjectStats > blockProjectStats	: REGISTER_UAV( HLSL_P
 
 struct BlockPatchHeader
 {
-	uint	xtile16_ytile16;
-	uint	blockPosID24_none8;
+	uint	blockPosID;
 	uint	packedBlockPos;
+	uint	xtile10_ytile10_cellmin222_cellmax222;
 	uint	xdsp16_ydsp16;
 };
 
@@ -164,7 +164,6 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		uint blockRank;
 		InterlockedAdd( gs_patchHeaderCount, 1, blockRank );
 
-		const uint blockPosID24_none8 = blockPosID << 8;
 		const uint blockRank6_none26 = blockRank << 26;
 
 		const uint2 minBlockPixelCoords = uint2( saturate( mad( minBlockScreenPos, 0.5f, 0.5f ) ) * c_projectFrameSize );
@@ -183,9 +182,11 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		{
 			BlockPatchHeader patchHeader;
-			patchHeader.xtile16_ytile16 = (minBlockTileCoords.x << 16) | minBlockTileCoords.y;
-			patchHeader.blockPosID24_none8 = blockPosID24_none8;
+			patchHeader.blockPosID = blockPosID;
 			patchHeader.packedBlockPos = packedBlockPos;
+			patchHeader.xtile10_ytile10_cellmin222_cellmax222 = (minBlockTileCoords.x << 22) | (minBlockTileCoords.y << 12);
+			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMinRange.x << 10) | (cellMinRange.y << 8) | (cellMinRange.z << 6);
+			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMaxRange.x <<  4) | (cellMaxRange.y << 2) | (cellMaxRange.z << 0);
 			patchHeader.xdsp16_ydsp16 = (pixelDisplacementF16.x << 16) | pixelDisplacementF16.y;
 
 			gs_patchHeaders[blockRank] = patchHeader;
@@ -236,8 +237,8 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint blockRank = patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 26;
 
 		const BlockPatchHeader patchHeader = gs_patchHeaders[blockRank];
-		const uint tileX = (patchHeader.xtile16_ytile16 >> 16) + ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 18) & 3);
-		const uint tileY = (patchHeader.xtile16_ytile16 & 0xFFFF) + ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 16) & 3);
+		const uint tileX = ((patchHeader.xtile10_ytile10_cellmin222_cellmax222 >> 22) & 0x3FF) + ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 18) & 3);
+		const uint tileY = ((patchHeader.xtile10_ytile10_cellmin222_cellmax222 >> 12) & 0x3FF) + ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 16) & 3);
 		const uint tileOffset = mad( tileY, c_projectFrameTileSize.x, tileX );
 
 		uint patchRank = 0;
@@ -246,9 +247,9 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		if ( patchRank < HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE )
 		{
 			BlockPatch blockPatch;
-			blockPatch.blockPosID24_x4_y4 = patchHeader.blockPosID24_none8 | ((patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 >> 8) & 0xFF);
+			blockPatch.blockPosID = patchHeader.blockPosID;
 			blockPatch.packedBlockPos = patchHeader.packedBlockPos;
-			blockPatch.none24_w4_h4 = patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 & 0xFF;
+			blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 = (patchHeader.xtile10_ytile10_cellmin222_cellmax222 << 16) | (patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 & 0xFFFF);
 			blockPatch.xdsp16_ydsp16 = patchHeader.xdsp16_ydsp16;
 
 			const uint page = patchRank >> 6;

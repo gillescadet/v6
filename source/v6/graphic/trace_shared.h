@@ -9,6 +9,10 @@ BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_TRACE_DEBUG							0
 
+#define HLSL_TRACE_STATE_HIT						 0
+#define HLSL_TRACE_STATE_MISS_BLOCK					-1
+#define HLSL_TRACE_STATE_MISS_CELL					-2
+
 #define HLSL_BLOCK_SHOW_FLAG_MIPS					1
 #define HLSL_BLOCK_SHOW_FLAG_BUCKETS				2
 #define HLSL_BLOCK_SHOW_FLAG_HISTORY				4
@@ -135,9 +139,9 @@ struct VisibleBlockContext
 
 struct BlockPatch
 {
-	uint	blockPosID24_x4_y4;
+	uint	blockPosID;
 	uint	packedBlockPos;
-	uint	none24_w4_h4;
+	uint	none4_cellmin222_cellmax222_x4_y4_w4_h4;
 	uint	xdsp16_ydsp16;
 };
 
@@ -170,10 +174,12 @@ struct BlockTraceStats
 {
 	uint			tileInputCounts[HLSL_BLOCK_PAGE_MAX_COUNT];
 	uint			patchInputCount;
+	uint			pixelInputCount;
 	uint			pixelTraceCount;
+	uint			pixelHitCounts[3];
 	uint			pixelDoneCount;
-	uint			tileDoneCount;
-	uint			tileStepCount;
+	uint			pixelPageCount;
+	uint			pixelStepCount;
 	uint			assertFailedBits;
 	uint			assertData[4];
 	float3			debugRayDir;
