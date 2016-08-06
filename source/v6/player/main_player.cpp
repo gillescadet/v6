@@ -25,7 +25,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 
@@ -1344,9 +1344,13 @@ int main( int argc, char** argv )
 #endif
 	
 #if 0
+
+#if V6_ENABLE_HMD == 0
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
+#endif // #if V6_ENABLE_HMD == 0
+
 #endif
 
 	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;

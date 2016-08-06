@@ -13,9 +13,6 @@ RWTexture2D< float4 > outputColors						: REGISTER_UAV( HLSL_COLOR_SLOT );
 RWBuffer< uint > outputDisplacements					: REGISTER_UAV( HLSL_DISPLACEMENT_SLOT );
 #if BLOCK_DEBUG == 1
 RWStructuredBuffer< BlockTraceStats > blockTraceStats	: REGISTER_UAV( HLSL_TRACE_STATS_SLOT );
-#if HLSL_TRACE_DEBUG == 1
-RWStructuredBuffer< BlockDebugBox > blockDebugBox		: REGISTER_UAV( HLSL_TRACE_DEBUG_BOX_SLOT );
-#endif // #if HLSL_TRACE_DEBUG == 1
 #endif // #if BLOCK_DEBUG == 1
 
 struct TracePatch
@@ -90,6 +87,8 @@ TracePatch LoadPatch( uint patchID )
 {
 	const BlockPatch blockPatch = blockPatches[patchID];
 
+	// Compute bounding box
+
 	const uint packedBlockPos = blockPatch.packedBlockPos;
 	const uint mip = packedBlockPos >> 28;
 	const uint blockPos = packedBlockPos & 0x0FFFFFFF;
@@ -120,6 +119,8 @@ TracePatch LoadPatch( uint patchID )
 	const float3 boxMinRS = posMinWS - c_traceRayOrg.xyz; 
 	const float3 boxMaxRS = mad( float3( 1 + cellExtent ), cellSize, boxMinRS );
 
+	// Build xy mask
+
 	const uint w = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 4) & 0xF;
 	const uint h = (blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 >> 0) & 0xF;
 
@@ -146,36 +147,9 @@ TracePatch LoadPatch( uint patchID )
 	Assert( firstbithigh( xMask ) == (x + w - 1), 8 );
 	Assert( firstbithigh( yMask ) == (y + h - 1), 9 );
 
-	const uint blockPosID = blockPatch.blockPosID;
-	const uint64 blockCellPresence = blockCellPresences[blockPosID];
+	// Decode end colors
 
-#if BLOCK_DEBUG == 1 && HLSL_TRACE_DEBUG == 1
-	for ( uint cellRank = 0; cellRank < 64; ++cellRank )
-	{
-		if ( (cellRank < 32 && (blockCellPresence.low & (1 << cellRank))) || (cellRank >= 32 && (blockCellPresence.high & (1 << (cellRank-32)))) )
-		{
-			uint debugBoxID;
-			InterlockedAdd( blockTraceStats[0].debugBoxCount, 1, debugBoxID );
-			if ( debugBoxID < HLSL_BLOCK_DEBUG_BOX_MAX_COUNT )
-			{
-				const uint cellX = (cellRank >> 0) & 3;
-				const uint cellY = (cellRank >> 2) & 3;
-				const uint cellZ = (cellRank >> 4) & 3;
-				const float3 cellOffset = float3( cellX, cellY, cellZ );
-
-				const float3 cellMinRS = boxMinRS + cellOffset * cellSize;
-				const float3 cellMaxRS = cellMinRS + cellSize;
-
-				blockDebugBox[debugBoxID].boxMinRS = cellMinRS;
-				blockDebugBox[debugBoxID].boxMaxRS = cellMaxRS;
-			}
-		}
-	}
-#endif
-
-	// Decode min/max
-
-	const uint cellEndColors = blockCellEndColors[blockPosID];
+	const uint cellEndColors = blockCellEndColors[blockPatch.blockPosID];
 	const uint color0 = (cellEndColors >>  0) & 0xFFFF;
 	const uint color1 = (cellEndColors >> 16) & 0xFFFF;
 
@@ -187,7 +161,7 @@ TracePatch LoadPatch( uint patchID )
 	const uint minColorG = ((color1 >>  5) & 0x3F) << 2;
 	const uint minColorB = ((color1 >>  0) & 0x1F) << 3;
 
-	// Make palette
+	// Make color palette
 
 	uint colorPalette[4];
 
@@ -210,9 +184,11 @@ TracePatch LoadPatch( uint patchID )
 	const uint g3 = (85 * gMax + 170 * gMin) >> 8;
 	const uint b3 = (85 * bMax + 170 * bMin) >> 8;
 	colorPalette[3] = (r3 << 24) | (g3 << 16) | (b3 << 8);
+
+	// Init trace patch
 	
 	TracePatch tracePatch;
-	tracePatch.blockPosID = blockPosID;
+	tracePatch.blockPosID = blockPatch.blockPosID;
 	tracePatch.none16_xMask8_yMask8 = (xMask << 8) | yMask;
 	tracePatch.cellMinRange = cellMinRange;
 	tracePatch.cellExtent = cellExtent;
@@ -220,7 +196,7 @@ TracePatch LoadPatch( uint patchID )
 	tracePatch.boxMaxRS = boxMaxRS;
 	tracePatch.cellSize = cellSize;
 	tracePatch.invCellSize = invCellSize;
-	tracePatch.blockCellPresence = blockCellPresence;
+	tracePatch.blockCellPresence = blockCellPresences[blockPatch.blockPosID];
 	tracePatch.blockColorPalette = colorPalette;
 	tracePatch.xdsp16_ydsp16 = blockPatch.xdsp16_ydsp16;
 
@@ -370,42 +346,43 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	const uint pageSize = (c_traceFrameTileSize.x * c_traceFrameTileSize.y) * 64;
 	const uint pageOffset = mad( tileOffset, 64, group );
 	
+	// Use one ray per thread
+
 	const float2 jitteredCoords = float2( DTid.xy ) + c_traceJitter;
 	const float3 rayDir = mad( jitteredCoords.y, c_traceRayDirUp.xyz, mad( jitteredCoords.x, c_traceRayDirRight.xyz, c_traceRayDirBase.xyz ) );
 	const float3 rayInvDir = rcp( rayDir );
-
-#if BLOCK_DEBUG == 1 && HLSL_TRACE_DEBUG == 1
-	const float2 delta = float2( abs( jitteredCoords.x - 256.0f ), abs( jitteredCoords.y - 256.0f ) );
-	const float distance = sqrt( dot( delta, delta ) );
-	const bool debug = ( (jitteredCoords.x - 256.0f) == 15.5f ) && ( (jitteredCoords.y - 256.0f) == 0.5f );
-
-	if ( debug )
-		blockTraceStats[0].debugRayDir = mad( jitteredCoords.y, c_traceRayDirUp.xyz, mad( jitteredCoords.x, c_traceRayDirRight.xyz, c_traceRayDirBase.xyz ) );	
-#endif
 
 	Hit hit = (Hit)0;
 	hit.depth = HLSL_FLT_MAX;
 
 	for ( uint page = 0; page < gs_pageCount; ++page, remainingPatchCount -= 64 )
 	{
-		TracePatch tracePatch = (TracePatch)0;
-
-		if ( group < remainingPatchCount )
+		// Load up to 64 patches in LDS
+		
 		{
-			const uint patchID = mad( page, pageSize, pageOffset );
-			tracePatch = LoadPatch( patchID );
+			TracePatch tracePatch = (TracePatch)0;
+
+			if ( group < remainingPatchCount )
+			{
+				const uint patchID = mad( page, pageSize, pageOffset );
+				tracePatch = LoadPatch( patchID );
+			}
+
+			gs_patches[group] = tracePatch;
 		}
 
-		gs_patches[group] = tracePatch;
-
-		// optimization: make 2x 16 bits group masks
+		// Compute up to 64 visible blocks to intersect
 
 		uint patchMask0 = BuildTraceMask( group_xMask8_yMask8, 0 );
 		uint patchMask1 = BuildTraceMask( group_xMask8_yMask8, 32 );
 
+		// Process the first serie of 32 blocks
+
 		while ( patchMask0 )
 			ExecuteTraceMask( hit, patchMask0, rayDir, rayInvDir, 0 );
 		
+		// Process the second serie of 32 blocks
+
 		while ( patchMask1 )
 			ExecuteTraceMask( hit, patchMask1, rayDir, rayInvDir, 32 );
 
@@ -418,6 +395,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 
 	if ( hit.depth < HLSL_FLT_MAX )
 	{
+		// Decode the BC1 color of the nearest hit
+
+		// 100 us
+
 		uint64 colorIndices64;
 		if ( hit.cellRank < 32 )
 			colorIndices64 = blockCellColorIndices0[hit.blockPosID];
@@ -434,9 +415,15 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		groupColor = float3( (rgb_none >> 24) & 0xFF, (rgb_none >> 16) & 0xFF, (rgb_none >> 8) & 0xFF ) * (1.0f / 255.0f);
 	}
 
-	const uint2 screenBufferPos = uint2( DTid.x, c_traceFrameSize.y - DTid.y - 1 );
-	outputColors[screenBufferPos] = float4( groupColor, 1.0f );
+	{
+		// Ouput
+		
+		// 50 us
 
-	const uint pixelID = mad( screenBufferPos.y, c_traceFrameSize.x, screenBufferPos.x );
-	outputDisplacements[pixelID] = hit.xdsp16_ydsp16;
+		const uint2 screenBufferPos = uint2( DTid.x, c_traceFrameSize.y - DTid.y - 1 );
+		outputColors[screenBufferPos] = float4( groupColor, 1.0f );
+
+		const uint pixelID = mad( screenBufferPos.y, c_traceFrameSize.x, screenBufferPos.x );
+		outputDisplacements[pixelID] = hit.xdsp16_ydsp16;
+	}
 }
