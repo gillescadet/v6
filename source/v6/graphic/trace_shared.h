@@ -176,12 +176,15 @@ struct BlockTraceStats
 	uint			patchInputCount;
 	uint			pixelInputCount;
 	uint			pixelTraceCount;
+	uint			pixelEmptyMaskCount;
+	uint			pixelNotEmptyMaskCount;
 	uint			pixelHitCounts[3];
 	uint			pixelDoneCount;
 	uint			pixelPageCount;
 	uint			pixelStepCount;
+	uint			pixelStepMaxCount;
 	uint			assertFailedBits;
-	uint			assertData[4];
+	uint			assertData[8];
 	float3			debugRayDir;
 	uint			debugBoxCount;
 };

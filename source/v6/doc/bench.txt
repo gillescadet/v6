@@ -1318,3 +1318,74 @@ Frame      : 13231 us
     Metrics    :    30 us
     Copy       :   140 us
     Present    :  4388 us
+
+Bench: RST1024_V2 + unroll the trace loop (RST1024_V3)
+rt.resolution: 1024x1024
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     387507
+blockCull        maxBlockPosID                 :    1938105
+blockProject     blockInputCount               :     387520
+blockProject     blockProcessedCount           :     387507
+blockProject     blockPatchHeaderPixelCount    :    5986066
+blockProject     blockPatchHeaderCount         :     387507
+blockProject     blockPatchDetailCount         :     717616
+blockProject     blockPatchDetailPixelCount    :    5986066
+blockProject     blockPatchMaxPage             :          4
+blockTrace       tileInputCount_with_1_pages   :      13204
+blockTrace       tileInputCount_with_2_pages   :       2706
+blockTrace       tileInputCount_with_3_pages   :        429
+blockTrace       tileInputCount_with_4_pages   :         44
+blockTrace       tileInputCount_with_5_pages   :          1
+blockTrace       tileInputCount                :      16384
+blockTrace       patchInputCount               :     717283
+blockTrace       pixelInputCount               :    1048576
+blockTrace       pixelTraceCount               :    5985039
+blockTrace       pixelMaskCount_empty          :     964542
+blockTrace       pixelMaskCount_not_empty      :    1606210
+blockTrace       pixelHitCount_hit             :    1607200
+blockTrace       pixelHitCount_miss_block      :    4318342
+blockTrace       pixelHitCount_miss_cell       :      59497
+blockTrace       pixelDoneCount                :    5985039
+blockTrace       pixelPageCount                :    1285376
+blockTrace       pixelStepCount                :          0
+blockProject     blockInputCount               :     387520
+blockProject     blockProcessedCount           :     387507
+blockProject     blockPatchHeaderPixelCount    :    6000826
+blockProject     blockPatchHeaderCount         :     387507
+blockProject     blockPatchDetailCount         :     715572
+blockProject     blockPatchDetailPixelCount    :    6000826
+blockProject     blockPatchMaxPage             :          3
+blockTrace       tileInputCount_with_1_pages   :      13154
+blockTrace       tileInputCount_with_2_pages   :       2751
+blockTrace       tileInputCount_with_3_pages   :        439
+blockTrace       tileInputCount_with_4_pages   :         40
+blockTrace       tileInputCount                :      16384
+blockTrace       patchInputCount               :     715246
+blockTrace       pixelInputCount               :    1048576
+blockTrace       pixelTraceCount               :    5999820
+blockTrace       pixelMaskCount_empty          :     969833
+blockTrace       pixelMaskCount_not_empty      :    1607191
+blockTrace       pixelHitCount_hit             :    1607921
+blockTrace       pixelHitCount_miss_block      :    4331531
+blockTrace       pixelHitCount_miss_cell       :      60368
+blockTrace       pixelDoneCount                :    5999820
+blockTrace       pixelPageCount                :    1288512
+blockTrace       pixelStepCount                :          0
+Frame      : 13232 us
+    Update     :     0 us
+    Draw       :  7516 us
+        Cull       :   215 us
+        Project_L  :   415 us
+        Trace_L    :  3013 us
+        TSAA_L     :   135 us
+        Sharpen_L  :    89 us
+        Project_R  :   411 us
+        Trace_R    :  3006 us
+        TSAA_R     :   134 us
+        Sharpen_R  :    91 us
+    Font       :     0 us
+    Metrics    :    30 us
+    Copy       :   139 us
+    Present    :  5543 us

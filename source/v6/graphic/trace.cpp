@@ -432,6 +432,8 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 			ReadBack_Log( "blockTrace", blockTraceStats->patchInputCount, "patchInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelInputCount, "pixelInputCount" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelTraceCount, "pixelTraceCount" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelEmptyMaskCount, "pixelMaskCount_empty" );
+			ReadBack_Log( "blockTrace", blockTraceStats->pixelNotEmptyMaskCount, "pixelMaskCount_not_empty" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[0], "pixelHitCount_hit" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[1], "pixelHitCount_miss_block" );
 			ReadBack_Log( "blockTrace", blockTraceStats->pixelHitCounts[2], "pixelHitCount_miss_cell" );
@@ -445,6 +447,10 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[1] }, "assertData[1]" );
 				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[2] }, "assertData[2]" );
 				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[3] }, "assertData[3]" );
+				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[4] }, "assertData[4]" );
+				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[5] }, "assertData[5]" );
+				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[6] }, "assertData[6]" );
+				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[7] }, "assertData[7]" );
 				V6_ASSERT_ALWAYS( "HLSL Assert" );
 			}
 
