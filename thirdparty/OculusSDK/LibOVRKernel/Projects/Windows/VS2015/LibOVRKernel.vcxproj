@@ -1,18 +1,38 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-    
-	
+    <ProjectConfiguration Include="DebugStatic|Win32">
+      <Configuration>DebugStatic</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="DebugStatic|x64">
+      <Configuration>DebugStatic</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-
+    <ProjectConfiguration Include="ReleaseStatic|Win32">
+      <Configuration>ReleaseStatic</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseStatic|x64">
+      <Configuration>ReleaseStatic</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64">
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-	
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\..\Logging\include\Logging_Library.h" />
@@ -402,7 +422,7 @@
       <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/d2Zi+ /we4263 /we4264 /we4265 /we4266 /we4062 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -430,7 +450,7 @@
       <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/d2Zi+ /we4263 /we4264 /we4265 /we4266 /we4062 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -460,7 +480,7 @@
       <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/d2Zi+ /we4263 /we4264 /we4265 /we4266 /we4062 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -490,7 +510,7 @@
       <ExceptionHandling>SyncCThrow</ExceptionHandling>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/d2Zi+ /we4263 /we4264 /we4265 /we4266 /we4062 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -524,7 +544,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -559,7 +579,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -595,7 +615,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <OmitFramePointers>false</OmitFramePointers>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -631,7 +651,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <OmitFramePointers>false</OmitFramePointers>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OVRSDKROOT)LibOVRKernel/Src/;$(OVRSDKROOT)Logging/include/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

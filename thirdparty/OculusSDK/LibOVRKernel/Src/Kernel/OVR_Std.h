@@ -343,7 +343,7 @@ inline size_t OVR_CDECL OVR_sprintf(char *dest, size_t destsize, const char* for
 {
     va_list argList;
     va_start(argList,format);
-    size_t ret;
+    int ret;
 #if defined(OVR_CC_MSVC)
     #if defined(OVR_MSVC_SAFESTRING)
         ret = _vsnprintf_s(dest, destsize, _TRUNCATE, format, argList);

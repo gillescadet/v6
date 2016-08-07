@@ -51,6 +51,7 @@ bool	Hmd_Init();
 void	Hmd_MakeView( View_s* renderingView, const HmdEyePose_s* eyePose, const Vec3* orgOffset, float yawOffset, u32 eye );
 void	Hmd_Recenter();
 void	Hmd_ReleaseResources();
+void	Hmd_SetPerfHUdMode( u32 mode );
 void	Hmd_Shutdown();
 
 END_V6_NAMESPACE

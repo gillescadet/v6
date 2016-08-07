@@ -119,7 +119,7 @@ public:
     FakeMemoryInternal(FakeMemoryBlock* block);
     ~FakeMemoryInternal();
 
-    virtual void* GetFileView() OVR_OVERRIDE
+    virtual void* GetFileView() override
     {
         return FileView;
     }
@@ -260,7 +260,7 @@ public:
         }
     }
 
-    virtual void* GetFileView() OVR_OVERRIDE
+    virtual void* GetFileView() override
     {
         return FileView;
     }
@@ -484,7 +484,7 @@ public:
         }
     }
 
-    virtual void* GetFileView() OVR_OVERRIDE
+    virtual void* GetFileView() override
     {
         return FileView;
     }

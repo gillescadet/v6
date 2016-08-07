@@ -46,7 +46,7 @@ namespace OVR { namespace Util {
 class LongPollThread : public Thread, public SystemSingletonBase<LongPollThread>
 {
     OVR_DECLARE_SINGLETON(LongPollThread);
-    virtual void OnThreadDestroy();
+    virtual void OnThreadDestroy() override;
 
 public:
     typedef Delegate0<void> PollFunc;
@@ -63,7 +63,7 @@ protected:
     Event WakeEvent;
     void fireTermination();
 
-    virtual int Run();
+    virtual int Run() override;
 };
 
 

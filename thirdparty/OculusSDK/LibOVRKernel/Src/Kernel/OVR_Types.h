@@ -1041,7 +1041,7 @@ namespace OVR
     #if defined(OVR_CC_GNU)
     #  define   OVR_UNUSED(a)   do {__typeof__ (&a) __attribute__ ((unused)) __tmp = &a; } while(0)
     #else
-    #  define   OVR_UNUSED(a)   (a)
+    #  define   OVR_UNUSED(a)   ((void)a)
     #endif
 
     #define     OVR_UNUSED1(a1) OVR_UNUSED(a1)

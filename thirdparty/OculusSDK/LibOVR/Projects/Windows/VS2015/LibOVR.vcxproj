@@ -1,18 +1,39 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-
+    <ProjectConfiguration Include="DebugSingleProcess|Win32">
+      <Configuration>DebugSingleProcess</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="DebugSingleProcess|x64">
+      <Configuration>DebugSingleProcess</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-
+    <ProjectConfiguration Include="ReleaseSingleProcess|Win32">
+      <Configuration>ReleaseSingleProcess</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseSingleProcess|x64">
+      <Configuration>ReleaseSingleProcess</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64">
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-
-</ItemGroup>
+  </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Include\Extras\OVR_CAPI_Util.h" />
     <ClInclude Include="..\..\..\Include\Extras\OVR_StereoProjection.h" />
@@ -22,6 +43,7 @@
     <ClInclude Include="..\..\..\Include\OVR_CAPI_Keys.h" />
     <ClInclude Include="..\..\..\Include\OVR_ErrorCode.h" />
     <ClInclude Include="..\..\..\Include\OVR_Version.h" />
+    <ClInclude Include="..\..\..\Src\OVR_CAPI_Prototypes.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\Src\OVR_CAPIShim.c" />

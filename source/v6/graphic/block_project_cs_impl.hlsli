@@ -192,7 +192,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			gs_patchHeaders[blockRank] = patchHeader;
 		}
 
-		const uint2 blockTileRect = 1 + maxBlockTileCoords - minBlockTileCoords;
+		const uint2 blockTileRect = min( 1 + maxBlockTileCoords - minBlockTileCoords, 3 );
 
 		const uint patchDetailCount = blockTileRect.x * blockTileRect.y;
 				

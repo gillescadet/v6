@@ -759,6 +759,14 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 0x1B:
 		Win_Release( &player->win );
 		break;
+	case '0':
+	case '1':
+	case '2':
+	case '3':
+	case '4':
+	case '5':
+		Hmd_SetPerfHUdMode( keyEvent->key - '0' );
+		break;
 	case 0x21:
 		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
 		break;

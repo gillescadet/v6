@@ -1178,7 +1178,7 @@ bool Allocator::Init()
             #if OVR_ALLOCATOR_TRACKING_ENABLED
                 TrackingEnabled = true;
             #else
-                TrackingEnabled = OVR::Util::GetRegistryBoolW(L"Software\\Oculus", L"HeapTrackingEnabled", TrackingEnabled); // "HKEY_LOCAL_MACHINE\SOFTWARE\Oculus\HeapTrackingEnabled", REG_DWORD of 0 or 1.
+                TrackingEnabled = IsHeapTrackingRegKeyEnabled(TrackingEnabled);
             #endif
         }
 
@@ -1900,6 +1900,11 @@ bool Allocator::EnableMallocRedirect()
     return result;
 }
 
+bool Allocator::IsHeapTrackingRegKeyEnabled(bool defaultValue)
+{
+    // "HKEY_LOCAL_MACHINE\SOFTWARE\Oculus\HeapTrackingEnabled", REG_DWORD of 0 or 1.
+    return OVR::Util::GetRegistryBoolW(L"Software\\Oculus", L"HeapTrackingEnabled", defaultValue);
+}
 
 const AllocMetadata* Allocator::IterateHeapBegin()
 {
@@ -2191,13 +2196,15 @@ bool HeapIterationFilterRPN::Compile(const char* filter)
         Instruction instruction{};
         char        tempDataType[12], tempCompare[8], tempComparand[256], tempOperation[8], *nextChar;
         size_t      i;
-        bool        isOperandLine = strnicmp(filter, "and", 3) && strnicmp(filter, "or", 2); // To consider: Find a cleaner way to discern which of the two kinds of lines this is (operand or operation).
+        bool        isOperandLine = _strnicmp(filter, "and", 3) && _strnicmp(filter, "or", 2); // To consider: Find a cleaner way to discern which of the two kinds of lines this is (operand or operation).
 
         if ((*filter == '\r') || (*filter == '\n') || (*filter == '/'))
         {
             // Ignore lines that are empty or begin with / 
         }
-        else if (isOperandLine && (sscanf(filter, "%11s %7s %255[^;]s", tempDataType, tempCompare, tempComparand) == 3)) // If this line looks like an operand (e.g. AllocSize > 100)...
+        else if (isOperandLine && (sscanf_s(filter, "%11s %7s %255[^;]s", tempDataType,  (unsigned)sizeof(tempDataType),
+                                                                          tempCompare,   (unsigned)sizeof(tempCompare),
+                                                                          tempComparand, (unsigned)sizeof(tempComparand)) == 3)) // If this line looks like an operand (e.g. AllocSize > 100)...
         {
             static_assert(sizeof(tempComparand) == 256, "The format string here assumes 256. Fix the format string and this assert if tempComparand changes.");
  
@@ -2237,7 +2244,7 @@ bool HeapIterationFilterRPN::Compile(const char* filter)
             else if ((instruction.operand.metadataType == AMFCount) && (instruction.operand.numValue < 0))  // Handle the case that a negative count was passed, which
                 instruction.operand.numValue += AllocatorInstance->GetCounter();                            //     means to refer to the last N allocations.
         }
-        else if (sscanf(filter, "%7[^;]s", tempOperation) == 1) // If this line looks like an operation (e.g. And or Or).
+        else if (sscanf_s(filter, "%7[^;]s", tempOperation, (unsigned)sizeof(tempOperation)) == 1) // If this line looks like an operation (e.g. And or Or).
         {
             if (OVR_stricmp(tempOperation, "and") == 0)
                 instruction.operation = OpAnd;
@@ -3076,7 +3083,7 @@ void* DebugPageHeap::AllocCommittedPageMemory(size_t blockSize)
                 if (length)
                 {
                     std::string errorBuff = UCSStringToUTF8String(osError, length + 1);
-                    OVR_snprintf(reportedError, OVR_ARRAY_COUNT(reportedError), "DebugPageHeap: VirtualAlloc failed with error: %s", errorBuff);
+                    OVR_snprintf(reportedError, OVR_ARRAY_COUNT(reportedError), "DebugPageHeap: VirtualAlloc failed with error: %s", errorBuff.c_str());
                 }
                 else
                 {
@@ -3190,9 +3197,11 @@ int AllocatorTraceDbgCmd(const std::vector<std::string>& args, std::string* outp
         }
 
         std::string filePath = args[1];
-        FILE* file = fopen(filePath.c_str(), "w");
+        FILE* file;
+        errno_t err;
+        err = fopen_s(&file, filePath.c_str(), "w");
 
-        if (!file)
+        if (err || !file)
         {
             strStream << "Failed to open " << filePath;
             *output = strStream.str();

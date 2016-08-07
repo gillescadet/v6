@@ -70,7 +70,7 @@ protected:
 class WatchDogObserver : public Thread, public SystemSingletonBase<WatchDogObserver>
 {
     OVR_DECLARE_SINGLETON(WatchDogObserver);
-    virtual void OnThreadDestroy();
+    virtual void OnThreadDestroy() override;
 
     friend class WatchDog;
 
@@ -119,7 +119,7 @@ protected:
     void OnDeadlock(const String& deadlockedThreadName);
 
 protected:
-    virtual int Run();
+    virtual int Run() override;
 
     void Add(WatchDog* dog);
     void Remove(WatchDog* dog);

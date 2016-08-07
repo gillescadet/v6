@@ -3793,7 +3793,7 @@ void ExceptionHandler::WriteReport(const char* reportType)
                     ::VariantClear(&var); // must clear after use to avoid leaks
                 }
 
-                const BSTR getBSTR() const // return a value or default empty string
+                BSTR getBSTR() const // return a value or default empty string
                 {
                     if ( ( var.vt == VT_BSTR ) && var.bstrVal )
                          return var.bstrVal;

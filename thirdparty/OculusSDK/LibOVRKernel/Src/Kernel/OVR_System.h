@@ -127,7 +127,7 @@ template<class T> OVR::AtomicPtr<T> OVR::SystemSingletonBase<T>::SingletonInstan
 private:                                        \
     T();                                        \
     virtual ~T();                               \
-    virtual void OnSystemDestroy();
+    virtual void OnSystemDestroy() override;
 
 // Place this in the singleton class source file
 #define OVR_DEFINE_SINGLETON(T)                                 \

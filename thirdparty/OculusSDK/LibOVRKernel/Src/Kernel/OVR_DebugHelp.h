@@ -246,7 +246,7 @@ namespace OVR {
             { return Function; }
 
     protected:
-        const void* CopiedFunction::GetRealFunctionLocation(const void* pFunction);
+        const void* GetRealFunctionLocation(const void* pFunction);
 
         void* Function;
     };

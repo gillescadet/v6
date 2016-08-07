@@ -32,20 +32,6 @@ static ID3D11ShaderResourceView*	s_textureSRVs[2][s_textureCount] = {};
 static ID3D11UnorderedAccessView*	s_textureUAVs[2][s_textureCount] = {};
 static ovrLayer_Union				s_layer = {};
 
-static const u32 s_ovrHmdTypeCount = 9;
-static const char* const s_ovrHmdTypeNames[s_ovrHmdTypeCount] = 
-{
-	"ovrHmd_None",
-	"ovrHmd_DK1",
-	"ovrHmd_DKHD",
-	"ovrHmd_DK2",
-	"ovrHmd_CB",
-	"ovrHmd_Other",
-	"ovrHmd_E3_2015",
-	"ovrHmd_ES06",
-	"ovrHmd_ES09",
-};
-
 static ovrFovPort GetFovPort( u32 eye )
 {
 #if 1
@@ -124,14 +110,23 @@ bool Hmd_Init()
 
 	s_hmdDesc = ovr_GetHmdDesc( s_session );
 
-	if ( (u32)s_hmdDesc.Type < s_ovrHmdTypeCount )
+	const char* hmdTypeName = "Unknown";
+	switch ( s_hmdDesc.Type )
 	{
-		V6_MSG( "hmd.type                      : %s\n", s_ovrHmdTypeNames[s_hmdDesc.Type] );
+	case ovrHmd_None: hmdTypeName = "None"; break;
+	case ovrHmd_DK1: hmdTypeName = "DK1"; break;
+	case ovrHmd_DKHD: hmdTypeName = "DKHD"; break;
+	case ovrHmd_DK2: hmdTypeName = "DK2"; break;
+	case ovrHmd_CB: hmdTypeName = "CB"; break;
+	case ovrHmd_Other: hmdTypeName = "Other"; break;
+	case ovrHmd_E3_2015: hmdTypeName = "E3_2015"; break;
+    case ovrHmd_ES06: hmdTypeName = "ES06"; break;
+    case ovrHmd_ES09: hmdTypeName = "ES09"; break;
+    case ovrHmd_ES11: hmdTypeName = "ES11"; break;
+	case ovrHmd_CV1: hmdTypeName = "CV1"; break;
 	}
-	else
-	{
-		V6_MSG( "hmd.type                      : unknown\n" );
-	}
+
+	V6_MSG( "hmd.type                      : %s\n", hmdTypeName );
 	V6_MSG( "hmd.productName               : %s\n", s_hmdDesc.ProductName );
 	V6_MSG( "hmd.manufacturer              : %s\n", s_hmdDesc.Manufacturer );	
 	V6_MSG( "hmd.vendorId                  : %d\n", s_hmdDesc.VendorId );
@@ -397,6 +392,13 @@ void Hmd_Recenter()
 	V6_ASSERT( s_session != nullptr );
 	
 	ovr_RecenterTrackingOrigin( s_session );
+}
+
+void Hmd_SetPerfHUdMode( u32 mode )
+{
+	V6_ASSERT( s_session != nullptr );
+
+	ovr_SetInt( s_session, OVR_PERF_HUD_MODE, (int)mode );
 }
 
 END_V6_NAMESPACE

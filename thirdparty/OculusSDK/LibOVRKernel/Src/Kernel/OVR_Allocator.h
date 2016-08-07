@@ -599,6 +599,8 @@ public:
     bool IsMallocRedirectEnabled() const
         { return MallocRedirectEnabled; }
 
+    static bool IsHeapTrackingRegKeyEnabled(bool defaultValue);
+
     // IterateHeapBegin succeeds only if tracking is enabled.
     // Once IterateHeapBegin is called, the heap is thread-locked until IterateHeapEnd is called.
     // If the heap has no allocations, IterateHeapBegin returns nullptr.

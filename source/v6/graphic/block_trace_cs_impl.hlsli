@@ -18,7 +18,7 @@ RWStructuredBuffer< BlockTraceStats > blockTraceStats	: REGISTER_UAV( HLSL_TRACE
 struct TracePatch
 {
 	uint	blockPosID;
-	uint	none16_xMask8_yMask8;
+	uint	none16_xMask8_yMask8; // optim: separate this and merge two patches
 	uint3	cellMinRange;
 	uint3	cellExtent;
 	float3	boxMinRS;
