@@ -5,6 +5,7 @@
 #include <v6/codec/decoder.h>
 #include <v6/codec/encoder.h>
 #include <v6/core/memory.h>
+#include <v6/core/time.h>
 
 #define VALIDATE (ENCODER_STRICT_BUCKET || ENCODER_STRICT_CELL)
 
@@ -42,7 +43,7 @@ int main()
 	const v6::u32 playRate		= 75;
 #endif
 
-#if 1
+#if 0
 	const char* streamFilename = "D:/media/obj/default/default.v6";
 	const char* templateFilename = "D:/media/obj/default/default_%06d.v6f";
 
@@ -51,7 +52,7 @@ int main()
 	const v6::u32 playRate		= 75;
 #endif
 
-#if 0
+#if 1
 	const char* streamFilename = "D:/tmp/v6/ue_1024.v6";
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 
@@ -60,8 +61,14 @@ int main()
 	const v6::u32 playRate		= 75;
 #endif
 
+	const v6::u64 startTick = v6::GetTickCount();
+
 	if ( !v6::VideoStream_Encode( streamFilename, templateFilename, frameOffset, frameCount, playRate, &heap ) )
 		return 1;
+
+	const v6::u64 endTick = v6::GetTickCount();
+
+	V6_MSG( "Duration: %5.3fs\n", v6::ConvertTicksToSeconds( endTick - startTick ) );
 
 #if VALIDATE
 

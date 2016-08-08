@@ -290,6 +290,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/class_wrapper/main_class_wrapper.cpp",	PROJECT_CLASSWRAPPER },
 
 	// compressor
+	{ "source/v6/codec/codec.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/codec/compression.cpp",				PROJECT_COMPRESSOR },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_COMPRESSOR },
 	{ "source/v6/core/image.cpp",						PROJECT_COMPRESSOR },
@@ -299,6 +300,8 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/string.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/time.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/compressor/main_compressor.cpp",		PROJECT_COMPRESSOR },
+	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_COMPRESSOR },
+	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_COMPRESSOR },
 
 	// doc
 	{ "source/v6/doc/bench.txt",						PROJECT_DOC },
@@ -314,6 +317,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/optimization.cpp",				PROJECT_ENCODER },
 	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/time.cpp",						PROJECT_ENCODER },
 	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4hc.c",						PROJECT_ENCODER },

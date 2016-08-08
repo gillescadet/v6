@@ -1389,3 +1389,75 @@ Frame      : 13232 us
     Metrics    :    30 us
     Copy       :   139 us
     Present    :  5543 us
+
+Bench: RX 480 (RST1368_RX480_V0)
+rt.resolution: 1104x1368
+Loaded stream D:/tmp/v6/ue_1024.v6
+blockCull        blockInputCount               :    1939328
+blockCull        blockProcessedCount           :    1938106
+blockCull        blockPassedCount              :     461290
+blockCull        maxBlockPosID                 :    1938105
+blockProject     blockInputCount               :     461312
+blockProject     blockProcessedCount           :     461290
+blockProject     blockPatchHeaderPixelCount    :    8225862
+blockProject     blockPatchHeaderCount         :     461290
+blockProject     blockPatchDetailCount         :     896970
+blockProject     blockPatchDetailPixelCount    :    8225862
+blockProject     blockPatchMaxPage             :          4
+blockTrace       tileInputCount_with_1_pages   :      20221
+blockTrace       tileInputCount_with_2_pages   :       2873
+blockTrace       tileInputCount_with_3_pages   :        461
+blockTrace       tileInputCount_with_4_pages   :         42
+blockTrace       tileInputCount_with_5_pages   :          1
+blockTrace       tileInputCount                :      23598
+blockTrace       patchInputCount               :     896383
+blockTrace       pixelInputCount               :    1510272
+blockTrace       pixelTraceCount               :    8223866
+blockTrace       pixelMaskCount_empty          :    1384647
+blockTrace       pixelMaskCount_not_empty      :    2138297
+blockTrace       pixelHitCount_hit             :    2274606
+blockTrace       pixelHitCount_miss_block      :    5867554
+blockTrace       pixelHitCount_miss_cell       :      81706
+blockTrace       pixelDoneCount                :    8223866
+blockTrace       pixelPageCount                :    1761472
+blockTrace       pixelStepCount                :          0
+blockProject     blockInputCount               :     461312
+blockProject     blockProcessedCount           :     461290
+blockProject     blockPatchHeaderPixelCount    :    8244212
+blockProject     blockPatchHeaderCount         :     461290
+blockProject     blockPatchDetailCount         :     894206
+blockProject     blockPatchDetailPixelCount    :    8244212
+blockProject     blockPatchMaxPage             :          4
+blockTrace       tileInputCount_with_1_pages   :      20199
+blockTrace       tileInputCount_with_2_pages   :       2900
+blockTrace       tileInputCount_with_3_pages   :        452
+blockTrace       tileInputCount_with_4_pages   :         46
+blockTrace       tileInputCount_with_5_pages   :          1
+blockTrace       tileInputCount                :      23598
+blockTrace       patchInputCount               :     893677
+blockTrace       pixelInputCount               :    1510272
+blockTrace       pixelTraceCount               :    8242481
+blockTrace       pixelMaskCount_empty          :    1382245
+blockTrace       pixelMaskCount_not_empty      :    2143387
+blockTrace       pixelHitCount_hit             :    2276856
+blockTrace       pixelHitCount_miss_block      :    5878354
+blockTrace       pixelHitCount_miss_cell       :      87271
+blockTrace       pixelDoneCount                :    8242481
+blockTrace       pixelPageCount                :    1762816
+blockTrace       pixelStepCount                :          0
+Frame      : 13232 us
+    Update     :     0 us
+    Draw       :  3974 us (was 9700 us with R9 270)
+        Cull       :   124 us
+        Project_L  :   373 us
+        Trace_L    :  1357 us
+        TSAA_L     :   126 us
+        Sharpen_L  :    67 us
+        Project_R  :   368 us
+        Trace_R    :  1356 us
+        TSAA_R     :   126 us
+        Sharpen_R  :    69 us
+    Font       :     0 us
+    Metrics    :    25 us
+    Copy       :   125 us
+    Present    :  9105 us

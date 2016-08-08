@@ -7,6 +7,7 @@
 #include <v6/core/mat3x3.h>
 #include <v6/core/math.h>
 #include <v6/core/optimization.h>
+#include <v6/core/random.h>
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
@@ -31,7 +32,7 @@ static void EndColor_U8ToF32( Vec3* endColorF32, const Color_s* endColorU8 )
 	endColorF32->z = endColorU8->b / 255.0f;
 }
 
-static u32 Block_Encode_Build( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount, Color_s endColor0, Color_s endColor1 )
+static u32 Block_Encode_Build( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, Color_s endColor0, Color_s endColor1 )
 {
 	// Output colors
 
@@ -132,8 +133,8 @@ static u32 Block_Encode_Build( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64],
 	return sumError;
 }
 
-template < int RADIUS >
-static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount, const Vec3* endColor0, const Vec3* endColor1 )
+template < int RADIUS, bool USE_ALL_DIMS >
+static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, const Vec3* endColor0, const Vec3* endColor1 )
 {
 	// Converts to 8 bits
 	
@@ -183,38 +184,107 @@ static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64]
 
 	u32 minError = INT_MAX;
 
-	for ( min.r = startMin.x; min.r <= endMin.x; ++min.r )
+	if ( USE_ALL_DIMS )
 	{
-		for ( min.g = startMin.y; min.g <= endMin.y; ++min.g )
+		for ( min.r = startMin.x; min.r <= endMin.x; ++min.r )
 		{
-			for ( min.b = startMin.z; min.b <= endMin.z; ++min.b )
+			for ( min.g = startMin.y; min.g <= endMin.y; ++min.g )
 			{
-				for ( max.r = startMax.x; max.r <= endMax.x; ++max.r )
+				for ( min.b = startMin.z; min.b <= endMin.z; ++min.b )
 				{
-					for ( max.g = startMax.y; max.g <= endMax.y; ++max.g )
+					for ( max.r = startMax.x; max.r <= endMax.x; ++max.r )
 					{
-						for ( max.b = startMax.z; max.b <= endMax.z; ++max.b )
+						for ( max.g = startMax.y; max.g <= endMax.y; ++max.g )
 						{
-							Color_s discretEndColor0 = min;
-							discretEndColor0.r = (min.r << 3) | minHighBits.x;
-							discretEndColor0.g = (min.g << 2) | minHighBits.y;
-							discretEndColor0.b = (min.b << 3) | minHighBits.z;
-
-							Color_s discretEndColor1 = max;
-							discretEndColor1.r = (max.r << 3) | maxHighBits.x;
-							discretEndColor1.g = (max.g << 2) | maxHighBits.y;
-							discretEndColor1.b = (max.b << 3) | maxHighBits.z;
-
-							EncodedBlockEx_s curBlock;
-							const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
-
-							if ( error < minError )
+							for ( max.b = startMax.z; max.b <= endMax.z; ++max.b )
 							{
-								minError = error;
-								*encodedBlock = curBlock;
+								Color_s discretEndColor0 = min;
+								discretEndColor0.r = (min.r << 3) | minHighBits.x;
+								discretEndColor0.g = (min.g << 2) | minHighBits.y;
+								discretEndColor0.b = (min.b << 3) | minHighBits.z;
+
+								Color_s discretEndColor1 = max;
+								discretEndColor1.r = (max.r << 3) | maxHighBits.x;
+								discretEndColor1.g = (max.g << 2) | maxHighBits.y;
+								discretEndColor1.b = (max.b << 3) | maxHighBits.z;
+
+								EncodedBlockEx_s curBlock;
+								const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
+
+								if ( error < minError )
+								{
+									minError = error;
+									*encodedBlock = curBlock;
+								}
 							}
 						}
 					}
+				}
+			}
+		}
+	}
+	else
+	{
+		Color_s discretEndColor0 = min;
+		discretEndColor0.r = (min.r << 3) | minHighBits.x;
+		discretEndColor0.g = (min.g << 2) | minHighBits.y;
+		discretEndColor0.b = (min.b << 3) | minHighBits.z;
+
+		Color_s discretEndColor1 = max;
+		discretEndColor1.r = (max.r << 3) | maxHighBits.x;
+		discretEndColor1.g = (max.g << 2) | maxHighBits.y;
+		discretEndColor1.b = (max.b << 3) | maxHighBits.z;
+
+		for ( min.r = startMin.x; min.r <= endMin.x; ++min.r )
+		{
+			for ( max.r = startMax.x; max.r <= endMax.x; ++max.r )
+			{
+				discretEndColor0.r = (min.r << 3) | minHighBits.x;
+				discretEndColor1.r = (max.r << 3) | maxHighBits.x;
+
+				EncodedBlockEx_s curBlock;
+				const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
+
+				if ( error < minError )
+				{
+					minError = error;
+					*encodedBlock = curBlock;
+				}
+			}
+		}
+
+		for ( min.g = startMin.y; min.g <= endMin.y; ++min.g )
+		{
+			for ( max.g = startMax.y; max.g <= endMax.y; ++max.g )
+			{
+				discretEndColor0.g = (min.g << 2) | minHighBits.y;
+				discretEndColor1.g = (max.g << 2) | maxHighBits.y;
+
+				EncodedBlockEx_s curBlock;
+				const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
+
+				if ( error < minError )
+				{
+					minError = error;
+					*encodedBlock = curBlock;
+				}
+			}
+		}
+
+		for ( min.b = startMin.z; min.b <= endMin.z; ++min.b )
+		{
+			for ( max.b = startMax.z; max.b <= endMax.z; ++max.b )
+			{
+				discretEndColor0.b = (min.b << 3) | minHighBits.z;
+				discretEndColor1.b = (max.b << 3) | maxHighBits.z;
+
+				EncodedBlockEx_s curBlock;
+				const u32 error = Block_Encode_Build( &curBlock, cellRGBA, cellCount, discretEndColor0, discretEndColor1 );
+
+				if ( error < minError )
+				{
+					minError = error;
+					*encodedBlock = curBlock;
 				}
 			}
 		}
@@ -223,7 +293,7 @@ static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64]
 	return minError;
 }
 
-u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount )
+u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount )
 {
 	// Compute centred colors
 
@@ -263,7 +333,7 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32
 		Optimization_FindBestFittingLine3DPrecentred( &colorDir, &covariance, centredColors, cellCount );
 
 		if ( covariance.m_row0.x < FLT_EPSILON && covariance.m_row1.y < FLT_EPSILON && covariance.m_row2.z < FLT_EPSILON )
-			return Block_Encode_Refine< 1 >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+			return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
 	}
 
 	Vec3 bestEndColor0;
@@ -289,10 +359,12 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32
 
 		static const float colorEps = 3.0f * (2.0f / 255.f) * (2.0f / 255.0f);
 
-		for ( int step0 = -4; step0 <= 4; ++step0 )
+		const int radius = 4;
+
+		for ( int step0 = -radius; step0 <= radius; ++step0 )
 		{
 			const float t0 = tMin + step0 * tStep;
-			for ( int step1 = -4; step1 <= 4; ++step1 )
+			for ( int step1 = -radius; step1 <= radius; ++step1 )
 			{
 				const float t1 = tMax + step1 * tStep;
 				const float tDiff = t1 - t0;
@@ -349,13 +421,15 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32
 		}
 	}
 
-	if ( minSumDistanceSQ == FLT_MAX )
-		return Block_Encode_Refine< 1 >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+	{
+		if ( minSumDistanceSQ == FLT_MAX )
+			return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
 
-	return Block_Encode_Refine< 1 >( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1 );
+		return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1 );
+	}
 }
 
-u32 Block_Encode_BoundingBox( EncodedBlockEx_s* encodedBlock, u32 cellRGBA[64], u32 cellCount )
+u32 Block_Encode_BoundingBox( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount )
 {
 	// Ensure a correct cell count
 

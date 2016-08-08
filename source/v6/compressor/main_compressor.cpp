@@ -2,6 +2,7 @@
 
 #include <v6/core/common.h>
 
+#include <v6/codec/codec.h>
 #include <v6/codec/compression.h>
 #include <v6/core/color.h>
 #include <v6/core/image.h>
@@ -27,6 +28,12 @@ struct ImageBlock_s
 	u16 color0;
 	u16 color1;
 	u32 bits;
+};
+
+struct RawBlock_s
+{
+	u32 cellRGBA[CODEC_CELL_MAX_COUNT];
+	u32 cellCount;
 };
 
 #if MAIN_COMPRESSOR_DEBUG == 1
@@ -965,6 +972,87 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 #endif
 }
 
+void BenchBlockCompression( EncodedBlockEx_s* sum, const RawBlock_s* blocks, u32 blockCount )
+{
+	for ( u32 blockID = 0; blockID < blockCount; ++blockID )
+	{
+		EncodedBlockEx_s encodedBlock;
+		Block_Encode_Optimize( &encodedBlock, blocks[blockID].cellRGBA, blocks[blockID].cellCount );
+		sum->cellEndColors += encodedBlock.cellEndColors;
+		sum->cellPresence += encodedBlock.cellPresence;
+		sum->cellColorIndices[0] += encodedBlock.cellColorIndices[0];
+		sum->cellColorIndices[1] += encodedBlock.cellColorIndices[1];
+	}
+
+	V6_MSG( "%d blocks compressed\n", blockCount );
+}
+
+u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stack, const char* filename )
+{
+	CFileReader fileReader;
+	if ( !fileReader.Open( filename ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", filename );
+		return 0;
+	}
+
+	ScopedStack scopedStack( stack );
+
+	CodecRawFrameDesc_s desc;
+	CodecRawFrameData_s data;
+
+	if ( !Codec_ReadRawFrame( &fileReader, &desc, &data, stack ) )
+	{
+		V6_ERROR( "Unable to read %s.\n", filename );
+		return 0;
+	}
+
+	u32 blockPosOffsets[CODEC_BUCKET_COUNT];
+	u32 blockDataOffsets[CODEC_BUCKET_COUNT];
+
+	u32 blockPosCount = 0;
+	u32 blockDataCount = 0;
+	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+	{
+		const u32 cellPerBucketCount = 1 << (bucket + 2);
+
+		const u32 cellCount = desc.blockCounts[bucket] * cellPerBucketCount;
+		blockPosOffsets[bucket] = blockPosCount;
+		blockDataOffsets[bucket] = blockDataCount;
+		blockPosCount += desc.blockCounts[bucket];
+		blockDataCount += cellCount;
+	}
+
+	*blocks = heap->newArray< RawBlock_s >( blockPosCount );
+	memset( *blocks, 0, blockPosCount * sizeof( RawBlock_s ) );
+
+	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+	{
+		const u32 cellPerBucketCount = 1 << (bucket + 2);
+
+		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
+		{
+			const u32 blockPosID = blockPosOffsets[bucket] + blockRank;
+
+			RawBlock_s* block = &(*blocks)[blockPosID];
+
+			const u32 blockDataID = blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
+			for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+			{
+				const u32 rgba = ((u32*)data.blockData)[blockDataID + cellID];
+				const u32 cellPos = rgba & 0xFF;
+				if ( cellPos != 0xFF )
+				{
+					block->cellRGBA[cellPos] = rgba;
+					++block->cellCount;
+				}
+			}
+		}
+	}
+
+	return blockPosCount;
+}
+
 void TestBlockCompression( IAllocator* allocator )
 {
 	static const u32 testCount = 4;
@@ -1089,17 +1177,39 @@ int main()
 	V6_MSG( "Compressor 0.0\n" );
 
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 100 * 1024 * 1024 );
 
-	const v6::u64 startTick = v6::GetTickCount();
+	v6::RawBlock_s* blocks = nullptr;
 
-	// v6::TextBestLineFitting( &stack );
-	v6::TestImageCompressions( &stack );
-	// v6::TestBlockCompression( &stack );
+	{
+		v6::Stack stack( &heap, 500 * 1024 * 1024 );
 
-	const v6::u64 endTick = v6::GetTickCount();
+		const v6::u32 blockCount = v6::LoadBlockForCompression( &blocks, &heap, &stack, "D:/tmp/v6/ue_000000.v6f" );
+		V6_MSG( "Loaded %d blocks\n", blockCount );
+		if ( blockCount == 0 )
+			return 1;
+		
+		const v6::u64 startTick = v6::GetTickCount();
 
-	V6_MSG( "Duration: %5.3fs\n", v6::ConvertTicksToSeconds( endTick - startTick ) );
+		// v6::TextBestLineFitting( &stack );
+		// v6::TestImageCompressions( &stack );
+		// v6::TestBlockCompression( &stack );
+
+		v6::EncodedBlockEx_s encodedBlockSum = {};
+		v6::u32 testBlockCount = v6::Min( blockCount, 1000000u );
+		v6::BenchBlockCompression( &encodedBlockSum, blocks, testBlockCount );
+
+		const v6::u64 endTick = v6::GetTickCount();
+
+		V6_MSG( "%.1fus/block\n", v6::ConvertTicksToSeconds( endTick - startTick ) * 1000000.0f / testBlockCount );
+
+		V6_MSG( "\n" );
+		V6_MSG( "%x\n", encodedBlockSum.cellEndColors );
+		V6_MSG( "%llx\n", encodedBlockSum.cellPresence );
+		V6_MSG( "%llx\n", encodedBlockSum.cellColorIndices[0] );
+		V6_MSG( "%llx\n", encodedBlockSum.cellColorIndices[1] );
+	}
+
+	heap.free( blocks );
 
 	return 0;
 }

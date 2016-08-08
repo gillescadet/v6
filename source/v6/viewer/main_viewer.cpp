@@ -41,8 +41,8 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		0
-#define V6_SIMPLE_SCENE			1
+#define V6_LOAD_EXTERNAL		1
+#define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			0

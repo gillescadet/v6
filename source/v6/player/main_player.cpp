@@ -26,7 +26,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 
@@ -1385,12 +1385,12 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 256;
 #endif
 
-#if 1
+#if 0
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
 	
-#if 0
+#if 1
 
 #if V6_ENABLE_HMD == 0
 	// DK2
