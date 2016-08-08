@@ -99,15 +99,13 @@ void FontContext_Create( FontContext_s* fontContext )
 	s_gpuFontResourcesCreated = true;
 }
 
-void FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str )
+void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize )
 {
-	if ( !str || !*str || color.a == 0 )
-		return;
+	V6_ASSERT( str && *str && color.a > 0 );
 
-	const u32 strSize = (u32)strlen( str ) + 1;
 	const u32 fontTextSize = sizeof( FontText_s ) + strSize;
 
-	if ( fontContext->textBufferSize + fontTextSize > s_fontTextBufferMaxSize || fontContext->characterCount + strSize > s_gpuCharacterMaxCount )
+	if ( fontContext->textBufferSize + fontTextSize + 1 > s_fontTextBufferMaxSize || fontContext->characterCount + strSize > s_gpuCharacterMaxCount )
 		return;
 
 	FontTextEx_s* fontText = (FontTextEx_s*)(fontContext->textBuffer + fontContext->textBufferSize);
@@ -116,11 +114,44 @@ void FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, Color_s colo
 	fontText->color = color;
 	fontText->next = fontContext->firstText;
 	memcpy( fontText->str, str, strSize );
+	fontText->str[strSize] = 0;
 
 	fontContext->firstText = fontText;
 
 	fontContext->textBufferSize += fontTextSize;
 	fontContext->characterCount += strSize;
+}
+
+void FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str )
+{
+	if ( !str || !*str || color.a == 0 )
+		return;
+
+	FontContext_AddLineWithSize( fontContext, x, y, color, str, (u32)strlen( str ) );
+}
+
+u32 FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeight, Color_s color, const char* text )
+{
+	if ( !text || !*text || color.a == 0 )
+		return y;
+
+	for (;;)
+	{
+		const char* lineBegin = text;
+		while ( *text && *text != '\n' )
+			++text;
+
+		if ( text != lineBegin )
+			FontContext_AddLineWithSize( fontContext, x, y, color, lineBegin, (u32)(text - lineBegin) );
+
+		if ( *text == 0 )
+			break;
+		
+		++text;
+		y += lineHeight;
+	}
+
+	return y;
 }
 
 void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet )

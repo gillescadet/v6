@@ -9,7 +9,8 @@
 #include <v6/core/windows_end.h>
 
 #include <v6/codec/decoder.h>
-#include <v6/core/memory.h>	
+#include <v6/core/gamepad.h>
+#include <v6/core/memory.h>
 #include <v6/core/string.h>
 #include <v6/core/time.h>
 #include <v6/core/win.h>
@@ -138,6 +139,7 @@ enum CommandAction_e
 	COMMAND_ACTION_PLAYER_OPTION_METRICS,
 	COMMAND_ACTION_PLAYER_OPTION_UI,
 	COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD,
+	COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD,
 };
 
 struct CommandBuffer_s
@@ -151,6 +153,7 @@ struct PlayerOptions_s
 	bool					hideMetrics;
 	bool					hideUI;
 	bool					lockHMD;
+	u32						showHMDPerfHUD;
 };
 
 struct Player_s
@@ -159,6 +162,7 @@ struct Player_s
 	IStack*					stack;
 	CommandBuffer_s			commandBuffer;
 	Win_s					win;
+	Gamepad_s				gamepad;
 	GPURenderTargetSet_s	mainRenderTargetSet;
 	GPURenderTargetSet_s	createdRenderTargetSet;
 	Camera_s				camera;
@@ -171,7 +175,9 @@ struct Player_s
 	FrameMetrics_s			frameMetrics;
 	float					curFrameID;
 	u32						targetFrameID;
+#if V6_USE_HMD == 1
 	u32						hmdState;
+#endif // #if V6_USE_HMD == 1
 
 	// inputs
 	bool					mousePressed;
@@ -456,6 +462,12 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 			return;
 		}
 
+		if ( strncmp( commandLine, "HMD_SHOW_PERF_HUF", strlen( "HMD_SHOW_PERF_HUF" ) ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD;
+			commandBuffer->arg[0] = atoi( commandLine + strlen( "HMD_SHOW_PERF_HUF" ) );
+		}
+
 		break;
 
 	case 'L':
@@ -696,6 +708,8 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD:
 		player->playerOptions.lockHMD = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockHMD;
 		break;
+	case COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD:
+		player->playerOptions.showHMDPerfHUD = commandBuffer.arg[0];
 	}
 
 	player->commandBuffer.action = COMMAND_ACTION_NONE;
@@ -765,7 +779,8 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case '3':
 	case '4':
 	case '5':
-		Hmd_SetPerfHUdMode( keyEvent->key - '0' );
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD;
+		player->commandBuffer.arg[0] = keyEvent->key - '0';
 		break;
 	case 0x21:
 		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
@@ -862,8 +877,18 @@ static void Player_OnMouseEvent( const MouseEvent_s* mouseEvent )
 	}
 }
 
+static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButtons_s leftButtonIsChanged, GamepadButtons_s rightButtonIsChanged )
+{
+	Player_s* player = (Player_s*)gamepad->owner;
+
+	if ( rightButtonIsChanged.O )
+		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
+}
+
 static void Player_ProcessInputs( Player_s* player, float dt )
 {
+	Gamepad_UpdateState( &player->gamepad );
+
 	{
 		float mouseDeltaX = 0;
 		float mouseDeltaY = 0;
@@ -909,22 +934,30 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		const u32 cursorX = 8;
 		u32 cursorY = lineHeight / 2;
 
-		FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
+		FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
 		cursorY += lineHeight;
 
 		if ( PlayerStream_IsValid( player ) )
-			FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
+			FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
 		else
-			FontContext_AddText( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
+			FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
 		cursorY += lineHeight;
 
 		for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 		{
 			const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
 			const char* txt = String_Format( "%*s%-10s : %5d us", eventDuration->depth * 4, "", eventDuration->name, eventDuration->avgDurationUS );
-			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), txt );
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), txt );
 			cursorY += lineHeight;
 		}
+
+#if 0
+		{
+			const char* txt = Gamepad_DumpState( &player->gamepad );
+			cursorY = FontContext_AddText( &player->fontContext, cursorX, cursorY, lineHeight, Color_White(), txt );
+		}
+#endif
+
 	}
 
 	// bottom left
@@ -936,7 +969,7 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		for ( u32 messageOffset = 0; messageOffset < Min( s_ouputMessageCount, s_ouputMessageBufferCount ); ++messageOffset )
 		{
 			const u32 bufferID = (s_ouputMessageCount - messageOffset - 1) % s_ouputMessageBufferCount;
-			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), s_ouputMessageBuffers[bufferID] );
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), s_ouputMessageBuffers[bufferID] );
 			cursorY -= lineHeight;
 		}
 	}
@@ -950,18 +983,18 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		
 		if ( player->hmdState & HMD_TRACKING_STATE_ON )
 		{
-			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: rotation tracked" );
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: rotation tracked" );
 			cursorY += lineHeight;
 
 			if ( player->hmdState & HMD_TRACKING_STATE_POS )
 			{
-				FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: position tracked" );
+				FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: position tracked" );
 				cursorY += lineHeight;
 			}
 		}
 		else
 		{
-			FontContext_AddText( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: off" );
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), "HMD: off" );
 			cursorY += lineHeight;
 		}
 	}
@@ -1092,9 +1125,9 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 	String_ResetInternalBuffer();
 	
-	PlayerCommandBuffer_Process( player );
-
 	Player_ProcessInputs( player, dt );
+
+	PlayerCommandBuffer_Process( player );
 
 	// GPU frame
 
@@ -1132,6 +1165,8 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	View_s views[EYE_COUNT];
 
 #if V6_USE_HMD == 1
+	Hmd_SetPerfHUdMode( player->playerOptions.showHMDPerfHUD );
+
 	HmdRenderTarget_s hmdColorRenderTargets[2];
 	HmdEyePose_s hmdEyePoses[2];
 		
@@ -1266,14 +1301,17 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 #endif
 
 	player->commandLineSize = (u32)-1;
+	player->heap = heap;
+	player->stack = stack;
 
 	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, windowWidth, windowHeight, true ) )
 		return false;
+
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
 	Win_RegisterMouseEvent( &player->win, Player_OnMouseEvent );
 
-	player->heap = heap;
-	player->stack = stack;
+	Gamepad_Init( &player->gamepad, 0, player );
+	Gamepad_RegisterButtonEvent( &player->gamepad, Player_OnGamepadButtonEvent );
 
 	PlayerDevice_Create( player, width, height );
 
@@ -1296,6 +1334,7 @@ static void Player_Release( Player_s* player )
 	if ( PlayerStream_IsValid( player ) )
 		PlayerStream_Release( player );
 	PlayerScene_Release( player );
+	Gamepad_Release( &player->gamepad );
 #if V6_USE_HMD == 1
 	Hmd_ReleaseResources();
 	Hmd_Shutdown();

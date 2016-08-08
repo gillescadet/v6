@@ -39,7 +39,9 @@ struct FontContext_s
 };
 
 void	FontContext_Create( FontContext_s* fontContext );
-void	FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str );
+void	FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str );
+void	FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize );
+u32		FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeight, Color_s color, const char* text );
 void	FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet );
 u32		FontContext_GetLineHeight( const FontContext_s* fontContext );
 void	FontContext_Release( FontContext_s* fontContext );
