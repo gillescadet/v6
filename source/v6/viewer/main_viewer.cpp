@@ -48,6 +48,7 @@
 #define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			0
+#define V6_BENCH_CAPTURE		0
 
 #if V6_USE_HMD == 1
 #include <v6/graphic/hmd.h>
@@ -58,9 +59,9 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 8;
+static const u32 GRID_MACRO_SHIFT				= 9;
 static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
-static const u32 CUBE_SIZE						= GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+static const u32 CUBE_SIZE						= GRID_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
 static const float GRID_MAX_SCALE				= 2000.0f;
 
@@ -84,7 +85,7 @@ static const float FOV							= DegToRad( 90.0f );
 static const float FOV							= DegToRad( 90.0f );
 #endif
 static const u32 GRID_COUNT						= Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
-static const int SAMPLE_MAX_COUNT				= 9;
+static const int SAMPLE_MAX_COUNT				= 17;
 static const float FREE_SCALE					= 50.0f;
 static const u32 RANDOM_CUBE_COUNT				= 100;
 
@@ -271,19 +272,6 @@ struct SceneViewer_s : Scene_s
 	SceneInfo_s		info;
 };
 
-struct SceneDebug_s : SceneViewer_s
-{
-	u32				meshLineID;
-	u32				meshGridID;
-	u32				meshCellIDs[HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH][2];
-	u32				meshBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
-	u32				entityLineID;
-	u32				entityGridID;
-	u32				entityCellIDs[HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH][2];
-	u32				entityBlockIDs[DEBUG_BLOCK_MAX_COUNT][2];
-	u32				entityTraceIDs[DEBUG_BLOCK_MAX_COUNT];
-};
-
 struct ScenePathGeo_s : SceneViewer_s
 {
 	u32				meshLineIDs[Path_s::MAX_POINT_COUNT-1];
@@ -337,7 +325,6 @@ static bool g_showBucket			= false;
 static bool g_showOverdraw			= false;
 static bool g_showHistory			= false;
 static int g_pixelMode				= 0;
-static bool g_traceGrid				= false;
 #if V6_SIMPLE_SCENE == 1
 static bool g_useMSAA				= false;
 #else
@@ -707,7 +694,6 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
 		case 'O': g_showOverdraw = keyEvent->pressed ? !g_showOverdraw : g_showOverdraw; break;
 		case 'P': g_pixelMode = keyEvent->pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
-		case 'Q': if ( keyEvent->pressed ) { g_traceGrid = true; } break;
 		case 'R': if ( keyEvent->pressed ) { g_sample = 0; } break;
 		case 'S': g_keyDownPressed = keyEvent->pressed; break;
 		case 'U': if ( keyEvent->pressed ) { s_activeScene->info.dirty = false; }; break;
@@ -1386,76 +1372,6 @@ static void SceneContext_Load( SceneContext_s* sceneContext )
 	Signal_Emit( &sceneContext->loadDone );
 }
 
-void Scene_CreateDebug( SceneDebug_s* scene )
-{
-	Scene_Create( scene );
-
-	scene->meshLineID = Scene_GetNewMeshID( scene );
-	GPUMesh_CreateLine( &scene->meshes[scene->meshLineID], Color_Make( 255, 255, 255, 255 ) );
-	
-	scene->meshGridID = Scene_GetNewMeshID( scene );
-	GPUMesh_CreateBox( &scene->meshes[scene->meshGridID], Color_Make( 255, 255, 255, 255 ), true );
-
-	const u32 basicMaterialID = Scene_GetNewMaterialID( scene );
-	Material_Create( &scene->materials[basicMaterialID], Material_DrawBasic );
-	
-	u32 cellID = 0;
-	for ( int z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
-	{
-		for ( int y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
-		{
-			for ( int x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
-			{						
-				for ( u32 cellType = 0; cellType < 2; ++cellType )
-				{
-					const u32 meshID = Scene_GetNewMeshID( scene );
-					scene->meshCellIDs[cellID][cellType] = meshID;
-					GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( 0, (cellType == 0) * 255, (cellType == 1) * 255, 255 ), cellType == 0 );
-
-					const u32 entityID = Scene_GetNewEntityID( scene );
-					scene->entityCellIDs[cellID][cellType] = entityID;
-					Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
-					scene->entities[entityID].visible = false;
-				}
-			}
-		}
-	}
-
-	scene->entityGridID = Scene_GetNewEntityID( scene );
-	Entity_Create( &scene->entities[scene->entityGridID], basicMaterialID, scene->meshGridID, Vec3_Zero(), 1.0f );
-	scene->entities[scene->entityGridID].visible = false;
-
-	scene->entityLineID = Scene_GetNewEntityID( scene );
-	Entity_Create( &scene->entities[scene->entityLineID], basicMaterialID, scene->meshLineID, Vec3_Zero(), 1.0f );
-	scene->entities[scene->entityLineID].visible = false;
-
-	for ( int debugBlockID = 0; debugBlockID < DEBUG_BLOCK_MAX_COUNT; ++debugBlockID )
-	{
-		for ( u32 cellType = 0; cellType < 2; ++cellType )
-		{
-			u32 hashColor = 1 + (debugBlockID%7);
-			const u32 meshID = Scene_GetNewMeshID( scene );
-			scene->meshBlockIDs[debugBlockID][cellType] = meshID;
-			GPUMesh_CreateBox( &scene->meshes[meshID], Color_Make( (hashColor & 1) ? 255 : 0, (hashColor & 2) ? 255 : 0, (hashColor & 4) ? 255 : 0, 255 ), cellType == 0 );
-
-			const u32 entityID = Scene_GetNewEntityID( scene );
-			scene->entityBlockIDs[debugBlockID][cellType] = entityID;
-			Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
-			scene->entities[entityID].visible = false;
-		}
-
-		{
-			const u32 meshID = Scene_GetNewMeshID( scene );
-			GPUMesh_CreateLine( &scene->meshes[meshID], Color_Make( 255, 255, 255, 255 ) );
-
-			const u32 entityID = Scene_GetNewEntityID( scene );
-			scene->entityTraceIDs[debugBlockID] = entityID;
-			Entity_Create( &scene->entities[entityID], basicMaterialID, meshID, Vec3_Zero(), 1.0f );
-			scene->entities[entityID].visible = false;
-		}
-	}
-}
-
 void Scene_CreatePathGeo( ScenePathGeo_s* scene )
 {
 	Scene_Create( scene );
@@ -1595,140 +1511,6 @@ void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 
 #endif
 
-u32 Grid_Trace( const Vec3* gridCenter, float gridScale, u32 gridOccupancy, const Vec3* rayOrg, const Vec3* rayDir, TraceData_s* traceData )
-{
-	const Vec3 invDir = rayDir->Rcp();
-	const Vec3 alpha = (*gridCenter - *rayOrg) * invDir;
-	const Vec3 beta = gridScale * invDir;	
-	const Vec3 t0 = alpha + beta;
-	const Vec3 t1 = alpha - beta;
-	const Vec3 tMin = Min( t0, t1 );
-	const Vec3 tMax = Max( t0, t1 );
-	const float tIn = Max( Max( tMin.x, tMin.y ), tMin.z );
-	const float tOut = Min( Min( tMax.x, tMax.y ), tMax.z );
-
-	if ( traceData )
-	{
-		traceData->tIn = tIn;
-		traceData->tOut = tOut;
-		traceData->hitFoundCoords = Vec3i_Zero();
-		traceData->hitFailBits = 0;
-	}
-		
-	if ( tIn > tOut )
-		return 0;
-
-	const float cellSize = (gridScale * 2.0f) / HLSL_CELL_SUPER_SAMPLING_WIDTH;
-	const float scale = 1.0f / cellSize;
-	const float offset = HLSL_CELL_SUPER_SAMPLING_WIDTH * 0.5f;
-	
-	const Vec3 tDelta = cellSize * invDir.Abs();	
-
-	const Vec3 pIn = *rayOrg + tIn * *rayDir;
-	const Vec3 coordIn = (pIn - *gridCenter) * scale + offset;
-		
-	const int x = min( (int)coordIn.x, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
-	const int y = min( (int)coordIn.y, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
-	const int z = min( (int)coordIn.z, HLSL_CELL_SUPER_SAMPLING_WIDTH-1 );
-	Vec3i coords = Vec3i_Make( x, y, z );
-	const Vec3i step = Vec3i_Make( rayDir->x < 0.0f ? -1 : 1, rayDir->y < 0.0f ? -1 : 1, rayDir->z < 0.0f ? -1 : 1 );
-	Vec3 tCur = tMin;
-	for ( u32 pass = 0; pass < 2; ++pass )
-	{
-		const Vec3 tNext = tCur + tDelta;
-		tCur.x = tNext.x < tIn ? tNext.x : tCur.x;
-		tCur.y = tNext.y < tIn ? tNext.y : tCur.y;
-		tCur.z = tNext.z < tIn ? tNext.z : tCur.z;
-	}
-	
-	u32 hitFound = 0;
-
-	for ( ;; )
-	{
-		const u32 cellID = coords.z * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH + coords.y * HLSL_CELL_SUPER_SAMPLING_WIDTH + coords.x;
-		const u32 occupancyBit = 1 << cellID;
-		hitFound |= (gridOccupancy & occupancyBit);
-		if ( hitFound )
-		{
-			if ( traceData)
-				traceData->hitFoundCoords = coords;
-			break;
-		}
-
-		if ( traceData)
-			traceData->hitFailBits |= occupancyBit;
-
-		const Vec3 tNext = tCur + tDelta;
-		u32 nextAxis;
-		if ( tNext.x < tNext.y )
-			nextAxis = tNext.x < tNext.z ? 0 : 2;
-		else
-			nextAxis = tNext.y < tNext.z ? 1 : 2;
-		
-		tCur[nextAxis] = tNext[nextAxis];
-		coords[nextAxis] += step[nextAxis];
-		
-		if ( coords[nextAxis] < 0 || coords[nextAxis] >= HLSL_CELL_SUPER_SAMPLING_WIDTH )
-			break;
-	}
-
-	return hitFound;
-}
-
-void Block_TraceDisplay( SceneDebug_s* scene, const Vec3* gridCenter, float gridScale, u32 gridOccupancy, const Vec3* rayOrg, const Vec3* rayEnd )
-{
-	s_gridCenter = *gridCenter;
-	s_gridScale = gridScale;
-	s_gridOccupancy = gridOccupancy;
-	s_rayOrg = *rayOrg;
-	s_rayEnd = *rayEnd;
-
-	scene->entities[scene->entityGridID].pos = *gridCenter;
-	scene->entities[scene->entityGridID].scale = gridScale;
-	scene->entities[scene->entityGridID].visible = true;
-
-	const Vec3 rayDir = (*rayEnd - *rayOrg).Normalized();
-	
-	BasicVertex_s vertices[2];
-	vertices[0].position = *rayOrg;
-	vertices[0].color = Color_Make( 255, 0, 0, 255 );	
-	vertices[1].position = *rayOrg + 1000000.0f * rayDir;
-	vertices[1].color = Color_Make( 0, 255, 0, 255 );
-	GPUMesh_UpdateVertices( &scene->meshes[scene->meshLineID], vertices );
-	scene->entities[scene->entityLineID].visible = true;
-	
-	const float cellSize = (gridScale * 2.0f) / HLSL_CELL_SUPER_SAMPLING_WIDTH;
-	const Vec3 cellOrg = *gridCenter - gridScale + cellSize * 0.5f;
-	
-	u32 cellID = 0;
-	for ( int z = 0; z < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++z )
-	{
-		for ( int y = 0; y < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++y )
-		{
-			for ( int x = 0; x < HLSL_CELL_SUPER_SAMPLING_WIDTH; ++x, ++cellID )
-			{
-				const Vec3 cellCenter = cellOrg + Vec3_Make( (float)x, (float)y, (float)z ) * cellSize;
-				
-				Entity_s* cellEntity = &scene->entities[scene->entityCellIDs[cellID][0]];
-				cellEntity->visible = (gridOccupancy & (1 << cellID)) != 0;
-				cellEntity->pos = cellCenter;
-				cellEntity->scale = cellSize * 0.5f;
-				
-				cellEntity = &scene->entities[scene->entityCellIDs[cellID][1]];
-				cellEntity->visible = false;
-				cellEntity->pos = cellCenter;
-				cellEntity->scale = cellSize * 0.5f;
-			}
-		}
-	}
-	
-	const u32 hitFound = Grid_Trace( gridCenter, gridScale, gridOccupancy, rayOrg, &rayDir, nullptr );
-
-	const u32 cellCount = HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
-	for ( u32 cellID = 0; cellID < cellCount; ++cellID )
-		scene->entities[scene->entityCellIDs[cellID][1]].visible = (hitFound & (1 << cellID)) != 0;
-}
-
 class CRenderingDevice
 {
 public:
@@ -1741,7 +1523,6 @@ public:
 	bool Create(int nWidth, int nHeight, IAllocator* heap, IStack* stack );
 	void Draw( float dt );
 	void DrawCameraPath( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
-	void DrawDebug( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
 	void DrawWorld( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye );
 	bool HasValidRawFrameFile( u32 frameID );
 	bool InitTraceMode( u32 frameCount );
@@ -1757,7 +1538,6 @@ public:
 	int					m_bakedFrameCount;
 
 	SceneViewer_s*		m_defaultScene;
-	SceneDebug_s*		m_debugScene;
 	ScenePathGeo_s*		m_pathGeoScene;
 
 	IAllocator*			m_heap;
@@ -1797,9 +1577,6 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 	Scene_CreateDefault( m_defaultScene, stack );
 	s_activeScene = m_defaultScene;
 
-	m_debugScene = heap->newInstance< SceneDebug_s >();
-	Scene_CreateDebug( m_debugScene );
-
 	m_pathGeoScene = heap->newInstance< ScenePathGeo_s >();
 	Scene_CreatePathGeo( m_pathGeoScene );
 
@@ -1838,24 +1615,6 @@ void CRenderingDevice::DrawCameraPath( const View_s* view, GPURenderTargetSet_s*
 	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
 
 	Scene_Draw( m_pathGeoScene, view, 0 );
-
-	GPURenderTargetSet_Unbind( renderTargetSet );
-}
-
-void CRenderingDevice::DrawDebug( const View_s* view, GPURenderTargetSet_s* renderTargetSet, u32 eye )
-{	
-	if ( g_traceGrid )
-	{		
-		Block_TraceDisplay( m_debugScene, &s_gridCenter, s_gridScale, s_gridOccupancy, &s_rayOrg, &s_rayEnd );
-		g_traceGrid = false;
-	}
-
-	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
-	renderTargetSetBindingDesc.noZ = g_transparentDebug;
-
-	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
-
-	Scene_Draw( m_debugScene, view, 0 );
 
 	GPURenderTargetSet_Unbind( renderTargetSet );
 }
@@ -2113,9 +1872,12 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 	static GPURenderTargetSet_s s_cubeFaceRenderTargetSet;
 
 	static u32 lastSumLeafCount = 0;
+	static u64 s_captureStartTickCount = 0;
 
 	if ( g_sample == 0 )
 	{
+		s_captureStartTickCount = GetTickCount();
+
 		s_buildOrigin = s_headOffset;
 
 #if V6_USE_CACHE == 1
@@ -2135,7 +1897,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
 		captureDesc.logReadBack = s_logReadBack;
 
-		const u32 renderTargetSize = GRID_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+		const u32 renderTargetSize = GRID_WIDTH;
 
 		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 		renderTargetSetCreationDesc.name = "cubeFace";
@@ -2179,11 +1941,17 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	if ( g_sample == SAMPLE_MAX_COUNT )
 	{
+		const u64 captureStopTickCount = GetTickCount();
+
 		V6_MSG( "Packing all samples..." );
 
 		CaptureContext_End( &m_captureContext );
 
+		const u64 packingStopTickCount = GetTickCount();
+
 		const bool written = WriteRawFrameFile( &m_captureContext, frameID );
+
+		const u64 writeStopTickCount = GetTickCount();
 
 		CaptureContext_Release( &m_captureContext );
 		GPURenderTargetSet_Release( &s_cubeFaceRenderTargetSet );
@@ -2193,6 +1961,12 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 		V6_MSG( "\r" );
 		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", String_FormatInteger( sumLeafCount ), frameID );
+		V6_MSG( "Durations: %d captures in %.1fs, packing in %.1fs, writing in %.1fs => total of %.1fs\n",
+			SAMPLE_MAX_COUNT,
+			ConvertTicksToSeconds( captureStopTickCount - s_captureStartTickCount ),
+			ConvertTicksToSeconds( packingStopTickCount - captureStopTickCount ),
+			ConvertTicksToSeconds( writeStopTickCount - packingStopTickCount ),
+			ConvertTicksToSeconds( writeStopTickCount - s_captureStartTickCount ) );
 		s_logReadBack = false;
 #if 0
 		g_sample = 0;
@@ -2371,9 +2145,11 @@ void CRenderingDevice::Draw( float dt )
 
 			if ( m_bakedFrameCount > 0 )
 			{
+#if V6_BENCH_CAPTURE == 0
 				if ( InitTraceMode( m_bakedFrameCount ) )
 					m_bakedFrameCount = -1;
 				else
+#endif // #if V6_BENCH_CAPTURE == 0
 					ResetDrawMode();
 			}
 
@@ -2412,9 +2188,6 @@ void CRenderingDevice::Draw( float dt )
 			for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 				DrawCameraPath( &views[eye], renderTargetSet, eye );
 		}
-
-		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
-			DrawDebug( &views[eye], renderTargetSet, eye );
 	}
 	
 	Output( renderTargetSet );
@@ -2427,9 +2200,6 @@ void CRenderingDevice::Release()
 
 	Scene_Release( m_defaultScene );
 	m_heap->deleteInstance( m_defaultScene );
-
-	Scene_Release( m_debugScene );
-	m_heap->deleteInstance( m_debugScene );
 
 	Scene_Release( m_pathGeoScene );
 	m_heap->deleteInstance( m_pathGeoScene );

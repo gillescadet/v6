@@ -8,8 +8,6 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
-#define HLSL_DEBUG_OCCUPANCY						0
-
 #define HLSL_TRILINEAR_SLOT							0
 
 #define HLSL_SURFACE_SLOT							0

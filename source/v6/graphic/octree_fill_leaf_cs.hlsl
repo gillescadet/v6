@@ -19,8 +19,7 @@ void main_octree_fill_leaf_cs( uint3 DTid : SV_DispatchThreadID )
 		return;
 
 	uint3 color;
-	uint occupancy;
-	Sample_UnpackColorAndOccupancy( samples[sampleID], color, occupancy );
+	Sample_UnpackColor( samples[sampleID], color );
 
 	const uint nodeOffset = sampleNodeOffsets[sampleID];
 	const uint leafID = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
@@ -28,5 +27,4 @@ void main_octree_fill_leaf_cs( uint3 DTid : SV_DispatchThreadID )
 	InterlockedAdd( octreeLeaves[leafID].y9_g23, color.g );
 	InterlockedAdd( octreeLeaves[leafID].z9_b23, color.b );
 	InterlockedAdd( octreeLeaves[leafID].x2y2z2_mip4_count15, 1 );
-	InterlockedOr( octreeLeaves[leafID].occupancy27, occupancy );
 }

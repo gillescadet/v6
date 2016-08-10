@@ -7,7 +7,7 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
-#define HLSL_DEBUG_COLLECT							1
+#define HLSL_DEBUG_COLLECT							0
 
 #define HLSL_SAMPLE_THREAD_GROUP_SIZE				128
 #define HLSL_OCTREE_THREAD_GROUP_SIZE				64
@@ -67,7 +67,6 @@ struct Sample
 {
 	uint row0;
 	uint row1;
-	uint row2;
 };
 
 struct OctreeLeaf
@@ -76,7 +75,6 @@ struct OctreeLeaf
 	uint y9_g23;
 	uint z9_b23;
 	uint x2y2z2_mip4_count15;
-	uint occupancy27;
 };
 
 #define sample_groupCountX_offset							0
@@ -88,13 +86,7 @@ struct OctreeLeaf
 #define sample_error_offset									5
 #define sample_pixelCount_offset							6
 #define sample_pixelSampleCount_offset						7
-#if 0
-#define sample_occupancy_offset								8
-#define sample_cellCoords_offset( ID )						(9 + (ID))
-#define sample_all_offset									(sample_cellCoords_offset( 144 ) + 1)
-#else
 #define sample_all_offset									8
-#endif
 #else
 #define sample_all_offset									4
 #endif // #if HLSL_DEBUG_COLLECT == 1
@@ -107,10 +99,6 @@ struct OctreeLeaf
 #define sample_error										sampleIndirectArgs[sample_error_offset]
 #define sample_pixelCount									sampleIndirectArgs[sample_pixelCount_offset]
 #define sample_pixelSampleCount								sampleIndirectArgs[sample_pixelSampleCount_offset]
-#if 0
-#define sample_occupancy									sampleIndirectArgs[sample_occupancy_offset]
-#define sample_cellCoords( ID )								sampleIndirectArgs[sample_cellCoords_offset( ID )]
-#endif
 #endif // #if HLSL_DEBUG_COLLECT == 1
 #define sample_count										sampleIndirectArgs[sample_count_offset]
 

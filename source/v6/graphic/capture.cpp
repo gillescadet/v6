@@ -47,11 +47,6 @@ static const GPUEventID_t s_gpuEventPack			= GPUEvent_Register( "Pack", false );
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
 
-#if HLSL_CELL_SUPER_SAMPLING_WIDTH > 1
-static const float AVERAGE_SAMPLE_PER_PIXEL		= 0.25f * HLSL_CELL_SUPER_SAMPLING_WIDTH * HLSL_CELL_SUPER_SAMPLING_WIDTH;
-#else
-static const float AVERAGE_SAMPLE_PER_PIXEL		= 1.0f;
-#endif
 static const float AVERAGE_LAYER_COUNT			= 2.0f;
 
 static GPUCaptureResources_s					s_gpuCaptureResources;
@@ -85,7 +80,7 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 	V6_ASSERT( captureContext->desc.gridMacroShift > 0 );
 	const u32 gridMacroHalfWidth = 1 << (captureContext->desc.gridMacroShift-1);
 	const u32 gridWidth = 1 << (captureContext->desc.gridMacroShift + 2);
-	const u32 cubeWidth = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+	const u32 cubeWidth = gridWidth;
 
 	{
 		float gridScales[CODEC_MIP_MAX_COUNT];
@@ -154,14 +149,6 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_pixelSampleCount_offset], "pixelSampleCount" );
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_out_offset], "out" );
 		ReadBack_Log( "sample", collectedIndirectArgs[sample_error_offset], "error" );
-#if 0
-		ReadBack_Log( "sample", collectedIndirectArgs[sample_occupancy_offset], "occupancy" );
-		for ( u32 sampleID = 0; sampleID < 144; ++sampleID )
-		{
-			u32 value = collectedIndirectArgs[sample_cellCoords_offset( sampleID )];
-			ReadBack_Log( "sample", *((float*)&value), "cellCoords.x" );
-		}
-#endif
 		V6_ASSERT( collectedIndirectArgs[sample_error_offset] == 0 );
 #endif // #if HLSL_DEBUG_COLLECT == 1
 
@@ -387,11 +374,6 @@ static void PackColor( CaptureContext_s* captureContext )
 			ReadBack_Log( "blockContext", block_dataOffset( bucket ), "dataOffset" );
 			ReadBack_Log( "blockContext", block_cellCount( bucket ), "realCellCount" );
 			ReadBack_Log( "blockContext", maxCellCount, "maxCellCount" );
-#if HLSL_DEBUG_OCCUPANCY == 1
-			ReadBack_Log( "blockContext", block_uniqueOccupancyCount( bucket ) / (float)block_count( bucket ), "avgOccupancyCount" );
-			ReadBack_Log( "blockContext", block_uniqueOccupancyMax( bucket ), "maxOccupancyCount" );
-			ReadBack_Log( "blockContext", block_slotOccupancyCount( bucket ) / (float)block_cellCount( bucket ), "avgOccupancySlot" );
-#endif // #if HLSL_DEBUG_OCCUPANCY == 1
 		}
 
 		allBlockCount += block_count( bucket );
@@ -418,11 +400,11 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 	GPUCaptureResources_s* res = &s_gpuCaptureResources;
 
 	const u32 gridWidth = 1 << (desc->gridMacroShift + 2);
-	const u32 renderTargetSize = gridWidth * HLSL_CELL_SUPER_SAMPLING_WIDTH;
+	const u32 renderTargetSize = gridWidth;
 
 	captureContext->desc = *desc;
 	captureContext->res = res;
-	captureContext->resSampleCount = (u32)(renderTargetSize * renderTargetSize / AVERAGE_SAMPLE_PER_PIXEL);
+	captureContext->resSampleCount = renderTargetSize * renderTargetSize;
 	captureContext->resLeafCount = (u32)(gridWidth * gridWidth * 6 * AVERAGE_LAYER_COUNT);
 	captureContext->resNodeCount = captureContext->resLeafCount * 3;
 	captureContext->resBlockDataCount = captureContext->resLeafCount * 33 / 16;
@@ -439,6 +421,13 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 			captureContext->sampleOffsets[sample].x = (vertexID&1) == 0 ? -freeScale : freeScale;
 			captureContext->sampleOffsets[sample].y = (vertexID&2) == 0 ? -freeScale : freeScale;
 			captureContext->sampleOffsets[sample].z = (vertexID&4) == 0 ? -freeScale : freeScale;
+		}
+		else if ( sample <= 16 )
+		{
+			u32 vertexID = sample-9;
+			captureContext->sampleOffsets[sample].x = (vertexID&1) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
+			captureContext->sampleOffsets[sample].y = (vertexID&2) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
+			captureContext->sampleOffsets[sample].z = (vertexID&4) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
 		}
 		else
 		{

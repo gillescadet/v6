@@ -85,7 +85,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	octreeLeaves[newLeafID].y9_g23 = (coords.y & ~0x3) << 21;
 	octreeLeaves[newLeafID].z9_b23 = (coords.z & ~0x3) << 21;
 	octreeLeaves[newLeafID].x2y2z2_mip4_count15 = (coords.x & 0x3) << 30 | (coords.y & 0x3) << 28 | (coords.z & 0x3) << 26 | (mip << 22);
-	octreeLeaves[newLeafID].occupancy27 = 0;
 
 	firstChildOffsets[childOffset] = HLSL_NODE_CREATED | newLeafID;
 #endif

@@ -25,9 +25,8 @@
 //       uint y9_g23;                   // Offset:    4
 //       uint z9_b23;                   // Offset:    8
 //       uint x2y2z2_mip4_count15;      // Offset:   12
-//       uint occupancy27;              // Offset:   16
 //
-//   } $Element;                        // Offset:    0 Size:    20
+//   } $Element;                        // Offset:    0 Size:    16
 //
 // }
 //
@@ -67,7 +66,7 @@ dcl_immediateConstantBuffer { { 0, 0, 0, 0},
                               { 64, 0, 0, 0} }
 dcl_constantbuffer cb1[1], immediateIndexed
 dcl_resource_buffer (uint,uint,uint,uint) t3
-dcl_resource_structured t4, 20 
+dcl_resource_structured t4, 16 
 dcl_resource_buffer (uint,uint,uint,uint) t5
 dcl_uav_typed_buffer (uint,uint,uint,uint) u0
 dcl_uav_typed_buffer (uint,uint,uint,uint) u1
@@ -97,10 +96,10 @@ if_z vThreadID.x
   store_uav_typed u2.xyzw, r1.xxxx, l(1,1,1,1)
   store_uav_typed u2.xyzw, r1.yyyy, l(1,1,1,1)
 endif 
-ld_structured_indexable(structured_buffer, stride=20)(mixed,mixed,mixed,mixed) r1.xyzw, vThreadID.x, l(0), t4.xyzw
+ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r1.xyzw, vThreadID.x, l(0), t4.xyzw
 ushr r1.xyzw, r1.xwyz, l(21, 30, 21, 21)
 bfi r2.x, l(2), l(0), r1.y, r1.x
-ld_structured_indexable(structured_buffer, stride=20)(mixed,mixed,mixed,mixed) r0.z, vThreadID.x, l(12), t4.xxxx
+ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r0.z, vThreadID.x, l(12), t4.xxxx
 ubfe r1.xy, l(2, 2, 0, 0), l(28, 26, 0, 0), r0.zzzz
 bfi r2.yz, l(0, 2, 2, 0), l(0, 0, 0, 0), r1.xxyx, r1.zzwz
 ushr r0.z, r0.z, l(22)
@@ -156,7 +155,7 @@ loop
         if_nz r5.x
           ret 
         endif 
-        ld_structured_indexable(structured_buffer, stride=20)(mixed,mixed,mixed,mixed) r5.xyzw, r4.w, l(0), t4.xyzw
+        ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r5.xyzw, r4.w, l(0), t4.xyzw
         and r5.xyzw, r5.wxyz, l(0x00007fff, 0x007fffff, 0x007fffff, 0x007fffff)
         udiv r5.xyz, null, r5.yzwy, r5.xxxx
         ishl r6.xy, r4.zzzz, l(2, 1, 0, 0)
@@ -222,21 +221,21 @@ ret
 
 const BYTE g_main_octree_pack_cs[] =
 {
-     68,  88,  66,  67, 184,   8, 
-     80,  74,  16, 214, 169, 124, 
-     93, 137, 173, 158,  99, 231, 
-     44, 178,   1,   0,   0,   0, 
-      4,  21,   0,   0,   5,   0, 
+     68,  88,  66,  67,   5, 129, 
+     13, 104,  69,  81, 202, 216, 
+     80, 235, 205,  46,  72, 135, 
+     61,  74,   1,   0,   0,   0, 
+    236,  20,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
-     92,   4,   0,   0, 108,   4, 
-      0,   0, 124,   4,   0,   0, 
-    104,  20,   0,   0,  82,  68, 
-     69,  70,  32,   4,   0,   0, 
+     68,   4,   0,   0,  84,   4, 
+      0,   0, 100,   4,   0,   0, 
+     80,  20,   0,   0,  82,  68, 
+     69,  70,   8,   4,   0,   0, 
       2,   0,   0,   0, 132,   1, 
       0,   0,   7,   0,   0,   0, 
      60,   0,   0,   0,   0,   5, 
      83,  67,   0,   1,   4,   0, 
-    236,   3,   0,   0,  82,  68, 
+    212,   3,   0,   0,  82,  68, 
      49,  49,  60,   0,   0,   0, 
      24,   0,   0,   0,  32,   0, 
       0,   0,  40,   0,   0,   0, 
@@ -250,7 +249,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,  46,   1,   0,   0, 
       5,   0,   0,   0,   6,   0, 
       0,   0,   1,   0,   0,   0, 
-     20,   0,   0,   0,   4,   0, 
+     16,   0,   0,   0,   4,   0, 
       0,   0,   1,   0,   0,   0, 
       1,   0,   0,   0,  59,   1, 
       0,   0,   2,   0,   0,   0, 
@@ -302,7 +301,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,  46,   1, 
       0,   0,   1,   0,   0,   0, 
-    244,   2,   0,   0,  20,   0, 
+    244,   2,   0,   0,  16,   0, 
       0,   0,   0,   0,   0,   0, 
       3,   0,   0,   0,  84,   2, 
       0,   0,   0,   0,   0,   0, 
@@ -359,8 +358,8 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,   0,   0,   0,   0, 
       0,   0, 202,   2,   0,   0, 
      28,   3,   0,   0,   0,   0, 
-      0,   0,  20,   0,   0,   0, 
-      2,   0,   0,   0, 200,   3, 
+      0,   0,  16,   0,   0,   0, 
+      2,   0,   0,   0, 176,   3, 
       0,   0,   0,   0,   0,   0, 
     255, 255, 255, 255,   0,   0, 
       0,   0, 255, 255, 255, 255, 
@@ -381,8 +380,6 @@ const BYTE g_main_octree_pack_cs[] =
     121,  50, 122,  50,  95, 109, 
     105, 112,  52,  95,  99, 111, 
     117, 110, 116,  49,  53,   0, 
-    111,  99,  99, 117, 112,  97, 
-    110,  99, 121,  50,  55,   0, 
     171, 171,  48,   3,   0,   0, 
      56,   3,   0,   0,   0,   0, 
       0,   0,  92,   3,   0,   0, 
@@ -391,11 +388,9 @@ const BYTE g_main_octree_pack_cs[] =
      56,   3,   0,   0,   8,   0, 
       0,   0, 106,   3,   0,   0, 
      56,   3,   0,   0,  12,   0, 
-      0,   0, 126,   3,   0,   0, 
-     56,   3,   0,   0,  16,   0, 
       0,   0,   5,   0,   0,   0, 
-      1,   0,   5,   0,   0,   0, 
-      5,   0, 140,   3,   0,   0, 
+      1,   0,   4,   0,   0,   0, 
+      4,   0, 128,   3,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,  37,   3, 
@@ -441,7 +436,7 @@ const BYTE g_main_octree_pack_cs[] =
       3,   0,   0,   0,  68,  68, 
       0,   0, 162,   0,   0,   4, 
       0, 112,  16,   0,   4,   0, 
-      0,   0,  20,   0,   0,   0, 
+      0,   0,  16,   0,   0,   0, 
      88,   8,   0,   4,   0, 112, 
      16,   0,   5,   0,   0,   0, 
      68,  68,   0,   0, 156,   8, 
@@ -566,7 +561,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,   1,   0,   0,   0, 
       1,   0,   0,   0,  21,   0, 
       0,   1, 167,   0,   0, 138, 
-      2, 163,   0, 128, 131, 153, 
+      2, 131,   0, 128, 131, 153, 
      25,   0, 242,   0,  16,   0, 
       1,   0,   0,   0,  10,   0, 
       2,   0,   1,  64,   0,   0, 
@@ -586,7 +581,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,  26,   0,  16,   0, 
       1,   0,   0,   0,  10,   0, 
      16,   0,   1,   0,   0,   0, 
-    167,   0,   0, 138,   2, 163, 
+    167,   0,   0, 138,   2, 131, 
       0, 128, 131, 153,  25,   0, 
      66,   0,  16,   0,   0,   0, 
       0,   0,  10,   0,   2,   0, 
@@ -837,7 +832,7 @@ const BYTE g_main_octree_pack_cs[] =
      10,   0,  16,   0,   5,   0, 
       0,   0,  62,   0,   0,   1, 
      21,   0,   0,   1, 167,   0, 
-      0, 139,   2, 163,   0, 128, 
+      0, 139,   2, 131,   0, 128, 
     131, 153,  25,   0, 242,   0, 
      16,   0,   5,   0,   0,   0, 
      58,   0,  16,   0,   4,   0, 
