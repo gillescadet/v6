@@ -23,8 +23,7 @@ struct SequenceBlockRange_s
 
 struct SequenceContext_s
 {
-	CodecRange_s*			rangeDefs[CODEC_BUCKET_COUNT];
-	SequenceBlockRange_s	blockRanges[CODEC_BUCKET_COUNT][CODEC_RANGE_MAX_COUNT];
+	SequenceBlockRange_s	blockRanges[CODEC_RANGE_MAX_COUNT];
 	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
 };
 
@@ -40,7 +39,6 @@ struct TraceOptions_s
 	bool					logReadBack;
 	bool					showHistory;
 	bool					showMip;
-	bool					showBucket;
 	bool					showOverdraw;
 	bool					noTSAA;
 	bool					noSharpenFilter;
@@ -56,8 +54,7 @@ struct TraceFrameState_s
 	Vec4					curWorldToProjsW[2];
 	Vec3					origin;
 	Vec2					jitter;
-	u32						blockRangeCounts[CODEC_BUCKET_COUNT];
-	u32						groupCounts[CODEC_BUCKET_COUNT];
+	u32						groupCount;
 	u32						sequenceID;
 	u32						frameID;
 	u32						frameRank;

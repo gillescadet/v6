@@ -22,10 +22,10 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 	if ( GTid.x == 0 )
 		gs_visibleBlockCount = 0;
 
-	const uint blockGroupID = c_cullBlockGroupOffset + Gid.x;
+	const uint blockGroupID = Gid.x;
 	const uint rangeID = blockGroups[blockGroupID];
 
-	const BlockRange range = blockRanges[c_cullBlockRangeOffset + rangeID];
+	const BlockRange range = blockRanges[rangeID];
 	const uint blockRank = DTid.x - range.firstThreadID;
 
 #if BLOCK_GET_STATS == 1
@@ -34,7 +34,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 	GroupMemoryBarrierWithGroupSync(); // ensure that gs_visibleBlockCount == 0
 
-	if ( blockRank < range.blockCount && c_cullBlockGroupCount > 0 )
+	if ( blockRank < range.blockCount )
 	{
 #if BLOCK_GET_STATS == 1
 		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );

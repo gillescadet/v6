@@ -157,10 +157,7 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 		return nullptr;
 	}
 
-	u32 rangeDefSize = 0;
-
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		rangeDefSize += sequenceHeader.desc.rangeDefCounts[bucket] * sizeof( CodecRange_s );
+	const u32 rangeDefSize = sequenceHeader.desc.rangeDefCount * sizeof( CodecRange_s );
 
 	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) + rangeDefSize )
 	{
@@ -211,10 +208,7 @@ void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s
 {
 	const u32 beginPos = streamWriter->GetPos();
 
-	u32 rangeDefSize = 0;
-
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		rangeDefSize += desc->rangeDefCounts[bucket] * sizeof( CodecRange_s );
+	const u32 rangeDefSize = desc->rangeDefCount * sizeof( CodecRange_s );
 
 	CodecSequenceHeader_s sequenceHeader = {};
 	memcpy( sequenceHeader.magic, CODEC_SEQUENCE_MAGIC, 4 );
@@ -236,7 +230,7 @@ void Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s
 	u32 blockDataSize = 0;
 
 	u32 cellPerBucketCount = 4;
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
+	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
 	{
 		blockPosSize += desc->blockCounts[bucket] * 4;
 		blockDataSize += desc->blockCounts[bucket] * cellPerBucketCount * 4;
@@ -282,7 +276,7 @@ bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s*
 	u32 blockDataSize = 0;
 
 	u32 cellPerBucketCount = 4;
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
+	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
 	{
 		blockPosSize += frameHeader.desc.blockCounts[bucket] * 4;
 		blockDataSize += frameHeader.desc.blockCounts[bucket] * cellPerBucketCount * 4;
@@ -317,7 +311,7 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 	u32 blockDataSize = 0;
 
 	u32 cellPerBucketCount = 4;
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
+	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket, cellPerBucketCount <<= 1 )
 	{
 		blockPosSize += desc->blockCounts[bucket] * 4;
 		blockDataSize += desc->blockCounts[bucket] * cellPerBucketCount * 4;
@@ -405,28 +399,12 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 		return nullptr;
 	}
 
-	u32 blockPosSize = 0;
-	u32 blockDataCellPresenceSize = 0;
-	u32 blockDataCellEndColorSize = 0;
-	u32 blockDataCellColorIndex0Size = 0;
-	u32 blockDataCellColorIndex1Size = 0;
-	u32 rangeIDSize = 0;
-
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		const u32 bucketBlockCount = frameHeader.desc.blockCounts[bucket];
-
-		blockPosSize += bucketBlockCount * 4;
-
-		const u32 cellPerBucketCount = 1 << (2 + bucket);
-
-		blockDataCellPresenceSize += bucketBlockCount * 8;
-		blockDataCellEndColorSize += bucketBlockCount * 4;
-		blockDataCellColorIndex0Size += bucketBlockCount * 8;
-		blockDataCellColorIndex1Size += bucketBlockCount * 8;
-
-		rangeIDSize += frameHeader.desc.blockRangeCounts[bucket] * 2;
-	}
+	const u32 blockPosSize = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellPresenceSize = frameHeader.desc.blockCount * 8;
+	const u32 blockDataCellEndColorSize = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellColorIndex0Size = frameHeader.desc.blockCount * 8;
+	const u32 blockDataCellColorIndex1Size = frameHeader.desc.blockCount * 8;
+	const u32 rangeIDSize = frameHeader.desc.blockRangeCount * 2;
 
 	const u32 compressedChunkSize = frameHeader.size - sizeof( CodecFrameHeader_s );
 
@@ -490,11 +468,8 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	if ( desc->flags & CODEC_FRAME_FLAG_MOTION )
 	{
 		V6_ASSERT( data == nullptr );
-		for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-		{
-			V6_ASSERT( desc->blockCounts[bucket] == 0 );
-			V6_ASSERT( desc->blockRangeCounts[bucket] == 0 );
-		}
+		V6_ASSERT( desc->blockCount == 0 );
+		V6_ASSERT( desc->blockRangeCount == 0 );
 
 		CodecFrameHeader_s frameHeader = {};
 		memcpy( frameHeader.magic, CODEC_FRAME_MAGIC, 4 );
@@ -512,29 +487,13 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 
 	ScopedStack scopedStack( stack );
 
-	u32 blockPosSize = 0;
-	u32 blockDataCellPresenceSize = 0;
-	u32 blockDataCellEndColorSize = 0;
-	u32 blockDataCellColorIndex0Size = 0;
-	u32 blockDataCellColorIndex1Size = 0;
-	u32 rangeIDSize = 0;
-
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
-	{
-		const u32 bucketBlockCount = desc->blockCounts[bucket];
-
-		blockPosSize += bucketBlockCount * 4;
-
-		const u32 cellPerBucketCount = 1 << (2 + bucket);
-
-		blockDataCellPresenceSize += bucketBlockCount * 8;
-		blockDataCellEndColorSize += bucketBlockCount * 4;
-		blockDataCellColorIndex0Size += bucketBlockCount * 8;
-		blockDataCellColorIndex1Size += bucketBlockCount * 8;
-
-		V6_ASSERT( desc->blockRangeCounts[bucket] <= CODEC_RANGE_MAX_COUNT )
-		rangeIDSize += desc->blockRangeCounts[bucket] * 2;
-	}
+	const u32 blockPosSize = desc->blockCount * 4;
+	const u32 blockDataCellPresenceSize = desc->blockCount * 8;
+	const u32 blockDataCellEndColorSize = desc->blockCount * 4;
+	const u32 blockDataCellColorIndex0Size = desc->blockCount * 8;
+	const u32 blockDataCellColorIndex1Size = desc->blockCount * 8;
+	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT )
+	const u32 rangeIDSize = desc->blockRangeCount * 2;
 
 	const u32 chunkSize = blockPosSize + blockDataCellPresenceSize + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + rangeIDSize;
 

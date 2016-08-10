@@ -1531,8 +1531,16 @@ void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 	// const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
-	//Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 4 );
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0, 0, depth ), pixelRadius * 32 );
+
+#if 0
+	for ( float y = -500.0f; y < 500.0f; y += 100.0f )
+	{
+		for ( float x = -500.0f; x < 500.0f; x += 100.0f )
+			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( x * pixelRadius, y * pixelRadius, depth * 2.0f ), pixelRadius * 16 );
+	}
+#else
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0.0f, 0.0f, depth ), pixelRadius * 16 );
+#endif
 
 	Path_Load( s_paths, PATH_COUNT, scene );
 	s_yaw = DegToRad( info.cameraYaw );
@@ -2378,7 +2386,6 @@ void CRenderingDevice::Draw( float dt )
 					options.logReadBack = s_logReadBack;
 					options.showHistory = g_showHistory;
 					options.showMip = g_showMip;
-					options.showBucket = g_showBucket;
 					options.showOverdraw = g_showOverdraw;
 					options.noTSAA = g_noTSAA;
 					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options );

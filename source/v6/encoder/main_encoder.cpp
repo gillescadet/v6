@@ -7,7 +7,7 @@
 #include <v6/core/memory.h>
 #include <v6/core/time.h>
 
-#define VALIDATE (ENCODER_STRICT_BUCKET || ENCODER_STRICT_CELL)
+#define VALIDATE (ENCODER_STRICT_CELL)
 
 BEGIN_V6_NAMESPACE
 

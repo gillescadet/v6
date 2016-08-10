@@ -28,6 +28,9 @@ struct TracePatch
 	uint64	blockCellPresence;
 	uint	blockColorPalette[4];
 	uint	xdsp16_ydsp16;
+#if BLOCK_DEBUG == 1
+	uint	mip;
+#endif // #if BLOCK_DEBUG == 1
 };
 
 struct Hit
@@ -37,6 +40,9 @@ struct Hit
 	uint	cellRank;
 	float	depth;
 	uint	xdsp16_ydsp16;
+#if BLOCK_DEBUG == 1
+	uint	mip;
+#endif // #if BLOCK_DEBUG == 1
 };
 
 groupshared TracePatch		gs_patches[64];
@@ -199,6 +205,9 @@ TracePatch LoadPatch( uint patchID )
 	tracePatch.blockCellPresence = blockCellPresences[blockPatch.blockPosID];
 	tracePatch.blockColorPalette = colorPalette;
 	tracePatch.xdsp16_ydsp16 = blockPatch.xdsp16_ydsp16;
+#if BLOCK_DEBUG == 1
+	tracePatch.mip = mip;
+#endif // #if BLOCK_DEBUG == 1
 
 	return tracePatch;
 }
@@ -283,6 +292,9 @@ int Trace( inout Hit hit, float3 rayDir, float3 rayInvDir, uint patchRank )
 		hit.cellRank = hitCellID < 32 ? cellLowRank : cellHighRank;
 		hit.depth = tIn;
 		hit.xdsp16_ydsp16 = patch.xdsp16_ydsp16;
+#if BLOCK_DEBUG == 1
+		hit.mip = patch.mip;
+#endif // #if BLOCK_DEBUG == 1
 	}
 
 	return hitCellID;
@@ -413,6 +425,15 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		const uint rgb_none = hit.blockColorPalette[colorID];
 
 		groupColor = float3( (rgb_none >> 24) & 0xFF, (rgb_none >> 16) & 0xFF, (rgb_none >> 8) & 0xFF ) * (1.0f / 255.0f);
+
+#if BLOCK_DEBUG == 1
+		if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_MIPS )
+		{
+			const float3 mipColors[] = { float3( 1.0f, 0.0f, 0.0f ), float3( 0.0f, 1.0f, 0.0f ), float3( 0.0f, 0.0f, 1.0f ) };
+			groupColor = mipColors[hit.mip % 3];
+			groupColor *= 1.0f / ( 1.0f + float( hit.mip / 3 ) );
+		}
+#endif
 	}
 
 	{

@@ -1007,12 +1007,12 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 		return 0;
 	}
 
-	u32 blockPosOffsets[CODEC_BUCKET_COUNT];
-	u32 blockDataOffsets[CODEC_BUCKET_COUNT];
+	u32 blockPosOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
+	u32 blockDataOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
 
 	u32 blockPosCount = 0;
 	u32 blockDataCount = 0;
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
@@ -1026,7 +1026,7 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 	*blocks = heap->newArray< RawBlock_s >( blockPosCount );
 	memset( *blocks, 0, blockPosCount * sizeof( RawBlock_s ) );
 
-	for ( u32 bucket = 0; bucket < CODEC_BUCKET_COUNT; ++bucket )
+	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 

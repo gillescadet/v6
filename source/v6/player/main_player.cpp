@@ -129,7 +129,6 @@ enum CommandAction_e
 	
 	COMMAND_ACTION_CAMERA_RECENTER,
 
-	COMMAND_ACTION_TRACE_OPTION_BUCKET,
 	COMMAND_ACTION_TRACE_OPTION_LOG,
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
@@ -423,23 +422,6 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 {
 	switch ( commandLine[0] )
 	{
-	case 'B':
-		if ( strcmp( commandLine, "BUCKET ON" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
-			commandBuffer->arg[0] = 1;
-			return;
-		}
-
-		if ( strcmp( commandLine, "BUCKET OFF" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
-			commandBuffer->arg[0] = 0;
-			return;
-		}
-
-		break;
-
 	case 'C':
 		if ( strcmp( commandLine, "CAMERA RECENTER" ) == 0 )
 		{
@@ -680,9 +662,6 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		V6_MSG( "Camera recentered.");
 		break;
 
-	case COMMAND_ACTION_TRACE_OPTION_BUCKET:
-		player->traceOptions.showBucket = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showBucket;
-		break;
 	case COMMAND_ACTION_TRACE_OPTION_LOG:
 		player->traceOptions.logReadBack = true;
 		break;
@@ -824,10 +803,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_512.v6" );
 			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_1024.v6" );
 		}
-		break;
-	case 'N':
-		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_BUCKET;
-		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'M':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_MIP;

@@ -23,7 +23,7 @@ BEGIN_V6_NAMESPACE
 #define CODEC_STREAM_MAGIC				"V6"
 #define CODEC_STREAM_VERSION			0
 
-#define CODEC_BUCKET_COUNT				5
+#define CODEC_RAWFRAME_BUCKET_COUNT		5
 #define CODEC_CELL_MAX_COUNT			64
 #define CODEC_MIP_MAX_COUNT				16
 #define CODEC_RANGE_MAX_COUNT			65536
@@ -82,7 +82,7 @@ struct CodecSequenceDesc_s
 {
 	u32				sequenceID;
 	u32				frameCount;
-	u32				rangeDefCounts[CODEC_BUCKET_COUNT];
+	u32				rangeDefCount;
 };
 
 struct CodecSequenceData_s
@@ -100,7 +100,7 @@ struct CodecRawFrameDesc_s
 	u32				gridMacroShift;
 	float			gridScaleMin;
 	float			gridScaleMax;
-	u32				blockCounts[CODEC_BUCKET_COUNT];
+	u32				blockCounts[CODEC_RAWFRAME_BUCKET_COUNT];
 };
 
 struct CodecRawFrameData_s
@@ -115,8 +115,8 @@ struct CodecFrameDesc_s
 	float			gridYaw;
 	u16				frameRank;
 	u16				flags;
-	u32				blockCounts[CODEC_BUCKET_COUNT];
-	u32				blockRangeCounts[CODEC_BUCKET_COUNT];
+	u32				blockCount;
+	u32				blockRangeCount;
 };
 
 struct CodecFrameData_s
@@ -126,7 +126,7 @@ struct CodecFrameData_s
 	u32*			blockCellEndColors;
 	u64*			blockCellColorIndices0;
 	u64*			blockCellColorIndices1;
-	u16*			rangeIDs;
+	u16*			rangeIDs; // optim: this could replaced with firstRangeID and rangeCount
 };
 
 Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
