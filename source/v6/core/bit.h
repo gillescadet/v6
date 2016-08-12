@@ -36,13 +36,27 @@ V6_INLINE u32 Bit_GetBitHighCount( u64 value )
 V6_INLINE u32 Bit_GetFirstBitHigh( u32 value )
 {
 	unsigned long index;
-	return _BitScanReverse( &index, value ) == 0 ? (u32)-1 : (u32)index;
+	return _BitScanForward( &index, value ) == 0 ? (u32)-1 : (u32)index;
 }
 
 V6_INLINE u32 Bit_GetFirstBitHigh( u64 value )
 {
 	unsigned long index;
-	return _BitScanReverse64( &index, value ) == 0 ? (u32)-1 : (u32)index;
+	return _BitScanForward64( &index, value ) == 0 ? (u32)-1 : (u32)index;
+}
+
+V6_INLINE u32 Bit_GetFirstBitHighNonZero( u32 value )
+{
+	unsigned long index;
+	_BitScanForward( &index, value );
+	return (u32)index;
+}
+
+V6_INLINE u32 Bit_GetFirstBitHighNonZero( u64 value )
+{
+	unsigned long index;
+	_BitScanForward64( &index, value );
+	return (u32)index;
 }
 
 #define BitSet_GetSize( count ) ( (count + 31) >> 5 )

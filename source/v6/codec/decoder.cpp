@@ -179,7 +179,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 						break;
 
 					const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-					u32 rangeFrameRank = codecRange->frameRank8_mip4_blockCount20 >> 24;
+					const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
 					if ( frameRank != rangeFrameRank )
 						break;
 
@@ -296,9 +296,9 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 				{
 					const u32 rangeID = sequence->frameDataArray[frameRank].rangeIDs[rangeRank];
 					const CodecRange_s* range = &sequence->data.rangeDefs[rangeID];
-					const u32 rangeFrameRank = range->frameRank8_mip4_blockCount20 >> 24;
-					const u32 rangeMip = (range->frameRank8_mip4_blockCount20 >> 20) & 0xF;
-					const u32 rangeBlockCount = range->frameRank8_mip4_blockCount20 & 0xFFFFF;
+					const u32 rangeFrameRank = range->frameRank7_mip4_blockCount21 >> 25;
+					const u32 rangeMip = (range->frameRank7_mip4_blockCount21 >> 21) & 0xF;
+					const u32 rangeBlockCount = range->frameRank7_mip4_blockCount21 & 0x1FFFFF;
 					const Vec3i gridOffset = 
 						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth ) -
 						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth );

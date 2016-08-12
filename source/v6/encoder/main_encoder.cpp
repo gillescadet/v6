@@ -57,7 +57,7 @@ int main()
 	const char* templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 
 	const v6::u32 frameOffset	= 0;
-	const v6::u32 frameCount	= 1;
+	const v6::u32 frameCount	= 2;
 	const v6::u32 playRate		= 75;
 #endif
 

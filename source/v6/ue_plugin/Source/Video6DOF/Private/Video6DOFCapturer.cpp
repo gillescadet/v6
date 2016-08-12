@@ -22,7 +22,7 @@
 #include <v6/graphic/gpu.h>
 
 static const uint32			s_targetFPS			= 75;
-static const uint32			s_sampleCount		= 9;
+static const uint32			s_sampleCount		= 17;
 static const uint32			s_gridMacroShift	= 9;
 static const float			s_gridMinScale		= 50;
 static const float			s_gridMaxScale		= 5000;
@@ -120,7 +120,7 @@ static void Scene_End()
 
 static void Scene_Begin( FSceneViewFamily* viewFamily )
 {
-	static const v6::GPUEventID_t s_captureEvent = v6::GPUEvent_Register( "Video6DOF Capture", true );
+	static const v6::GPUEventID_t s_captureEvent = v6::GPUEvent_Register( "Video6DOF Capture", false );
 	v6::GPUEvent_Begin( s_captureEvent );
 	s_dynamicRHIOriginal->RHIBindDebugLabelName( viewFamily->RenderTarget->GetRenderTargetTexture(), TEXT( "SceneColorVideo6DOF" ) );
 	s_captureRenderTarget = __GetD3D11TextureFromRHITexture( viewFamily->RenderTarget->GetRenderTargetTexture() );

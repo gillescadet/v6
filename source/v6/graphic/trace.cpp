@@ -455,7 +455,8 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 				center *= 1.0f / (blockTraceStats->debugBoxCount * 2.0f);
 
 				const Vec3 rayDir = blockTraceStats->debugRayDir * center.Length() * 2.0f;
-				Plot_AddLine( &plot, &Vec3_Zero(), &rayDir );
+				const Vec3 zero = Vec3_Zero();
+				Plot_AddLine( &plot, &zero, &rayDir );
 
 				Plot_Release( &plot );
 
@@ -571,12 +572,12 @@ static void SequenceContext_Update( SequenceContext_s* sequenceContext, const Vi
 				break;
 			
 			const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-			u32 rangeFrameID = codecRange->frameRank8_mip4_blockCount20 >> 24;
+			u32 rangeFrameID = codecRange->frameRank7_mip4_blockCount21 >> 25;
 			if ( frameID != rangeFrameID )
 				break;
 
-			const u32 blockCount = codecRange->frameRank8_mip4_blockCount20 & 0xFFFFF;
-			const u32 mip = (codecRange->frameRank8_mip4_blockCount20 >> 20) & 0xF;
+			const u32 blockCount = codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF;
+			const u32 mip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
 
 			SequenceBlockRange_s* blockRange = &sequenceContext->blockRanges[rangeID];
 			
@@ -879,8 +880,8 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 			const u32 rangeID = rangeIDs[rangeRank];
 
 			const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-			const u32 rangeFrameRank = codecRange->frameRank8_mip4_blockCount20 >> 24;
-			const u32 rangeMip = (codecRange->frameRank8_mip4_blockCount20 >> 20) & 0xF;
+			const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
+			const u32 rangeMip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
 			const SequenceBlockRange_s* srcBlockRange = &traceContext->sequenceContext.blockRanges[rangeID];
 			
 			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];

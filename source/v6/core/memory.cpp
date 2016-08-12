@@ -25,6 +25,7 @@ CHeap::~CHeap()
 
 void * CHeap::alloc(int nSize)
 {
+	// V6_MSG( "allocation of %d bytes\n", nSize );
 	++m_notFreeCount;
 	return ::malloc( (u32)nSize );
 }
@@ -48,7 +49,7 @@ void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 {
 	if ( allocator->firstBlock == nullptr || allocator->firstBlock->size + size > allocator->firstBlock->capacity )
 	{
-		u32 const capacity = Max( size, allocator->blockCapacity );
+		const u32 capacity = Max( size, allocator->blockCapacity );
 		MemoryBlock_s* newBlock = (MemoryBlock_s *)allocator->heap->alloc( (int)(sizeof( MemoryBlock_s ) + capacity) );
 		newBlock->size = size;
 		newBlock->capacity = capacity;
@@ -64,7 +65,7 @@ void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 
 void BlockAllocator_Clear( BlockAllocator_s* allocator )
 {
-	for ( MemoryBlock_s * block = allocator->firstBlock, *nextBlock = nullptr; block; block = nextBlock)
+	for ( MemoryBlock_s* block = allocator->firstBlock, *nextBlock = nullptr; block; block = nextBlock )
 	{
 		nextBlock = block->next;
 		allocator->heap->free( block );
@@ -82,7 +83,7 @@ void BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u32 b
 void BlockAllocator_Release( BlockAllocator_s* allocator )
 {
 	BlockAllocator_Clear( allocator );
-	memset( allocator, 0, sizeof(BlockAllocator_s) );
+	memset( allocator, 0, sizeof( BlockAllocator_s ) );
 }
 
 CBlockAllocator::CBlockAllocator( IAllocator & oHeap, int nBlockCapacity )

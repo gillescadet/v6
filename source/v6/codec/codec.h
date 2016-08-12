@@ -27,7 +27,8 @@ BEGIN_V6_NAMESPACE
 #define CODEC_CELL_MAX_COUNT			64
 #define CODEC_MIP_MAX_COUNT				16
 #define CODEC_RANGE_MAX_COUNT			65536
-#define CODEC_FRAME_MAX_COUNT			256
+#define CODEC_FRAME_MAX_COUNT			128
+#define CODEC_INVALID_FRAME_RANK		CODEC_FRAME_MAX_COUNT
 #define CODEC_BLOCK_THREAD_GROUP_SIZE	64
 
 #define CODEC_COLOR_ERROR_TOLERANCE		15
@@ -53,7 +54,7 @@ enum
 
 struct CodecRange_s
 {
-	u32				frameRank8_mip4_blockCount20;
+	u32				frameRank7_mip4_blockCount21;
 };
 
 struct CodecStreamDesc_s

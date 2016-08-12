@@ -15,6 +15,7 @@
 #include <v6/core/vec3i.h>
 
 #define ENCODER_DEBUG					0
+#define ENCODER_SKIP_WRITING			1
 
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF
@@ -739,10 +740,10 @@ static void RawFrame_SortByRange( u32 frameRank, Context_s* context )
 
 				const u32 rangeID = context->rangeDefCount;
 				CodecRange_s* range = &context->rangeDefs[rangeID];
-				V6_ASSERT( frameRank <= 0xFF);
+				V6_ASSERT( frameRank <= 0x7F);
 				V6_ASSERT( mip <= 0xF );
-				V6_ASSERT( shared->blockCountPerMip[mip] <= 0xFFFFF );
-				range->frameRank8_mip4_blockCount20 = (frameRank << 24) | (mip << 20) | shared->blockCountPerMip[mip];
+				V6_ASSERT( shared->blockCountPerMip[mip] <= 0x1FFFFF );
+				range->frameRank7_mip4_blockCount21 = (frameRank << 25) | (mip << 21) | shared->blockCountPerMip[mip];
 
 				shared->rangeIDs[mip] = rangeID;
 				++context->rangeDefCount;
@@ -777,18 +778,18 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	{
 		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
 			
-		const u32 rangeFrameRank = codecRange->frameRank8_mip4_blockCount20 >> 24;
+		const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
 		if ( rangeFrameRank != frameRank )
 			continue;
 			
-		const u32 blockCount = codecRange->frameRank8_mip4_blockCount20 & 0xFFFFF;
+		const u32 blockCount = codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF;
 		frameUniqueBlockPosCount += blockCount;
 	}
 
 	for ( u32 rangeRank = 0; rangeRank < desc->blockRangeCount; ++rangeRank )
 	{
 		const u32 rangeID = rangeIDs[rangeRank];
-		const u32 blockCount = context->rangeDefs[rangeID].frameRank8_mip4_blockCount20 & 0xFFFFF;
+		const u32 blockCount = context->rangeDefs[rangeID].frameRank7_mip4_blockCount21 & 0x1FFFFF;
 		frameBlockCount += blockCount;
 		frameBlockGroupCount += (blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 	}
@@ -912,7 +913,7 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequen
 		Codec_WriteSequence( streamWriter, &desc, &data );
 	}
 
-	V6_MSG( "Header: range defs %d KB.\n", DivKB( memoryRangeDefWriter.GetSize() ) );
+	V6_MSG( "Header: range defs %d KB.\n", DivKB( memoryRangeDefWriter.GetPos() ) );
 }
 
 static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
@@ -1076,14 +1077,15 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 
 	u32 prevFileSize = streamWriter->GetPos();
 	for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
-	{		
+	{
+#if ENCODER_SKIP_WRITING == 0
 		if ( !RawFrame_Write( frameRank, streamWriter, context ) )
 		{
 			for( ; frameRank < context->frameCount; ++frameRank )
 				RawFrame_Release( frameRank-1, context );
 			return false;
 		}
-
+#endif // #if ENCODER_SKIP_WRITING == 0
 		RawFrame_Release( frameRank, context );
 		V6_MSG( "F%02d: added %d KB.\n", frameRank, DivKB( streamWriter->GetPos() - prevFileSize ) );
 		prevFileSize = streamWriter->GetPos();
