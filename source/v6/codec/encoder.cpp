@@ -13,6 +13,7 @@
 #include <v6/core/stream.h>
 #include <v6/core/string.h>
 #include <v6/core/thread.h>
+#include <v6/core/time.h>
 #include <v6/core/vec3i.h>
 
 #define ENCODER_DEBUG					0
@@ -719,6 +720,8 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 {
 	RawFrame_s* frame = &context->frames[frameRank];
 
+	u64 lastStepTime = GetTickCount();
+
 	u32 rootCount = 0;
 
 	for ( u32 blockOrder = 0; blockOrder < frame->blockCount; ++blockOrder )
@@ -730,6 +733,16 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 			continue;
 
 		++rootCount;
+
+		if ( (rootCount % 128) == 0 )
+		{
+			const u64 curStepTime = GetTickCount();
+			if ( ConvertTicksToSeconds( curStepTime - lastStepTime ) > 5.0f )
+			{
+				V6_MSG( "...processed %.1f%% blocks\n", blockOrder * 100.0f / frame->blockCount );
+				lastStepTime = curStepTime;
+			}
+		}
 
 		BlockCluster_s cluster = {};
 		BlockCluster_AddColors( &cluster, block, context );

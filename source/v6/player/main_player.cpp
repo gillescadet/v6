@@ -1027,11 +1027,11 @@ static void Player_DrawMetrics( Player_s* player )
 	
 		cbFrameMetrics->c_frameMetricsEnd = player->frameMetrics.frameID;
 		cbFrameMetrics->c_frameMetricsScale = 25.0f * 0.001f;
-		cbFrameMetrics->c_frameMetricsBias = -5000.0f;
+		cbFrameMetrics->c_frameMetricsBias = 0.0f;
 
-		cbFrameMetrics->c_frameMetricsMarkerMin = 7000.0f;
-		cbFrameMetrics->c_frameMetricsMarkerMid = 9000.0f;
-		cbFrameMetrics->c_frameMetricsMarkerMax = 11000.0f;
+		cbFrameMetrics->c_frameMetricsMarkerMin = 2000.0f;
+		cbFrameMetrics->c_frameMetricsMarkerMid = 4000.0f;
+		cbFrameMetrics->c_frameMetricsMarkerMax = 6000.0f;
 
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
 	}

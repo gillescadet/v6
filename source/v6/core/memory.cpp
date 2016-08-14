@@ -25,7 +25,7 @@ CHeap::~CHeap()
 
 void * CHeap::alloc(int nSize)
 {
-	V6_MSG( "allocation of %d bytes\n", nSize );
+	// V6_MSG( "allocation of %d bytes\n", nSize );
 	++m_notFreeCount;
 	return ::malloc( (u32)nSize );
 }

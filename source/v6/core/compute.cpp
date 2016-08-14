@@ -28,7 +28,7 @@ struct ThreadContext_s
 
 // Local
 
-static void KernelWrapper( void* threadContextPointer )
+static void KernelWrapper( void* threadContextPointer, u32 arg0, u32 arg1 )
 {
 	ThreadContext_s* threadContext = (ThreadContext_s*)threadContextPointer;
 	threadContext->kernel( threadContext->groupID, threadContext->threadGroupID, threadContext->threadID );
@@ -159,7 +159,7 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 			threadContexts[threadGroupID].groupID = groupID;
 			threadContexts[threadGroupID].threadGroupID = threadGroupID;
 			threadContexts[threadGroupID].threadID = threadID;
-			WorkerThread_AddJob( &s_workerThreads[threadGroupID], KernelWrapper, &threadContexts[threadGroupID] );
+			WorkerThread_AddJob( &s_workerThreads[threadGroupID], KernelWrapper, &threadContexts[threadGroupID], 0, 0 );
 		}
 
 		Signal_Wait( &s_threadGroupDone );
