@@ -105,6 +105,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 		cbCull->c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift;
 		cbCull->c_cullInvGridWidth = invGridWidth;
+		cbCull->c_cullFrameChanged = traceContext->frameState.frameChanged;
 
 		float gridScale = traceContext->stream->desc.gridScaleMin;
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
@@ -149,7 +150,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &traceRes->cullStats.uav, nullptr );
 
 	// dispach
-	const u32 shaderOption = (options->logReadBack || options->showHistory) ? 1 : 0;
+	const u32 shaderOption = (options->logReadBack) ? 1 : 0;
 	GPUCompute_Dispatch( &traceRes->computeCull[shaderOption], traceContext->frameState.groupCount, 1, 1 );
 	
 	// unset
@@ -349,7 +350,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbTrace->c_traceRayDirRight = Vec4_Make( &right, 0.0f );
 
 		cbTrace->c_traceGetStats = options->logReadBack;
-		cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0);
+		cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
 
 		cbTrace->c_traceJitter = traceContext->frameState.jitter;
 
@@ -849,6 +850,7 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 	}
 	else
 	{
+		traceContext->frameState.frameChanged = false;
 		return;
 	}
 
@@ -921,6 +923,7 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 
 	traceContext->frameState.frameRank = targetFrameRank;
 	traceContext->frameState.frameID = frameID;
+	traceContext->frameState.frameChanged = true;
 }
 
 END_V6_NAMESPACE

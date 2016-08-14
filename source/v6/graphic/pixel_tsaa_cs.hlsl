@@ -48,11 +48,14 @@ void main_pixel_tsaa_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Group
 	const float2 curColorUVs = curColorCoords * c_tsaaInvFrameSize;
 	const float2 prevColorUVs = prevColorCoords * c_tsaaInvFrameSize;
 
-	float blendFactor = c_tsaaBlendFactor;
-	if ( any( prevColorUVs != saturate( prevColorUVs) ) )
-		blendFactor = 1.0f;
+	const float4 curRGBA = inputColors.SampleLevel( bilinearSampler, curColorUVs, 0 );
+	const float3 curColor = RGBtoYCoGg( curRGBA.rgb );
 
-	const float3 curColor = RGBtoYCoGg( inputColors.SampleLevel( bilinearSampler, curColorUVs, 0 ).rgb );
+	const float4 prevRGBA = inputHistory.SampleLevel( bilinearSampler, prevColorUVs, 0 ).rgba;
+	
+	const float prevResponseFactor = (any( prevColorUVs != saturate( prevColorUVs ) ) || (prevRGBA.a > 0.0f)) ? 1.0f : 0.0;
+	const float curResponseFactor = curRGBA.a > 0.0f ? 1.0f : 0.0;
+	const float responseFactor = max( max( prevResponseFactor, curResponseFactor ), c_tsaaBlendFactor );
 
 	const float3 crossColor1 = RGBtoYCoGg( inputColors[uint2( DTid.x-1, DTid.y   )].rgb );
 	const float3 crossColor2 = RGBtoYCoGg( inputColors[uint2( DTid.x+1, DTid.y   )].rgb );
@@ -62,10 +65,10 @@ void main_pixel_tsaa_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Group
 	const float3 minColor = min( curColor, min( crossColor1, min( crossColor2, min( crossColor3, crossColor4 ) ) ) );
 	const float3 maxColor = max( curColor, max( crossColor1, max( crossColor2, max( crossColor3, crossColor4 ) ) ) );
 
-	const float3 prevUnclampedColor = RGBtoYCoGg( inputHistory.SampleLevel( bilinearSampler, prevColorUVs, 0 ).rgb );
+	const float3 prevUnclampedColor = RGBtoYCoGg( prevRGBA.rgb );
 	const float3 prevClampedColor = clamp( prevUnclampedColor, minColor, maxColor );
 	const float prevClampingFactor = saturate( length( displacement ) * (1.0f / 2.0f) );
 	const float3 prevColor = lerp( prevUnclampedColor, prevClampedColor, prevClampingFactor );
 	
-	outputColors[DTid.xy] = float4( YCoGgtoRGB( lerp( prevColor, curColor, blendFactor ) ), 0.0f );
+	outputColors[DTid.xy] = float4( YCoGgtoRGB( lerp( prevColor, curColor, responseFactor ) ), curResponseFactor );
 }

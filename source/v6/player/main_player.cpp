@@ -26,9 +26,10 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
+#define V6_DUMP_GAMEPAD			0
 
 BEGIN_V6_NAMESPACE
 
@@ -118,10 +119,15 @@ struct FrameMetrics_s
 enum CommandAction_e
 {
 	COMMAND_ACTION_NONE,
+	
+	COMMAND_ACTION_EXIT,
+
 	COMMAND_ACTION_COMMAND_LINE,
+
 	COMMAND_ACTION_LOAD_STREAM,
 	COMMAND_ACTION_UNLOAD_STREAM,
-	COMMAND_ACTION_PLAY,
+	
+	COMMAND_ACTION_PLAY_PAUSE,
 	COMMAND_ACTION_BEGIN_FRAME,
 	COMMAND_ACTION_END_FRAME,
 	COMMAND_ACTION_PREV_FRAME,
@@ -132,6 +138,7 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_LOG,
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
+	COMMAND_ACTION_TRACE_OPTION_HISTORY,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
 	COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER,
 
@@ -149,8 +156,8 @@ struct CommandBuffer_s
 
 struct PlayerOptions_s
 {
-	bool					hideMetrics;
-	bool					hideUI;
+	bool					showMetrics;
+	bool					showUI;
 	bool					lockHMD;
 	u32						showHMDPerfHUD;
 };
@@ -429,7 +436,28 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 			return;
 		}
 
+	case 'E':
+		if ( strcmp( commandLine, "EXIT" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_EXIT;
+			return;
+		}
+
 	case 'H':
+		if ( strcmp( commandLine, "HISTORY ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_HISTORY;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "HISTORY OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_HISTORY;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
 		if ( strcmp( commandLine, "HMD_LOCK ON" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD;
@@ -573,6 +601,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 
 	switch ( commandBuffer.action )
 	{
+	case COMMAND_ACTION_EXIT:
+		Win_Release( &player->win );
+		break;
 	case COMMAND_ACTION_COMMAND_LINE:
 		V6_ASSERT_NOT_SUPPORTED();
 		break;
@@ -601,11 +632,19 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 			PlayerCamera_Recenter( player );
 		}
 		break;
-	case COMMAND_ACTION_PLAY:
+	case COMMAND_ACTION_PLAY_PAUSE:
 		if ( PlayerStream_IsValid( player ) )
 		{
-			player->targetFrameID = (u32)-1;
-			V6_MSG( "Target frame loop\n" );
+			if ( player->targetFrameID == (u32)-1 )
+			{
+				player->targetFrameID = (u32)player->curFrameID;
+				V6_MSG( "Target frame %d\n", player->targetFrameID );
+			}
+			else
+			{
+				player->targetFrameID = (u32)-1;
+				V6_MSG( "Target frame loop\n" );
+			}
 		}
 		break;
 	case COMMAND_ACTION_BEGIN_FRAME:
@@ -659,7 +698,7 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 #if V6_USE_HMD == 1
 		Hmd_Recenter();
 #endif
-		V6_MSG( "Camera recentered.");
+		V6_MSG( "Camera recentered.\n");
 		break;
 
 	case COMMAND_ACTION_TRACE_OPTION_LOG:
@@ -667,6 +706,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		break;
 	case COMMAND_ACTION_TRACE_OPTION_MIP:
 		player->traceOptions.showMip = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showMip;
+		break;
+	case COMMAND_ACTION_TRACE_OPTION_HISTORY:
+		player->traceOptions.showHistory = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showHistory;
 		break;
 	case COMMAND_ACTION_TRACE_OPTION_OVERDRAW:
 		player->traceOptions.showOverdraw = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showOverdraw;
@@ -679,10 +721,10 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		break;
 
 	case COMMAND_ACTION_PLAYER_OPTION_METRICS:
-		player->playerOptions.hideMetrics = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideMetrics;
+		player->playerOptions.showMetrics = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.showMetrics;
 		break;
 	case COMMAND_ACTION_PLAYER_OPTION_UI:
-		player->playerOptions.hideUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.hideUI;
+		player->playerOptions.showUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.showUI;
 		break;
 	case COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD:
 		player->playerOptions.lockHMD = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockHMD;
@@ -750,7 +792,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	switch( keyEvent->key )
 	{
 	case 0x1B:
-		Win_Release( &player->win );
+		player->commandBuffer.action = COMMAND_ACTION_EXIT;
 		break;
 	case '0':
 	case '1':
@@ -784,6 +826,10 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 'H':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_HISTORY;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 'I':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_LOG;
 		break;
@@ -814,7 +860,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		break;
 	case 0x42:
 	case 'P':
-		player->commandBuffer.action = COMMAND_ACTION_PLAY;
+		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
 		break;
 	case 'R':
 		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
@@ -856,8 +902,35 @@ static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButton
 {
 	Player_s* player = (Player_s*)gamepad->owner;
 
-	if ( rightButtonIsChanged.O )
+	GamepadButtons_s leftButtonIsPressed;
+	leftButtonIsPressed.bits = leftButtonIsChanged.bits & ~gamepad->leftButtonWasDown.bits;
+
+	GamepadButtons_s rightButtonIsPressed;
+	rightButtonIsPressed.bits = rightButtonIsChanged.bits & ~gamepad->rightButtonWasDown.bits;
+
+	if ( leftButtonIsPressed.O )
+		player->commandBuffer.action = COMMAND_ACTION_EXIT;
+
+	if ( leftButtonIsPressed.L )
+		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
+
+	if ( leftButtonIsPressed.R )
+		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
+
+	if ( leftButtonIsPressed.B )
+		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
+
+	if ( leftButtonIsPressed.T )
+		player->commandBuffer.action = COMMAND_ACTION_END_FRAME;
+
+	if ( rightButtonIsPressed.O )
 		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
+
+	if ( rightButtonIsPressed.R )
+		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
+
+	if ( rightButtonIsPressed.B )
+		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
 }
 
 static void Player_ProcessInputs( Player_s* player, float dt )
@@ -926,12 +999,12 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 			cursorY += lineHeight;
 		}
 
-#if 0
+#if V6_DUMP_GAMEPAD == 1
 		{
 			const char* txt = Gamepad_DumpState( &player->gamepad );
 			cursorY = FontContext_AddText( &player->fontContext, cursorX, cursorY, lineHeight, Color_White(), txt );
 		}
-#endif
+#endif // #if V6_DUMP_GAMEPAD == 1
 
 	}
 
@@ -1200,11 +1273,11 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		GPUEventDuration_s* eventDurations;
 		const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
 
-		if ( !player->playerOptions.hideUI )
+		if ( player->playerOptions.showUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
 
 		Player_UpdateMetrics( player, frameID, eventDurations, eventCount );
-		if ( !player->playerOptions.hideMetrics )
+		if ( player->playerOptions.showMetrics )
 			Player_DrawMetrics( player );
 
 		if ( player->traceOptions.logReadBack )
@@ -1345,12 +1418,6 @@ int main( int argc, char** argv )
 
 #if 0
 	// HD
-	const v6::u32 defaultWidth = 32;
-	const v6::u32 defaultHeight = 32;
-#endif
-
-#if 0
-	// HD
 	const v6::u32 defaultWidth = 960;
 	const v6::u32 defaultHeight = 1080;
 #endif
@@ -1360,20 +1427,20 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 256;
 #endif
 
-#if 0
+#if 1
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
-	
-#if 1
 
-#if V6_ENABLE_HMD == 0
+#if 0
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
-#endif // #if V6_ENABLE_HMD == 0
-
 #endif
+
+#if V6_ENABLE_HMD == 1
+	V6_STATIC_ASSERT( defaultHeight <= 1024 );
+#endif // #if V6_ENABLE_HMD == 1
 
 	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
 

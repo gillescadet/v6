@@ -15,7 +15,7 @@ RWStructuredBuffer< BlockProjectStats > blockProjectStats	: REGISTER_UAV( HLSL_P
 struct BlockPatchHeader
 {
 	uint	blockPosID;
-	uint	packedBlockPos;
+	uint	mip4_newBlock1_blockPos27;
 	uint	xtile10_ytile10_cellmin222_cellmax222;
 	uint	xdsp16_ydsp16;
 };
@@ -55,7 +55,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		const VisibleBlock visibleBlock = visibleBlocks[DTid.x];
 		const uint blockPosID = visibleBlock.blockPosID;
-		const uint packedBlockPos = visibleBlock.packedBlockPos;
+		const uint mip4_newBlock1_blockPos27 = visibleBlock.mip4_newBlock1_blockPos27;
 
 		uint3 cellMinRange;
 		uint3 cellMaxRange;
@@ -100,8 +100,8 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			}
 		}
 
-		const uint mip = packedBlockPos >> 28;
-		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
+		const uint mip = mip4_newBlock1_blockPos27 >> 28;
+		const uint blockPos = mip4_newBlock1_blockPos27 & 0x07FFFFFF;
 		const uint gridMacroMask = (1 << c_projectGridMacroShift)-1;
 		const uint blockPosX = (blockPos >> (c_projectGridMacroShift*0)) & gridMacroMask;
 		const uint blockPosY = (blockPos >> (c_projectGridMacroShift*1)) & gridMacroMask;
@@ -183,7 +183,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		{
 			BlockPatchHeader patchHeader;
 			patchHeader.blockPosID = blockPosID;
-			patchHeader.packedBlockPos = packedBlockPos;
+			patchHeader.mip4_newBlock1_blockPos27 = mip4_newBlock1_blockPos27;
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 = (minBlockTileCoords.x << 22) | (minBlockTileCoords.y << 12);
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMinRange.x << 10) | (cellMinRange.y << 8) | (cellMinRange.z << 6);
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMaxRange.x <<  4) | (cellMaxRange.y << 2) | (cellMaxRange.z << 0);
@@ -248,7 +248,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		{
 			BlockPatch blockPatch;
 			blockPatch.blockPosID = patchHeader.blockPosID;
-			blockPatch.packedBlockPos = patchHeader.packedBlockPos;
+			blockPatch.mip4_newBlock1_blockPos27 = patchHeader.mip4_newBlock1_blockPos27;
 			blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 = (patchHeader.xtile10_ytile10_cellmin222_cellmax222 << 16) | (patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 & 0xFFFF);
 			blockPatch.xdsp16_ydsp16 = patchHeader.xdsp16_ydsp16;
 

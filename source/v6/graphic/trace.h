@@ -63,6 +63,7 @@ struct TraceFrameState_s
 	u32						prevHistoryBufferID;
 	u32						curHistoryBufferID;
 	bool					resetJitter;
+	bool					frameChanged;
 };
 
 struct TraceContext_s

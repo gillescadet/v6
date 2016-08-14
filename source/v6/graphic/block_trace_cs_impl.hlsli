@@ -18,7 +18,7 @@ RWStructuredBuffer< BlockTraceStats > blockTraceStats	: REGISTER_UAV( HLSL_TRACE
 struct TracePatch
 {
 	uint	blockPosID;
-	uint	none16_xMask8_yMask8; // optim: separate this and merge two patches
+	uint	mip4_newBlock1_none11_xMask8_yMask8; // optim: separate this and merge two patches
 	uint3	cellMinRange;
 	uint3	cellExtent;
 	float3	boxMinRS;
@@ -28,9 +28,6 @@ struct TracePatch
 	uint64	blockCellPresence;
 	uint	blockColorPalette[4];
 	uint	xdsp16_ydsp16;
-#if BLOCK_DEBUG == 1
-	uint	mip;
-#endif // #if BLOCK_DEBUG == 1
 };
 
 struct Hit
@@ -40,6 +37,7 @@ struct Hit
 	uint	cellRank;
 	float	depth;
 	uint	xdsp16_ydsp16;
+	uint	newBlock;
 #if BLOCK_DEBUG == 1
 	uint	mip;
 #endif // #if BLOCK_DEBUG == 1
@@ -95,9 +93,9 @@ TracePatch LoadPatch( uint patchID )
 
 	// Compute bounding box
 
-	const uint packedBlockPos = blockPatch.packedBlockPos;
-	const uint mip = packedBlockPos >> 28;
-	const uint blockPos = packedBlockPos & 0x0FFFFFFF;
+	const uint mip = blockPatch.mip4_newBlock1_blockPos27 >> 28;
+	const uint newBlock = (blockPatch.mip4_newBlock1_blockPos27 >> 27) & 1;
+	const uint blockPos = blockPatch.mip4_newBlock1_blockPos27 & 0x07FFFFFF;
 	const uint gridMacroMask = (1 << c_traceGridMacroShift)-1;
 	const uint blockPosX = (blockPos >> (c_traceGridMacroShift*0)) & gridMacroMask;
 	const uint blockPosY = (blockPos >> (c_traceGridMacroShift*1)) & gridMacroMask;
@@ -195,7 +193,7 @@ TracePatch LoadPatch( uint patchID )
 	
 	TracePatch tracePatch;
 	tracePatch.blockPosID = blockPatch.blockPosID;
-	tracePatch.none16_xMask8_yMask8 = (xMask << 8) | yMask;
+	tracePatch.mip4_newBlock1_none11_xMask8_yMask8 = (mip << 28) | (newBlock << 27) | (xMask << 8) | yMask;
 	tracePatch.cellMinRange = cellMinRange;
 	tracePatch.cellExtent = cellExtent;
 	tracePatch.boxMinRS = boxMinRS;
@@ -203,11 +201,8 @@ TracePatch LoadPatch( uint patchID )
 	tracePatch.cellSize = cellSize;
 	tracePatch.invCellSize = invCellSize;
 	tracePatch.blockCellPresence = blockCellPresences[blockPatch.blockPosID];
-	tracePatch.blockColorPalette = colorPalette;
+	tracePatch.blockColorPalette = colorPalette; // optim: could be computed at the end in order to save LDS
 	tracePatch.xdsp16_ydsp16 = blockPatch.xdsp16_ydsp16;
-#if BLOCK_DEBUG == 1
-	tracePatch.mip = mip;
-#endif // #if BLOCK_DEBUG == 1
 
 	return tracePatch;
 }
@@ -293,8 +288,9 @@ int Trace( inout Hit hit, float3 rayDir, float3 rayInvDir, uint patchRank )
 		hit.depth = tIn;
 		hit.xdsp16_ydsp16 = patch.xdsp16_ydsp16;
 #if BLOCK_DEBUG == 1
-		hit.mip = patch.mip;
+		hit.mip = patch.mip4_newBlock1_none11_xMask8_yMask8 >> 28;
 #endif // #if BLOCK_DEBUG == 1
+		hit.newBlock = (patch.mip4_newBlock1_none11_xMask8_yMask8 >> 27) & 1;
 	}
 
 	return hitCellID;
@@ -304,7 +300,7 @@ uint BuildTraceMask( uint group_xMask8_yMask8, uint patchOffset )
 {
 	uint patchMask = 0;
 	for ( uint patchBit = 0; patchBit < 32; ++patchBit )
-		patchMask |= ((group_xMask8_yMask8 & gs_patches[patchOffset + patchBit].none16_xMask8_yMask8) == group_xMask8_yMask8) << patchBit;
+		patchMask |= ((group_xMask8_yMask8 & gs_patches[patchOffset + patchBit].mip4_newBlock1_none11_xMask8_yMask8) == group_xMask8_yMask8) << patchBit;
 
 #if BLOCK_DEBUG == 1
 	InterlockedAdd( blockTraceStats[0].pixelEmptyMaskCount, patchMask == 0 );
@@ -404,6 +400,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	}
 
 	float3 groupColor = float3( 0.0f, 0.0f, 0.0f );
+	float responseFactor = 1.0f;
 
 	if ( hit.depth < HLSL_FLT_MAX )
 	{
@@ -425,6 +422,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		const uint rgb_none = hit.blockColorPalette[colorID];
 
 		groupColor = float3( (rgb_none >> 24) & 0xFF, (rgb_none >> 16) & 0xFF, (rgb_none >> 8) & 0xFF ) * (1.0f / 255.0f);
+		responseFactor = hit.newBlock ? 1.0f : 0.0f;
 
 #if BLOCK_DEBUG == 1
 		if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_MIPS )
@@ -432,6 +430,10 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			const float3 mipColors[] = { float3( 1.0f, 0.0f, 0.0f ), float3( 0.0f, 1.0f, 0.0f ), float3( 0.0f, 0.0f, 1.0f ) };
 			groupColor = mipColors[hit.mip % 3];
 			groupColor *= 1.0f / ( 1.0f + float( hit.mip / 3 ) );
+		}
+		else if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_HISTORY )
+		{
+			groupColor += hit.newBlock ? float3( 0.5f, 0.0f, 0.0f ) : float3( 0.0f, 0.f, 0.0f );
 		}
 #endif
 	}
@@ -442,7 +444,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		// 50 us
 
 		const uint2 screenBufferPos = uint2( DTid.x, c_traceFrameSize.y - DTid.y - 1 );
-		outputColors[screenBufferPos] = float4( groupColor, 1.0f );
+		outputColors[screenBufferPos] = float4( groupColor, responseFactor );
 
 		const uint pixelID = mad( screenBufferPos.y, c_traceFrameSize.x, screenBufferPos.x );
 		outputDisplacements[pixelID] = hit.xdsp16_ydsp16;

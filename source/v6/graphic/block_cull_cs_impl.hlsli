@@ -44,7 +44,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint packedBlockPos = blockPositions[blockPosID];
 
 		const uint mip = packedBlockPos >> 28;
-		const uint blockPos = packedBlockPos & 0x0FFFFFFF;
+		const uint blockPos = packedBlockPos & 0x07FFFFFF;
 		const uint gridMacroMask = (1 << c_cullGridMacroShift)-1;
 		const uint blockPosX = range.macroGridOffset.x + ((blockPos >> (c_cullGridMacroShift*0)) & gridMacroMask);
 		const uint blockPosY = range.macroGridOffset.y + ((blockPos >> (c_cullGridMacroShift*1)) & gridMacroMask);
@@ -69,9 +69,11 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			uint visibleBlockRank = 0;
 			InterlockedAdd( gs_visibleBlockCount, 1, visibleBlockRank );
 
+			const bool isNewBlock = range.frameDistance == 0 && c_cullFrameChanged;
+
 			VisibleBlock visibleBlock;
 			visibleBlock.blockPosID = blockPosID;
-			visibleBlock.packedBlockPos = (mip << 28) | (blockPosZ << (c_cullGridMacroShift*2)) | (blockPosY << c_cullGridMacroShift) | blockPosX;
+			visibleBlock.mip4_newBlock1_blockPos27 = (mip << 28) | (isNewBlock << 27) | (blockPosZ << (c_cullGridMacroShift*2)) | (blockPosY << c_cullGridMacroShift) | blockPosX;
 
 			gs_visibleBlocks[visibleBlockRank] = visibleBlock;
 

@@ -52,7 +52,8 @@ CBUFFER( CBCull, 0 )
 {
 	uint				c_cullGridMacroShift;
 	float				c_cullInvGridWidth;
-	uint2				c_cullPad0;
+	uint				c_cullFrameChanged;
+	uint				c_cullPad0;
 
 	float4				c_cullCentersAndGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4]; // w is pre-negated
@@ -120,7 +121,7 @@ struct BlockRange
 struct VisibleBlock
 {
 	uint blockPosID;
-	uint packedBlockPos;
+	uint mip4_newBlock1_blockPos27;
 };
 
 struct VisibleBlockContext
@@ -134,7 +135,7 @@ struct VisibleBlockContext
 struct BlockPatch
 {
 	uint	blockPosID;
-	uint	packedBlockPos;
+	uint	mip4_newBlock1_blockPos27;
 	uint	none4_cellmin222_cellmax222_x4_y4_w4_h4;
 	uint	xdsp16_ydsp16;
 };
