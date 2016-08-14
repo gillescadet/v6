@@ -317,6 +317,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/memory.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/optimization.cpp",				PROJECT_ENCODER },
 	{ "source/v6/core/stream.cpp",						PROJECT_ENCODER },
+	{ "source/v6/core/thread.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/time.cpp",						PROJECT_ENCODER },
 	{ "source/v6/encoder/main_encoder.cpp",				PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_ENCODER },

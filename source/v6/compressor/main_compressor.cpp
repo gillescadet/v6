@@ -1026,15 +1026,19 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 	*blocks = heap->newArray< RawBlock_s >( blockPosCount );
 	memset( *blocks, 0, blockPosCount * sizeof( RawBlock_s ) );
 
+	u32 rawBlockCount = 0;
 	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
+		if ( bucket != 2 )
+			continue;
+
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
 		{
 			const u32 blockPosID = blockPosOffsets[bucket] + blockRank;
 
-			RawBlock_s* block = &(*blocks)[blockPosID];
+			RawBlock_s* block = &(*blocks)[rawBlockCount];
 
 			const u32 blockDataID = blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
 			for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
@@ -1047,10 +1051,12 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 					++block->cellCount;
 				}
 			}
+
+			++rawBlockCount;
 		}
 	}
 
-	return blockPosCount;
+	return rawBlockCount;
 }
 
 void TestBlockCompression( IAllocator* allocator )
@@ -1195,7 +1201,7 @@ int main()
 		// v6::TestBlockCompression( &stack );
 
 		v6::EncodedBlockEx_s encodedBlockSum = {};
-		v6::u32 testBlockCount = v6::Min( blockCount, 1000000u );
+		v6::u32 testBlockCount = v6::Min( blockCount, 100000u );
 		v6::BenchBlockCompression( &encodedBlockSum, blocks, testBlockCount );
 
 		const v6::u64 endTick = v6::GetTickCount();

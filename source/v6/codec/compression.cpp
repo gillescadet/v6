@@ -361,6 +361,11 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 
 		const int radius = 4;
 
+		const u32 doneMaxCount = (radius * 2 + 1) * (radius * 2 + 1);
+		Color_s doneEncodedColors0[doneMaxCount];
+		Color_s doneEncodedColors1[doneMaxCount];
+		u32 doneCount = 0;
+
 		for ( int step0 = -radius; step0 <= radius; ++step0 )
 		{
 			const float t0 = tMin + step0 * tStep;
@@ -383,6 +388,22 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 					Color_s encodedColor1;
 					EndColor_F32ToU8( &encodedColor0, &endColor0 );
 					EndColor_F32ToU8( &encodedColor1, &endColor1 );
+
+					u32 doneID;
+					for ( doneID = 0; doneID < doneCount; ++doneID )
+					{
+						if ( encodedColor0.bits == doneEncodedColors0[doneID].bits && encodedColor1.bits == doneEncodedColors1[doneID].bits )
+							break;
+					}
+
+					if ( doneID < doneCount )
+						break;
+
+					V6_ASSERT( doneID < doneMaxCount );
+					doneEncodedColors0[doneID] = encodedColor0;
+					doneEncodedColors1[doneID] = encodedColor1;
+					++doneCount;
+
 					EndColor_U8ToF32( &endColor0, &encodedColor0 );
 					EndColor_U8ToF32( &endColor1, &encodedColor1 );
 				}

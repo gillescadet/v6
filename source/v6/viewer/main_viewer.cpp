@@ -1160,7 +1160,7 @@ static void SceneContext_Release( SceneContext_s* sceneContext )
 	sceneContext->stack->pop();
 }
 
-static void SceneContext_Load( SceneContext_s* sceneContext )
+static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 )
 {
 	V6_MSG( "Load scene\n" );
 
@@ -2272,7 +2272,7 @@ int main()
 	SceneContext_Create( &sceneContext, &stackScene );
 	SceneContext_SetFilename( &sceneContext, filename );
 
-	v6::Job_Launch( v6::SceneContext_Load, &sceneContext );
+	v6::Job_Launch( v6::SceneContext_Load, &sceneContext, 0, 0 );
 #endif
 
 	v6::Win_Show( &v6::s_win, true );

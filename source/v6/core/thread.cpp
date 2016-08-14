@@ -32,14 +32,14 @@ static unsigned long __stdcall WorkerThreadLoop( void* workerThreadPointer )
 			continue;
 		}
 
-		if ( lastJob == 0xFFFFFFFF )
-		const u32 jobID = workerThread->firstJob & JOB_BUFFER_MASK;
 		WorkerJob_t* job = &workerThread->jobs[workerThread->firstJob & JOB_BUFFER_MASK];
 
-		job->process( job->context );
+		job->process( job->context, job->arg0, job->arg1 );
 
 		job->process = nullptr;
 		job->context = nullptr;
+
+		V6_WRITE_BARRIER();
 
 		++workerThread->firstJob;
 	}
@@ -138,7 +138,7 @@ void WorkerThread_Create( WorkerThread_s* workerThread )
 	Thread_Create( WorkerThreadLoop, workerThread );
 }
 
-void WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcess_f process, void* context )
+void WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcess_f process, void* context, u32 arg0, u32 arg1 )
 {
 	V6_ASSERT( process != nullptr );
 	V6_ASSERT( workerThread->lastJob - workerThread->firstJob < JOB_BUFFER_SIZE );
@@ -146,6 +146,9 @@ void WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcess_f process,
 	V6_ASSERT( workerThread->jobs[jobID].process == nullptr );
 	workerThread->jobs[jobID].process = process;
 	workerThread->jobs[jobID].context = context;
+	workerThread->jobs[jobID].arg0 = arg0;
+	workerThread->jobs[jobID].arg1 = arg1;
+	V6_WRITE_BARRIER();
 	++workerThread->lastJob;
 }
 

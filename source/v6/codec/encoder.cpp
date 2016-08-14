@@ -12,15 +12,17 @@
 #include <v6/core/plot.h>
 #include <v6/core/stream.h>
 #include <v6/core/string.h>
+#include <v6/core/thread.h>
 #include <v6/core/vec3i.h>
 
 #define ENCODER_DEBUG					0
-#define ENCODER_SKIP_WRITING			1
+#define ENCODER_SKIP_WRITING			0
+#define ENCODER_DUMP_RANGES				0
 
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF
 
-#define ENCODER_BC1_WIP					0
+#define ENCODER_THREAD_COUNT			8
 
 BEGIN_V6_NAMESPACE
 
@@ -88,6 +90,7 @@ struct Context_s
 	IAllocator*			heap;
 	IStack*				stack;
 	RawFrame_s*			frames;
+	WorkerThread_s		threads[ENCODER_THREAD_COUNT];
 	Vec3i				gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i				gridMax[CODEC_MIP_MAX_COUNT];
 	CodecRange_s		rangeDefs[CODEC_RANGE_MAX_COUNT];
@@ -860,9 +863,9 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
 {
 	V6_ASSERT( refFrameRank <= frameRank );
-	const RawFrame_s* frame = &context->frames[frameRank];
+	const RawFrame_s* refFrame = &context->frames[refFrameRank];
 
-	if ( frame->sharedBlockCount == 0 )
+	if ( refFrame->sharedBlockCount == 0 )
 		return 0;
 
 	u32 rangeCount = 0;
@@ -870,7 +873,7 @@ static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWrite
 	const u32 minSharedFrameRank = frameRank - refFrameRank;
 	for ( u32 sharedFrameRank = minSharedFrameRank; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
 	{
-		const RawFrame_s::Shared_s* shared = &frame->shareds[sharedFrameRank];
+		const RawFrame_s::Shared_s* shared = &refFrame->shareds[sharedFrameRank];
 		if ( shared->blockCount == 0 )
 			continue;
 
@@ -913,7 +916,54 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequen
 		Codec_WriteSequence( streamWriter, &desc, &data );
 	}
 
+#if ENCODER_DUMP_RANGES == 1
+	for ( u32 rangeID = 0; rangeID < context->rangeDefCount; ++rangeID )
+	{
+		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
+		const u32 frameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
+		const u32 mip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
+		const u32 blockCount = (codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF);
+		V6_MSG( "Range %d: frame %d, mip %d, blockCount %d\n", rangeID, frameRank, mip, blockCount );
+	}
+#endif // #if ENCODER_DUMP_RANGES == 1
+
 	V6_MSG( "Header: range defs %d KB.\n", DivKB( memoryRangeDefWriter.GetPos() ) );
+}
+
+static void RawFrame_DumpRange( u32 frameRank, Context_s* context ) 
+{
+	if ( RawFrame_IsRefFrame( frameRank, context ) )
+	{
+		for ( u32 refFrameRank = 0; refFrameRank <= frameRank; ++refFrameRank )
+		{
+			V6_ASSERT( refFrameRank <= frameRank );
+			const RawFrame_s* refFrame = &context->frames[refFrameRank];
+
+			if ( refFrame->sharedBlockCount == 0 )
+				continue;
+
+			const u32 minSharedFrameRank = frameRank - refFrameRank;
+			for ( u32 sharedFrameRank = minSharedFrameRank; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
+			{
+				const RawFrame_s::Shared_s* shared = &refFrame->shareds[sharedFrameRank];
+				if ( shared->blockCount == 0 )
+					continue;
+
+				for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+				{
+					if ( !shared->blockCountPerMip[mip] )
+						continue;
+
+					const u32 rangeID = shared->rangeIDs[mip];
+
+					V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
+					V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
+
+					V6_MSG( "Frame %d: range %d in ref frame %d\n", frameRank, rangeID, refFrameRank );
+				}
+			}
+		}
+	}
 }
 
 static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
@@ -1004,6 +1054,8 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	context->stack = streamContext->stack;
 	context->frames = streamContext->stack->newArray< RawFrame_s >( frameCount );
 	context->frameCount = frameCount;
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+		WorkerThread_Create( &context->threads[threadID] );
 
 	const u32 prevSequenceSize = streamWriter->GetPos();
 
@@ -1037,7 +1089,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	for ( u32 frameRank = 0; frameRank < context->frameCount-1; ++frameRank )
 	{
 		const u32 linkCount = RawFrame_LinkBlocks( frameRank, context );
-		V6_MSG( "F%02d: %8d/%d, %5.1f%% shared block pos.\n", frameRank, linkCount, context->frames[frameRank].blockCount, linkCount * 100.0f / context->frames[frameRank].blockCount );
+		V6_MSG( "F%02d-%02d: %8d/%d, %5.1f%% shared block pos.\n", frameRank, frameRank+1, linkCount, context->frames[frameRank].blockCount, linkCount * 100.0f / context->frames[frameRank].blockCount );
 	}
 
 	V6_MSG( "Merging...\n" );
@@ -1086,6 +1138,11 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 			return false;
 		}
 #endif // #if ENCODER_SKIP_WRITING == 0
+
+#if ENCODER_DUMP_RANGES == 1
+		RawFrame_DumpRange( frameRank, context );
+#endif // #if ENCODER_DUMP_RANGES == 1
+
 		RawFrame_Release( frameRank, context );
 		V6_MSG( "F%02d: added %d KB.\n", frameRank, DivKB( streamWriter->GetPos() - prevFileSize ) );
 		prevFileSize = streamWriter->GetPos();
@@ -1097,6 +1154,9 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	V6_PRINT( "\n" );
 	V6_MSG( "Sequence %04d/%04d: %d KB, avg of %d KB/frame\n", sequenceID, streamContext->desc.sequenceCount, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
+
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+		WorkerThread_Release( &context->threads[threadID] );
 
 	return true;
 }
