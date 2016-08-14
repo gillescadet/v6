@@ -33,14 +33,17 @@ BEGIN_V6_NAMESPACE
 
 struct Block_s
 {
-	Block_s*	nextFrame;
+	union
+	{
+		Block_s*			nextFrameBlock;
+		EncodedBlockEx_s*	encodedBlock;
+	};
 	u64			key;
-	u64			cellPresence;
-	u32			pos;
-	u32			cellRGBA[CODEC_CELL_MAX_COUNT];
-	u8			mip;
+	u32			packedBlockPos;
+	u8			frameRank;
 	u8			linked;
 	u8			sharedFrameCount;
+	u8			bucket;
 };
 
 struct BlockCluster_s
@@ -62,6 +65,16 @@ struct RawFrame_s
 	Vec3i		gridMax[CODEC_MIP_MAX_COUNT];
 	u32			blockCountPerMip[CODEC_MIP_MAX_COUNT];
 	u32			blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
+
+	struct 
+	{
+		u32		blockPosOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
+		u32		blockDataOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
+		u32*	blockCellRGBA;
+		u64		lastBlockID;
+		u32		lastBlockCellRGBA[64];
+		u64		lastBlockCellPresence;
+	} data;
 
 	u32			sharedBlockCount;
 	struct Shared_s
@@ -89,6 +102,7 @@ struct Context_s
 	ContextStream_s*	stream;
 	IAllocator*			heap;
 	IStack*				stack;
+	BlockAllocator_s	blockAllocator;
 	RawFrame_s*			frames;
 	WorkerThread_s		threads[ENCODER_THREAD_COUNT];
 	Vec3i				gridMin[CODEC_MIP_MAX_COUNT];
@@ -137,28 +151,6 @@ static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShi
 	return key;
 }
 
-#if 0
-
-static int Block_CompareEncoded( void* bufferPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
-{
-	const EncodedBlock_s* encodedBlocks = (EncodedBlock_s*)bufferPointer;
-	const u32 blockID0 = *((u32*)blockIDPointer0);
-	const u32 blockID1 = *((u32*)blockIDPointer1);
-
-	return memcmp( &encodedBlocks[blockID0], &encodedBlocks[blockID1], sizeof( EncodedBlock_s ) );
-}
-
-static int Block_CompareEncodedEx( void* bufferPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
-{
-	const EncodedBlockEx_s* encodedBlockExs = (EncodedBlockEx_s*)bufferPointer;
-	const u32 blockID0 = *((u32*)blockIDPointer0);
-	const u32 blockID1 = *((u32*)blockIDPointer1);
-
-	return memcmp( &encodedBlockExs[blockID0], &encodedBlockExs[blockID1], sizeof( EncodedBlockEx_s ) );
-}
-
-#endif
-
 static int Block_CompareKey( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
 	RawFrame_s* frame = (RawFrame_s*)framePointer;
@@ -168,7 +160,7 @@ static int Block_CompareKey( void* framePointer, void const* blockIDPointer0, vo
 	return frame->blocks[blockID0].key < frame->blocks[blockID1].key ? -1 : 1;
 }
 
-static int Block_CompareBySharedFrameCountThenByKey2( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
+static int Block_CompareBySharedFrameCountThenByKey( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
 	RawFrame_s* frame = (RawFrame_s*)framePointer;
 	const u32 blockID0 = *((u32*)blockIDPointer0);
@@ -183,14 +175,61 @@ static int Block_CompareBySharedFrameCountThenByKey2( void* framePointer, void c
 	return frame->blocks[blockID0].key < frame->blocks[blockID1].key ? -1 : 1;
 }
 
-static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block )
+static void Block_GetColors( const u32** cellRGBA, u64* cellPresence, const Block_s* block, Context_s* context ) 
 {
+	RawFrame_s* rawFrame = &context->frames[block->frameRank];
+	const u32 blockID = (u32)(block - rawFrame->blocks);
+	
+	if ( blockID != rawFrame->data.lastBlockID )
+	{
+		const u32 blockRankInBucket = blockID - rawFrame->data.blockPosOffsets[block->bucket];
+		const u32 cellPerBucketCount = 1 << (block->bucket + 2);
+		const u32 blockDataID = rawFrame->data.blockDataOffsets[block->bucket] + blockRankInBucket * cellPerBucketCount;
+	
+		rawFrame->data.lastBlockCellPresence = 0;
+
+		for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+		{
+			const u32 rgba = rawFrame->data.blockCellRGBA[blockDataID + cellID];
+			if ( rgba == ENCODER_EMPTY_CELL )
+				break;
+				
+			const u32 cellPos = rgba & 0xFF;
+			V6_ASSERT( cellPos < 64 );
+
+			rawFrame->data.lastBlockCellRGBA[cellPos] = rgba;
+			rawFrame->data.lastBlockCellPresence |= 1ll << cellPos;
+		}
+
+		rawFrame->data.lastBlockID = blockID;
+	}
+
+	*cellRGBA = rawFrame->data.lastBlockCellRGBA;
+	*cellPresence = rawFrame->data.lastBlockCellPresence;
+}
+
+static u32 Block_GetMip( const Block_s* block )
+{
+	return block->packedBlockPos >> 28;
+}
+
+static u32 Block_GetPos( const Block_s* block )
+{
+	return block->packedBlockPos & 0x0FFFFFFF;
+}
+
+static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block, Context_s* context )
+{
+	const u32* blockCellRGBA;
+	u64 blockCellPresence;
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context );
+
 #if ENCODER_STRICT_CELL == 1
-	if ( block->cellPresence != cluster->cellPresence )
+	if ( blockCellPresence != cluster->cellPresence )
 		return false;
 #endif // #if ENCODER_STRICT_CELL == 1
 
-	u64 commonPresence = block->cellPresence & cluster->cellPresence;
+	u64 commonPresence = blockCellPresence & cluster->cellPresence;
 
 	if ( commonPresence == 0 )
 		return false;
@@ -200,9 +239,9 @@ static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const 
 		const u32 cellPos = Bit_GetFirstBitHigh( commonPresence );
 		commonPresence -= 1ll << cellPos;
 
-		const u32 refR = (block->cellRGBA[cellPos] >> 24) & 0xFF;
-		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
-		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
+		const u32 refR = (blockCellRGBA[cellPos] >> 24) & 0xFF;
+		const u32 refG = (blockCellRGBA[cellPos] >> 16) & 0xFF;
+		const u32 refB = (blockCellRGBA[cellPos] >>  8) & 0xFF;
 
 		const u32 avgR = cluster->cellRGB[cellPos].x / cluster->cellCount[cellPos];
 		const u32 avgG = cluster->cellRGB[cellPos].y / cluster->cellCount[cellPos];
@@ -220,14 +259,18 @@ static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const 
 	return true;
 }
 
-static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster, const Block_s* block )
+static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster, const Block_s* block, Context_s* context )
 {
+	const u32* blockCellRGBA;
+	u64 blockCellPresence;
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context );
+
 #if ENCODER_STRICT_CELL == 1
-	if ( block->cellPresence != cluster->cellPresence )
+	if ( blockCellPresence != cluster->cellPresence )
 		return false;
 #endif // #if ENCODER_STRICT_CELL == 1
 
-	u64 commonPresence = block->cellPresence & cluster->cellPresence;
+	u64 commonPresence = blockCellPresence & cluster->cellPresence;
 
 	if ( commonPresence == 0 )
 		return false;
@@ -237,9 +280,9 @@ static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster,
 		const u32 cellPos = Bit_GetFirstBitHigh( commonPresence );
 		commonPresence -= 1ll << cellPos;
 
-		const u32 refR = (block->cellRGBA[cellPos] >> 24) & 0xFF;
-		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
-		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
+		const u32 refR = (blockCellRGBA[cellPos] >> 24) & 0xFF;
+		const u32 refG = (blockCellRGBA[cellPos] >> 16) & 0xFF;
+		const u32 refB = (blockCellRGBA[cellPos] >>  8) & 0xFF;
 
 		const u32 avgR = (refR + cluster->cellRGB[cellPos].x) / (1 + cluster->cellCount[cellPos]);
 		const u32 avgG = (refG + cluster->cellRGB[cellPos].y) / (1 + cluster->cellCount[cellPos]);
@@ -257,9 +300,13 @@ static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster,
 	return true;
 }
 
-static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* block )
+static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* block, Context_s* context )
 {
-	u64 blockPresence = block->cellPresence;
+	const u32* blockCellRGBA;
+	u64 blockCellPresence;
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context );
+
+	u64 blockPresence = blockCellPresence;
 	V6_ASSERT( blockPresence != 0 )
 
 	do
@@ -267,9 +314,9 @@ static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* bloc
 		const u32 cellPos = Bit_GetFirstBitHigh( blockPresence );
 		blockPresence -= 1ll << cellPos;
 
-		const u32 refR = (block->cellRGBA[cellPos] >> 24) & 0xFF;
-		const u32 refG = (block->cellRGBA[cellPos] >> 16) & 0xFF;
-		const u32 refB = (block->cellRGBA[cellPos] >>  8) & 0xFF;
+		const u32 refR = (blockCellRGBA[cellPos] >> 24) & 0xFF;
+		const u32 refG = (blockCellRGBA[cellPos] >> 16) & 0xFF;
+		const u32 refB = (blockCellRGBA[cellPos] >>  8) & 0xFF;
 
 		cluster->cellRGB[cellPos].x += refR;
 		cluster->cellRGB[cellPos].y += refG;
@@ -278,15 +325,15 @@ static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* bloc
 
 	} while ( blockPresence != 0 );
 
-	cluster->cellPresence |= block->cellPresence;
+	cluster->cellPresence |= blockCellPresence;
 }
 
-static void BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* block )
+static EncodedBlockEx_s* BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* block, Context_s* context )
 {
 	u64 cellPresence = cluster->cellPresence;
 	V6_ASSERT( cellPresence != 0 )
 	
-	block->cellPresence = cellPresence;
+	u32 blockCellRGBA[64];
 	u32 blockCellCount = 0;
 
 	do
@@ -298,31 +345,41 @@ static void BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* 
 		const u32 refG = cluster->cellRGB[cellPos].y / cluster->cellCount[cellPos];
 		const u32 refB = cluster->cellRGB[cellPos].z / cluster->cellCount[cellPos];
 
-		block->cellRGBA[cellPos] = (refR << 24) | (refG << 16) | (refB << 8) | cellPos;
+		blockCellRGBA[blockCellCount] = (refR << 24) | (refG << 16) | (refB << 8) | cellPos;
 		++blockCellCount;
 
 	} while ( cellPresence != 0 );
+
+	EncodedBlockEx_s* encodedBlock = BlockAllocator_Add< EncodedBlockEx_s >( &context->blockAllocator, 1 );
+	memset( encodedBlock, 0, sizeof( EncodedBlockEx_s ) );
+	Block_Encode_Optimize( encodedBlock, blockCellRGBA, blockCellCount );
+
+	return encodedBlock;
 }
 
-static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBlock, u32 clusterDiffCount, u32 sharedFrameCount )
+static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBlock, u32 clusterDiffCount, u32 sharedFrameCount, Context_s* context )
 {
-	clusterDiffCount += Bit_GetBitHighCount( cluster->cellPresence ^ linkedBlock->cellPresence );
-	if ( clusterDiffCount > CODEC_COLOR_COUNT_TOLERANCE || !BlockCluster_HasSimilarAverageColors( cluster, linkedBlock ) )
+	const u32* linkedBlockCellRGBA;
+	u64 linkedBlockCellPresence;
+	Block_GetColors( &linkedBlockCellRGBA, &linkedBlockCellPresence, linkedBlock, context );
+
+	clusterDiffCount += Bit_GetBitHighCount( cluster->cellPresence ^ linkedBlockCellPresence );
+	if ( clusterDiffCount > CODEC_COLOR_COUNT_TOLERANCE || !BlockCluster_HasSimilarAverageColors( cluster, linkedBlock, context ) )
 		return sharedFrameCount;
 
-	BlockCluster_AddColors( cluster, linkedBlock );
+	BlockCluster_AddColors( cluster, linkedBlock, context );
 	++sharedFrameCount;
 
-	if ( !linkedBlock->nextFrame )
+	if ( !linkedBlock->nextFrameBlock )
 		return sharedFrameCount;
 
 	const BlockCluster_s prevCluster = *cluster;
 
-	const u32 nextSharedFrameCount = BlockCluster_LinkColors( cluster, linkedBlock->nextFrame, clusterDiffCount, sharedFrameCount );
+	const u32 nextSharedFrameCount = BlockCluster_LinkColors( cluster, linkedBlock->nextFrameBlock, clusterDiffCount, sharedFrameCount, context );
 	if ( nextSharedFrameCount == sharedFrameCount )
 		return sharedFrameCount;
 
-	if ( !BlockCluster_HasSimilarColors( cluster, linkedBlock ) )
+	if ( !BlockCluster_HasSimilarColors( cluster, linkedBlock, context ) )
 	{
 		*cluster = prevCluster;
 		return sharedFrameCount;
@@ -462,9 +519,6 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 #endif // #if ENCODER_DEBUG == 1
 	}
 
-	u32 blockPosOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
-	u32 blockDataOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
-
 	u32 blockPosCount = 0;
 	u32 blockDataCount = 0;
 	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
@@ -472,8 +526,8 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		const u32 cellCount = desc.blockCounts[bucket] * cellPerBucketCount;
-		blockPosOffsets[bucket] = blockPosCount;
-		blockDataOffsets[bucket] = blockDataCount;
+		frame->data.blockPosOffsets[bucket] = blockPosCount;
+		frame->data.blockDataOffsets[bucket] = blockDataCount;
 		blockPosCount += desc.blockCounts[bucket];
 		blockDataCount += cellCount;
 	}
@@ -481,6 +535,10 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	frame->blocks = context->heap->newArray< Block_s >( blockPosCount );
 	memset( frame->blocks, 0, blockPosCount * sizeof( Block_s ) );
 	frame->blockCount = blockPosCount;
+
+	frame->data.blockCellRGBA = context->heap->newArray< u32 >( blockDataCount );
+	memcpy( frame->data.blockCellRGBA, data.blockData, blockDataCount * sizeof( u32 ) );
+	frame->data.lastBlockID = 0xFFFFFFFF;
 
 	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
@@ -492,36 +550,37 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			Plot_NewObject( &plot, Color_Make( 255, 0, 0, 50 ) );
 #endif // #if ENCODER_DEBUG == 1
 
-			const u32 blockPosID = blockPosOffsets[bucket] + blockRank;
+			const u32 blockPosID = frame->data.blockPosOffsets[bucket] + blockRank;
 
 			Block_s* block = &frame->blocks[blockPosID];
 			const u32 packedBlockPos = ((u32*)data.blockPos)[blockPosID];
-			block->mip = packedBlockPos >> 28;
-			block->pos = packedBlockPos & 0x0FFFFFFF;
+			block->packedBlockPos = packedBlockPos;
+			block->frameRank = frameRank;
+			block->bucket = bucket;
 
-			const u32 blockDataID = blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
+#if ENCODER_DEBUG == 1
+			const u32 blockDataID = frame->data.blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
 			for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
 			{
 				const u32 rgba = ((u32*)data.blockData)[blockDataID + cellID];
+				if ( rgba == ENCODER_EMPTY_CELL )
+					break;
+				
 				const u32 cellPos = rgba & 0xFF;
-				if ( cellPos != 0xFF )
-				{
-					block->cellPresence |= 1ll << cellPos;
-					block->cellRGBA[cellPos] = rgba;
-#if ENCODER_DEBUG == 1
-					const Vec3u cellCoords = ComputeCellCoords( block->pos, context->stream->desc.gridMacroShift, cellPos );
-					Vec3 pMin;
-					pMin.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-					pMin.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-					pMin.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-					const Vec3 pMax = pMin + halfCellSizes[block->mip] * 2.0f;
-					Plot_AddBox( &plot, &pMin, &pMax, false );
-					Plot_AddBox( &plot, &pMin, &pMax, true );
-#endif // #if ENCODER_DEBUG == 1
-				}
-			}
+				V6_ASSERT( cellPos < 64 );
 
-			++frame->blockCountPerMip[block->mip];
+				const Vec3u cellCoords = ComputeCellCoords( block->pos, context->stream->desc.gridMacroShift, cellPos );
+				Vec3 pMin;
+				pMin.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+				pMin.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+				pMin.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
+				const Vec3 pMax = pMin + halfCellSizes[block->mip] * 2.0f;
+				Plot_AddBox( &plot, &pMin, &pMax, false );
+				Plot_AddBox( &plot, &pMin, &pMax, true );
+			}
+#endif // #if ENCODER_DEBUG == 1
+
+			++frame->blockCountPerMip[Block_GetMip( block )];
 		}
 	}
 
@@ -544,6 +603,7 @@ static void RawFrame_Release( u32 frameRank, Context_s* context )
 	RawFrame_s* frame = &context->frames[frameRank];
 
 	context->heap->free( frame->blocks );
+	context->heap->free( frame->data.blockCellRGBA );
 	context->heap->free( frame->blockIDs );
 }
 
@@ -555,7 +615,8 @@ static void RawFrame_SortByKey( u32 frameRank, Context_s* context )
 	for ( u32 blockID = 0; blockID < frame->blockCount; ++blockID )
 	{
 		Block_s* block = &frame->blocks[blockID];
-		block->key = ComputeKeyFromMipAndBlockPos( block->mip, block->pos, context->stream->desc.gridMacroShift, frame->gridMin[block->mip] - context->gridMin[block->mip] );
+		const u32 mip = Block_GetMip( block );
+		block->key = ComputeKeyFromMipAndBlockPos( mip, Block_GetPos( block ), context->stream->desc.gridMacroShift, frame->gridMin[mip] - context->gridMin[mip] );
 		V6_ASSERT( block->key != 0 );
 		frame->blockIDs[blockID] = blockID;
 	}
@@ -564,8 +625,8 @@ static void RawFrame_SortByKey( u32 frameRank, Context_s* context )
 
 	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
 		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
-			frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]].mip == mip && 
-			frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]].mip == mip) );
+			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]] ) == mip && 
+			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]] ) == mip) );
 }
 
 static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
@@ -603,11 +664,11 @@ static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
 			const u32 nextBlockID = nextFrame->blockIDs[nextBlockOrder];
 			Block_s* curBlock = &curFrame->blocks[curBlockID];
 			Block_s* nextBlock = &nextFrame->blocks[nextBlockID];
-			V6_ASSERT( curBlock->mip == mip );
-			V6_ASSERT( nextBlock->mip == mip );
+			V6_ASSERT( Block_GetMip( curBlock ) == mip );
+			V6_ASSERT( Block_GetMip( nextBlock ) == mip );
 			if ( curBlock->key == nextBlock->key )
 			{
-				curBlock->nextFrame = nextBlock;
+				curBlock->nextFrameBlock = nextBlock;
 				nextBlock->linked = true;
 				++linkCount;
 				++curBlockRank;
@@ -645,10 +706,10 @@ static void RawFrame_Skip( u32 frameRank, u32 refFrameRank, Context_s* context )
 		if ( block->linked )
 			continue;
 
-		if ( !block->nextFrame )
+		if ( !block->nextFrameBlock )
 			continue;
 
-		block->nextFrame->linked = false;
+		block->nextFrameBlock->linked = false;
 	}
 
 	frame->refFrameRank = refFrameRank;
@@ -670,28 +731,23 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 
 		++rootCount;
 
-		if ( !block->nextFrame )
-			continue;
-
 		BlockCluster_s cluster = {};
-		BlockCluster_AddColors( &cluster, block );
+		BlockCluster_AddColors( &cluster, block, context );
 
-		u32 sharedFrameCount = BlockCluster_LinkColors( &cluster, block->nextFrame, 0, 0 );
-
-		if ( sharedFrameCount )
+		if ( !block->nextFrameBlock )
 		{
-			if ( !BlockCluster_HasSimilarColors( &cluster, block ) )
-			{
-				sharedFrameCount = 0;
-			}
-			else
-			{
-				BlockCluster_ResolveColors( &cluster, block );
-				block->sharedFrameCount = sharedFrameCount;
-			}
+			block->encodedBlock = BlockCluster_ResolveColors( &cluster, block, context );
+			continue;
 		}
-		
-		for ( Block_s* linkedBlock = block->nextFrame; linkedBlock; linkedBlock = linkedBlock->nextFrame, --sharedFrameCount )
+
+		u32 sharedFrameCount = BlockCluster_LinkColors( &cluster, block->nextFrameBlock, 0, 0, context );
+
+		if ( sharedFrameCount && !BlockCluster_HasSimilarColors( &cluster, block, context ) )
+			sharedFrameCount = 0;
+
+		block->sharedFrameCount = sharedFrameCount;
+
+		for ( Block_s* linkedBlock = block->nextFrameBlock; linkedBlock; linkedBlock = linkedBlock->nextFrameBlock, --sharedFrameCount )
 		{
 			if ( sharedFrameCount == 0 )
 			{
@@ -700,6 +756,8 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 			}
 		}
 		V6_ASSERT( sharedFrameCount == 0 );
+
+		block->encodedBlock = BlockCluster_ResolveColors( &cluster, block, context );
 	}
 
 	return rootCount;
@@ -721,14 +779,14 @@ static void RawFrame_SortByRange( u32 frameRank, Context_s* context )
 		++rootCount;
 	}
 
-	qsort_s( frame->blockIDs, rootCount, sizeof( u32 ), Block_CompareBySharedFrameCountThenByKey2, frame );
+	qsort_s( frame->blockIDs, rootCount, sizeof( u32 ), Block_CompareBySharedFrameCountThenByKey, frame );
 
 	for ( u32 blockOrder = 0; blockOrder < rootCount; ++blockOrder )
 	{
 		const u32 blockID = frame->blockIDs[blockOrder];
 		const Block_s* block = &frame->blocks[blockID];
 		const u32 sharedFrameRank = block->sharedFrameCount;
-		++frame->shareds[sharedFrameRank].blockCountPerMip[block->mip];
+		++frame->shareds[sharedFrameRank].blockCountPerMip[Block_GetMip( block )];
 	}
 
 	u32 blockOffset = 0;
@@ -829,30 +887,13 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 				const u32 blockOrder = shared->blockOffsetPerMip[mip] + blockRank;
 				const u32 blockID = frame->blockIDs[blockOrder];
 				const Block_s* block = &frame->blocks[blockID];
-				V6_ASSERT( block->mip == mip );
-				const u32 packedBlockPos = (block->mip << 28) | block->pos;
-				blockPosWriter->Write( &packedBlockPos, sizeof( u32 ) );
-				u32 cellRGBA[CODEC_CELL_MAX_COUNT];
-				u32 cellCount = 0;
-				{
-					u64 cellPresence = block->cellPresence;
-					V6_ASSERT( cellPresence );
-					do
-					{
-						const u32 cellPos = Bit_GetFirstBitHigh( cellPresence );
-						cellPresence -= 1ll << cellPos;
-						cellRGBA[cellCount] = block->cellRGBA[cellPos];
-						++cellCount;
-					} while ( cellPresence != 0 );
-				}
-
-				EncodedBlockEx_s encodedBlock;
-				Block_Encode_Optimize( &encodedBlock, cellRGBA, cellCount );
-				V6_ASSERT( encodedBlock.cellPresence == block->cellPresence );
-				blockDataWriters[0]->Write( &encodedBlock.cellPresence, sizeof( u64 ) );
-				blockDataWriters[1]->Write( &encodedBlock.cellEndColors, sizeof( u32 ) );
-				blockDataWriters[2]->Write( &encodedBlock.cellColorIndices[0], sizeof( u64 ) );
-				blockDataWriters[3]->Write( &encodedBlock.cellColorIndices[1], sizeof( u64 ) );
+				V6_ASSERT( Block_GetMip( block ) == mip );
+				blockPosWriter->Write( &block->packedBlockPos, sizeof( u32 ) );
+				V6_ASSERT( block->encodedBlock != nullptr );
+				blockDataWriters[0]->Write( &block->encodedBlock->cellPresence, sizeof( u64 ) );
+				blockDataWriters[1]->Write( &block->encodedBlock->cellEndColors, sizeof( u32 ) );
+				blockDataWriters[2]->Write( &block->encodedBlock->cellColorIndices[0], sizeof( u64 ) );
+				blockDataWriters[3]->Write( &block->encodedBlock->cellColorIndices[1], sizeof( u64 ) );
 			}
 		}
 	}
@@ -1044,6 +1085,8 @@ static void Context_UpdateLimits( Context_s* context )
 
 static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, u32 frameCount, ContextStream_s* streamContext )
 {
+	bool success = false;
+
 	ScopedStack scopedStack( streamContext->stack );
 
 	Context_s* context = streamContext->stack->newInstance< Context_s >();
@@ -1052,6 +1095,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	context->stream = streamContext;
 	context->heap = streamContext->heap;
 	context->stack = streamContext->stack;
+	BlockAllocator_Create( &context->blockAllocator, context->heap, MulMB( 16u ) );
 	context->frames = streamContext->stack->newArray< RawFrame_s >( frameCount );
 	context->frameCount = frameCount;
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
@@ -1072,7 +1116,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 		{
 			for( ; frameRank > 0; --frameRank )
 				RawFrame_Release( frameRank-1, context );
-			return false;
+			goto cleanup;
 		}
 
 		V6_MSG( "F%02d: loaded %d blocks from %s.\n", frameRank, context->frames[frameRank].blockCount, filename );
@@ -1135,7 +1179,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 		{
 			for( ; frameRank < context->frameCount; ++frameRank )
 				RawFrame_Release( frameRank-1, context );
-			return false;
+			goto cleanup;
 		}
 #endif // #if ENCODER_SKIP_WRITING == 0
 
@@ -1155,10 +1199,16 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	V6_MSG( "Sequence %04d/%04d: %d KB, avg of %d KB/frame\n", sequenceID, streamContext->desc.sequenceCount, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
 
+	success = true;
+
+cleanup:
+
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 		WorkerThread_Release( &context->threads[threadID] );
 
-	return true;
+	BlockAllocator_Release( &context->blockAllocator );
+
+	return success;
 }
 
 

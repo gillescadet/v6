@@ -25,7 +25,7 @@ CHeap::~CHeap()
 
 void * CHeap::alloc(int nSize)
 {
-	// V6_MSG( "allocation of %d bytes\n", nSize );
+	V6_MSG( "allocation of %d bytes\n", nSize );
 	++m_notFreeCount;
 	return ::malloc( (u32)nSize );
 }
@@ -58,7 +58,7 @@ void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
 		return (void*)(newBlock+1);
 	}
 
-	void* data = (u8*)(allocator->firstBlock+1) + size;
+	void* data = (u8*)(allocator->firstBlock+1) + allocator->firstBlock->size;
 	allocator->firstBlock->size += size;
 	return data;
 }
@@ -84,26 +84,6 @@ void BlockAllocator_Release( BlockAllocator_s* allocator )
 {
 	BlockAllocator_Clear( allocator );
 	memset( allocator, 0, sizeof( BlockAllocator_s ) );
-}
-
-CBlockAllocator::CBlockAllocator( IAllocator & oHeap, int nBlockCapacity )
-{
-	BlockAllocator_Create( &allocator, &oHeap, (u32)nBlockCapacity );
-}
-
-CBlockAllocator::~CBlockAllocator()
-{
-	BlockAllocator_Release( &allocator );
-}
-
-void * CBlockAllocator::alloc(int nSize)
-{
-	return BlockAllocator_Alloc( &allocator, (u32)nSize );
-}
-
-void CBlockAllocator::clear()
-{
-	BlockAllocator_Clear( &allocator );
 }
 
 static const u32 STACK_CAPACITY = 32;
@@ -152,33 +132,6 @@ void Stack::pop()
 {
 	V6_ASSERT( m_stackSize > 0 );
 	m_size = m_stack[--m_stackSize];
-}
-
-void GrowingAllocator_Extend( GrowingAllocator_s* allocator, u32 size )
-{
-	if ( allocator->size + size > allocator->capacity )
-	{
-		void* data = allocator->data;
-		allocator->capacity = Max( allocator->size + size, allocator->capacity * 2 );
-		allocator->data = allocator->heap->alloc( (int)allocator->capacity );
-		memcpy( allocator->data, data, allocator->size );
-		allocator->heap->free( data );
-	}
-	allocator->size += size;
-}
-
-void GrowingAllocator_Create( GrowingAllocator_s* allocator, IAllocator* heap )
-{
-	allocator->heap = heap;
-	allocator->data = nullptr;
-	allocator->size = 0;
-	allocator->capacity = 0;
-}
-
-void GrowingAllocator_Release( GrowingAllocator_s* allocator )
-{
-	allocator->heap->free( allocator->data );
-	memset( allocator, 0, sizeof( GrowingAllocator_s ) );
 }
 
 END_V6_NAMESPACE
