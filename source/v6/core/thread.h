@@ -33,6 +33,11 @@ struct JobBackend_s
 	u32				arg1;
 };
 
+struct Mutex_s
+{
+	void*			handle;
+};
+
 struct Signal_s
 {
 	void*			handle;
@@ -63,6 +68,11 @@ u64			Atomic_Or( u64* v, u64 mask );
 
 template  < typename T >
 void Job_Launch( typename Job_s< T >::Process_f process,  T* context );
+
+void Mutex_Create( Mutex_s* mutex );
+void Mutex_Lock( Mutex_s* mutex );
+void Mutex_Unlock( Mutex_s* mutex );
+void Mutex_Release( Mutex_s* mutex );
 
 void Signal_Create( Signal_s* signal );
 void Signal_Emit( Signal_s* signal );

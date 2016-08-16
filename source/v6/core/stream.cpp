@@ -8,8 +8,6 @@
 
 BEGIN_V6_NAMESPACE
 
-/// CFileReader
-
 CFileReader::CFileReader()
 : m_file( nullptr )
 {

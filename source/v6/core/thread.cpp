@@ -102,6 +102,26 @@ u64 Atomic_Or( u64* v, u64 inc )
 	return InterlockedOr( v, inc );
 }
 
+void Mutex_Create( Mutex_s* mutex )
+{
+	mutex->handle = CreateMutex( nullptr, false, nullptr );
+}
+
+void Mutex_Lock( Mutex_s* mutex )
+{
+	WaitForSingleObject( mutex->handle, INFINITE );
+}
+
+void Mutex_Unlock( Mutex_s* mutex )
+{
+	ReleaseMutex( mutex->handle );
+}
+
+void Mutex_Release( Mutex_s* mutex )
+{
+	CloseHandle( mutex->handle );
+}
+
 void Signal_Create( Signal_s* signal )
 {
 	signal->handle = CreateEvent( nullptr, true, false, nullptr );

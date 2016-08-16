@@ -4,6 +4,7 @@
 
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
+#include <v6/core/thread.h>
 
 BEGIN_V6_NAMESPACE
 
@@ -14,19 +15,19 @@ struct MemoryBlock_s
 	MemoryBlock_s*	next;
 };
 
-CHeap::CHeap() : m_notFreeCount( 0 )
+CHeap::CHeap() : m_allocCount( 0 ), m_freeCount( 0 )
 {
 }
 
 CHeap::~CHeap()
 {
-	V6_ASSERT( m_notFreeCount == 0 );
+	V6_ASSERT( m_allocCount == m_freeCount );
 }
 
-void * CHeap::alloc(int nSize)
+void* CHeap::alloc(int nSize)
 {
 	// V6_MSG( "allocation of %d bytes\n", nSize );
-	++m_notFreeCount;
+	Atomic_Inc( &m_allocCount );
 	return ::malloc( (u32)nSize );
 }
 
@@ -35,13 +36,13 @@ void CHeap::free(void * p)
 	if ( p == nullptr )
 		return;
 	
-	--m_notFreeCount;
+	Atomic_Inc( &m_freeCount );
 	::free(p);
 }
 
 void * CHeap::realloc(void * p, int nSize)
 {
-	++m_notFreeCount;
+	Atomic_Inc( &m_allocCount );
 	return ::realloc(p, (u32)nSize);
 }
 

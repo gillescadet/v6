@@ -278,15 +278,18 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/bin2h/main_bin2h.cpp",					PROJECT_BIN2H },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_BIN2H },
 	{ "source/v6/core/memory.cpp",						PROJECT_BIN2H },
+	{ "source/v6/core/thread.cpp",						PROJECT_BIN2H },
 	
 	// bmfont parser
 	{ "source/v6/bmfont_parser/main_bmfont_parser.cpp",	PROJECT_BMFONTPARSER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_BMFONTPARSER },
 	{ "source/v6/core/memory.cpp",						PROJECT_BMFONTPARSER },
+	{ "source/v6/core/thread.cpp",						PROJECT_BMFONTPARSER },
 	
 	// class wrapper
 	{ "source/v6/core/memory.cpp",						PROJECT_CLASSWRAPPER },
 	{ "source/v6/core/filesystem.cpp",					PROJECT_CLASSWRAPPER },
+	{ "source/v6/core/thread.cpp",						PROJECT_CLASSWRAPPER },
 	{ "source/v6/class_wrapper/main_class_wrapper.cpp",	PROJECT_CLASSWRAPPER },
 
 	// compressor
@@ -298,6 +301,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/core/optimization.cpp",				PROJECT_COMPRESSOR },
 	{ "source/v6/core/stream.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/string.cpp",						PROJECT_COMPRESSOR },
+	{ "source/v6/core/thread.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/core/time.cpp",						PROJECT_COMPRESSOR },
 	{ "source/v6/compressor/main_compressor.cpp",		PROJECT_COMPRESSOR },
 	{ "thirdparty/lz4/lib/lz4.c",						PROJECT_COMPRESSOR },

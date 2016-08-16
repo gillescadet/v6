@@ -83,7 +83,8 @@ public:
 	virtual void *	realloc(void * p, int nSize) override;
 
 private:
-	int				m_notFreeCount;
+	u32				m_allocCount;
+	u32				m_freeCount;
 };
 
 class Stack : public IStack
