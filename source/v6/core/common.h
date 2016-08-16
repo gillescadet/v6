@@ -33,6 +33,7 @@
 #define V6_WARNING( ... )			do { V6_PRINT( "[WARNING] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
 #define V6_ERROR( ... )				do { V6_PRINT( "[ERROR] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
 
+#define V6_ALIGN( SIZE )			__declspec( align( SIZE ) )
 #define V6_INLINE					__inline
 
 #pragma warning( push, 3 )

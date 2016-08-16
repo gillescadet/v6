@@ -989,7 +989,7 @@ void BenchBlockCompression( EncodedBlockEx_s* sum, const RawBlock_s* blocks, u32
 
 u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stack, const char* filename )
 {
-	CFileReader fileReader;
+	CUnbufferedFileReader fileReader;
 	if ( !fileReader.Open( filename ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", filename );
@@ -1001,7 +1001,7 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 	CodecRawFrameDesc_s desc;
 	CodecRawFrameData_s data;
 
-	if ( !Codec_ReadRawFrame( &fileReader, &desc, &data, stack ) )
+	if ( !Codec_ReadRawFrame( &fileReader, &desc, &data, nullptr, stack ) )
 	{
 		V6_ERROR( "Unable to read %s.\n", filename );
 		return 0;

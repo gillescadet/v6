@@ -16,6 +16,8 @@
 #include "ScenePrivate.h"
 #include "Video6DOFWrapper.h"
 
+#include <v6/core/math.h>
+#include <v6/core/memory.h>
 #include <v6/core/vec3.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shared.h>
@@ -49,6 +51,8 @@ FD3D11TextureBase*			s_captureRenderTarget;
 FD3D11TextureBase*			s_colorRenderTarget;
 FD3D11TextureBase*			s_depthRenderTarget;
 v6::u32						s_capturedSampleCount;
+v6::CHeap					s_heap;
+v6::Stack					s_stack( &s_heap, v6::MulMB( 200 ) );
 
 extern ID3D11Device*		v6::g_device;
 extern ID3D11DeviceContext*	v6::g_deviceContext;
@@ -85,7 +89,7 @@ static void Scene_End()
 		
 		FString path = FString::Printf( TEXT( "%s_%06u.v6f" ), TEXT( "d:/tmp/v6/ue" ), s_captureFrameID );
 
-		v6::CFileWriter fileWriter;
+		v6::CUnbufferedFileWriter fileWriter;
 		if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
 		{
 			UE_LOG( LogVideo6DOF, Error, TEXT( "Unable to create file." ) );
@@ -105,8 +109,9 @@ static void Scene_End()
 			v6::CodecRawFrameData_s frameData = {};
 
 			{
+				v6::ScopedStack scopedStack( &s_stack );
 				v6::CaptureContext_MapBlocksForRead( &s_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
-				v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
+				v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData, nullptr, &s_stack );
 				v6::CaptureContext_UnmapBlocksForRead( &s_captureContext );
 			}
 		}
@@ -353,6 +358,7 @@ UVideo6DOFCapturer::UVideo6DOFCapturer( FVTableHelper& Helper )
 void UVideo6DOFCapturer::Startup()
 {
 	Device_Override();
+	
 }
 
 void UVideo6DOFCapturer::Shutdown()

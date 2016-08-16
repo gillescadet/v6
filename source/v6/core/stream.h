@@ -50,6 +50,27 @@ private:
 	void* m_file;
 };
 
+class CUnbufferedFileReader : public IStreamReader
+{
+public:
+	CUnbufferedFileReader();
+	virtual ~CUnbufferedFileReader();
+
+public:
+	bool Open(const char * sFilename);
+	void Close();
+
+public:
+	virtual int GetPos() const;
+	virtual int GetSize() const;
+	virtual void Read( int nSize, void *data );
+	virtual void SetPos( int pos );
+	virtual void Skip( int nSize );
+
+private:
+	void* m_file;
+};
+
 class CFileWriter : public IStreamWriter
 {
 public:
@@ -68,6 +89,26 @@ public:
 
 private:
 	void * m_pFile;
+};
+
+class CUnbufferedFileWriter : public IStreamWriter
+{
+public:
+	CUnbufferedFileWriter();
+	virtual ~CUnbufferedFileWriter();
+
+public:
+	bool Open(const char * sFilename);
+	void Close();
+
+public:
+	virtual int GetPos() const;
+	virtual int GetSize() const;
+	virtual void SetPos( int pos );
+	virtual void Write( const void * pData, int nSize );
+
+private:
+	void * m_file;
 };
 
 class CBufferReader : public IStreamReader

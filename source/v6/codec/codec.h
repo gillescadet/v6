@@ -12,7 +12,7 @@
 BEGIN_V6_NAMESPACE
 
 #define CODEC_RAWFRAME_MAGIC			"V6RF"
-#define CODEC_RAWFRAME_VERSION			5
+#define CODEC_RAWFRAME_VERSION			6
 
 #define CODEC_FRAME_MAGIC				"V6F"
 #define CODEC_FRAME_VERSION				5
@@ -110,6 +110,12 @@ struct CodecRawFrameData_s
 	void*			blockData;
 };
 
+struct CodecRawFrameBuffer_s
+{
+	void*			blockPosBuffer;
+	void*			blockDataBuffer;
+};
+
 struct CodecFrameDesc_s
 {
 	Vec3			gridOrigin;
@@ -130,16 +136,21 @@ struct CodecFrameData_s
 	u16*			rangeIDs; // optim: this could replaced with firstRangeID and rangeCount
 };
 
+u32		Codec_AlignToClusterSize( u32 size );
+u64		Codec_AlignToClusterSize( u64 size );
+void*	Codec_AlignToClusterSize( void* p );
+void*	Codec_AllocToClusterSizeAndFillPaddingWithZero( void** buffer, u32 size, IAllocator* allocator );
+u32		Codec_GetClusterSize();
 Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
 Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
 u32		Codec_GetMipCount( float gridScaleMin, float gridScaleMax );
 void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack );
-bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, IAllocator* allocator );
+bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 bool	Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
 void*	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* alllocator );
 void*	Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator );
 bool	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
-void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data );
+void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data );
 void	Codec_WriteStream( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data );
 

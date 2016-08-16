@@ -2,11 +2,17 @@
 
 #include <v6/core/common.h>
 
+#include <v6/core/windows_begin.h>
+#include <windows.h>
+#include <v6/core/windows_end.h>
+
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
 
 BEGIN_V6_NAMESPACE
+
+/// CFileReader
 
 CFileReader::CFileReader()
 : m_file( nullptr )
@@ -82,6 +88,83 @@ void CFileReader::Skip( int nSize )
 	fseek( (FILE*)m_file, nSize, SEEK_CUR );
 }
 
+/// CUnbufferedFileReader
+
+CUnbufferedFileReader::CUnbufferedFileReader()
+: m_file( nullptr )
+{
+}
+
+CUnbufferedFileReader::~CUnbufferedFileReader()
+{
+	Close();
+}
+
+bool CUnbufferedFileReader::Open( const char* filename )
+{
+	if ( m_file != nullptr )
+	{
+		V6_ASSERT( !"File already open" );
+		return false;
+	}
+
+	HANDLE file = CreateFileA( filename, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_READONLY | FILE_FLAG_NO_BUFFERING, nullptr );
+	if ( file == INVALID_HANDLE_VALUE )
+		return false;
+
+	m_file = file;
+
+	return true;
+}
+
+void CUnbufferedFileReader::Close()
+{
+	if ( m_file != nullptr )
+	{
+		CloseHandle( (HANDLE)m_file );
+		m_file = nullptr;
+	}
+}
+
+int CUnbufferedFileReader::GetPos() const
+{
+	V6_ASSERT( m_file != nullptr );
+	LARGE_INTEGER zero = {};
+	LARGE_INTEGER pos = {};
+	SetFilePointerEx( (HANDLE)m_file, zero, &pos, FILE_CURRENT );
+	return (int)pos.QuadPart;
+}
+
+int CUnbufferedFileReader::GetSize() const
+{
+	V6_ASSERT( m_file != nullptr );
+	LARGE_INTEGER size = {};
+	GetFileSizeEx( (HANDLE)m_file, &size );
+	return (int)size.QuadPart;
+}
+
+void CUnbufferedFileReader::Read( int nSize, void * pData )
+{
+	if ( nSize == 0 )
+		return;
+
+	V6_ASSERT( m_file != nullptr );
+	const bool done = ReadFile( (HANDLE)m_file, pData, nSize, nullptr, nullptr ) != 0;
+	V6_ASSERT( done );
+}
+
+void CUnbufferedFileReader::SetPos( int pos )
+{
+	V6_ASSERT( m_file != nullptr );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)pos }, nullptr, FILE_BEGIN );
+}
+
+void CUnbufferedFileReader::Skip( int nSize )
+{
+	V6_ASSERT( m_file != nullptr );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)nSize }, nullptr, FILE_CURRENT );
+}
+
 /// CFileWriter
 
 CFileWriter::CFileWriter()
@@ -144,6 +227,73 @@ int CFileWriter::GetSize() const
 	const long size = ftell( (FILE*)m_pFile );
 	fseek( (FILE*)m_pFile, cur, SEEK_SET );
 	return (int)size;
+}
+
+/// CFileWriter
+
+CUnbufferedFileWriter::CUnbufferedFileWriter()
+	: m_file(nullptr)
+{
+}
+
+CUnbufferedFileWriter::~CUnbufferedFileWriter()
+{
+	Close();
+}
+
+bool CUnbufferedFileWriter::Open( const char * pFilename )
+{
+	if ( m_file != nullptr )
+	{
+		V6_ASSERT( !"File already open" );
+		return false;
+	}
+
+	HANDLE file = CreateFileA( pFilename, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING, nullptr );
+	if ( file == INVALID_HANDLE_VALUE )
+		return false;
+
+	m_file = file;
+
+	return true;
+}
+
+void CUnbufferedFileWriter::Close()
+{
+	if ( m_file != nullptr )
+	{
+		CloseHandle( (HANDLE)m_file );
+		m_file = nullptr;
+	}
+}
+
+void CUnbufferedFileWriter::SetPos( int pos )
+{
+	V6_ASSERT( m_file != nullptr );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)pos }, nullptr, FILE_BEGIN );
+}
+
+void CUnbufferedFileWriter::Write( const void * pData, int nSize )
+{
+	const bool done = WriteFile( (HANDLE)m_file, pData, nSize, nullptr, nullptr ) != 0;
+	V6_ASSERT( done );
+}
+
+int CUnbufferedFileWriter::GetPos() const
+{
+	V6_ASSERT( m_file != nullptr );
+	LARGE_INTEGER zero = {};
+	LARGE_INTEGER pos = {};
+	SetFilePointerEx( (HANDLE)m_file, zero, &pos, FILE_CURRENT );
+	return (int)pos.QuadPart;
+}
+
+int CUnbufferedFileWriter::GetSize() const
+{
+	V6_ASSERT( m_file != nullptr );
+	LARGE_INTEGER size = {};
+	GetFileSizeEx( (HANDLE)m_file, &size );
+	return (int)size.QuadPart;
 }
 
 /// CBufferReader

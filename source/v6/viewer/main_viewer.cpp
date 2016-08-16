@@ -1754,7 +1754,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 	char path[256];
 	SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
-	CFileReader fileReader;
+	CUnbufferedFileReader fileReader;
 	if ( !fileReader.Open( path ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", path );
@@ -1834,7 +1834,7 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 		char path[256];
 		SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
-		CFileWriter fileWriter;
+		CUnbufferedFileWriter fileWriter;
 		if ( fileWriter.Open( path ) )
 		{
 			CodecRawFrameDesc_s frameDesc = {};
@@ -1850,8 +1850,9 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 			CodecRawFrameData_s frameData = {};
 
 			{
+				ScopedStack scopedStack( m_stack );
 				CaptureContext_MapBlocksForRead( captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
-				Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData );
+				Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData, nullptr, m_stack );
 				CaptureContext_UnmapBlocksForRead( captureContext );
 			}
 

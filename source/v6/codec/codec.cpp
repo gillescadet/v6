@@ -10,7 +10,8 @@
 #include <lz4/lib/lz4hc.h>
 #endif // #if CODEC_FRAME_COMPRESS == 1
 
-#define CODEC_LZ4_COMPRESSION_LEVEL 4
+#define CODEC_CLUSTER_SIZE				4096
+#define CODEC_LZ4_COMPRESSION_LEVEL		4
 
 BEGIN_V6_NAMESPACE
 
@@ -30,12 +31,17 @@ struct CodecSequenceHeader_s
 	CodecSequenceDesc_s		desc;
 };
 
-struct CodecRawFrameHeader_s
+struct __CodecRawFrameHeader_s
 {
 	char					magic[4];
 	u32						version;
 	u32						size;
 	CodecRawFrameDesc_s		desc;
+};
+
+V6_ALIGN( CODEC_CLUSTER_SIZE ) struct CodecRawFrameHeader_s : __CodecRawFrameHeader_s
+{
+	char					pad[CODEC_CLUSTER_SIZE - sizeof(__CodecRawFrameHeader_s) ];
 };
 
 struct CodecFrameHeader_s
@@ -45,6 +51,69 @@ struct CodecFrameHeader_s
 	u32						size;
 	CodecFrameDesc_s		desc;
 };
+
+static bool Codec_IsAlignedToClusterSize( u32 size )
+{
+	return (size & (CODEC_CLUSTER_SIZE-1)) == 0;
+}
+
+static bool Codec_IsAlignedToClusterSize( u64 size )
+{
+	return (size & (CODEC_CLUSTER_SIZE-1)) == 0;
+}
+
+static void Codec_AlignedWrite( IStreamWriter* streamWriter, const void* data, int size )
+{
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u32)streamWriter->GetPos() ) );
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u64)data ) );
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u32)size ) );
+	streamWriter->Write( data, size );
+}
+
+static void Codec_AlignedRead( IStreamReader* streamReader, int size, void* data )
+{
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u32)streamReader->GetPos() ) );
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u64)data ) );
+	V6_ASSERT( Codec_IsAlignedToClusterSize( (u32)size ) );
+	streamReader->Read( size, data );
+}
+
+u32 Codec_GetClusterSize()
+{
+	return CODEC_CLUSTER_SIZE;
+}
+
+u32 Codec_AlignToClusterSize( u32 size )
+{
+	return (size + CODEC_CLUSTER_SIZE - 1) & ~(CODEC_CLUSTER_SIZE - 1);
+}
+
+u64 Codec_AlignToClusterSize( u64 size )
+{
+	return (size + CODEC_CLUSTER_SIZE - 1) & ~(CODEC_CLUSTER_SIZE - 1);
+}
+
+void* Codec_AlignToClusterSize( void* p )
+{
+	return (void*)(((uintptr_t)p + CODEC_CLUSTER_SIZE - 1) & ~(CODEC_CLUSTER_SIZE - 1));
+}
+
+void* Codec_AllocToClusterSizeAndFillPaddingWithZero( void** buffer, u32 size, IAllocator* allocator )
+{
+	const u32 allocSize = Codec_AlignToClusterSize( size ) + CODEC_CLUSTER_SIZE;
+	
+	void* rawData = allocator->alloc( allocSize );
+	void* alignedData = Codec_AlignToClusterSize( rawData );
+	const u32 pad0 = (u32)((uintptr_t)alignedData - (uintptr_t)rawData);
+	memset( rawData, 0, pad0 );
+	const u32 pad1 = allocSize - size - pad0;
+	memset( (u8*)alignedData + size, 0, pad1 );
+
+	if ( buffer )
+		*buffer = rawData;
+
+	return alignedData;
+}
 
 Vec3 Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth )
 {
@@ -222,7 +291,7 @@ void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s
 	V6_ASSERT( streamWriter->GetPos() - beginPos == sequenceHeader.size );
 }
 
-void Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data )
+void Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator )
 {
 	const u32 beginPos = streamWriter->GetPos();
 
@@ -236,15 +305,33 @@ void Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s
 		blockDataSize += desc->blockCounts[bucket] * cellPerBucketCount * 4;
 	}
 
+	void* blockPosBuffer;
+	void* blockPosAligned = Codec_AllocToClusterSizeAndFillPaddingWithZero( &blockPosBuffer, blockPosSize, allocator );
+	memcpy( blockPosAligned, data->blockPos, blockPosSize );
+
+	void* blockDataBuffer;
+	void* blockDataAligned = Codec_AllocToClusterSizeAndFillPaddingWithZero( &blockDataBuffer, blockDataSize, allocator );
+	memcpy( blockDataAligned, data->blockData, blockDataSize );
+
+	if ( buffer )
+	{
+		buffer->blockPosBuffer = blockPosBuffer;
+		buffer->blockDataBuffer = blockDataBuffer;
+	}
+
+	const u32 blockPosAlignedSize = Codec_AlignToClusterSize( blockPosSize );
+	const u32 blockDataAlignedSize = Codec_AlignToClusterSize( blockDataSize );
+
 	CodecRawFrameHeader_s frameHeader = {};
 	memcpy( frameHeader.magic, CODEC_RAWFRAME_MAGIC, 4 );
 	frameHeader.version = CODEC_RAWFRAME_VERSION;
-	frameHeader.size = sizeof( CodecRawFrameHeader_s ) + blockPosSize + blockDataSize;
+	frameHeader.size = sizeof( CodecRawFrameHeader_s ) + blockPosAlignedSize + blockDataAlignedSize;
+	V6_ASSERT( Codec_IsAlignedToClusterSize( frameHeader.size ) );
 	memcpy( &frameHeader.desc, desc, sizeof( frameHeader.desc ) );
 
-	streamWriter->Write( &frameHeader, sizeof( CodecRawFrameHeader_s ) );
-	streamWriter->Write( data->blockPos, blockPosSize );
-	streamWriter->Write( data->blockData, blockDataSize );
+	Codec_AlignedWrite( streamWriter, &frameHeader, sizeof( CodecRawFrameHeader_s ) );
+	Codec_AlignedWrite( streamWriter, blockPosAligned, blockPosAlignedSize );
+	Codec_AlignedWrite( streamWriter, blockDataAligned, blockDataAlignedSize );
 
 	V6_ASSERT( streamWriter->GetPos() - beginPos == frameHeader.size );
 }
@@ -258,7 +345,7 @@ bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s*
 	}
 
 	CodecRawFrameHeader_s frameHeader = {};
-	streamReader->Read( sizeof( CodecRawFrameHeader_s ), &frameHeader );
+	Codec_AlignedRead( streamReader, sizeof( CodecRawFrameHeader_s ), &frameHeader );
 
 	if ( memcmp( frameHeader.magic, CODEC_RAWFRAME_MAGIC, 4 ) != 0 )
 	{
@@ -282,6 +369,9 @@ bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s*
 		blockDataSize += frameHeader.desc.blockCounts[bucket] * cellPerBucketCount * 4;
 	}
 
+	blockPosSize = Codec_AlignToClusterSize( blockPosSize );
+	blockDataSize = Codec_AlignToClusterSize( blockDataSize );
+
 	if ( frameHeader.size != sizeof( CodecRawFrameHeader_s ) + blockPosSize + blockDataSize )
 	{
 		V6_ERROR( "Bad file size of %d bytes for frame header.\n", frameHeader.size );
@@ -299,7 +389,7 @@ bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s*
 	return true;
 }
 
-bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, IAllocator* allocator )
+bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator )
 {
 	if ( !Codec_ReadRawFrameHeader( streamReader, desc ) )
 	{
@@ -321,11 +411,20 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 	{
 		data->blockPos = nullptr;
 		data->blockData = nullptr;
+		if ( buffer )
+		{
+			buffer->blockPosBuffer = nullptr;
+			buffer->blockDataBuffer = nullptr;
+		}
 		V6_ASSERT( blockDataSize == 0 );
 		return true;
 	}
 
-	data->blockPos = allocator->alloc( blockPosSize );
+	blockPosSize = Codec_AlignToClusterSize( blockPosSize );
+	blockDataSize = Codec_AlignToClusterSize( blockDataSize );
+
+	void* blockPosBuffer;
+	data->blockPos = Codec_AllocToClusterSizeAndFillPaddingWithZero( &blockPosBuffer, blockPosSize, allocator );
 
 	if ( data->blockPos == nullptr )
 	{
@@ -333,7 +432,7 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 		return false;
 	}
 
-	streamReader->Read( blockPosSize, data->blockPos );
+	Codec_AlignedRead( streamReader, blockPosSize, data->blockPos );
 
 	if ( streamReader->GetRemaining() < (int)blockDataSize )
 	{
@@ -341,7 +440,8 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 		return false;
 	}
 
-	data->blockData = allocator->alloc( blockDataSize );
+	void* blockDataBuffer;
+	data->blockData = Codec_AllocToClusterSizeAndFillPaddingWithZero( &blockDataBuffer, blockDataSize, allocator );
 
 	if ( data->blockData == nullptr )
 	{
@@ -349,7 +449,13 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 		return false;
 	}
 
-	streamReader->Read( blockDataSize, data->blockData );
+	Codec_AlignedRead( streamReader, blockDataSize, data->blockData );
+
+	if ( buffer )
+	{
+		buffer->blockPosBuffer = blockPosBuffer;
+		buffer->blockDataBuffer = blockDataBuffer;
+	}
 	
 	return true;
 }

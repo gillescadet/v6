@@ -40,7 +40,7 @@ int main()
 
 	const v6::u32 frameOffset	= 0;
 	const v6::u32 frameCount	= 1;
-	const v6::u32 playRate		= 75;
+	const v6::u32 playRate		= 1;
 #endif
 
 #if 0

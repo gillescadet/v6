@@ -200,7 +200,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 			char filename[256];
 			sprintf_s( filename, sizeof( filename ), templateFilename, frameID );
 
-			CFileReader fileReader;
+			CUnbufferedFileReader fileReader;
 			if ( !fileReader.Open( filename ) )
 			{
 				V6_ERROR( "Unable to open %s.\n", filename );
@@ -210,7 +210,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 			CodecRawFrameDesc_s rawFrameDesc;
 			CodecRawFrameData_s rawFrameData;
 
-			if  ( !Codec_ReadRawFrame( &fileReader, &rawFrameDesc, &rawFrameData, &stack ) )
+			if  ( !Codec_ReadRawFrame( &fileReader, &rawFrameDesc, &rawFrameData, nullptr, &stack ) )
 			{
 				V6_ERROR( "Unable to read %s.\n", filename );
 				return false;

@@ -97,7 +97,7 @@ struct RawFrameBlockCache_s
 
 struct RawFrameMergeContext_s
 {
-	Mutex_s		progressLock;
+	Context_s*	context;
 	u64			lastStepTime;
 	u32			frameRank;
 	u32			rootCount;
@@ -125,6 +125,7 @@ struct ContextStream_s
 
 struct Context_s
 {
+	Mutex_s				progressLock;
 	ContextStream_s*	stream;
 	IAllocator*			heap;
 	IStack*				stack;
@@ -450,7 +451,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	RawFrame_s* frame = &context->frames[frameRank];
 	memset( frame, 0, sizeof( RawFrame_s ) );
 
-	CFileReader fileReader;
+	CUnbufferedFileReader fileReader;
 	if ( !fileReader.Open( filename ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", filename );
@@ -462,7 +463,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	CodecRawFrameDesc_s desc;
 	CodecRawFrameData_s data;
 
-	if ( !Codec_ReadRawFrame( &fileReader, &desc, &data, context->stack ) )
+	if ( !Codec_ReadRawFrame( &fileReader, &desc, &data, nullptr, context->stack ) )
 	{
 		V6_ERROR( "Unable to read %s.\n", filename );
 		return false;
@@ -559,6 +560,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	}
 
 	frame->blocks = context->heap->newArray< Block_s >( blockPosCount );
+	frame->blockIDs = context->heap->newArray< u32 >( blockPosCount );
 	memset( frame->blocks, 0, blockPosCount * sizeof( Block_s ) );
 	frame->blockCount = blockPosCount;
 
@@ -628,15 +630,14 @@ static void RawFrame_Release( u32 frameRank, Context_s* context )
 	RawFrame_s* frame = &context->frames[frameRank];
 
 	context->heap->free( frame->blocks );
-	context->heap->free( frame->data.blockCellRGBA );
 	context->heap->free( frame->blockIDs );
+	context->heap->free( frame->data.blockCellRGBA );
 }
 
 static void RawFrame_SortByKey( u32 frameRank, Context_s* context )
 {
 	RawFrame_s* frame = &context->frames[frameRank];
 
-	frame->blockIDs = context->heap->newArray< u32 >( frame->blockCount );
 	for ( u32 blockID = 0; blockID < frame->blockCount; ++blockID )
 	{
 		Block_s* block = &frame->blocks[blockID];
@@ -652,6 +653,43 @@ static void RawFrame_SortByKey( u32 frameRank, Context_s* context )
 		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
 			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]] ) == mip && 
 			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]] ) == mip) );
+}
+
+static void Context_SortByKey_Job( void* contextPointer, u32 firstFrameRank, u32 frameCount )
+{
+	Context_s* context = (Context_s*)contextPointer;
+
+	for ( u32 frameRank = firstFrameRank; frameCount; ++frameRank, --frameCount )
+	{
+		RawFrame_SortByKey( frameRank, context );
+		{
+			Mutex_Lock( &context->progressLock );
+			V6_MSG( "F%02d: sorted.\n", frameRank );
+			Mutex_Unlock( &context->progressLock );
+		}
+	}
+}
+
+static void Context_SortByKey( Context_s* context )
+{
+	const u32 frameCountPerThread = context->frameCount / ENCODER_THREAD_COUNT;
+	const u32 frameCountOnFirstThread = context->frameCount - frameCountPerThread * (ENCODER_THREAD_COUNT-1);
+	u32 firstFrameRank = 0;
+	
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+	{
+		const u32 frameCount = threadID == 0 ? frameCountOnFirstThread : frameCountPerThread;
+		if ( frameCount == 0 )
+			break;
+
+		WorkerThread_AddJob( &context->threads[threadID], Context_SortByKey_Job, context, firstFrameRank, frameCount );
+
+		firstFrameRank += frameCount;
+	}
+	V6_ASSERT( firstFrameRank == context->frameCount );
+
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+		WorkerThread_WaitAllJobs( &context->threads[threadID] );
 }
 
 static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
@@ -748,13 +786,13 @@ static void RawFrame_Merge_SignalProgress( RawFrameMergeContext_s* mergeContext 
 		const u64 curStepTime = GetTickCount();
 		if ( ConvertTicksToSeconds( curStepTime - mergeContext->lastStepTime ) > 5.0f )
 		{
-			Mutex_Lock( &mergeContext->progressLock );
+			Mutex_Lock( &mergeContext->context->progressLock );
 			if ( ConvertTicksToSeconds( curStepTime - Atomic_Load( &mergeContext->lastStepTime ) ) > 5.0f )
 			{
 				V6_MSG( "...processed %.1f%% blocks\n", doneCount * 100.0f / mergeContext->rootCount );
 				mergeContext->lastStepTime = curStepTime;
 			}
-			Mutex_Unlock( &mergeContext->progressLock );
+			Mutex_Unlock( &mergeContext->context->progressLock );
 		}
 	}
 }
@@ -826,7 +864,7 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 		return 0;
 
 	RawFrameMergeContext_s mergeContext = {};
-	Mutex_Create( &mergeContext.progressLock );
+	mergeContext.context = context;
 	mergeContext.frameRank = frameRank;
 	mergeContext.lastStepTime = GetTickCount();
 	mergeContext.rootCount = rootCount;
@@ -835,12 +873,13 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 	RawFrameMergeJob_s mergeJobs[ENCODER_THREAD_COUNT] = {};
 	
 	const u32 blockCountPerThread = rootCount / ENCODER_THREAD_COUNT;
+	const u32 blockCountOnFirstThread = rootCount - blockCountPerThread * (ENCODER_THREAD_COUNT-1);
 	const u32* threadBlockIDs = rootBlockIDs;
 	const u32* const endBlockIDs = rootBlockIDs + rootCount;
 	
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
-		const u32 blockCount = (threadID == ENCODER_THREAD_COUNT-1) ? (u32)(endBlockIDs - threadBlockIDs) : blockCountPerThread;
+		const u32 blockCount = threadID == 0 ? blockCountOnFirstThread : blockCountPerThread;
 		if ( blockCount == 0 )
 			break;
 
@@ -860,8 +899,6 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 		WorkerThread_WaitAllJobs( &context->threads[threadID] );
 
 	V6_ASSERT( mergeContext.processedCount == rootCount );
-
-	Mutex_Release( &mergeContext.progressLock );
 
 	return rootCount;
 }
@@ -1195,6 +1232,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	Context_s* context = streamContext->stack->newInstance< Context_s >();
 	memset( context, 0, sizeof( *context ) );
 
+	Mutex_Create( &context->progressLock );
 	context->stream = streamContext;
 	context->heap = streamContext->heap;
 	context->stack = streamContext->stack;
@@ -1228,11 +1266,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	}
 
 	V6_MSG( "Sorting by key...\n" );
-	for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
-	{
-		RawFrame_SortByKey( frameRank, context );
-		V6_MSG( "F%02d: sorted.\n", frameRank );
-	}
+	Context_SortByKey( context );
 
 	V6_MSG( "Linking...\n" );
 	for ( u32 frameRank = 0; frameRank < context->frameCount-1; ++frameRank )
@@ -1313,6 +1347,7 @@ cleanup:
 		WorkerThread_Release( &context->threads[threadID] );
 		BlockAllocator_Release( &context->blockAllocators[threadID] );
 	}
+	Mutex_Release( &context->progressLock );
 
 	return success;
 }
