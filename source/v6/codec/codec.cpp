@@ -138,7 +138,7 @@ u32 Codec_GetMipCount( float gridScaleMin, float gridScaleMax )
 	return 1 + u32( ceil( log2f( gridScaleMax / gridScaleMin ) ) );
 }
 
-void* Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator )
+bool Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc )
 {
 	const u32 beginPos = streamReader->GetPos();
 
@@ -164,35 +164,17 @@ void* Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, Co
 		return false;
 	}
 
-	const u32 frameOffsetSize = streamHeader.desc.sequenceCount * 4;
-	const u32 sequenceByteOffsetSize = streamHeader.desc.sequenceCount * 4;
-
-	if ( streamHeader.size != sizeof( streamHeader ) + frameOffsetSize + sequenceByteOffsetSize )
+	if ( streamHeader.size != sizeof( streamHeader ) )
 	{
 		V6_ERROR( "Bad file size of %d bytes for stream header.\n", streamHeader.size );
 		return false;
 	}
 
-	if ( (u32)streamReader->GetRemaining() < frameOffsetSize + sequenceByteOffsetSize )
-	{
-		V6_ERROR( "Bad stream size of %d bytes for stream header.\n", streamReader->GetRemaining() );
-		return nullptr;
-	}
-
 	memcpy( desc, &streamHeader.desc, sizeof( streamHeader.desc ) );
-
-	// todo: aligned alloc
-	u8* buffer = (u8*)allocator->alloc( frameOffsetSize + sequenceByteOffsetSize );
-
-	data->frameOffsets = (u32*)buffer;
-	streamReader->Read( frameOffsetSize, data->frameOffsets );
-
-	data->sequenceByteOffsets = (u32*)(buffer + frameOffsetSize);
-	streamReader->Read( sequenceByteOffsetSize, data->sequenceByteOffsets );
 
 	V6_ASSERT( streamReader->GetPos() - beginPos == streamHeader.size );
 
-	return buffer;
+	return true;
 }
 
 void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* allocator )
@@ -253,22 +235,17 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 	return buffer;
 }
 
-void Codec_WriteStream( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data )
+void Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc )
 {
 	const u32 beginPos = streamWriter->GetPos();
-
-	const u32 frameOffsetSize = desc->sequenceCount * 4;
-	const u32 sequenceByteOffsetSize = desc->sequenceCount * 4;
 
 	CodecStreamHeader_s streamHeader = {};
 	memcpy( streamHeader.magic, CODEC_STREAM_MAGIC, 4 );
 	streamHeader.version = CODEC_STREAM_VERSION;
-	streamHeader.size = sizeof( streamHeader ) + frameOffsetSize + sequenceByteOffsetSize;
+	streamHeader.size = sizeof( streamHeader );
 	memcpy( &streamHeader.desc, desc, sizeof( streamHeader.desc ) );
 
 	streamWriter->Write( &streamHeader, sizeof( streamHeader ) );
-	streamWriter->Write( data->frameOffsets, frameOffsetSize );
-	streamWriter->Write( data->sequenceByteOffsets, sequenceByteOffsetSize );
 
 	V6_ASSERT( streamWriter->GetPos() - beginPos == streamHeader.size );
 }
@@ -336,7 +313,7 @@ void Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s
 	V6_ASSERT( streamWriter->GetPos() - beginPos == frameHeader.size );
 }
 
-bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s* desc )
+bool Codec_ReadRawFrameDesc( IStreamReader* streamReader, CodecRawFrameDesc_s* desc )
 {
 	if ( streamReader->GetRemaining() < sizeof( CodecRawFrameHeader_s ) )
 	{
@@ -391,7 +368,7 @@ bool Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s*
 
 bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator )
 {
-	if ( !Codec_ReadRawFrameHeader( streamReader, desc ) )
+	if ( !Codec_ReadRawFrameDesc( streamReader, desc ) )
 	{
 		V6_ERROR( "Stream is too small to contain the frame header.\n" );
 		return false;

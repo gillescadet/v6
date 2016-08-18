@@ -1658,7 +1658,7 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 
 #if V6_USE_CACHE == 1
 	CodecStreamDesc_s codecDesc;
-	if ( !VideoStream_LoadDesc( streamFilename, &codecDesc, m_stack ) ||
+	if ( !VideoStream_LoadDesc( streamFilename, &codecDesc ) ||
 		codecDesc.sequenceCount != 1 ||
 		codecDesc.frameCount != frameCount ||
 		codecDesc.frameRate != HMD_FPS ||
@@ -1669,7 +1669,7 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 		codecDesc.gridScaleMax != GRID_MAX_SCALE )
 #endif // #if V6_USE_CACHE == 1
 	{
-		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, m_heap ) )
+		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, false, m_heap ) )
 			return false;
 	}
 		
@@ -1763,7 +1763,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 
 	CodecRawFrameDesc_s frameDesc;
 
-	if ( !Codec_ReadRawFrameHeader( &fileReader, &frameDesc ) )
+	if ( !Codec_ReadRawFrameDesc( &fileReader, &frameDesc ) )
 	{
 		V6_ERROR( "Unable to read file %s.\n", path );
 		return false;

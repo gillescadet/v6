@@ -11,7 +11,7 @@ BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
-bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, IAllocator* heap );
+bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend, IAllocator* heap );
 
 END_V6_NAMESPACE
 

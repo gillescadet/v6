@@ -78,7 +78,7 @@ public:
 	virtual ~CFileWriter();
 
 public:
-	bool Open(const char * sFilename);
+	bool Open( const char * sFilename, bool extend );
 	void Close();
 
 public:

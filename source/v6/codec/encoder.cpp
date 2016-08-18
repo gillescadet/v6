@@ -117,7 +117,6 @@ struct ContextStream_s
 	IAllocator*			heap;
 	Stack*				stack;
 	CodecStreamDesc_s	desc;
-	CodecStreamData_s	data;
 	u32					gridMacroWidth;
 	u32					gridMacroHalfWidth;
 	u32					mipCount;
@@ -970,7 +969,6 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 
 	u32 frameUniqueBlockPosCount = 0;
 	u32 frameBlockRangeCount = 0;
-	u32 frameBlockCount = 0;
 	u32 frameBlockGroupCount = 0;
 
 	u16* rangeIDs = data->rangeIDs;
@@ -991,7 +989,6 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	{
 		const u32 rangeID = rangeIDs[rangeRank];
 		const u32 blockCount = context->rangeDefs[rangeID].frameRank7_mip4_blockCount21 & 0x1FFFFF;
-		frameBlockCount += blockCount;
 		frameBlockGroupCount += (blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 	}
 
@@ -999,7 +996,6 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	frameBlockRangeCount += desc->blockRangeCount;
 
 	context->stream->desc.maxBlockRangeCountPerFrame = Max( context->stream->desc.maxBlockRangeCountPerFrame, frameBlockRangeCount );
-	context->stream->desc.maxBlockCountPerFrame = Max( context->stream->desc.maxBlockCountPerFrame, frameBlockCount );
 	context->stream->desc.maxBlockGroupCountPerFrame = Max( context->stream->desc.maxBlockGroupCountPerFrame, frameBlockGroupCount );
 
 	context->blockPosCountPerSequence += frameUniqueBlockPosCount;
@@ -1220,7 +1216,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 static void Context_UpdateLimits( Context_s* context )
 {
-	context->stream->desc.maxBlockPosCountPerSequence = Max( context->stream->desc.maxBlockPosCountPerSequence, context->blockPosCountPerSequence );
+	context->stream->desc.maxBlockCountPerSequence = Max( context->stream->desc.maxBlockCountPerSequence, context->blockPosCountPerSequence );
 }
 
 static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, u32 frameCount, ContextStream_s* streamContext )
@@ -1335,7 +1331,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 
 	const u32 sequenceSize = streamWriter->GetPos() - prevSequenceSize;
 	V6_PRINT( "\n" );
-	V6_MSG( "Sequence %04d/%04d: %d KB, avg of %d KB/frame\n", sequenceID, streamContext->desc.sequenceCount, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
+	V6_MSG( "Sequence %d: %d KB, avg of %d KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
 
 	success = true;
@@ -1353,18 +1349,11 @@ cleanup:
 }
 
 
-bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, IAllocator* heap )
+bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend, IAllocator* heap )
 {
 	if ( frameCount == 0 || playRate == 0 || playRate > CODEC_FRAME_MAX_COUNT )
 	{
 		V6_ERROR( "Frame count out of range.\n" );
-		return false;
-	}
-
-	CFileWriter fileWriter;
-	if ( !fileWriter.Open( streamFilename ) )
-	{
-		V6_ERROR( "Unable to open %s.\n", streamFilename );
 		return false;
 	}
 
@@ -1373,39 +1362,84 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	ContextStream_s streamContext = {};
 	streamContext.heap = heap;
 	streamContext.stack = &stack;
+
+	CodecStreamDesc_s prevStreamDesc = {};
+
+	if ( extend )
+	{
+		CFileReader fileReader;
+		if ( !fileReader.Open( streamFilename ) )
+		{
+			extend = false;
+		}
+		else
+		{
+			Codec_ReadStreamDesc( &fileReader, &prevStreamDesc );
+			if ( prevStreamDesc.playRate != playRate )
+			{
+				V6_ERROR( "Incompatible play rate.\n" );
+				return false;
+			}
+			if ( prevStreamDesc.frameRate == 0 )
+			{
+				V6_ERROR( "Invalid frame rate.\n" );
+				return false;
+			}
+			V6_MSG( "Extending existing stream which has %d frames in %d sequences.\n", prevStreamDesc.frameCount, prevStreamDesc.sequenceCount );
+		}
+	}
+
+	if ( extend )
+	{
+		streamContext.desc = prevStreamDesc;
+		streamContext.gridMacroWidth = 1 << prevStreamDesc.gridMacroShift;
+		streamContext.gridMacroHalfWidth = streamContext.gridMacroWidth >> 1;
+		streamContext.mipCount = Codec_GetMipCount( prevStreamDesc.gridScaleMin, prevStreamDesc.gridScaleMax );
+	}
+
 	streamContext.desc.sequenceCount = (frameCount + playRate - 1) / playRate;
 	streamContext.desc.frameCount = frameCount;
 	streamContext.desc.playRate = playRate;
-	streamContext.data.frameOffsets = stack.newArray< u32 >( streamContext.desc.sequenceCount );
-	streamContext.data.sequenceByteOffsets = stack.newArray< u32 >( streamContext.desc.sequenceCount );
 
-	memset( streamContext.data.frameOffsets, 0, streamContext.desc.sequenceCount * sizeof( u32 ) );
-	memset( streamContext.data.sequenceByteOffsets, 0, streamContext.desc.sequenceCount * sizeof( u32 ) );
-
-	V6_ASSERT( fileWriter.GetPos() == 0 );
-	Codec_WriteStream( &fileWriter, &streamContext.desc, &streamContext.data );
-
-	for ( u32 sequenceID = 0; sequenceID < streamContext.desc.sequenceCount; ++sequenceID )
+	CFileWriter fileWriter;
+	if ( !fileWriter.Open( streamFilename, extend ) )
 	{
-		streamContext.data.frameOffsets[sequenceID] = frameOffset;
-		streamContext.data.sequenceByteOffsets[sequenceID] = fileWriter.GetPos();
+		V6_ERROR( "Unable to open %s.\n", streamFilename );
+		return false;
+	}
 
+	if ( !extend )
+	{
+		V6_ASSERT( fileWriter.GetPos() == 0 );
+		Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
+	}
+
+	for ( u32 sequenceRank = 0; sequenceRank < streamContext.desc.sequenceCount; ++sequenceRank )
+	{
+		const u32 sequenceID = prevStreamDesc.sequenceCount + sequenceRank;
 		const u32 sequenceFrameCount = Min( frameCount, playRate );
 
-		ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, &streamContext );
+		if ( !ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, &streamContext ) )
+			return false;
 
 		frameOffset += sequenceFrameCount;
 		frameCount -= sequenceFrameCount;
 	}
 	V6_ASSERT( frameCount == 0 );
 
+	if ( extend )
+	{
+		streamContext.desc.sequenceCount += prevStreamDesc.sequenceCount;
+		streamContext.desc.frameCount += prevStreamDesc.frameCount;
+	}
+
 	fileWriter.SetPos( 0 );
-	Codec_WriteStream( &fileWriter, &streamContext.desc, &streamContext.data );
+	Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
 	
 	const u32 streamSize = fileWriter.GetSize();
 	
 	V6_PRINT( "\n" );
-	V6_MSG( "Stream: %d KB, avg of %d KB/sequence\n", DivKB( streamSize ), DivKB( streamSize / streamContext.desc.sequenceCount ) );
+	V6_MSG( "Stream: %d KB with %d sequences, avg of %d KB/sequence\n", DivKB( streamSize ), streamContext.desc.sequenceCount, DivKB( streamSize / streamContext.desc.sequenceCount ) );
 	V6_PRINT( "\n" );
 
 	return true;

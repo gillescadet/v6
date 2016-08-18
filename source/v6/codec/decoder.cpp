@@ -107,16 +107,22 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 
 static bool VideoStream_LoadInternal( VideoStream_s* stream, IStreamReader* streamReader, IAllocator* allocator, IStack* stack )
 {
-	stream->buffer = Codec_ReadStream( streamReader, &stream->desc, &stream->data, allocator );
-	if ( !stream->buffer )
+	if ( !Codec_ReadStreamDesc( streamReader, &stream->desc ) )
 		return false;
 
 	stream->sequences = allocator->newArray< VideoSequence_s >( stream->desc.sequenceCount );
 	memset( stream->sequences, 0, stream->desc.sequenceCount * sizeof( *stream->sequences ) );
+	
+	stream->frameOffets = allocator->newArray< u32 >( stream->desc.sequenceCount );
+	u32 frameOffset = 0;
+	
 	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
 	{
 		if ( !VideoSequence_LoadInternal( &stream->sequences[sequenceID], streamReader, sequenceID, allocator, stack ) )
 			return false;
+
+		stream->frameOffets[sequenceID] = frameOffset;
+		frameOffset += stream->sequences[sequenceID].desc.frameCount;
 	}
 	
 	return true;
@@ -402,7 +408,7 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 	return true;
 }
 
-bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* streamDesc, IStack* stack )
+bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* streamDesc )
 {
 	CFileReader fileReader;
 	if ( !fileReader.Open( streamFilename ) )
@@ -411,19 +417,35 @@ bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* stream
 		return false;
 	}
 
-	ScopedStack scopedStack( stack );
-
-	CodecStreamData_s streamData;
-	return Codec_ReadStream( &fileReader, streamDesc, &streamData, stack ) != nullptr;
+	return Codec_ReadStreamDesc( &fileReader, streamDesc );
 }
 
 void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator )
 {
-	allocator->free( stream->buffer );
-	stream->buffer = nullptr;
 	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
 		VideoSequence_Release( &stream->sequences[sequenceID], allocator );
 	allocator->deleteArray( stream->sequences );
+	allocator->deleteArray( stream->frameOffets );
+	memset( stream, 0, sizeof( *stream ) );
+}
+
+u32 VideoStream_FindSequenceIDFromFrameID( const VideoStream_s* stream, u32 frameID )
+{
+	V6_ASSERT( frameID < stream->desc.frameCount );
+
+	u32 minSequenceID = 0;
+	u32 maxSequenceID = stream->desc.sequenceCount;
+
+	while ( maxSequenceID - minSequenceID > 1 )
+	{
+		const u32 midSequenceID = (minSequenceID + maxSequenceID) / 2;
+		if ( frameID < stream->frameOffets[midSequenceID] )
+			maxSequenceID = midSequenceID;
+		else
+			minSequenceID = midSequenceID;
+	}
+	
+	return minSequenceID;
 }
 
 END_V6_NAMESPACE

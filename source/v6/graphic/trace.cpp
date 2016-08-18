@@ -612,17 +612,17 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	traceContext->frameState.sequenceID = (u32)-1;
 	traceContext->frameState.frameID =(u32)-1;
 
-	const u32 blockPosCount = Max( 1u, stream->desc.maxBlockPosCountPerSequence );
+	const u32 blockCount = Max( 1u, stream->desc.maxBlockCountPerSequence );
 	const u32 maxBlockRangeCount = Max( 1u, stream->desc.maxBlockRangeCountPerFrame );
 	const u32 maxBlockGroupCount = Max( 1u, stream->desc.maxBlockGroupCountPerFrame );
 
 	V6_ASSERT( maxBlockGroupCount <= SEQUENCE_BLOCK_GROUP_MAX_COUNT );
 
-	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, blockPosCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockPositions" );
-	GPUBuffer_CreateStructured( &res->blockCellPresences, sizeof( hlsl::uint64 ), blockPosCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences" );
-	GPUBuffer_CreateTyped( &res->blockCellEndColors, DXGI_FORMAT_R32_UINT, blockPosCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellEndColors" );
-	GPUBuffer_CreateStructured( &res->blockCellColorIndices0, sizeof( hlsl::uint64 ), blockPosCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices0" );
-	GPUBuffer_CreateStructured( &res->blockCellColorIndices1, sizeof( hlsl::uint64 ), blockPosCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices1" );
+	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockPositions" );
+	GPUBuffer_CreateStructured( &res->blockCellPresences, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences" );
+	GPUBuffer_CreateTyped( &res->blockCellEndColors, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellEndColors" );
+	GPUBuffer_CreateStructured( &res->blockCellColorIndices0, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices0" );
+	GPUBuffer_CreateStructured( &res->blockCellColorIndices1, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices1" );
 	GPUBuffer_CreateStructured( &res->ranges[0], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges0" );
 	GPUBuffer_CreateStructured( &res->ranges[1], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges1" );
 	GPUBuffer_CreateTyped( &res->groups[0], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockGroups0" );
@@ -630,7 +630,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	
 	const u32 eyeCount = traceDesc->stereo ? 2 : 1;
 	const u32 blockTileCountPerEye = (traceDesc->screenWidth >>3) * (traceDesc->screenHeight >> 3);
-	traceContext->resVisibleBlockMaxCount = Max( 1u, stream->desc.maxBlockCountPerFrame );
+	traceContext->resVisibleBlockMaxCount = maxBlockGroupCount * CODEC_BLOCK_THREAD_GROUP_SIZE;
 	traceContext->resBlockPatchCountPerEye = blockTileCountPerEye * HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE;
 
 	GPUConstantBuffer_Create( &res->cbCull, sizeof( v6::hlsl::CBCull ), "cull" );
@@ -827,8 +827,8 @@ void TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* origin, flo
 
 void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack )
 {
-	const u32 sequenceID = frameID / traceContext->stream->desc.playRate;
-	const u32 targetFrameRank = frameID % traceContext->stream->desc.playRate;
+	const u32 sequenceID = VideoStream_FindSequenceIDFromFrameID( traceContext->stream, frameID );
+	const u32 targetFrameRank = frameID - traceContext->stream->frameOffets[sequenceID];
 
 	const VideoSequence_s* sequence = &traceContext->stream->sequences[sequenceID];
 

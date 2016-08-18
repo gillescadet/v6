@@ -958,7 +958,7 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 	FilePath_TrimExtension( filenameWithoutExt, sizeof( filenameWithoutExt ), filenameSrc );
 	const char* filenameDst = String_Format( "%s_bc1.bmp", filenameWithoutExt );
 	CFileWriter fileWriter;
-	if ( !fileWriter.Open( filenameDst ) )
+	if ( !fileWriter.Open( filenameDst, false ) )
 	{
 		V6_ERROR( "Unable to write %s\n", filenameDst );
 		return;

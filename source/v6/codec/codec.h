@@ -21,7 +21,7 @@ BEGIN_V6_NAMESPACE
 #define CODEC_SEQUENCE_VERSION			2
 
 #define CODEC_STREAM_MAGIC				"V6"
-#define CODEC_STREAM_VERSION			0
+#define CODEC_STREAM_VERSION			1
 
 #define CODEC_RAWFRAME_BUCKET_COUNT		5
 #define CODEC_CELL_MAX_COUNT			64
@@ -67,16 +67,9 @@ struct CodecStreamDesc_s
 	u32				gridMacroShift;
 	float			gridScaleMin;
 	float			gridScaleMax;
-	u32				maxBlockPosCountPerSequence;
+	u32				maxBlockCountPerSequence;
 	u32				maxBlockRangeCountPerFrame;
-	u32				maxBlockCountPerFrame;
 	u32				maxBlockGroupCountPerFrame;
-};
-
-struct CodecStreamData_s
-{
-	u32*			frameOffsets;
-	u32*			sequenceByteOffsets;
 };
 
 struct CodecSequenceDesc_s
@@ -146,13 +139,13 @@ Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, u32 gridMa
 u32		Codec_GetMipCount( float gridScaleMin, float gridScaleMax );
 void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack );
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
-bool	Codec_ReadRawFrameHeader( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
+bool	Codec_ReadRawFrameDesc( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
 void*	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* alllocator );
-void*	Codec_ReadStream( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator );
+bool	Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc );
 bool	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
 void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data );
-void	Codec_WriteStream( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data );
+void	Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc );
 
 END_V6_NAMESPACE
 

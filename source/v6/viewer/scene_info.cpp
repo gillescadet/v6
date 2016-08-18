@@ -150,7 +150,7 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 		return true;
 
 	CFileWriter fileWriter;
-	if ( !fileWriter.Open( filename ) )
+	if ( !fileWriter.Open( filename, false ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", filename );
 		return false;

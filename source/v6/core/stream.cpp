@@ -177,7 +177,7 @@ CFileWriter::~CFileWriter()
 	Close();
 }
 
-bool CFileWriter::Open(const char * pFilename)
+bool CFileWriter::Open( const char * pFilename, bool extend )
 {
 	if (m_pFile != nullptr)
 	{
@@ -186,12 +186,13 @@ bool CFileWriter::Open(const char * pFilename)
 	}
 
 	FILE * pFile = (FILE *)m_pFile;
-	if (fopen_s(&pFile, pFilename, "wb") != 0)
-	{
+	if ( fopen_s( &pFile, pFilename, extend ? "r+b" : "wb" ) != 0 )
 		return false;
-	}
 
 	m_pFile = pFile;
+
+	if ( extend )
+		fseek( (FILE*)m_pFile, 0, SEEK_END );
 
 	return true;
 }
