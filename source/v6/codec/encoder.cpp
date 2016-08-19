@@ -42,7 +42,7 @@ struct Block_s
 		EncodedBlockEx_s*	encodedBlock;
 	};
 	u64			key;
-	u32			packedBlockPos;
+	u32			mip4_none1_pos27;
 	u8			frameRank;
 	u8			linked;
 	u8			sharedFrameCount;
@@ -236,12 +236,12 @@ static void Block_GetColors( const u32** cellRGBA, u64* cellPresence, const Bloc
 
 static u32 Block_GetMip( const Block_s* block )
 {
-	return block->packedBlockPos >> 28;
+	return block->mip4_none1_pos27 >> 28;
 }
 
 static u32 Block_GetPos( const Block_s* block )
 {
-	return block->packedBlockPos & 0x0FFFFFFF;
+	return block->mip4_none1_pos27 & 0x07FFFFFF;
 }
 
 static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block, RawFrameBlockCache_s* blockCache )
@@ -579,8 +579,9 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			const u32 blockPosID = frame->data.blockPosOffsets[bucket] + blockRank;
 
 			Block_s* block = &frame->blocks[blockPosID];
-			const u32 packedBlockPos = ((u32*)data.blockPos)[blockPosID];
-			block->packedBlockPos = packedBlockPos;
+			const u32 mip4_none1_pos27 = ((u32*)data.blockPos)[blockPosID];
+			V6_ASSERT( ((mip4_none1_pos27 >> 27) & 1) == 0 );
+			block->mip4_none1_pos27 = mip4_none1_pos27;
 			block->frameRank = frameRank;
 			block->bucket = bucket;
 
@@ -1016,6 +1017,8 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 		if ( shared->blockCount == 0 )
 			continue;
 
+		const u32 newMask = sharedFrameRank == 0 ? (1 << 27) : 0;
+
 		for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
 		{
 			for ( u32 blockRank = 0; blockRank < shared->blockCountPerMip[mip]; ++blockRank )
@@ -1024,7 +1027,8 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 				const u32 blockID = frame->blockIDs[blockOrder];
 				const Block_s* block = &frame->blocks[blockID];
 				V6_ASSERT( Block_GetMip( block ) == mip );
-				blockPosWriter->Write( &block->packedBlockPos, sizeof( u32 ) );
+				const u32 mip4_new1_pos27 = block->mip4_none1_pos27 | newMask;
+				blockPosWriter->Write( &mip4_new1_pos27, sizeof( u32 ) );
 				V6_ASSERT( block->encodedBlock != nullptr );
 				blockDataWriters[0]->Write( &block->encodedBlock->cellPresence, sizeof( u64 ) );
 				blockDataWriters[1]->Write( &block->encodedBlock->cellEndColors, sizeof( u32 ) );
