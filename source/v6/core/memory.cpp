@@ -87,15 +87,12 @@ void BlockAllocator_Release( BlockAllocator_s* allocator )
 	memset( allocator, 0, sizeof( BlockAllocator_s ) );
 }
 
-static const u32 STACK_CAPACITY = 32;
-
 Stack::Stack( IAllocator* heap, u32 capacity )
 	: m_heap( heap )
 {
 	m_buffer = m_heap->alloc( (int)capacity );
 	m_capacity = capacity;
 	m_size = 0;
-	m_stack = (u32*)Stack::alloc( STACK_CAPACITY * sizeof(u32) );
 	m_stackSize = 0;
 }
 
@@ -125,7 +122,7 @@ void * Stack::realloc( void* p, int size )
 
 void Stack::push()
 {
-	V6_ASSERT( m_stackSize < STACK_CAPACITY );
+	V6_ASSERT( m_stackSize < LEVEL_COUNT );
 	m_stack[m_stackSize++] = m_size;
 }
 

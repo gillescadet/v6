@@ -16,12 +16,17 @@
 #include "ScenePrivate.h"
 #include "Video6DOFWrapper.h"
 
+#include <v6/codec/encoder.h>
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
 #include <v6/core/vec3.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shared.h>
 #include <v6/graphic/gpu.h>
+
+#define STREAM_PREFIX		"d:/tmp/v6/ue"
+#define STREAM_FILEFRAME	STREAM_PREFIX".v6"
+#define RAW_FRAME_TEMPLATE	STREAM_PREFIX"_%06u.v6f"
 
 static const uint32			s_targetFPS			= 75;
 static const uint32			s_sampleCount		= 17;
@@ -35,6 +40,7 @@ enum CaptureState_e
 	CAPTURE_STATE_BEGIN,
 	CAPTURE_STATE_MIDDLE,
 	CAPTURE_STATE_END,
+	CAPTURE_STATE_ERROR,
 };
 
 FDynamicRHI*				s_dynamicRHIOriginal = nullptr;
@@ -56,6 +62,7 @@ v6::Stack					s_stack( &s_heap, v6::MulMB( 200 ) );
 
 extern ID3D11Device*		v6::g_device;
 extern ID3D11DeviceContext*	v6::g_deviceContext;
+extern bool					v6::g_deviceLogMemory;
 
 static void Scene_SetRenderTarget( FD3D11TextureBase* color, FD3D11TextureBase* depth )
 {
@@ -87,12 +94,13 @@ static void Scene_End()
 	{
 		v6::CaptureContext_End( &s_captureContext );
 		
-		FString path = FString::Printf( TEXT( "%s_%06u.v6f" ), TEXT( "d:/tmp/v6/ue" ), s_captureFrameID );
+		FString path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
 
 		v6::CUnbufferedFileWriter fileWriter;
 		if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
 		{
 			UE_LOG( LogVideo6DOF, Error, TEXT( "Unable to create file." ) );
+			s_captureState = CAPTURE_STATE_ERROR;
 		}
 		else
 		{
@@ -170,12 +178,21 @@ void OutputMessage( const char* format, ... )
 {
 #if 0
 	char buffer[4096];
-	va_list args;
-	va_start( args, format );
-	vsprintf_s( buffer, sizeof( buffer ), format, args);
-	va_end( args );
+	{
+		va_list args;
+		va_start( args, format );
+		vsprintf_s( buffer, sizeof( buffer ), format, args);
+		va_end( args );
+	}
 
-	UE_LOG( LogVideo6DOF, Log, TEXT( buffer ) );
+	WCHAR bufferW[sizeof( buffer )];
+	{
+		const u32 len = (u32)strlen( buffer );
+		MultiByteToWideChar( CP_ACP, 0, buffer, len, bufferW, sizeof( buffer ) );
+		bufferW[len] = 0;
+	}
+
+	UE_LOG( LogVideo6DOF, Log, bufferW );
 #endif
 }
 
@@ -213,7 +230,7 @@ static v6::Vec3 TranformVectorFromUserSpace( const FVector* v )
 	return v6::Vec3_Make( v->X, v->Z, v->Y ); // swapped Y/Z
 }
 
-static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
+static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetAntiAliasing( false );
@@ -269,9 +286,16 @@ static void Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	GetRendererModule().BeginRenderingViewFamily( &canvas, &viewFamily );
 
 	FlushRenderingCommands();
+
+	return s_captureState != CAPTURE_STATE_ERROR;
 }
 
-static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID )
+static bool Scene_EncodeFrames( uint32 frameID, uint32 frameCount )
+{
+	return v6::VideoStream_EncodeFromSeparateProcess( STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_targetFPS, frameID > 0 );
+}
+
+static bool Scene_CaptureCube( uint32 size, const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID )
 {
 	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
 	renderTargetTexture->AddToRoot();
@@ -291,6 +315,8 @@ static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, cons
 	captureDesc.logReadBack = false;
 	v6::CaptureContext_Create( &s_captureContext, &captureDesc );
 
+	bool success = true;
+
 	for ( uint32 sampleID = 0; sampleID < s_sampleCount; ++sampleID )
 	{
 		const v6::Vec3 gridCenterUserSpace = v6::Vec3_Make( originUserSpace.X, originUserSpace.Y, originUserSpace.Z );
@@ -306,19 +332,28 @@ static void Scene_CaptureCube( uint32 size, const FVector& originUserSpace, cons
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
 
-			Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), forwardUserSpace, frameID, faceID, captureState );
+			if ( !Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), forwardUserSpace, frameID, faceID, captureState ) )
+			{
+				success = false;
+				goto cleanup;
+			}
 		}
 	}
 
+cleanup:
 	v6::CaptureContext_Release( &s_captureContext );
 
 	renderTargetTexture->RemoveFromRoot();
 	renderTargetTexture = nullptr;
+
+	return success;
 }
 
 static void Device_Override()
 {
 	check( s_dynamicRHIOriginal == nullptr );
+
+	v6::g_deviceLogMemory = false;
 
 	FD3D11DynamicRHI* d3d11DynamicRHI = static_cast< FD3D11DynamicRHI* >( GDynamicRHI );
 	v6::GPUDevice_Set( d3d11DynamicRHI->GetDevice() );
@@ -342,6 +377,8 @@ static void Device_Restore()
 
 	GDynamicRHI = s_dynamicRHIOriginal;
 	s_dynamicRHIOriginal = nullptr;
+	
+	v6::g_deviceLogMemory = true;
 }
 
 UVideo6DOFCapturer::UVideo6DOFCapturer()
@@ -380,7 +417,8 @@ void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientat
 	m_capturePosition = position;
 	m_captureOrientation = orientation;
 	m_captureFrameID = 0;
-	m_captureFrameCount = frameCount;
+	m_captureFrameEncodedCount = 0;
+	m_captureFrameTotalCount = frameCount;
 	m_state = EVideo6DOFCapturerState::CAPTURE;
 	FApp::SetFixedDeltaTime( 1.0f / s_targetFPS );
 	FApp::SetUseFixedTimeStep( true );
@@ -399,22 +437,44 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 		return;
 	
 	case EVideo6DOFCapturerState::CAPTURE:
-		Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureOrientation.GetForwardVector(), m_captureFrameID );
-		++m_captureFrameID;
-		UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameCount );
+		if ( Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureOrientation.GetForwardVector(), m_captureFrameID ) )
+		{
+			++m_captureFrameID;
+			UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameTotalCount );
 
-		if ( m_captureFrameID == m_captureFrameCount )
+			const uint32 notEncodedFrameCount = m_captureFrameID - m_captureFrameEncodedCount;
+			if ( notEncodedFrameCount == 2 || m_captureFrameID == m_captureFrameTotalCount )
+			{
+				if ( Scene_EncodeFrames( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
+				{
+					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID - notEncodedFrameCount, m_captureFrameID-1 );
+					m_captureFrameEncodedCount += notEncodedFrameCount;
+
+					if ( m_captureFrameID == m_captureFrameTotalCount )
+						m_state = EVideo6DOFCapturerState::DONE;
+				}
+				else
+				{
+					UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
+					m_state = EVideo6DOFCapturerState::DONE;
+				}
+			}
+		}
+		else
+		{
+			UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
 			m_state = EVideo6DOFCapturerState::DONE;
+		}
 		break;
 	
 	case EVideo6DOFCapturerState::STOP:
 		UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped by user." ) );
 		m_state = EVideo6DOFCapturerState::DONE;
 		break;
-	
+
 	case EVideo6DOFCapturerState::DONE:
 		FApp::SetUseFixedTimeStep( false );
-		if ( m_captureFrameID == m_captureFrameCount )
+		if ( m_captureFrameID == m_captureFrameTotalCount )
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Capture done." ) );
 		m_state = EVideo6DOFCapturerState::NONE;
 		break;

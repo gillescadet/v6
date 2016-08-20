@@ -10,6 +10,7 @@
 #include <v6/core/image.h>
 #include <v6/core/memory.h>
 #include <v6/core/plot.h>
+#include <v6/core/process.h>
 #include <v6/core/stream.h>
 #include <v6/core/string.h>
 #include <v6/core/thread.h>
@@ -1447,6 +1448,24 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	V6_PRINT( "\n" );
 
 	return true;
+}
+
+bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
+{
+	char cmd[256];
+	sprintf_s( cmd, sizeof( cmd ), "D:/dev/v6/trunk/bin/Release/v6_encoder_2015.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d %s", 
+		streamFilename, 
+		templateRawFilename, 
+		frameOffset, 
+		frameCount, 
+		playRate, 
+		extend ? "-e" : "" );
+
+	int returnCode;
+	if ( Process_Execute( &returnCode, cmd ) && returnCode == 0 )
+		return true;
+
+	return false;
 }
 
 END_V6_NAMESPACE

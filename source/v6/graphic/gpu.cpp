@@ -72,6 +72,8 @@ ID3D11Device*						g_device = nullptr;
 ID3D11DeviceContext*				g_deviceContext = nullptr;
 static ID3DUserDefinedAnnotation*	s_userDefinedAnnotation = nullptr;
 
+bool								g_deviceLogMemory = true;
+
 GPUEventContext_s					s_eventContext = {};
 GPUSurfaceContext_s					s_surfaceContext = {};
 GPUShaderContext_s					s_shaderContext = {};
@@ -294,14 +296,15 @@ static void GPUEventContext_Release()
 
 void GPUResource_LogMemory( const char* res, u32 size, const char* name )
 {
-	if ( DivMB( size ) >= 1 )
+	if ( g_deviceLogMemory && DivMB( size ) >= 1 )
 		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, String_FormatInteger( DivMB( size ) ) );
 	Atomic_Add( &s_gpuMemory, size );
 }
 
 void GPUResource_LogMemoryUsage()
 {
-	V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger( DivMB( s_gpuMemory ) ) );
+	if ( g_deviceLogMemory )
+		V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger( DivMB( s_gpuMemory ) ) );
 }
 
 void GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize )

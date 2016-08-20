@@ -74,7 +74,7 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 	commandArgs->playRate = 75;
 #endif
 
-#if 1
+#if 0
 	commandArgs->streamFilename = "D:/tmp/v6/ue_1024.v6";
 	commandArgs->templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 	commandArgs->frameOffset = 0;

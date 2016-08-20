@@ -90,6 +90,9 @@ private:
 class Stack : public IStack
 {
 public:
+	static const u32 LEVEL_COUNT = 32;
+
+public:
 					Stack( IAllocator* heap, u32 capacity = 1024 * 1024 );
 	virtual			~Stack();
 
@@ -100,8 +103,8 @@ public:
 	virtual void	pop() override;
 
 public:
+	u32			m_stack[LEVEL_COUNT];
 	IAllocator*	m_heap;
-	u32*		m_stack;
 	void*		m_buffer;
 	u32			m_size;
 	u32			m_capacity;

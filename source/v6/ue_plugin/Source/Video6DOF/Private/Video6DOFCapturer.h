@@ -58,6 +58,7 @@ private:
 	FVector														m_capturePosition;
 	FQuat														m_captureOrientation;
 	uint32														m_captureFrameID;
-	uint32														m_captureFrameCount;
+	uint32														m_captureFrameEncodedCount;
+	uint32														m_captureFrameTotalCount;
 	TArray< FColor >											m_colors;
 };
