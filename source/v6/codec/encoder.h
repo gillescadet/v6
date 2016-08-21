@@ -13,6 +13,7 @@ class IAllocator;
 
 bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend, IAllocator* heap );
 bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend );
+void VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frameOffset, u32 frameCount );
 
 END_V6_NAMESPACE
 

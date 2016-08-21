@@ -28,13 +28,6 @@
 #define STREAM_FILEFRAME	STREAM_PREFIX".v6"
 #define RAW_FRAME_TEMPLATE	STREAM_PREFIX"_%06u.v6f"
 
-static const uint32			s_targetFPS			= 75;
-static const uint32			s_sampleCount		= 17;
-static const uint32			s_gridMacroShift	= 9;
-static const float			s_gridMinScale		= 50;
-static const float			s_gridMaxScale		= 5000;
-static const uint32			s_renderTargetSize	= 1 << (s_gridMacroShift + 2);
-
 enum CaptureState_e
 {
 	CAPTURE_STATE_BEGIN,
@@ -43,6 +36,7 @@ enum CaptureState_e
 	CAPTURE_STATE_ERROR,
 };
 
+FVideo6DOFCaptureSettings	s_captureSettings;
 FDynamicRHI*				s_dynamicRHIOriginal = nullptr;
 FDynamicRHIWrap				s_dynamicRHIWrap;
 FRHICommandContextWrap		s_rhiCommandContextWrap;
@@ -108,11 +102,11 @@ static void Scene_End()
 			frameDesc.gridOrigin = s_captureOrigin;
 			frameDesc.gridYaw = s_captureYaw;
 			frameDesc.frameID = s_captureFrameID;
-			frameDesc.frameRate = s_targetFPS;
-			frameDesc.sampleCount = s_sampleCount;
-			frameDesc.gridMacroShift = s_gridMacroShift;
-			frameDesc.gridScaleMin = s_gridMinScale;
-			frameDesc.gridScaleMax = s_gridMaxScale;
+			frameDesc.frameRate = s_captureSettings.m_targetFPS;
+			frameDesc.sampleCount = s_captureSettings.m_sampleCount;
+			frameDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
+			frameDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
+			frameDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
 			
 			v6::CodecRawFrameData_s frameData = {};
 
@@ -237,7 +231,7 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	showFlags.SetBloom( false );
 	showFlags.SetCameraImperfections( false );
 	showFlags.SetDepthOfField( false );
-	showFlags.SetEyeAdaptation( false );
+	// showFlags.SetEyeAdaptation( false );
 	showFlags.SetFog( false );
 	showFlags.SetGrain( false );
 	showFlags.SetHMDDistortion( false );
@@ -245,7 +239,7 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	showFlags.SetMotionBlur( false );
 	showFlags.SetParticles( false );
 	showFlags.SetSeparateTranslucency( false );
-	showFlags.SetTonemapper( false ); // should reinvestigate that
+	showFlags.SetTonemapper( s_captureSettings.m_useToneMapping ); // should reinvestigate that
 	showFlags.SetTranslucency( false );
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
@@ -265,9 +259,7 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	viewFamily.Views.Add( newView );
 	viewFamily.ViewExtensions.Add( MakeShareable( new FSceneViewExtension ) );
 
-	FPostProcessSettings postProcessSettings;
 	newView->StartFinalPostprocessSettings( originUserSpace );
-	newView->OverridePostProcessSettings( postProcessSettings, 1.0f );
 	newView->EndFinalPostprocessSettings( viewInitOptions );
 
 	s_captureState = captureState;
@@ -290,13 +282,21 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	return s_captureState != CAPTURE_STATE_ERROR;
 }
 
-static bool Scene_EncodeFrames( uint32 frameID, uint32 frameCount )
+static bool Scene_EncodeFrames( uint32 frameID, uint32 frameCount  )
 {
-	return v6::VideoStream_EncodeFromSeparateProcess( STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_targetFPS, frameID > 0 );
+	const bool success = v6::VideoStream_EncodeFromSeparateProcess( STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_captureSettings.m_targetFPS, frameID > 0 );
+	if ( success )
+		v6::VideoStream_DeleteRawFrameFiles( RAW_FRAME_TEMPLATE, frameID, frameCount );
+
+	return success;
 }
 
-static bool Scene_CaptureCube( uint32 size, const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID )
+static bool Scene_CaptureCube( const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID, const FVideo6DOFCaptureSettings* captureSettings )
 {
+	s_captureSettings = *captureSettings;
+	
+	const uint32 size = 1 << (s_captureSettings.m_gridMacroShift + 2);
+
 	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
 	renderTargetTexture->AddToRoot();
 	renderTargetTexture->ClearColor = FLinearColor::Black;
@@ -306,10 +306,10 @@ static bool Scene_CaptureCube( uint32 size, const FVector& originUserSpace, cons
 	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
 
 	v6::CaptureDesc_s captureDesc;
-	captureDesc.sampleCount = s_sampleCount;
-	captureDesc.gridMacroShift = s_gridMacroShift;
-	captureDesc.gridScaleMin = s_gridMinScale;
-	captureDesc.gridScaleMax = s_gridMaxScale;
+	captureDesc.sampleCount = s_captureSettings.m_sampleCount;
+	captureDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
+	captureDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
+	captureDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
 	captureDesc.depthLinearScale = 1.0f / GNearClippingPlane;
 	captureDesc.depthLinearBias = 0.0f;
 	captureDesc.logReadBack = false;
@@ -317,7 +317,7 @@ static bool Scene_CaptureCube( uint32 size, const FVector& originUserSpace, cons
 
 	bool success = true;
 
-	for ( uint32 sampleID = 0; sampleID < s_sampleCount; ++sampleID )
+	for ( uint32 sampleID = 0; sampleID < s_captureSettings.m_sampleCount; ++sampleID )
 	{
 		const v6::Vec3 gridCenterUserSpace = v6::Vec3_Make( originUserSpace.X, originUserSpace.Y, originUserSpace.Z );
 		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + v6::CaptureContext_GetSampleOffset( &s_captureContext, sampleID );
@@ -327,7 +327,7 @@ static bool Scene_CaptureCube( uint32 size, const FVector& originUserSpace, cons
 			CaptureState_e captureState;
 			if ( sampleID == 0 && faceID == 0)
 				captureState = CAPTURE_STATE_BEGIN;
-			else if ( sampleID == s_sampleCount-1 && faceID == 5 )
+			else if ( sampleID == s_captureSettings.m_sampleCount-1 && faceID == 5 )
 				captureState = CAPTURE_STATE_END;
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
@@ -408,7 +408,7 @@ void UVideo6DOFCapturer::Init()
 	m_state = EVideo6DOFCapturerState::NONE;
 }
 
-void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientation, uint32 frameCount )
+void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientation, uint32 frameCount, const FVideo6DOFCaptureSettings* captureSettings )
 {
 #if PLATFORM_SUPPORTS_TEXTURE_STREAMING
 	if( !FParse::Param( FCommandLine::Get(), TEXT( "NoTextureStreaming" ) ) )
@@ -419,8 +419,9 @@ void UVideo6DOFCapturer::Capture( const FVector& position, const FQuat& orientat
 	m_captureFrameID = 0;
 	m_captureFrameEncodedCount = 0;
 	m_captureFrameTotalCount = frameCount;
+	m_captureSettings = *captureSettings;
 	m_state = EVideo6DOFCapturerState::CAPTURE;
-	FApp::SetFixedDeltaTime( 1.0f / s_targetFPS );
+	FApp::SetFixedDeltaTime( 1.0f / captureSettings->m_targetFPS );
 	FApp::SetUseFixedTimeStep( true );
 }
 
@@ -437,17 +438,17 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 		return;
 	
 	case EVideo6DOFCapturerState::CAPTURE:
-		if ( Scene_CaptureCube( s_renderTargetSize, m_capturePosition, m_captureOrientation.GetForwardVector(), m_captureFrameID ) )
+		if ( Scene_CaptureCube( m_capturePosition, m_captureOrientation.GetForwardVector(), m_captureFrameID, &m_captureSettings ) )
 		{
 			++m_captureFrameID;
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameTotalCount );
 
 			const uint32 notEncodedFrameCount = m_captureFrameID - m_captureFrameEncodedCount;
-			if ( notEncodedFrameCount == 2 || m_captureFrameID == m_captureFrameTotalCount )
+			if ( notEncodedFrameCount == m_captureSettings.m_targetFPS || m_captureFrameID == m_captureFrameTotalCount )
 			{
 				if ( Scene_EncodeFrames( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
 				{
-					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID - notEncodedFrameCount, m_captureFrameID-1 );
+					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID + 1 - notEncodedFrameCount, m_captureFrameID );
 					m_captureFrameEncodedCount += notEncodedFrameCount;
 
 					if ( m_captureFrameID == m_captureFrameTotalCount )

@@ -32,6 +32,13 @@ void OutputMessage( const char * format, ... )
 	va_end( args );
 
 	fputs( buffer, stdout );
+
+#if 0
+	static FILE* f = nullptr;
+	if ( f == nullptr )
+		fopen_s( &f, "d:/tmp/v6/encoder_log.txt", "wt" );
+	fprintf( f, buffer );
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------

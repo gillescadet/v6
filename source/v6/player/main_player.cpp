@@ -26,7 +26,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -1425,6 +1425,11 @@ int main( int argc, char** argv )
 #if 0
 	const v6::u32 defaultWidth = 256;
 	const v6::u32 defaultHeight = 256;
+#endif
+
+#if 0
+	const v6::u32 defaultWidth = 512;
+	const v6::u32 defaultHeight = 512;
 #endif
 
 #if 1

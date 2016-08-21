@@ -17,6 +17,19 @@ enum EVideo6DOFCapturerState
 	COUNT
 };
 
+USTRUCT()
+struct FVideo6DOFCaptureSettings
+{
+	GENERATED_BODY()
+
+	uint32	m_targetFPS;
+	uint32	m_sampleCount;
+	uint32	m_gridMacroShift;
+	float	m_gridMinScale;
+	float	m_gridMaxScale;
+	bool	m_useToneMapping;
+};
+
 UCLASS()
 class UVideo6DOFCapturer
 	: public UObject
@@ -44,7 +57,7 @@ public:
 
 public:
 	
-	void														Capture( const FVector& position, const FQuat& orientation, uint32 frameCount );
+	void														Capture( const FVector& position, const FQuat& orientation, uint32 frameCount, const FVideo6DOFCaptureSettings* settings );
 	void														Stop();
 
 private:
@@ -54,6 +67,7 @@ private:
 private:
 
 	IImageWrapperModule*										m_imageWrapperModule;
+	FVideo6DOFCaptureSettings									m_captureSettings;
 	EVideo6DOFCapturerState										m_state;
 	FVector														m_capturePosition;
 	FQuat														m_captureOrientation;

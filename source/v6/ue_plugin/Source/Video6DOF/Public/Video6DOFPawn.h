@@ -14,6 +14,6 @@ class AVideo6DOFPawn
 
 public:
 
-    UPROPERTY( VisibleAnywhere, BlueprintReadOnly, Category = Pawn )
-	UTexture2D* OutputImage;
+    //UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = SceneCapture )
+	//struct FPostProcessSettings PostProcessSettings;
 };

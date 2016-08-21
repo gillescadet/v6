@@ -34,7 +34,7 @@ bool Process_Execute( int* returnCode, const char* cmd )
 		return false;
 	}
 		
-	WaitForSingleObject( processInformation.hProcess, INFINITE);
+	WaitForSingleObject( processInformation.hProcess, INFINITE );
 	if ( returnCode )
 		GetExitCodeProcess( processInformation.hProcess, (::DWORD*)returnCode );
 

@@ -1119,8 +1119,15 @@ public:
 
         virtual void RHIPushEvent( const TCHAR* Name ) final override
         {
-			//v6::GPU_BeginEventW( Name );
+			if ( FString( Name ) == TEXT( "PostProcessEyeAdaptation" ) )
+			{
+				m_wrapped->RHIPushEvent( TEXT( "*** PostProcessEyeAdaptation ***" ) );
+			}
+			else
+			{
+				//v6::GPU_BeginEventW( Name );
                 m_wrapped->RHIPushEvent( Name );
+			}
         }
 
         virtual void RHIPopEvent(  ) final override

@@ -219,4 +219,9 @@ int FileSystem_ReadFile( const char* filename, void** data, IAllocator* allocato
 	return size;
 }
 
+bool FileSystem_DeleteFile( const char* filename )
+{
+	return DeleteFileA( filename ) != 0;
+}
+
 END_V6_NAMESPACE

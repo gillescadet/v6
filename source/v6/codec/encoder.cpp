@@ -7,6 +7,7 @@
 #include <v6/codec/codec.h>
 #include <v6/core/bit.h>
 #include <v6/core/color.h>
+#include <v6/core/filesystem.h>
 #include <v6/core/image.h>
 #include <v6/core/memory.h>
 #include <v6/core/plot.h>
@@ -1466,6 +1467,18 @@ bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const ch
 		return true;
 
 	return false;
+}
+
+void VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frameOffset, u32 frameCount )
+{
+	for ( u32 frameRank = 0; frameRank < frameCount; ++frameRank )
+	{
+		const u32 frameID = frameOffset + frameRank;
+		char filename[256];
+		sprintf_s( filename, sizeof( filename ), templateRawFilename, frameID );
+
+		FileSystem_DeleteFile( filename );
+	}
 }
 
 END_V6_NAMESPACE

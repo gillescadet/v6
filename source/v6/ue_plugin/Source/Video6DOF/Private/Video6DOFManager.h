@@ -14,6 +14,12 @@ public:
 	void					CaptureScreenshot( const TArray<FString>& Args );
 	void					CaptureSequence( const TArray<FString>& Args );
 	void					CaptureStop( const TArray<FString>& Args );
+	void					SetCaptureFPS( const TArray<FString>& Args );
+	void					SetCaptureSampleCount( const TArray<FString>& Args );
+	void					SetCaptureSetGridMacroShift( const TArray<FString>& Args );
+	void					SetCaptureSetGridMinScale( const TArray<FString>& Args );
+	void					SetCaptureSetGridMaxScale( const TArray<FString>& Args );
+	void					SetCaptureUseToneMapping( const TArray<FString>& Args );
 
 public:
 	UPROPERTY()
@@ -26,4 +32,17 @@ private:
 	FAutoConsoleCommand		m_screenshotCommand;
 	FAutoConsoleCommand		m_sequenceCommand;
 	FAutoConsoleCommand		m_stopCommand;
+	FAutoConsoleCommand		m_fpsCommand;
+	FAutoConsoleCommand		m_sampleCountCommand;
+	FAutoConsoleCommand		m_gridMacroShiftCommand;
+	FAutoConsoleCommand		m_gridMinScaleCommand;
+	FAutoConsoleCommand		m_gridMaxScaleCommand;
+	FAutoConsoleCommand		m_useToneMappingCommand;
+
+	uint32					m_fps;
+	uint32					m_sampleCount;
+	uint32					m_gridMacroShift;
+	float					m_gridMinScale;
+	float					m_gridMaxScale;
+	bool					m_useToneMapping;
 };
