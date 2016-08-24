@@ -87,19 +87,34 @@ void BlockAllocator_Release( BlockAllocator_s* allocator )
 	memset( allocator, 0, sizeof( BlockAllocator_s ) );
 }
 
-Stack::Stack( IAllocator* heap, u32 capacity )
-	: m_heap( heap )
+Stack::Stack()
 {
-	m_buffer = m_heap->alloc( (int)capacity );
-	m_capacity = capacity;
+	m_heap = nullptr;
+	m_buffer = nullptr;
 	m_size = 0;
+	m_capacity = 0;
 	m_stackSize = 0;
+}
+
+Stack::Stack( IAllocator* heap, u32 capacity )
+{
+	Init( heap, capacity );
 }
 
 Stack::~Stack()
 {
 	V6_ASSERT( m_stackSize == 0 );
-	m_heap->free( m_buffer );
+	if ( m_heap )
+		m_heap->free( m_buffer );
+}
+
+void Stack::Init( IAllocator* heap, u32 capacity )
+{
+	m_heap = heap;
+	m_buffer = m_heap->alloc( (int)capacity );
+	m_capacity = capacity;
+	m_size = 0;
+	m_stackSize = 0;
 }
 
 void * Stack::alloc( int size )

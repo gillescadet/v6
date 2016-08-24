@@ -93,8 +93,12 @@ public:
 	static const u32 LEVEL_COUNT = 32;
 
 public:
+					Stack();
 					Stack( IAllocator* heap, u32 capacity = 1024 * 1024 );
 	virtual			~Stack();
+
+public:
+	void			Init( IAllocator* heap, u32 capacity = 1024 * 1024 );
 
 public:
 	virtual void *	alloc( int size ) override;

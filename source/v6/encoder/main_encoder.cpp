@@ -70,22 +70,24 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 	commandArgs->templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 	commandArgs->frameOffset = 0;
 	commandArgs->frameCount = 1;
-	commandArgs->playRate = 1;
+	commandArgs->playRate = 75;
+	commandArgs->extend = false;
 #endif
 
 #if 0
-	const char* streamFilename = "D:/media/obj/default/default.v6";
-	const char* templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
 	commandArgs->frameOffset = 0;
 	commandArgs->frameCount = 1;
 	commandArgs->playRate = 75;
+	commandArgs->extend = false;
 #endif
 
-#if 0
-	commandArgs->streamFilename = "D:/tmp/v6/ue_1024.v6";
+#if 1
+	commandArgs->streamFilename = "D:/tmp/v6/ue.v6";
 	commandArgs->templateFilename = "D:/tmp/v6/ue_%06d.v6f";
-	commandArgs->frameOffset = 0;
-	commandArgs->frameCount = 2;
+	commandArgs->frameOffset = 450;
+	commandArgs->frameCount = 75;
 	commandArgs->playRate = 75;
 	commandArgs->extend = true;
 #endif
