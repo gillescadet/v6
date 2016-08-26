@@ -113,6 +113,7 @@ bool CUnbufferedFileReader::Open( const char* filename )
 		return false;
 
 	m_file = file;
+	strcpy_s( m_filename, sizeof( m_filename ), filename );
 
 	return true;
 }
@@ -255,6 +256,7 @@ bool CUnbufferedFileWriter::Open( const char * pFilename )
 		return false;
 
 	m_file = file;
+	strcpy_s( m_filename, sizeof( m_filename ), pFilename );
 
 	return true;
 }

@@ -11,33 +11,34 @@
 
 BEGIN_V6_NAMESPACE
 
-#define CODEC_RAWFRAME_MAGIC			"V6RF"
-#define CODEC_RAWFRAME_VERSION			6
+#define CODEC_RAWFRAME_MAGIC				"V6RF"
+#define CODEC_RAWFRAME_VERSION				6
 
-#define CODEC_FRAME_MAGIC				"V6F"
-#define CODEC_FRAME_VERSION				5
+#define CODEC_FRAME_MAGIC					"V6F"
+#define CODEC_FRAME_VERSION					5
 
-#define CODEC_SEQUENCE_MAGIC			"V6S"
-#define CODEC_SEQUENCE_VERSION			2
+#define CODEC_SEQUENCE_MAGIC				"V6S"
+#define CODEC_SEQUENCE_VERSION				2
 
-#define CODEC_STREAM_MAGIC				"V6"
-#define CODEC_STREAM_VERSION			1
+#define CODEC_STREAM_MAGIC					"V6"
+#define CODEC_STREAM_VERSION				1
 
-#define CODEC_RAWFRAME_BUCKET_COUNT		5
-#define CODEC_CELL_MAX_COUNT			64
-#define CODEC_MIP_MAX_COUNT				16
-#define CODEC_RANGE_MAX_COUNT			65536
-#define CODEC_FRAME_MAX_COUNT			128
-#define CODEC_INVALID_FRAME_RANK		CODEC_FRAME_MAX_COUNT
-#define CODEC_BLOCK_THREAD_GROUP_SIZE	64
+#define CODEC_RAWFRAME_BUCKET_COUNT			5
+#define CODEC_CELL_MAX_COUNT				64
+#define CODEC_MIP_MAX_COUNT					16
+#define CODEC_RANGE_MAX_COUNT				65536
+#define CODEC_FRAME_MAX_COUNT				128
+#define CODEC_INVALID_FRAME_RANK			CODEC_FRAME_MAX_COUNT
+#define CODEC_BLOCK_THREAD_GROUP_SIZE		64
+#define CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE	MulMB( 16u )
 
-#define CODEC_COLOR_ERROR_TOLERANCE		1
-#define CODEC_COLOR_COUNT_TOLERANCE		4
+#define CODEC_COLOR_ERROR_TOLERANCE			1
+#define CODEC_COLOR_COUNT_TOLERANCE			4
 
 #if V6_UE4_PLUGIN == 1
-#define CODEC_FRAME_COMPRESS			0
+#define CODEC_FRAME_COMPRESS				0
 #else
-#define CODEC_FRAME_COMPRESS			1
+#define CODEC_FRAME_COMPRESS				1
 #endif
 
 #include <v6/core/mat4x4.h>
@@ -122,10 +123,13 @@ struct CodecFrameDesc_s
 struct CodecFrameData_s
 {	
 	u32*			blockPos;
-	u64*			blockCellPresences;
+	u32*			blockCellPresences0;
+	u32*			blockCellPresences1;
 	u32*			blockCellEndColors;
-	u64*			blockCellColorIndices0;
-	u64*			blockCellColorIndices1;
+	u32*			blockCellColorIndices0;
+	u32*			blockCellColorIndices1;
+	u32*			blockCellColorIndices2;
+	u32*			blockCellColorIndices3;
 	u16*			rangeIDs; // optim: this could replaced with firstRangeID and rangeCount
 };
 

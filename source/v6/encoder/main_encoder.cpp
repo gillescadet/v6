@@ -85,11 +85,11 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 
 #if 1
 	commandArgs->streamFilename = "D:/tmp/v6/ue.v6";
-	commandArgs->templateFilename = "D:/tmp/v6/ue_%06d.v6f";
+	commandArgs->templateFilename = "D:/tmp/v6/ue_test0/ue_%06d.v6f";
 	commandArgs->frameOffset = 450;
-	commandArgs->frameCount = 75;
+	commandArgs->frameCount = 3;
 	commandArgs->playRate = 75;
-	commandArgs->extend = true;
+	commandArgs->extend = false;
 #endif
 }
 

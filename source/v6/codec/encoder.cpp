@@ -18,14 +18,23 @@
 #include <v6/core/time.h>
 #include <v6/core/vec3i.h>
 
+#if V6_UE4_PLUGIN == 0
+
+#include <lz4/lib/lz4.h>
+#include <lz4/lib/lz4hc.h>
+
 #define ENCODER_DEBUG					0
 #define ENCODER_SKIP_WRITING			0
 #define ENCODER_DUMP_RANGES				0
 
+#define ENCODER_INVALID_ID				0xFFFFFFFF
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
 #define ENCODER_EMPTY_CELL				0xFFFFFFFF
+#define ENCODER_OUT_OF_BLOCK			0xFFFFFFFF
 
-#define ENCODER_THREAD_COUNT			8
+#define ENCODER_THREAD_COUNT			4
+#define ENCODER_BLOCK_PER_DATA_CHUNK	MulKB( 1 )
+#define ENCODER_LZ4_COMPRESSION_LEVEL	4
 
 BEGIN_V6_NAMESPACE
 
@@ -36,11 +45,40 @@ BEGIN_V6_NAMESPACE
 
 struct Context_s;
 
+struct BlockDataChunk_s
+{
+	u32			filePos;
+	u32*		offsets;
+	union
+	{
+		u32*		decompressedRGBA;
+		void*		compressedRGBA;
+	};
+	u32			blockCount;
+	u32			compressedSize;
+	u32			decompressedSize;
+};
+
+struct BlockDataChunkJob_s
+{
+	IAllocator*			heap;
+	Stack				stack;
+	BlockDataChunk_s*	firstChunk;
+	u8*					compressedBuffer;
+	u32*				compressedBufferSize;
+	u32					compressedBufferMaxSize;
+	bool				success;
+};
+
 struct Block_s
 {
 	union
 	{
-		Block_s*			nextFrameBlock;
+		struct
+		{
+			u32				thisBlockOrder;
+			u32				nextBlockOrder;
+		};
 		EncodedBlockEx_s*	encodedBlock;
 	};
 	u64			key;
@@ -58,59 +96,55 @@ struct BlockCluster_s
 	u32		cellCount[CODEC_CELL_MAX_COUNT];
 };
 
-struct RawFrame_s
-{
-	Block_s*	blocks;
-	u32*		blockIDs;
-	u32			blockCount;
-	u32			refFrameRank;
-	Vec3		gridOrigin;
-	float		gridYaw;
-	Vec3i		gridMin[CODEC_MIP_MAX_COUNT];
-	Vec3i		gridMax[CODEC_MIP_MAX_COUNT];
-	u32			blockCountPerMip[CODEC_MIP_MAX_COUNT];
-	u32			blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
-
-	struct 
-	{
-		u32		blockPosOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
-		u32		blockDataOffsets[CODEC_RAWFRAME_BUCKET_COUNT];
-		u32*	blockCellRGBA;
-	} data;
-
-	u32			sharedBlockCount;
-	struct Shared_s
-	{
-		u32		blockCount;
-		u32		rangeIDs[CODEC_MIP_MAX_COUNT];
-		u32		blockCountPerMip[CODEC_MIP_MAX_COUNT];
-		u32		blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
-	} shareds[CODEC_FRAME_MAX_COUNT];
-};
-
 struct RawFrameBlockCache_s
 {
-	Context_s*			context;
-	BlockAllocator_s*	blockAllocator;
-	u64					lastBlockID;
+	u8*					chunkBuffer;
+	u32					lastBlockOrder;
+	u32					lastBlockDataChunkID;
 	u32					lastBlockCellRGBA[64];
 	u64					lastBlockCellPresence;
 };
 
+struct RawFrame_s
+{
+	Block_s*				blocks;
+	u32*					blockIDs;
+	BlockDataChunk_s*		blockDataChunks;
+	u32						blockCount;
+	u32						refFrameRank;
+	Vec3					gridOrigin;
+	float					gridYaw;
+	Vec3i					gridMin[CODEC_MIP_MAX_COUNT];
+	Vec3i					gridMax[CODEC_MIP_MAX_COUNT];
+	u32						blockCountPerMip[CODEC_MIP_MAX_COUNT];
+	u32						blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
+
+	u32						sharedBlockCount;
+	struct Shared_s
+	{
+		u32					blockCount;
+		u32					rangeIDs[CODEC_MIP_MAX_COUNT];
+		u32					blockCountPerMip[CODEC_MIP_MAX_COUNT];
+		u32					blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
+	}						shareds[CODEC_FRAME_MAX_COUNT];
+
+	CUnbufferedFileReader	cacheFileReader;
+	RawFrameBlockCache_s	threadCaches[ENCODER_THREAD_COUNT];
+};
+
 struct RawFrameMergeContext_s
 {
-	Context_s*	context;
-	u64			lastStepTime;
-	u32			frameRank;
-	u32			rootCount;
-	u32			processedCount;
+	Context_s*			context;
+	u64					lastStepTime;
+	u32					frameRank;
+	u32					rootCount;
+	u32					processedCount;
 };
 
 struct RawFrameMergeJob_s
 {
 	RawFrameMergeContext_s*	mergeContext;
 	const u32*				blockIDs;
-	RawFrameBlockCache_s	blockCache;
 	
 };
 
@@ -126,20 +160,34 @@ struct ContextStream_s
 
 struct Context_s
 {
-	Mutex_s				progressLock;
+	Mutex_s				mainLock;
 	ContextStream_s*	stream;
 	IAllocator*			heap;
 	IStack*				stack;
 	RawFrame_s*			frames;
 	WorkerThread_s		threads[ENCODER_THREAD_COUNT];
-	BlockAllocator_s	blockAllocators[ENCODER_THREAD_COUNT];
+	BlockAllocator_s	threadBlockAllocators[ENCODER_THREAD_COUNT];
 	Vec3i				gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i				gridMax[CODEC_MIP_MAX_COUNT];
 	CodecRange_s		rangeDefs[CODEC_RANGE_MAX_COUNT];
 	u32					rangeDefCount;
 	u32					frameCount;
-	u32					blockPosCountPerSequence;
+	u32					blockCountPerSequence;
+	u32					rootCountPerSequence;
 };
+
+static void ShowProgress()
+{
+	static u32 s_step = 0;
+	const char cars[] = { '/', '|', '\\', '-' }; 
+	printf( "\r%c", cars[s_step % 4] );
+	++s_step;
+}
+
+static void HideProgress()
+{
+	printf( "\r \r" );
+}
 
 static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
 {
@@ -179,6 +227,52 @@ static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShi
 	return key;
 }
 
+static void BlockDataChunk_Write( IStreamWriter* streamWriter, BlockDataChunk_s* chunk, Context_s* context )
+{
+	chunk->filePos = streamWriter->GetPos();
+
+	ScopedStack scopedStack( context->stack );
+
+	const u32 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
+	const u32 chunkSize = offsetSize + chunk->compressedSize;
+	const u32 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
+	void* chunkData = Codec_AllocToClusterSizeAndFillPaddingWithZero( nullptr, chunkAlignedSize, context->stack );
+	
+	CBufferWriter bufferWriter( chunkData, chunkAlignedSize );
+	bufferWriter.Write( chunk->offsets, offsetSize );
+	bufferWriter.Write( chunk->compressedRGBA, chunk->compressedSize );
+	
+	chunk->offsets = nullptr;
+	chunk->compressedRGBA = nullptr;
+
+	streamWriter->Write( chunkData, chunkAlignedSize );
+}
+
+static bool BlockDataChunk_Read( IStreamReader* streamReader, BlockDataChunk_s* chunk, u8* chunkBuffer, Context_s* context )
+{
+	ScopedStack scopedStack( context->stack );
+
+	const u32 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
+	const u32 chunkSize = offsetSize + chunk->compressedSize;
+	const u32 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
+	u8* chunkData = (u8*)Codec_AllocToClusterSizeAndFillPaddingWithZero( nullptr, chunkAlignedSize, context->stack );
+
+	streamReader->SetPos( chunk->filePos );
+	streamReader->Read( chunkAlignedSize, chunkData );
+	
+	chunk->offsets = (u32*)chunkBuffer;
+	memcpy( chunk->offsets, chunkData, offsetSize );
+	
+	chunk->decompressedRGBA = (u32*)(chunkBuffer + offsetSize);
+	if ( LZ4_decompress_fast( (char*)(chunkData + offsetSize), (char*)chunk->decompressedRGBA, chunk->decompressedSize ) != chunk->compressedSize )
+	{
+		V6_ERROR( "LZ4 decompression failed.\n" );
+		return false;
+	}
+
+	return true;
+}
+
 static int Block_CompareKey( void* framePointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
 	RawFrame_s* frame = (RawFrame_s*)framePointer;
@@ -203,37 +297,56 @@ static int Block_CompareBySharedFrameCountThenByKey( void* framePointer, void co
 	return frame->blocks[blockID0].key < frame->blocks[blockID1].key ? -1 : 1;
 }
 
-static void Block_GetColors( const u32** cellRGBA, u64* cellPresence, const Block_s* block, RawFrameBlockCache_s* blockCache ) 
+static void Block_GetColors( const u32** cellRGBA, u64* cellPresence, const Block_s* block, Context_s* context, u32 threadID )
 {
-	const RawFrame_s* rawFrame = &blockCache->context->frames[block->frameRank];
-	const u32 blockID = (u32)(block - rawFrame->blocks);
+	RawFrame_s* rawFrame = &context->frames[block->frameRank];
+	RawFrameBlockCache_s* cache = &rawFrame->threadCaches[threadID];
 	
-	if ( blockID != blockCache->lastBlockID )
+	if ( block->thisBlockOrder != cache->lastBlockOrder )
 	{
-		const u32 blockRankInBucket = blockID - rawFrame->data.blockPosOffsets[block->bucket];
+		const u32 chunkID = block->thisBlockOrder / ENCODER_BLOCK_PER_DATA_CHUNK;
+		const u32 chunkCount = (rawFrame->blockCount + ENCODER_BLOCK_PER_DATA_CHUNK - 1) / ENCODER_BLOCK_PER_DATA_CHUNK;
+		V6_ASSERT( chunkID < chunkCount );
+		BlockDataChunk_s* chunk = &rawFrame->blockDataChunks[chunkID];
+
+		if ( chunkID != cache->lastBlockDataChunkID )
+		{
+			Mutex_Lock( &context->mainLock );
+
+			if ( !BlockDataChunk_Read( &rawFrame->cacheFileReader, chunk, cache->chunkBuffer, context ) )
+			{
+				Mutex_Unlock( &context->mainLock );
+				exit( 1 );
+			}
+			Mutex_Unlock( &context->mainLock );
+			// V6_MSG( "Decompress chunk F%02d_%04d\n", block->frameRank, chunkID );
+			cache->lastBlockDataChunkID = chunkID;
+		}
+
+		const u32 blockOrderInChunk = block->thisBlockOrder - chunkID * ENCODER_BLOCK_PER_DATA_CHUNK;
+		const u32* blockCellRGBA = chunk->decompressedRGBA + chunk->offsets[blockOrderInChunk];
 		const u32 cellPerBucketCount = 1 << (block->bucket + 2);
-		const u32 blockDataID = rawFrame->data.blockDataOffsets[block->bucket] + blockRankInBucket * cellPerBucketCount;
-	
-		blockCache->lastBlockCellPresence = 0;
+			
+		cache->lastBlockCellPresence = 0;
 
 		for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
 		{
-			const u32 rgba = rawFrame->data.blockCellRGBA[blockDataID + cellID];
+			const u32 rgba = blockCellRGBA[cellID];
 			if ( rgba == ENCODER_EMPTY_CELL )
 				break;
 				
 			const u32 cellPos = rgba & 0xFF;
 			V6_ASSERT( cellPos < 64 );
 
-			blockCache->lastBlockCellRGBA[cellPos] = rgba;
-			blockCache->lastBlockCellPresence |= 1ll << cellPos;
+			cache->lastBlockCellRGBA[cellPos] = rgba;
+			cache->lastBlockCellPresence |= 1ll << cellPos;
 		}
 
-		blockCache->lastBlockID = blockID;
+		cache->lastBlockOrder = block->thisBlockOrder;
 	}
 
-	*cellRGBA = blockCache->lastBlockCellRGBA;
-	*cellPresence = blockCache->lastBlockCellPresence;
+	*cellRGBA = cache->lastBlockCellRGBA;
+	*cellPresence = cache->lastBlockCellPresence;
 }
 
 static u32 Block_GetMip( const Block_s* block )
@@ -246,11 +359,25 @@ static u32 Block_GetPos( const Block_s* block )
 	return block->mip4_none1_pos27 & 0x07FFFFFF;
 }
 
-static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block, RawFrameBlockCache_s* blockCache )
+static Block_s* Block_GetLinkedBlock( const Block_s* block, Context_s* context )
+{
+	if ( block->nextBlockOrder == (u32)-1 )
+		return nullptr;
+
+	const u32 nextFrameRank = block->frameRank + 1;
+	V6_ASSERT( nextFrameRank < context->frameCount );
+	const RawFrame_s* nextFrame = &context->frames[nextFrameRank];
+	V6_ASSERT( block->nextBlockOrder < nextFrame->blockCount );
+	const u32 nextFrameBlockID = nextFrame->blockIDs[block->nextBlockOrder];
+	V6_ASSERT( nextFrameBlockID < nextFrame->blockCount );
+	return &nextFrame->blocks[nextFrameBlockID];
+}
+
+static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const Block_s* block, Context_s* context, u32 threadID )
 {
 	const u32* blockCellRGBA;
 	u64 blockCellPresence;
-	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, blockCache );
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context, threadID );
 
 #if ENCODER_STRICT_CELL == 1
 	if ( blockCellPresence != cluster->cellPresence )
@@ -287,11 +414,11 @@ static bool BlockCluster_HasSimilarColors( const BlockCluster_s* cluster, const 
 	return true;
 }
 
-static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster, const Block_s* block, RawFrameBlockCache_s* blockCache )
+static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster, const Block_s* block, Context_s* context, u32 threadID )
 {
 	const u32* blockCellRGBA;
 	u64 blockCellPresence;
-	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, blockCache );
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context, threadID );
 
 #if ENCODER_STRICT_CELL == 1
 	if ( blockCellPresence != cluster->cellPresence )
@@ -328,14 +455,14 @@ static bool BlockCluster_HasSimilarAverageColors( const BlockCluster_s* cluster,
 	return true;
 }
 
-static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* block, RawFrameBlockCache_s* blockCache )
+static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* block, Context_s* context, u32 threadID )
 {
 	const u32* blockCellRGBA;
 	u64 blockCellPresence;
-	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, blockCache );
+	Block_GetColors( &blockCellRGBA, &blockCellPresence, block, context, threadID );
 
 	u64 blockPresence = blockCellPresence;
-	V6_ASSERT( blockPresence != 0 )
+	V6_ASSERT( blockPresence != 0 );
 
 	do
 	{
@@ -356,10 +483,10 @@ static void BlockCluster_AddColors( BlockCluster_s* cluster, const Block_s* bloc
 	cluster->cellPresence |= blockCellPresence;
 }
 
-static EncodedBlockEx_s* BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* block, RawFrameBlockCache_s* blockCache )
+static EncodedBlockEx_s* BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* block, Context_s* context, u32 threadID )
 {
 	u64 cellPresence = cluster->cellPresence;
-	V6_ASSERT( cellPresence != 0 )
+	V6_ASSERT( cellPresence != 0 );
 	
 	u32 blockCellRGBA[64];
 	u32 blockCellCount = 0;
@@ -378,36 +505,36 @@ static EncodedBlockEx_s* BlockCluster_ResolveColors( const BlockCluster_s* clust
 
 	} while ( cellPresence != 0 );
 
-	EncodedBlockEx_s* encodedBlock = BlockAllocator_Add< EncodedBlockEx_s >( blockCache->blockAllocator, 1 );
+	EncodedBlockEx_s* encodedBlock = BlockAllocator_Add< EncodedBlockEx_s >( &context->threadBlockAllocators[threadID], 1 );
 	memset( encodedBlock, 0, sizeof( EncodedBlockEx_s ) );
 	Block_Encode_Optimize( encodedBlock, blockCellRGBA, blockCellCount );
 
 	return encodedBlock;
 }
 
-static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBlock, u32 clusterDiffCount, u32 sharedFrameCount, RawFrameBlockCache_s* blockCache )
+static u32 BlockCluster_LinkColors( BlockCluster_s* cluster, Block_s* linkedBlock, u32 clusterDiffCount, u32 sharedFrameCount, Context_s* context, u32 threadID )
 {
 	const u32* linkedBlockCellRGBA;
 	u64 linkedBlockCellPresence;
-	Block_GetColors( &linkedBlockCellRGBA, &linkedBlockCellPresence, linkedBlock, blockCache );
+	Block_GetColors( &linkedBlockCellRGBA, &linkedBlockCellPresence, linkedBlock, context, threadID );
 
 	clusterDiffCount += Bit_GetBitHighCount( cluster->cellPresence ^ linkedBlockCellPresence );
-	if ( clusterDiffCount > CODEC_COLOR_COUNT_TOLERANCE || !BlockCluster_HasSimilarAverageColors( cluster, linkedBlock, blockCache ) )
+	if ( clusterDiffCount > CODEC_COLOR_COUNT_TOLERANCE || !BlockCluster_HasSimilarAverageColors( cluster, linkedBlock, context, threadID ) )
 		return sharedFrameCount;
 
-	BlockCluster_AddColors( cluster, linkedBlock, blockCache );
+	BlockCluster_AddColors( cluster, linkedBlock, context, threadID );
 	++sharedFrameCount;
 
-	if ( !linkedBlock->nextFrameBlock )
+	if ( linkedBlock->nextBlockOrder == ENCODER_INVALID_ID )
 		return sharedFrameCount;
 
 	const BlockCluster_s prevCluster = *cluster;
 
-	const u32 nextSharedFrameCount = BlockCluster_LinkColors( cluster, linkedBlock->nextFrameBlock, clusterDiffCount, sharedFrameCount, blockCache );
+	const u32 nextSharedFrameCount = BlockCluster_LinkColors( cluster, Block_GetLinkedBlock( linkedBlock, context ), clusterDiffCount, sharedFrameCount, context, threadID );
 	if ( nextSharedFrameCount == sharedFrameCount )
 		return sharedFrameCount;
 
-	if ( !BlockCluster_HasSimilarColors( cluster, linkedBlock, blockCache ) )
+	if ( !BlockCluster_HasSimilarColors( cluster, linkedBlock, context, threadID ) )
 	{
 		*cluster = prevCluster;
 		return sharedFrameCount;
@@ -447,6 +574,33 @@ static void d2xy( int n, int d, int *x, int *y )
 	}
 }
 
+static void RawFrame_CompressedBlockDataChunk_Job( void* jobPointer, u32 threadID, u32 chunkCount )
+{
+	BlockDataChunkJob_s* job = (BlockDataChunkJob_s*)jobPointer;
+
+	for ( u32 chunkRank = 0; chunkRank < chunkCount; ++chunkRank )
+	{
+		ScopedStack lz4ScopedStack( &job->stack );
+
+		BlockDataChunk_s* chunk = job->firstChunk + chunkRank;
+
+		const u32 chunkLZ4MaxSize = LZ4_compressBound( chunk->decompressedSize );
+		u8* chunckLZ4 = (u8*)job->stack.alloc( chunkLZ4MaxSize );
+		chunk->compressedSize = LZ4_compress_HC( (char*)chunk->decompressedRGBA, (char*)chunckLZ4, chunk->decompressedSize, chunkLZ4MaxSize, ENCODER_LZ4_COMPRESSION_LEVEL );
+		if ( chunk->compressedSize == 0 )
+		{
+			job->success = false;
+			return;
+		}
+		const u32 compressedBufferOffset = Atomic_Add( job->compressedBufferSize, chunk->compressedSize );
+		V6_ASSERT( compressedBufferOffset + chunk->compressedSize <= job->compressedBufferMaxSize );
+		chunk->compressedRGBA = job->compressedBuffer + compressedBufferOffset;
+		memcpy( chunk->compressedRGBA, chunckLZ4, chunk->compressedSize );
+	}
+
+	job->success = true;
+}
+
 static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_s* context )
 {
 	RawFrame_s* frame = &context->frames[frameRank];
@@ -459,7 +613,18 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		return false;
 	}
 
+	char cacheFilename[256];
+	FilePath_ChangeExtension( cacheFilename, sizeof( cacheFilename ), filename, "~v6c" );
+	CUnbufferedFileWriter dataCacheWriter;
+	if ( !dataCacheWriter.Open( cacheFilename ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", cacheFilename );
+		return false;
+	}
+
 	ScopedStack scopedStack( context->stack );
+
+	ShowProgress();
 
 	CodecRawFrameDesc_s desc;
 	CodecRawFrameData_s data;
@@ -513,15 +678,6 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	frame->gridYaw = desc.gridYaw;
 	frame->refFrameRank = (u32)-1;
 
-#if ENCODER_DEBUG == 1
-	Plot_s plot;
-	Plot_Create( &plot, String_Format( "d:/tmp/plot/rawframe%d", frameRank ) );
-	Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
-	float gridScales[CODEC_MIP_MAX_COUNT];
-	float halfCellSizes[CODEC_MIP_MAX_COUNT];
-	const float invGridWidth = 1.0f / (1 << (context->stream->desc.gridMacroShift + 2));
-#endif // #if ENCODER_DEBUG == 1
-
 	float gridScale = context->stream->desc.gridScaleMin;
 	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip, gridScale *= 2.0f )
 	{
@@ -539,23 +695,19 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			context->gridMin[mip] = Min( context->gridMin[mip], frame->gridMin[mip] );
 			context->gridMax[mip] = Max( context->gridMin[mip], frame->gridMax[mip] );
 		}
-
-#if ENCODER_DEBUG == 1
-		gridCenters[mip] = Codec_ComputeGridCenter( &frame->gridOrigin, gridScale, context->stream->gridMacroHalfWidth );
-		gridScales[mip] = gridScale;
-		halfCellSizes[mip] = gridScale * invGridWidth;
-#endif // #if ENCODER_DEBUG == 1
 	}
 
 	u32 blockPosCount = 0;
 	u32 blockDataCount = 0;
+	u32 blockPosOffsets[CODEC_RAWFRAME_BUCKET_COUNT] = {};
+	u32 blockDataOffsets[CODEC_RAWFRAME_BUCKET_COUNT] = {};
 	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
 		const u32 cellCount = desc.blockCounts[bucket] * cellPerBucketCount;
-		frame->data.blockPosOffsets[bucket] = blockPosCount;
-		frame->data.blockDataOffsets[bucket] = blockDataCount;
+		blockPosOffsets[bucket] = blockPosCount;
+		blockDataOffsets[bucket] = blockDataCount;
 		blockPosCount += desc.blockCounts[bucket];
 		blockDataCount += cellCount;
 	}
@@ -565,49 +717,28 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	memset( frame->blocks, 0, blockPosCount * sizeof( Block_s ) );
 	frame->blockCount = blockPosCount;
 
-	frame->data.blockCellRGBA = context->heap->newArray< u32 >( blockDataCount );
-	memcpy( frame->data.blockCellRGBA, data.blockData, blockDataCount * sizeof( u32 ) );
+	const u32 chunkCount = (blockPosCount + ENCODER_BLOCK_PER_DATA_CHUNK - 1) / ENCODER_BLOCK_PER_DATA_CHUNK;
+	frame->blockDataChunks = context->heap->newArray< BlockDataChunk_s >( chunkCount );
+	memset( frame->blockDataChunks, 0, chunkCount * sizeof( BlockDataChunk_s ) );
 
+	u32 blockID = 0;
 	for ( u32 bucket = 0; bucket < CODEC_RAWFRAME_BUCKET_COUNT; ++bucket )
 	{
 		const u32 cellPerBucketCount = 1 << (bucket + 2);
 
-		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank )
+		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank, ++blockID )
 		{
-#if ENCODER_DEBUG == 1
-			Plot_NewObject( &plot, Color_Make( 255, 0, 0, 50 ) );
-#endif // #if ENCODER_DEBUG == 1
-
-			const u32 blockPosID = frame->data.blockPosOffsets[bucket] + blockRank;
-
-			Block_s* block = &frame->blocks[blockPosID];
-			const u32 mip4_none1_pos27 = ((u32*)data.blockPos)[blockPosID];
+			Block_s* block = &frame->blocks[blockID];
+			const u32 mip4_none1_pos27 = ((u32*)data.blockPos)[blockID];
 			V6_ASSERT( ((mip4_none1_pos27 >> 27) & 1) == 0 );
 			block->mip4_none1_pos27 = mip4_none1_pos27;
+			const u32 mip = Block_GetMip( block );
+			block->key = ComputeKeyFromMipAndBlockPos( mip, Block_GetPos( block ), context->stream->desc.gridMacroShift, frame->gridMin[mip] - context->gridMin[mip] );
+			V6_ASSERT( block->key != 0 );
 			block->frameRank = frameRank;
 			block->bucket = bucket;
-
-#if ENCODER_DEBUG == 1
-			const u32 blockDataID = frame->data.blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
-			for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
-			{
-				const u32 rgba = ((u32*)data.blockData)[blockDataID + cellID];
-				if ( rgba == ENCODER_EMPTY_CELL )
-					break;
-				
-				const u32 cellPos = rgba & 0xFF;
-				V6_ASSERT( cellPos < 64 );
-
-				const Vec3u cellCoords = ComputeCellCoords( block->pos, context->stream->desc.gridMacroShift, cellPos );
-				Vec3 pMin;
-				pMin.x = gridCenters[block->mip].x + (cellCoords.x * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-				pMin.y = gridCenters[block->mip].y + (cellCoords.y * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-				pMin.z = gridCenters[block->mip].z + (cellCoords.z * halfCellSizes[block->mip] * 2.0f ) - gridScales[block->mip];
-				const Vec3 pMax = pMin + halfCellSizes[block->mip] * 2.0f;
-				Plot_AddBox( &plot, &pMin, &pMax, false );
-				Plot_AddBox( &plot, &pMin, &pMax, true );
-			}
-#endif // #if ENCODER_DEBUG == 1
+			
+			frame->blockIDs[blockID] = blockID;
 
 			++frame->blockCountPerMip[Block_GetMip( block )];
 		}
@@ -620,9 +751,139 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		blockOffset += frame->blockCountPerMip[mip];
 	}
 
-#if ENCODER_DEBUG == 1
-	Plot_Release( &plot );
-#endif // #if ENCODER_DEBUG == 1
+	ShowProgress();
+
+	qsort_s( frame->blockIDs, frame->blockCount, sizeof( u32 ), Block_CompareKey, frame );
+
+	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
+			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]] ) == mip && 
+			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]] ) == mip) );
+
+	ShowProgress();
+
+	u32* const rgbaBuffer = context->stack->newArray< u32 >( blockDataCount );
+	u32* const compressedBuffer = context->stack->newArray< u32 >( blockDataCount );
+	u32 compressedBufferSize = 0;
+
+	BlockDataChunk_s* chunk = frame->blockDataChunks;
+	chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK );
+	u32* curRGBA = rgbaBuffer;
+	chunk->decompressedRGBA = curRGBA;
+
+	for ( u32 blockOrder = 0; blockOrder < blockPosCount; ++blockOrder )
+	{
+		const u32 blockID = frame->blockIDs[blockOrder];
+		Block_s* block = &frame->blocks[blockID];
+		block->thisBlockOrder = blockOrder;
+		block->nextBlockOrder = ENCODER_INVALID_ID;
+	
+		const u32 blockRankInBucket = blockID - blockPosOffsets[block->bucket];
+		const u32 cellPerBucketCount = 1 << (block->bucket + 2);
+		const u32 blockDataID = blockDataOffsets[block->bucket] + blockRankInBucket * cellPerBucketCount;
+	
+		chunk->offsets[chunk->blockCount] = (u32)(curRGBA - chunk->decompressedRGBA);
+		for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+			curRGBA[cellID] = ((u32*)(data.blockData))[blockDataID + cellID];
+		curRGBA += cellPerBucketCount;
+		++chunk->blockCount;
+
+		if ( blockOrder == blockPosCount-1 || chunk->blockCount == ENCODER_BLOCK_PER_DATA_CHUNK )
+		{
+			chunk->decompressedSize = (u32)(curRGBA - chunk->decompressedRGBA) * sizeof( u32 );
+			++chunk;
+			
+			if ( (chunk - frame->blockDataChunks) < chunkCount )
+			{
+				chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK );
+				chunk->decompressedRGBA = curRGBA;
+			}
+		}
+	}
+
+	V6_ASSERT( (chunk - frame->blockDataChunks) == chunkCount );
+	V6_ASSERT( (curRGBA - rgbaBuffer) == blockDataCount );
+
+	const u32 chunkCountPerThread = chunkCount / ENCODER_THREAD_COUNT;
+	const u32 chunkCountOnFirstThread = chunkCount - chunkCountPerThread * (ENCODER_THREAD_COUNT-1);
+
+	BlockDataChunkJob_s compressJobs[ENCODER_THREAD_COUNT] = {};
+	u32 chunkOffset = 0;
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+	{
+		const u32 threadChunkCount = threadID == 0 ? chunkCountOnFirstThread : chunkCountPerThread;
+		if ( threadChunkCount == 0 )
+			break;
+
+		BlockDataChunkJob_s* compressJob = &compressJobs[threadID];
+		compressJobs[threadID].heap = context->heap;
+		compressJobs[threadID].stack.Init( context->heap, ENCODER_BLOCK_PER_DATA_CHUNK * 64 * sizeof( u32 ) );
+		compressJobs[threadID].firstChunk = frame->blockDataChunks + chunkOffset;
+		compressJobs[threadID].compressedBuffer = (u8*)compressedBuffer;
+		compressJobs[threadID].compressedBufferSize = &compressedBufferSize;
+		compressJobs[threadID].compressedBufferMaxSize = blockDataCount * sizeof( u32 );
+
+		WorkerThread_AddJob( &context->threads[threadID], RawFrame_CompressedBlockDataChunk_Job, compressJob, threadID, threadChunkCount );
+
+		chunkOffset += threadChunkCount;
+	}
+	V6_ASSERT( chunkOffset == chunkCount );
+
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+		WorkerThread_WaitAllJobs( &context->threads[threadID] );
+
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+	{
+		if ( !compressJobs[threadID].firstChunk )
+			break;
+
+		if ( !compressJobs[threadID].success )
+		{
+			V6_ERROR( "LZ4 compression failed.\n" );
+			return false;
+		}
+	}
+	
+	ShowProgress();
+
+	u32 maxDecompressedSize = 0;
+	u32 totalDecompressedSize = 0;
+	u32 totalCompressedSize = 0;
+	for ( u32 chunkID = 0; chunkID < chunkCount; ++chunkID )
+	{
+		BlockDataChunk_s* chunk = &frame->blockDataChunks[chunkID];
+		BlockDataChunk_Write( &dataCacheWriter, chunk, context );
+
+		const u32 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
+		const u32 decompressedSize = offsetSize + chunk->decompressedSize;
+		const u32 compressedSize = offsetSize + chunk->compressedSize;
+
+		maxDecompressedSize = Max( maxDecompressedSize, decompressedSize );
+		totalDecompressedSize += decompressedSize;
+		totalCompressedSize += compressedSize;
+	}
+#if 0
+	V6_MSG( "Data compression: compressed %d KB, decompressed %d KB (%.1f%%)\n",  DivKB( totalCompressedSize ), DivKB( totalDecompressedSize ), totalCompressedSize * 100.0f / totalDecompressedSize );
+#endif
+
+	dataCacheWriter.Close();
+
+	new (&frame->cacheFileReader) CUnbufferedFileReader();
+	if ( !frame->cacheFileReader.Open( cacheFilename ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", cacheFilename );
+		return false;
+	}
+	
+	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
+	{
+		RawFrameBlockCache_s* cache = &frame->threadCaches[threadID];
+		cache->lastBlockOrder = ENCODER_INVALID_ID;
+		cache->lastBlockDataChunkID = ENCODER_INVALID_ID;
+		cache->chunkBuffer = (u8*)context->heap->alloc( maxDecompressedSize );
+	}
+
+	HideProgress();
 
 	return true;
 }
@@ -633,65 +894,14 @@ static void RawFrame_Release( u32 frameRank, Context_s* context )
 
 	context->heap->free( frame->blocks );
 	context->heap->free( frame->blockIDs );
-	context->heap->free( frame->data.blockCellRGBA );
-}
 
-static void RawFrame_SortByKey( u32 frameRank, Context_s* context )
-{
-	RawFrame_s* frame = &context->frames[frameRank];
+	context->heap->free( frame->blockDataChunks );
 
-	for ( u32 blockID = 0; blockID < frame->blockCount; ++blockID )
-	{
-		Block_s* block = &frame->blocks[blockID];
-		const u32 mip = Block_GetMip( block );
-		block->key = ComputeKeyFromMipAndBlockPos( mip, Block_GetPos( block ), context->stream->desc.gridMacroShift, frame->gridMin[mip] - context->gridMin[mip] );
-		V6_ASSERT( block->key != 0 );
-		frame->blockIDs[blockID] = blockID;
-	}
-
-	qsort_s( frame->blockIDs, frame->blockCount, sizeof( u32 ), Block_CompareKey, frame );
-
-	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
-		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
-			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]] ) == mip && 
-			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]] ) == mip) );
-}
-
-static void Context_SortByKey_Job( void* contextPointer, u32 firstFrameRank, u32 frameCount )
-{
-	Context_s* context = (Context_s*)contextPointer;
-
-	for ( u32 frameRank = firstFrameRank; frameCount; ++frameRank, --frameCount )
-	{
-		RawFrame_SortByKey( frameRank, context );
-		{
-			Mutex_Lock( &context->progressLock );
-			V6_MSG( "F%02d: sorted.\n", frameRank );
-			Mutex_Unlock( &context->progressLock );
-		}
-	}
-}
-
-static void Context_SortByKey( Context_s* context )
-{
-	const u32 frameCountPerThread = context->frameCount / ENCODER_THREAD_COUNT;
-	const u32 frameCountOnFirstThread = context->frameCount - frameCountPerThread * (ENCODER_THREAD_COUNT-1);
-	u32 firstFrameRank = 0;
-	
-	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
-	{
-		const u32 frameCount = threadID == 0 ? frameCountOnFirstThread : frameCountPerThread;
-		if ( frameCount == 0 )
-			break;
-
-		WorkerThread_AddJob( &context->threads[threadID], Context_SortByKey_Job, context, firstFrameRank, frameCount );
-
-		firstFrameRank += frameCount;
-	}
-	V6_ASSERT( firstFrameRank == context->frameCount );
+	frame->cacheFileReader.Close();
+	FileSystem_DeleteFile( frame->cacheFileReader.GetFilename() );
 
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
-		WorkerThread_WaitAllJobs( &context->threads[threadID] );
+		context->heap->free( frame->threadCaches[threadID].chunkBuffer );
 }
 
 static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
@@ -733,7 +943,7 @@ static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
 			V6_ASSERT( Block_GetMip( nextBlock ) == mip );
 			if ( curBlock->key == nextBlock->key )
 			{
-				curBlock->nextFrameBlock = nextBlock;
+				curBlock->nextBlockOrder = nextBlockOrder;
 				nextBlock->linked = true;
 				++linkCount;
 				++curBlockRank;
@@ -771,10 +981,10 @@ static void RawFrame_Skip( u32 frameRank, u32 refFrameRank, Context_s* context )
 		if ( block->linked )
 			continue;
 
-		if ( !block->nextFrameBlock )
+		if ( block->nextBlockOrder == ENCODER_INVALID_ID )
 			continue;
 
-		block->nextFrameBlock->linked = false;
+		Block_GetLinkedBlock( block, context )->linked = false;
 	}
 
 	frame->refFrameRank = refFrameRank;
@@ -788,22 +998,24 @@ static void RawFrame_Merge_SignalProgress( RawFrameMergeContext_s* mergeContext 
 		const u64 curStepTime = GetTickCount();
 		if ( ConvertTicksToSeconds( curStepTime - mergeContext->lastStepTime ) > 5.0f )
 		{
-			Mutex_Lock( &mergeContext->context->progressLock );
+			Mutex_Lock( &mergeContext->context->mainLock );
 			if ( ConvertTicksToSeconds( curStepTime - Atomic_Load( &mergeContext->lastStepTime ) ) > 5.0f )
 			{
 				V6_MSG( "...processed %.1f%% blocks\n", doneCount * 100.0f / mergeContext->rootCount );
 				mergeContext->lastStepTime = curStepTime;
 			}
-			Mutex_Unlock( &mergeContext->context->progressLock );
+			Mutex_Unlock( &mergeContext->context->mainLock );
 		}
 	}
 }
 
-static void RawFrame_Merge_Job( void* mergeJobPointer, u32 threaadID, u32 blockCount )
+static void RawFrame_Merge_Job( void* mergeJobPointer, u32 threadID, u32 blockCount )
 {
 	RawFrameMergeJob_s* mergeJob = (RawFrameMergeJob_s*)mergeJobPointer;
 
-	const RawFrame_s* frame = &mergeJob->blockCache.context->frames[mergeJob->mergeContext->frameRank];
+	Context_s* context = mergeJob->mergeContext->context;
+
+	const RawFrame_s* frame = &context->frames[mergeJob->mergeContext->frameRank];
 	
 	for ( u32 blockRank = 0; blockRank < blockCount; ++blockRank )
 	{
@@ -811,29 +1023,35 @@ static void RawFrame_Merge_Job( void* mergeJobPointer, u32 threaadID, u32 blockC
 		Block_s* block = &frame->blocks[blockID];
 
 		BlockCluster_s cluster = {};
-		BlockCluster_AddColors( &cluster, block, &mergeJob->blockCache );
+		BlockCluster_AddColors( &cluster, block, context, threadID );
 
-		if ( block->nextFrameBlock )
+		if ( block->nextBlockOrder != ENCODER_INVALID_ID )
 		{
-			u32 sharedFrameCount = BlockCluster_LinkColors( &cluster, block->nextFrameBlock, 0, 0, &mergeJob->blockCache );
+			Block_s* linkedBlock = Block_GetLinkedBlock( block, context );
+			u32 sharedFrameCount = BlockCluster_LinkColors( &cluster, linkedBlock, 0, 0, context, threadID );
 
-			if ( sharedFrameCount && !BlockCluster_HasSimilarColors( &cluster, block, &mergeJob->blockCache ) )
+			if ( sharedFrameCount && !BlockCluster_HasSimilarColors( &cluster, block, context, threadID ) )
 				sharedFrameCount = 0;
 
 			block->sharedFrameCount = sharedFrameCount;
 
-			for ( Block_s* linkedBlock = block->nextFrameBlock; linkedBlock; linkedBlock = linkedBlock->nextFrameBlock, --sharedFrameCount )
+			do
 			{
 				if ( sharedFrameCount == 0 )
 				{
 					linkedBlock->linked = false;
 					break;
 				}
-			}
+				
+				linkedBlock = Block_GetLinkedBlock( linkedBlock, context );
+				--sharedFrameCount;
+
+			} while( linkedBlock );
+
 			V6_ASSERT( sharedFrameCount == 0 );
 		}
 
-		block->encodedBlock = BlockCluster_ResolveColors( &cluster, block, &mergeJob->blockCache );
+		block->encodedBlock = BlockCluster_ResolveColors( &cluster, block, context, threadID );
 		
 		RawFrame_Merge_SignalProgress( mergeJob->mergeContext );
 	}
@@ -865,6 +1083,9 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 	if ( rootCount == 0 )
 		return 0;
 
+	if ( context->rootCountPerSequence + rootCount > CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE )
+		return ENCODER_OUT_OF_BLOCK;
+
 	RawFrameMergeContext_s mergeContext = {};
 	mergeContext.context = context;
 	mergeContext.frameRank = frameRank;
@@ -888,9 +1109,6 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 		RawFrameMergeJob_s* mergeJob = &mergeJobs[threadID];
 		mergeJobs[threadID].mergeContext = &mergeContext;
 		mergeJobs[threadID].blockIDs = threadBlockIDs;
-		mergeJobs[threadID].blockCache.context = context;
-		mergeJobs[threadID].blockCache.blockAllocator = &context->blockAllocators[threadID];
-		mergeJobs[threadID].blockCache.lastBlockID = 0xFFFFFFFF;
 		threadBlockIDs += blockCount;
 
 		WorkerThread_AddJob( &context->threads[threadID], RawFrame_Merge_Job, mergeJob, threadID, blockCount );
@@ -901,6 +1119,8 @@ static u32 RawFrame_Merge( u32 frameRank, Context_s* context )
 		WorkerThread_WaitAllJobs( &context->threads[threadID] );
 
 	V6_ASSERT( mergeContext.processedCount == rootCount );
+
+	context->rootCountPerSequence += rootCount;
 
 	return rootCount;
 }
@@ -970,7 +1190,7 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 {
 	V6_ASSERT( RawFrame_IsRefFrame( frameRank, context ) );
 
-	u32 frameUniqueBlockPosCount = 0;
+	u32 frameUniqueBlockCount = 0;
 	u32 frameBlockRangeCount = 0;
 	u32 frameBlockGroupCount = 0;
 
@@ -985,7 +1205,7 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 			continue;
 			
 		const u32 blockCount = codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF;
-		frameUniqueBlockPosCount += blockCount;
+		frameUniqueBlockCount += blockCount;
 	}
 
 	for ( u32 rangeRank = 0; rangeRank < desc->blockRangeCount; ++rangeRank )
@@ -1001,10 +1221,11 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	context->stream->desc.maxBlockRangeCountPerFrame = Max( context->stream->desc.maxBlockRangeCountPerFrame, frameBlockRangeCount );
 	context->stream->desc.maxBlockGroupCountPerFrame = Max( context->stream->desc.maxBlockGroupCountPerFrame, frameBlockGroupCount );
 
-	context->blockPosCountPerSequence += frameUniqueBlockPosCount;
+	context->blockCountPerSequence += frameUniqueBlockCount;
+	V6_ASSERT( context->blockCountPerSequence <= CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
 }
 
-static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, IStreamWriter* blockDataWriters[4], Context_s* context )
+static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, IStreamWriter* blockDataWriters[7], Context_s* context )
 {
 	const RawFrame_s* frame = &context->frames[frameRank];
 
@@ -1032,10 +1253,19 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 				const u32 mip4_new1_pos27 = block->mip4_none1_pos27 | newMask;
 				blockPosWriter->Write( &mip4_new1_pos27, sizeof( u32 ) );
 				V6_ASSERT( block->encodedBlock != nullptr );
-				blockDataWriters[0]->Write( &block->encodedBlock->cellPresence, sizeof( u64 ) );
-				blockDataWriters[1]->Write( &block->encodedBlock->cellEndColors, sizeof( u32 ) );
-				blockDataWriters[2]->Write( &block->encodedBlock->cellColorIndices[0], sizeof( u64 ) );
-				blockDataWriters[3]->Write( &block->encodedBlock->cellColorIndices[1], sizeof( u64 ) );
+				const u32 cellPresence0 = (block->encodedBlock->cellPresence >>  0) & 0xFFFFFFFF;
+				const u32 cellPresence1 = (block->encodedBlock->cellPresence >> 32) & 0xFFFFFFFF;
+				const u32 cellColorIndices0 = (block->encodedBlock->cellColorIndices[0] >>  0) & 0xFFFFFFFF;
+				const u32 cellColorIndices1 = (block->encodedBlock->cellColorIndices[0] >> 32) & 0xFFFFFFFF;
+				const u32 cellColorIndices2 = (block->encodedBlock->cellColorIndices[1] >>  0) & 0xFFFFFFFF;
+				const u32 cellColorIndices3 = (block->encodedBlock->cellColorIndices[1] >> 32) & 0xFFFFFFFF;
+				blockDataWriters[0]->Write( &cellPresence0, sizeof( u32 ) );
+				blockDataWriters[1]->Write( &cellPresence1, sizeof( u32 ) );
+				blockDataWriters[2]->Write( &block->encodedBlock->cellEndColors, sizeof( u32 ) );
+				blockDataWriters[3]->Write( &cellColorIndices0, sizeof( u32 ) );
+				blockDataWriters[4]->Write( &cellColorIndices1, sizeof( u32 ) );
+				blockDataWriters[5]->Write( &cellColorIndices2, sizeof( u32 ) );
+				blockDataWriters[6]->Write( &cellColorIndices3, sizeof( u32 ) );
 			}
 		}
 	}
@@ -1155,13 +1385,16 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 	ScopedStack scopedStack( context->stack );
 
-	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB(  10 ) ),	MulMB(  10 ) );
-	CBufferWriter memoryBlockCellPresences(		context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
-	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
-	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
-	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 50 ) ),	MulMB( 50 ) );
+	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellPresences0(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellPresences1(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellColorIndices2(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockCellColorIndices3(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
 
-	IStreamWriter* memoryBlockDataWriters[4] = { &memoryBlockCellPresences, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1 };
+	IStreamWriter* memoryBlockDataWriters[7] = { &memoryBlockCellPresences0, &memoryBlockCellPresences1, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1, &memoryBlockCellColorIndices2, &memoryBlockCellColorIndices3 };
 
 	CBufferWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
 
@@ -1190,10 +1423,13 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 		CodecFrameData_s frameData = {};
 		frameData.blockPos = (u32*)memoryBlockPosWriter.GetBuffer();
-		frameData.blockCellPresences = (u64*)memoryBlockCellPresences.GetBuffer();
+		frameData.blockCellPresences0 = (u32*)memoryBlockCellPresences0.GetBuffer();
+		frameData.blockCellPresences1 = (u32*)memoryBlockCellPresences1.GetBuffer();
 		frameData.blockCellEndColors = (u32*)memoryBlockCellEndColors.GetBuffer();
-		frameData.blockCellColorIndices0 = (u64*)memoryBlockCellColorIndices0.GetBuffer();
-		frameData.blockCellColorIndices1 = (u64*)memoryBlockCellColorIndices1.GetBuffer();
+		frameData.blockCellColorIndices0 = (u32*)memoryBlockCellColorIndices0.GetBuffer();
+		frameData.blockCellColorIndices1 = (u32*)memoryBlockCellColorIndices1.GetBuffer();
+		frameData.blockCellColorIndices2 = (u32*)memoryBlockCellColorIndices2.GetBuffer();
+		frameData.blockCellColorIndices3 = (u32*)memoryBlockCellColorIndices3.GetBuffer();
 		frameData.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
 
 		if ( !Codec_WriteFrame( streamWriter, &frameDesc, &frameData, context->stack ) )
@@ -1222,19 +1458,17 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 static void Context_UpdateLimits( Context_s* context )
 {
-	context->stream->desc.maxBlockCountPerSequence = Max( context->stream->desc.maxBlockCountPerSequence, context->blockPosCountPerSequence );
+	context->stream->desc.maxBlockCountPerSequence = Max( context->stream->desc.maxBlockCountPerSequence, context->blockCountPerSequence );
 }
 
-static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, u32 frameCount, ContextStream_s* streamContext )
+static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, const u32 frameCount, ContextStream_s* streamContext )
 {
-	bool success = false;
-
 	ScopedStack scopedStack( streamContext->stack );
 
 	Context_s* context = streamContext->stack->newInstance< Context_s >();
 	memset( context, 0, sizeof( *context ) );
 
-	Mutex_Create( &context->progressLock );
+	Mutex_Create( &context->mainLock );
 	context->stream = streamContext;
 	context->heap = streamContext->heap;
 	context->stack = streamContext->stack;
@@ -1243,7 +1477,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
 		WorkerThread_Create( &context->threads[threadID] );
-		BlockAllocator_Create( &context->blockAllocators[threadID], context->heap, MulMB( 16u ) );
+		BlockAllocator_Create( &context->threadBlockAllocators[threadID], context->heap, MulMB( 16u ) );
 	}
 
 	const u32 prevSequenceSize = streamWriter->GetPos();
@@ -1261,14 +1495,12 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 		{
 			for( ; frameRank > 0; --frameRank )
 				RawFrame_Release( frameRank-1, context );
+			context->frameCount = 0;
 			goto cleanup;
 		}
 
 		V6_MSG( "F%02d: loaded %d blocks from %s.\n", frameRank, context->frames[frameRank].blockCount, filename );
 	}
-
-	V6_MSG( "Sorting by key...\n" );
-	Context_SortByKey( context );
 
 	V6_MSG( "Linking...\n" );
 	for ( u32 frameRank = 0; frameRank < context->frameCount-1; ++frameRank )
@@ -1278,23 +1510,36 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	}
 
 	V6_MSG( "Merging...\n" );
-	const float frameToWriteRatio = (float)streamContext->desc.frameRate / streamContext->desc.playRate;
-	float framePart = 1.0f;
-	u32 refFrameRank = (u32)-1;
-	for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank, framePart += frameToWriteRatio )
 	{
-		if ( framePart + FLT_EPSILON >= 1.0f )
+		const float frameToWriteRatio = (float)streamContext->desc.frameRate / streamContext->desc.playRate;
+		float framePart = 1.0f;
+		u32 refFrameRank = (u32)-1;
+		for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank, framePart += frameToWriteRatio )
 		{
-			const u32 rootCount = RawFrame_Merge( frameRank, context );
-			V6_MSG( "F%02d: %8d/%d, %5.1f%% unique blocks.\n", frameRank, rootCount, context->frames[frameRank].blockCount, rootCount * 100.0f / context->frames[frameRank].blockCount );
-			framePart = 0.0f;
-			refFrameRank = frameRank;
-		}
-		else
-		{
-			V6_ASSERT( refFrameRank != (u32)-1 );
-			RawFrame_Skip( frameRank, refFrameRank, context );
-			V6_MSG( "F%02d: skipped.\n", frameRank );
+			if ( framePart + FLT_EPSILON >= 1.0f )
+			{
+				const u32 rootCount = RawFrame_Merge( frameRank, context );
+				if ( rootCount == ENCODER_OUT_OF_BLOCK )
+				{
+					if ( frameRank == 0 )
+						V6_ERROR( "1 frame contains more than %d unique blocks. This is not supported.\n", CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
+					else
+						V6_MSG( "%d frames contain more than %d unique blocks. Sequence will be split.\n", frameRank+1, CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
+					for ( ; context->frameCount > 0 ; --context->frameCount )
+						RawFrame_Release( context->frameCount-1, context );
+					context->frameCount = frameRank;
+					goto cleanup;
+				}
+				V6_MSG( "F%02d: %8d/%d, %5.1f%% unique blocks.\n", frameRank, rootCount, context->frames[frameRank].blockCount, rootCount * 100.0f / context->frames[frameRank].blockCount );
+				framePart = 0.0f;
+				refFrameRank = frameRank;
+			}
+			else
+			{
+				V6_ASSERT( refFrameRank != (u32)-1 );
+				RawFrame_Skip( frameRank, refFrameRank, context );
+				V6_MSG( "F%02d: skipped.\n", frameRank );
+			}
 		}
 	}
 
@@ -1320,6 +1565,7 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 		{
 			for( ; frameRank < context->frameCount; ++frameRank )
 				RawFrame_Release( frameRank-1, context );
+			context->frameCount = 0;
 			goto cleanup;
 		}
 #endif // #if ENCODER_SKIP_WRITING == 0
@@ -1340,18 +1586,16 @@ static bool ContextStream_EncodeSequence( IStreamWriter* streamWriter, const cha
 	V6_MSG( "Sequence %d: %d KB, avg of %d KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
 
-	success = true;
-
 cleanup:
 
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
 		WorkerThread_Release( &context->threads[threadID] );
-		BlockAllocator_Release( &context->blockAllocators[threadID] );
+		BlockAllocator_Release( &context->threadBlockAllocators[threadID] );
 	}
-	Mutex_Release( &context->progressLock );
+	Mutex_Release( &context->mainLock );
 
-	return success;
+	return context->frameCount;
 }
 
 
@@ -1403,7 +1647,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		streamContext.mipCount = Codec_GetMipCount( prevStreamDesc.gridScaleMin, prevStreamDesc.gridScaleMax );
 	}
 
-	streamContext.desc.sequenceCount = (frameCount + playRate - 1) / playRate;
+	streamContext.desc.sequenceCount = 0;
 	streamContext.desc.frameCount = frameCount;
 	streamContext.desc.playRate = playRate;
 
@@ -1420,16 +1664,26 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
 	}
 
-	for ( u32 sequenceRank = 0; sequenceRank < streamContext.desc.sequenceCount; ++sequenceRank )
+	for ( u32 sequenceID = prevStreamDesc.sequenceCount; frameCount > 0; ++sequenceID )
 	{
-		const u32 sequenceID = prevStreamDesc.sequenceCount + sequenceRank;
-		const u32 sequenceFrameCount = Min( frameCount, playRate );
+		u32 sequenceFrameCount = Min( frameCount, playRate );
 
-		if ( !ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, &streamContext ) )
-			return false;
+		for (;;)
+		{
+			const u32 frameEncodedCount = ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, &streamContext );
+			
+			if ( frameEncodedCount == 0 )
+				return false;
+
+			if ( frameEncodedCount == sequenceFrameCount )
+				break;
+
+			sequenceFrameCount = frameEncodedCount;
+		}
 
 		frameOffset += sequenceFrameCount;
 		frameCount -= sequenceFrameCount;
+		++streamContext.desc.sequenceCount;
 	}
 	V6_ASSERT( frameCount == 0 );
 
@@ -1450,6 +1704,12 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 
 	return true;
 }
+
+END_V6_NAMESPACE
+
+#endif // #if V6_UE4_PLUGIN == 0
+
+BEGIN_V6_NAMESPACE
 
 bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
 {

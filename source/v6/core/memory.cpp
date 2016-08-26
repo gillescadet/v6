@@ -6,6 +6,8 @@
 #include <v6/core/memory.h>
 #include <v6/core/thread.h>
 
+#pragma warning( disable: 4722 ) //	destructor never returns, potential memory leak
+
 BEGIN_V6_NAMESPACE
 
 struct MemoryBlock_s

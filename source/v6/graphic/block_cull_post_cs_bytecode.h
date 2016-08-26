@@ -11,7 +11,7 @@
 //
 // Name                                 Type  Format         Dim Slot Elements
 // ------------------------------ ---------- ------- ----------- ---- --------
-// visibleBlockContext                   UAV    uint         buf    8        1
+// visibleBlockContext                   UAV    uint         buf   11        1
 //
 //
 //
@@ -28,25 +28,25 @@
 // no Output
 cs_5_0
 dcl_globalFlags refactoringAllowed
-dcl_uav_typed_buffer (uint,uint,uint,uint) u8
+dcl_uav_typed_buffer (uint,uint,uint,uint) u11
 dcl_temps 1
 dcl_thread_group 1, 1, 1
-ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r0.x, l(0, 0, 0, 0), u8.xyzw
+ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r0.x, l(0, 0, 0, 0), u11.xyzw
 iadd r0.x, r0.x, l(63)
 ushr r0.x, r0.x, l(6)
-store_uav_typed u8.xyzw, l(1,1,1,1), r0.xxxx
-store_uav_typed u8.xyzw, l(2,2,2,2), l(1,1,1,1)
-store_uav_typed u8.xyzw, l(3,3,3,3), l(1,1,1,1)
+store_uav_typed u11.xyzw, l(1,1,1,1), r0.xxxx
+store_uav_typed u11.xyzw, l(2,2,2,2), l(1,1,1,1)
+store_uav_typed u11.xyzw, l(3,3,3,3), l(1,1,1,1)
 ret 
 // Approximately 7 instruction slots used
 #endif
 
 const BYTE g_main_block_cull_post_cs[] =
 {
-     68,  88,  66,  67,  40, 141, 
-     66,  17, 190,  93,   2, 137, 
-     17,  39,  14,  86,  11,  86, 
-    236,  64,   1,   0,   0,   0, 
+     68,  88,  66,  67, 142,  63, 
+    212, 245, 159, 225, 189,  64, 
+      2, 139,  75, 145, 225, 209, 
+     35, 145,   1,   0,   0,   0, 
     232,   2,   0,   0,   6,   0, 
       0,   0,  56,   0,   0,   0, 
     228,   0,   0,   0, 244,   0, 
@@ -67,7 +67,7 @@ const BYTE g_main_block_cull_post_cs[] =
       0,   0,   4,   0,   0,   0, 
       4,   0,   0,   0,   1,   0, 
       0,   0, 255, 255, 255, 255, 
-      8,   0,   0,   0,   1,   0, 
+     11,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
     118, 105, 115, 105,  98, 108, 
     101,  66, 108, 111,  99, 107, 
@@ -91,7 +91,7 @@ const BYTE g_main_block_cull_post_cs[] =
       5,   0,  76,   0,   0,   0, 
     106,   8,   0,   1, 156,   8, 
       0,   4,   0, 224,  17,   0, 
-      8,   0,   0,   0,  68,  68, 
+     11,   0,   0,   0,  68,  68, 
       0,   0, 104,   0,   0,   2, 
       1,   0,   0,   0, 155,   0, 
       0,   4,   1,   0,   0,   0, 
@@ -103,7 +103,7 @@ const BYTE g_main_block_cull_post_cs[] =
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-     70, 238,  17,   0,   8,   0, 
+     70, 238,  17,   0,  11,   0, 
       0,   0,  30,   0,   0,   7, 
      18,   0,  16,   0,   0,   0, 
       0,   0,  10,   0,  16,   0, 
@@ -115,13 +115,13 @@ const BYTE g_main_block_cull_post_cs[] =
       0,   0,   1,  64,   0,   0, 
       6,   0,   0,   0, 164,   0, 
       0,  10, 242, 224,  17,   0, 
-      8,   0,   0,   0,   2,  64, 
+     11,   0,   0,   0,   2,  64, 
       0,   0,   1,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
       6,   0,  16,   0,   0,   0, 
       0,   0, 164,   0,   0,  13, 
-    242, 224,  17,   0,   8,   0, 
+    242, 224,  17,   0,  11,   0, 
       0,   0,   2,  64,   0,   0, 
       2,   0,   0,   0,   2,   0, 
       0,   0,   2,   0,   0,   0, 
@@ -130,7 +130,7 @@ const BYTE g_main_block_cull_post_cs[] =
       1,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
     164,   0,   0,  13, 242, 224, 
-     17,   0,   8,   0,   0,   0, 
+     17,   0,  11,   0,   0,   0, 
       2,  64,   0,   0,   3,   0, 
       0,   0,   3,   0,   0,   0, 
       3,   0,   0,   0,   3,   0, 

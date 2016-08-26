@@ -483,10 +483,13 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	}
 
 	const u32 blockPosSize = frameHeader.desc.blockCount * 4;
-	const u32 blockDataCellPresenceSize = frameHeader.desc.blockCount * 8;
+	const u32 blockDataCellPresence0Size = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellPresence1Size = frameHeader.desc.blockCount * 4;
 	const u32 blockDataCellEndColorSize = frameHeader.desc.blockCount * 4;
-	const u32 blockDataCellColorIndex0Size = frameHeader.desc.blockCount * 8;
-	const u32 blockDataCellColorIndex1Size = frameHeader.desc.blockCount * 8;
+	const u32 blockDataCellColorIndex0Size = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellColorIndex1Size = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellColorIndex2Size = frameHeader.desc.blockCount * 4;
+	const u32 blockDataCellColorIndex3Size = frameHeader.desc.blockCount * 4;
 	const u32 rangeIDSize = frameHeader.desc.blockRangeCount * 2;
 
 	const u32 compressedChunkSize = frameHeader.size - sizeof( CodecFrameHeader_s );
@@ -499,7 +502,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
 
-	const u32 decompressedChunkSize = blockPosSize + blockDataCellPresenceSize + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + rangeIDSize;
+	const u32 decompressedChunkSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + rangeIDSize;
 
 	// todo: aligned alloc
 	u8* buffer = (u8*)allocator->alloc( decompressedChunkSize );
@@ -523,17 +526,26 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	data->blockPos = (u32*)chunk;
 	chunk += blockPosSize;
 
-	data->blockCellPresences = (u64*)chunk;
-	chunk += blockDataCellPresenceSize;
+	data->blockCellPresences0 = (u32*)chunk;
+	chunk += blockDataCellPresence0Size;
+
+	data->blockCellPresences1 = (u32*)chunk;
+	chunk += blockDataCellPresence1Size;
 
 	data->blockCellEndColors = (u32*)chunk;
 	chunk += blockDataCellEndColorSize;
 
-	data->blockCellColorIndices0 = (u64*)chunk;
+	data->blockCellColorIndices0 = (u32*)chunk;
 	chunk += blockDataCellColorIndex0Size;
 
-	data->blockCellColorIndices1 = (u64*)chunk;
+	data->blockCellColorIndices1 = (u32*)chunk;
 	chunk += blockDataCellColorIndex1Size;
+
+	data->blockCellColorIndices2 = (u32*)chunk;
+	chunk += blockDataCellColorIndex2Size;
+
+	data->blockCellColorIndices3 = (u32*)chunk;
+	chunk += blockDataCellColorIndex3Size;
 	
 	data->rangeIDs = (u16*)chunk;
 	chunk += rangeIDSize;
@@ -571,14 +583,17 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	ScopedStack scopedStack( stack );
 
 	const u32 blockPosSize = desc->blockCount * 4;
-	const u32 blockDataCellPresenceSize = desc->blockCount * 8;
+	const u32 blockDataCellPresence0Size = desc->blockCount * 4;
+	const u32 blockDataCellPresence1Size = desc->blockCount * 4;
 	const u32 blockDataCellEndColorSize = desc->blockCount * 4;
-	const u32 blockDataCellColorIndex0Size = desc->blockCount * 8;
-	const u32 blockDataCellColorIndex1Size = desc->blockCount * 8;
-	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT )
+	const u32 blockDataCellColorIndex0Size = desc->blockCount * 4;
+	const u32 blockDataCellColorIndex1Size = desc->blockCount * 4;
+	const u32 blockDataCellColorIndex2Size = desc->blockCount * 4;
+	const u32 blockDataCellColorIndex3Size = desc->blockCount * 4;
+	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT );
 	const u32 rangeIDSize = desc->blockRangeCount * 2;
 
-	const u32 chunkSize = blockPosSize + blockDataCellPresenceSize + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + rangeIDSize;
+	const u32 chunkSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + rangeIDSize;
 
 #if CODEC_FRAME_COMPRESS == 1
 	const u32 chunkLZ4MaxSize = LZ4_compressBound( chunkSize );
@@ -586,10 +601,13 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 
 	CBufferWriter chunkWriter( stack->alloc( chunkSize ), chunkSize );
 	chunkWriter.Write( data->blockPos, blockPosSize );
-	chunkWriter.Write( data->blockCellPresences, blockDataCellPresenceSize );
+	chunkWriter.Write( data->blockCellPresences0, blockDataCellPresence0Size );
+	chunkWriter.Write( data->blockCellPresences1, blockDataCellPresence1Size );
 	chunkWriter.Write( data->blockCellEndColors, blockDataCellEndColorSize );
 	chunkWriter.Write( data->blockCellColorIndices0, blockDataCellColorIndex0Size );
 	chunkWriter.Write( data->blockCellColorIndices1, blockDataCellColorIndex1Size );
+	chunkWriter.Write( data->blockCellColorIndices2, blockDataCellColorIndex2Size );
+	chunkWriter.Write( data->blockCellColorIndices3, blockDataCellColorIndex3Size );
 	chunkWriter.Write( data->rangeIDs, rangeIDSize );
 
 	const u32 chunkLZ4Size = LZ4_compress_HC( (char*)chunkWriter.GetBuffer(), (char*)chunckLZ4, chunkSize, chunkLZ4MaxSize, CODEC_LZ4_COMPRESSION_LEVEL );
@@ -617,10 +635,13 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	streamWriter->Write( chunckLZ4, chunkLZ4Size );
 #else
 	streamWriter->Write( data->blockPos, blockPosSize );
-	streamWriter->Write( data->blockCellPresences, blockDataCellPresenceSize );
+	streamWriter->Write( data->blockCellPresences0, blockDataCellPresence0Size );
+	streamWriter->Write( data->blockCellPresences1, blockDataCellPresence1Size );
 	streamWriter->Write( data->blockCellEndColors, blockDataCellEndColorSize );
 	streamWriter->Write( data->blockCellColorIndices0, blockDataCellColorIndex0Size );
 	streamWriter->Write( data->blockCellColorIndices1, blockDataCellColorIndex1Size );
+	streamWriter->Write( data->blockCellColorIndices2, blockDataCellColorIndex2Size );
+	streamWriter->Write( data->blockCellColorIndices3, blockDataCellColorIndex3Size );
 	streamWriter->Write( data->rangeIDs, rangeIDSize );
 #endif
 

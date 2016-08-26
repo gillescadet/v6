@@ -29,10 +29,13 @@ struct GPUTraceResources_s
 	GPUConstantBuffer_s		cbTSAA;
 
 	GPUBuffer_s				blockPos;
-	GPUBuffer_s				blockCellPresences;
+	GPUBuffer_s				blockCellPresences0;
+	GPUBuffer_s				blockCellPresences1;
 	GPUBuffer_s				blockCellEndColors;
 	GPUBuffer_s				blockCellColorIndices0;
 	GPUBuffer_s				blockCellColorIndices1;
+	GPUBuffer_s				blockCellColorIndices2;
+	GPUBuffer_s				blockCellColorIndices3;
 	GPUBuffer_s				ranges[2];
 	GPUBuffer_s				groups[2];
 
@@ -185,9 +188,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 			ReadBack_Log( "blockCull", blockCullStats->blockInputCount, "blockInputCount" );
 			ReadBack_Log( "blockCull", blockCullStats->blockProcessedCount, "blockProcessedCount" );
 			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
-			ReadBack_Log( "blockCull", blockCullStats->maxBlockPosID, "maxBlockPosID" );
 			V6_ASSERT( blockCullStats->blockPassedCount <= traceContext->resVisibleBlockMaxCount );
-			V6_ASSERT( blockCullStats->maxBlockPosID < (1 << 24) );
 
 			GPUBuffer_UnmapReadBack( &traceRes->cullStats );
 		}
@@ -251,7 +252,8 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBProjectSlot, 1, &traceRes->cbProject.buf );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_SLOT, 1, &traceRes->visibleBlocks.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, &traceRes->visibleBlockContext.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, &traceRes->blockCellPresences.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE0_SLOT, 1, &traceRes->blockCellPresences0.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE1_SLOT, 1, &traceRes->blockCellPresences1.srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, &traceRes->blockPatchCounters.uav, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCHES_SLOT, 1, &traceRes->blockPatches.uav, nullptr );
 	if ( options->logReadBack )
@@ -265,7 +267,8 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 	// Unset
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE0_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE1_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_BLOCK_PATCHES_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( options->logReadBack )
@@ -287,7 +290,7 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 			ReadBack_Log( "blockProject", blockProjectStats->blockPatchDetailCount, "blockPatchDetailCount" );
 			ReadBack_Log( "blockProject", blockProjectStats->blockPatchDetailPixelCount, "blockPatchDetailPixelCount" );
 			ReadBack_Log( "blockProject", blockProjectStats->blockPatchMaxPage, "blockPatchMaxPage" );
-			V6_ASSERT( blockProjectStats->blockPatchHeaderPixelCount == blockProjectStats->blockPatchDetailPixelCount );
+			// V6_ASSERT( blockProjectStats->blockPatchHeaderPixelCount == blockProjectStats->blockPatchDetailPixelCount );
 
 			GPUBuffer_UnmapReadBack( &traceRes->projectStats );
 		}
@@ -350,7 +353,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbTrace->c_traceRayDirRight = Vec4_Make( &right, 0.0f );
 
 		cbTrace->c_traceGetStats = options->logReadBack;
-		cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0);
+		cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0) | (options->showOverdraw ? HLSL_BLOCK_SHOW_FLAG_OVERDRAW : 0);
 
 		cbTrace->c_traceJitter = traceContext->frameState.jitter;
 
@@ -362,10 +365,13 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 	g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBTraceSlot, 1, &traceRes->cbTrace.buf );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, &traceRes->blockPatchCounters.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_PATCHES_SLOT, 1, &traceRes->blockPatches.srv );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, &traceRes->blockCellPresences.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE0_SLOT, 1, &traceRes->blockCellPresences0.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE1_SLOT, 1, &traceRes->blockCellPresences1.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_END_COLOR_SLOT, 1, &traceRes->blockCellEndColors.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT, 1, &traceRes->blockCellColorIndices0.srv );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT, 1, &traceRes->blockCellColorIndices1.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX2_SLOT, 1, &traceRes->blockCellColorIndices2.srv );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX3_SLOT, 1, &traceRes->blockCellColorIndices3.srv );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &outputColors, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, &traceRes->displacements.uav, nullptr );
 	if ( options->logReadBack )
@@ -376,17 +382,20 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 
 	// dispach
 	
-	const u32 shaderOption = ( options->logReadBack || options->showMip || options->showHistory ) ? 1 : 0;
+	const u32 shaderOption = ( options->logReadBack || options->showMip || options->showHistory || options->showOverdraw ) ? 1 : 0;
 	GPUCompute_Dispatch( &traceRes->computeTrace[shaderOption], frameTileSize.x, frameTileSize.y, 1 );
 
 	// Unset
 
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_PATCH_COUNTERS_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_PATCHES_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE0_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_PRESENCE1_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_END_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX2_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_BLOCK_CELL_COLOR_INDEX3_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_DISPLACEMENT_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 	if ( options->logReadBack )
@@ -619,10 +628,13 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	V6_ASSERT( maxBlockGroupCount <= SEQUENCE_BLOCK_GROUP_MAX_COUNT );
 
 	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockPositions" );
-	GPUBuffer_CreateStructured( &res->blockCellPresences, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences" );
+	GPUBuffer_CreateTyped( &res->blockCellPresences0, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences0" );
+	GPUBuffer_CreateTyped( &res->blockCellPresences1, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences1" );
 	GPUBuffer_CreateTyped( &res->blockCellEndColors, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellEndColors" );
-	GPUBuffer_CreateStructured( &res->blockCellColorIndices0, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices0" );
-	GPUBuffer_CreateStructured( &res->blockCellColorIndices1, sizeof( hlsl::uint64 ), blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices1" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices0, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices0" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices1, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices1" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices2, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices2" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices3, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices3" );
 	GPUBuffer_CreateStructured( &res->ranges[0], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges0" );
 	GPUBuffer_CreateStructured( &res->ranges[1], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges1" );
 	GPUBuffer_CreateTyped( &res->groups[0], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockGroups0" );
@@ -701,10 +713,13 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
 	GPUBuffer_Release( &res->blockPos );
-	GPUBuffer_Release( &res->blockCellPresences );
+	GPUBuffer_Release( &res->blockCellPresences0 );
+	GPUBuffer_Release( &res->blockCellPresences1 );
 	GPUBuffer_Release( &res->blockCellEndColors );
 	GPUBuffer_Release( &res->blockCellColorIndices0 );
 	GPUBuffer_Release( &res->blockCellColorIndices1 );
+	GPUBuffer_Release( &res->blockCellColorIndices2 );
+	GPUBuffer_Release( &res->blockCellColorIndices3 );
 	GPUBuffer_Release( &res->ranges[0] );
 	GPUBuffer_Release( &res->ranges[1] );
 	GPUBuffer_Release( &res->groups[0] );
@@ -910,13 +925,18 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 		traceContext->frameState.bufferID = frameID & 1;
 	
 		GPUTraceResources_s* traceRes = traceContext->res;
+		const u32 frameBlockPosOffset = traceContext->sequenceContext.frameBlockPosOffsets[frameRank];
+		const CodecFrameData_s* frameData = &sequence->frameDataArray[frameRank];
 		GPUBuffer_Update( &traceRes->ranges[traceContext->frameState.bufferID], 0, blockRangeBuffer, frameBlockRangeCount );
 		GPUBuffer_Update( &traceRes->groups[traceContext->frameState.bufferID], 0, blockGroupBuffer, frameGroupCount );
-		GPUBuffer_Update( &traceRes->blockPos, traceContext->sequenceContext.frameBlockPosOffsets[frameRank], sequence->frameDataArray[frameRank].blockPos, frameBlockCount );
-		GPUBuffer_Update( &traceRes->blockCellPresences, traceContext->sequenceContext.frameBlockPosOffsets[frameRank], sequence->frameDataArray[frameRank].blockCellPresences, frameBlockCount );
-		GPUBuffer_Update( &traceRes->blockCellEndColors, traceContext->sequenceContext.frameBlockPosOffsets[frameRank], sequence->frameDataArray[frameRank].blockCellEndColors, frameBlockCount );
-		GPUBuffer_Update( &traceRes->blockCellColorIndices0, traceContext->sequenceContext.frameBlockPosOffsets[frameRank], sequence->frameDataArray[frameRank].blockCellColorIndices0, frameBlockCount );
-		GPUBuffer_Update( &traceRes->blockCellColorIndices1, traceContext->sequenceContext.frameBlockPosOffsets[frameRank], sequence->frameDataArray[frameRank].blockCellColorIndices1, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockPos, frameBlockPosOffset, frameData->blockPos, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellPresences0, frameBlockPosOffset, frameData->blockCellPresences0, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellPresences1, frameBlockPosOffset, frameData->blockCellPresences1, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellEndColors, frameBlockPosOffset, frameData->blockCellEndColors, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellColorIndices0, frameBlockPosOffset, frameData->blockCellColorIndices0, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellColorIndices1, frameBlockPosOffset, frameData->blockCellColorIndices1, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellColorIndices2, frameBlockPosOffset, frameData->blockCellColorIndices2, frameBlockCount );
+		GPUBuffer_Update( &traceRes->blockCellColorIndices3, frameBlockPosOffset, frameData->blockCellColorIndices3, frameBlockCount );
 	}
 
 	traceContext->frameState.resetJitter = traceContext->frameState.frameID + 1 != frameID;

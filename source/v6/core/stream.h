@@ -59,6 +59,7 @@ public:
 public:
 	bool Open(const char * sFilename);
 	void Close();
+	const char* GetFilename() const { return m_filename; }
 
 public:
 	virtual int GetPos() const;
@@ -68,7 +69,8 @@ public:
 	virtual void Skip( int nSize );
 
 private:
-	void* m_file;
+	void*	m_file;
+	char	m_filename[256];
 };
 
 class CFileWriter : public IStreamWriter
@@ -100,6 +102,7 @@ public:
 public:
 	bool Open(const char * sFilename);
 	void Close();
+	const char* GetFilename() const { return m_filename; }
 
 public:
 	virtual int GetPos() const;
@@ -108,7 +111,8 @@ public:
 	virtual void Write( const void * pData, int nSize );
 
 private:
-	void * m_file;
+	void *	m_file;
+	char	m_filename[256];
 };
 
 class CBufferReader : public IStreamReader

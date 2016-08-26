@@ -16,10 +16,10 @@
 #define V6_UE4_PLUGIN			0
 #endif
 
-#if 0
-#define __ASSERT( EXP )				assert( EXP )
+#if _DEBUG
+#define __ASSERT( EXP )				do { if ( !(EXP) ) __debugbreak(); } while ( false )
 #else
-#define __ASSERT( EXP )				{ if ( !(EXP) ) __debugbreak(); }
+#define __ASSERT( EXP )				do { if ( !(EXP) ) { V6_PRINT( "[ASSERT] %s\n", #EXP ); exit( 1 ); } } while ( false )
 #endif
 
 #define V6_ASSERT( EXP )			__ASSERT( EXP )

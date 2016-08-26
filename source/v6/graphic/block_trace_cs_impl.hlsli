@@ -4,10 +4,13 @@
 
 Buffer< uint > blockPatchCounters						: REGISTER_SRV( HLSL_BLOCK_PATCH_COUNTERS_SLOT );
 StructuredBuffer< BlockPatch > blockPatches				: REGISTER_SRV( HLSL_BLOCK_PATCHES_SLOT );
-StructuredBuffer< uint64 > blockCellPresences			: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE_SLOT );
+Buffer< uint > blockCellPresences0						: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE0_SLOT );
+Buffer< uint > blockCellPresences1						: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE1_SLOT );
 Buffer< uint > blockCellEndColors						: REGISTER_SRV( HLSL_BLOCK_CELL_END_COLOR_SLOT );
-StructuredBuffer< uint64 > blockCellColorIndices0		: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT );
-StructuredBuffer< uint64 > blockCellColorIndices1		: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT );
+Buffer< uint > blockCellColorIndices0					: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT );
+Buffer< uint > blockCellColorIndices1					: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT );
+Buffer< uint > blockCellColorIndices2					: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX2_SLOT );
+Buffer< uint > blockCellColorIndices3					: REGISTER_SRV( HLSL_BLOCK_CELL_COLOR_INDEX3_SLOT );
 
 RWTexture2D< float4 > outputColors						: REGISTER_UAV( HLSL_COLOR_SLOT );
 RWBuffer< uint > outputDisplacements					: REGISTER_UAV( HLSL_DISPLACEMENT_SLOT );
@@ -40,6 +43,7 @@ struct Hit
 	uint	newBlock;
 #if BLOCK_DEBUG == 1
 	uint	mip;
+	uint	traceCount;
 #endif // #if BLOCK_DEBUG == 1
 };
 
@@ -200,7 +204,8 @@ TracePatch LoadPatch( uint patchID )
 	tracePatch.boxMaxRS = boxMaxRS;
 	tracePatch.cellSize = cellSize;
 	tracePatch.invCellSize = invCellSize;
-	tracePatch.blockCellPresence = blockCellPresences[blockPatch.blockPosID];
+	tracePatch.blockCellPresence.low = blockCellPresences0[blockPatch.blockPosID];
+	tracePatch.blockCellPresence.high = blockCellPresences1[blockPatch.blockPosID];
 	tracePatch.blockColorPalette = colorPalette; // optim: could be computed at the end in order to save LDS
 	tracePatch.xdsp16_ydsp16 = blockPatch.xdsp16_ydsp16;
 
@@ -292,6 +297,10 @@ int Trace( inout Hit hit, float3 rayDir, float3 rayInvDir, uint patchRank )
 #endif // #if BLOCK_DEBUG == 1
 		hit.newBlock = (patch.mip4_newBlock1_none11_xMask8_yMask8 >> 27) & 1;
 	}
+
+#if BLOCK_DEBUG == 1
+	++hit.traceCount;
+#endif // #if BLOCK_DEBUG == 1
 
 	return hitCellID;
 }
@@ -410,9 +419,15 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 
 		uint64 colorIndices64;
 		if ( hit.cellRank < 32 )
-			colorIndices64 = blockCellColorIndices0[hit.blockPosID];
+		{
+			colorIndices64.low = blockCellColorIndices0[hit.blockPosID];
+			colorIndices64.high = blockCellColorIndices1[hit.blockPosID];
+		}
 		else
-			colorIndices64 = blockCellColorIndices1[hit.blockPosID];
+		{
+			colorIndices64.low = blockCellColorIndices2[hit.blockPosID];
+			colorIndices64.high = blockCellColorIndices3[hit.blockPosID];
+		}
 
 		const bool useHighBits = (hit.cellRank >> 4) & 1;
 		const uint colorIndices32 = useHighBits ? colorIndices64.high : colorIndices64.low;
@@ -437,6 +452,15 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		}
 #endif
 	}
+
+#if BLOCK_DEBUG == 1
+	if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_OVERDRAW )
+	{
+		const uint gradient[] = { 0x00000000, 0x00FF0000, 0x22FF0000, 0x44FF0000, 0x65FF0000, 0x88FF0000, 0xAAFF0000, 0xCCFF0000, 0xEEFF0000, 0xFFED0000, 0xFFCC0000, 0xFFAA0000, 0xFF880000, 0xFF660000, 0xFF430000, 0xFF210000, 0xFF000000 };
+		const uint rgba = gradient[min( hit.traceCount, 16 )];
+		groupColor = float3( ((rgba >> 24) & 0xFF) / 255.0f, ((rgba >> 16) & 0xFF) / 255.0f, ((rgba >> 8) & 0xFF) / 255.0f );
+	}
+#endif
 
 	{
 		// Ouput

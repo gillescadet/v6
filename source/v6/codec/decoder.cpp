@@ -333,9 +333,9 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 							
 						EncodedBlockEx_s encodedBlock;
 						encodedBlock.cellEndColors = sequence->frameDataArray[rangeFrameRank].blockCellEndColors[blockID];
-						encodedBlock.cellPresence = sequence->frameDataArray[rangeFrameRank].blockCellPresences[blockID];
-						encodedBlock.cellColorIndices[0] = sequence->frameDataArray[rangeFrameRank].blockCellColorIndices0[blockID];
-						encodedBlock.cellColorIndices[1] = sequence->frameDataArray[rangeFrameRank].blockCellColorIndices1[blockID];
+						encodedBlock.cellPresence = sequence->frameDataArray[rangeFrameRank].blockCellPresences0[blockID] | ((u64)sequence->frameDataArray[rangeFrameRank].blockCellPresences1[blockID] << 32);
+						encodedBlock.cellColorIndices[0] = sequence->frameDataArray[rangeFrameRank].blockCellColorIndices0[blockID] | ((u64)sequence->frameDataArray[rangeFrameRank].blockCellColorIndices1[blockID] << 32);
+						encodedBlock.cellColorIndices[1] = sequence->frameDataArray[rangeFrameRank].blockCellColorIndices2[blockID] | ((u64)sequence->frameDataArray[rangeFrameRank].blockCellColorIndices3[blockID] << 32);
 
 						Block_Decode( sequenceBlock->cellRGBA, &sequenceBlock->cellCount, &encodedBlock );
 					}
@@ -402,6 +402,9 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 		VideoStream_Release( stream, allocator );
 		return false;
 	}
+
+	V6_ASSERT(stream->desc.sequenceCount > 0 );
+	V6_ASSERT(stream->desc.frameCount > 0 );
 
 	strcpy_s( stream->name, sizeof( stream->name ), streamFilename );
 

@@ -78,7 +78,6 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
-			InterlockedMax( blockCullStats[0].maxBlockPosID, blockPosID );
 #endif // #if BLOCK_GET_STATS == 1
 		}
 	}

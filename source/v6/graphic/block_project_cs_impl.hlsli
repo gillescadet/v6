@@ -4,7 +4,8 @@
 
 StructuredBuffer< VisibleBlock > visibleBlocks				: REGISTER_SRV( HLSL_VISIBLE_BLOCK_SLOT );
 Buffer< uint > visibleBlockContext							: REGISTER_SRV( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT );
-StructuredBuffer< uint64 > blockCellPresences				: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE_SLOT );
+Buffer< uint > blockCellPresences0							: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE0_SLOT );
+Buffer< uint > blockCellPresences1							: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE1_SLOT );
 
 RWBuffer< uint > blockPatchCounters							: REGISTER_UAV( HLSL_BLOCK_PATCH_COUNTERS_SLOT );
 RWStructuredBuffer< BlockPatch > blockPatches				: REGISTER_UAV( HLSL_BLOCK_PATCHES_SLOT );
@@ -60,8 +61,11 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		uint3 cellMinRange;
 		uint3 cellMaxRange;
 
+#if 1
 		{
-			const uint64 blockCellPresence = blockCellPresences[blockPosID];
+			uint64 blockCellPresence;
+			blockCellPresence.low = blockCellPresences0[blockPosID];
+			blockCellPresence.high = blockCellPresences1[blockPosID];
 
 			const uint blockCellPresenceLowAndHigh = blockCellPresence.low | blockCellPresence.high;
 
@@ -99,7 +103,12 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 				cellMaxRange.z = firstbithigh( zRange );
 			}
 		}
-
+#else
+		{
+			cellMinRange = uint3( 0, 0, 0 );
+			cellMaxRange = uint3( 3, 3, 3 );
+		}
+#endif
 		const uint mip = mip4_newBlock1_blockPos27 >> 28;
 		const uint blockPos = mip4_newBlock1_blockPos27 & 0x07FFFFFF;
 		const uint gridMacroMask = (1 << c_projectGridMacroShift)-1;

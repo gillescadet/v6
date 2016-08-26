@@ -56,10 +56,10 @@
 // Name                                 Type  Format         Dim Slot Elements
 // ------------------------------ ---------- ------- ----------- ---- --------
 // blockPositions                    texture    uint         buf    0        1
-// blockRanges                       texture  struct         r/o    5        1
-// blockGroups                       texture    uint         buf    6        1
-// visibleBlocks                         UAV  struct         r/w    7        1
-// visibleBlockContext                   UAV    uint         buf    8        1
+// blockRanges                       texture  struct         r/o    8        1
+// blockGroups                       texture    uint         buf    9        1
+// visibleBlocks                         UAV  struct         r/w   10        1
+// visibleBlockContext                   UAV    uint         buf   11        1
 // CBCull                            cbuffer      NA          NA    0        1
 //
 //
@@ -79,10 +79,10 @@ cs_5_0
 dcl_globalFlags refactoringAllowed
 dcl_constantbuffer cb0[21], dynamicIndexed
 dcl_resource_buffer (uint,uint,uint,uint) t0
-dcl_resource_structured t5, 28 
-dcl_resource_buffer (uint,uint,uint,uint) t6
-dcl_uav_structured u7, 8
-dcl_uav_typed_buffer (uint,uint,uint,uint) u8
+dcl_resource_structured t8, 28 
+dcl_resource_buffer (uint,uint,uint,uint) t9
+dcl_uav_structured u10, 8
+dcl_uav_typed_buffer (uint,uint,uint,uint) u11
 dcl_input vThreadGroupID.x
 dcl_input vThreadIDInGroup.x
 dcl_input vThreadID.x
@@ -95,13 +95,13 @@ ieq r0.x, vThreadIDInGroup.x, l(0)
 if_z vThreadIDInGroup.x
   store_raw g1.x, l(0), l(0)
 endif 
-ld_indexable(buffer)(uint,uint,uint,uint) r0.y, vThreadGroupID.xxxx, t6.yxzw
-ld_structured_indexable(structured_buffer, stride=28)(mixed,mixed,mixed,mixed) r1.xyz, r0.y, l(16), t5.xyzx
+ld_indexable(buffer)(uint,uint,uint,uint) r0.y, vThreadGroupID.xxxx, t9.yxzw
+ld_structured_indexable(structured_buffer, stride=28)(mixed,mixed,mixed,mixed) r1.xyz, r0.y, l(16), t8.xyzx
 iadd r0.z, -r1.x, vThreadID.x
 sync_g_t
 ult r0.w, r0.z, r1.y
 if_nz r0.w
-  ld_structured_indexable(structured_buffer, stride=28)(mixed,mixed,mixed,mixed) r1.xyw, r0.y, l(0), t5.xyxz
+  ld_structured_indexable(structured_buffer, stride=28)(mixed,mixed,mixed,mixed) r1.xyw, r0.y, l(0), t8.xyxz
   iadd r2.x, r0.z, r1.z
   ld_indexable(buffer)(uint,uint,uint,uint) r0.y, r2.xxxx, t0.yxzw
   ushr r0.z, r0.y, l(28)
@@ -154,7 +154,7 @@ ld_raw r0.y, l(0), g1.xxxx
 ult r0.z, l(0), r0.y
 and r0.x, r0.z, r0.x
 if_nz r0.x
-  imm_atomic_iadd r0.x, u8, l(0), r0.y
+  imm_atomic_iadd r0.x, u11, l(0), r0.y
   store_raw g2.x, l(0), r0.x
 endif 
 sync_g_t
@@ -164,7 +164,7 @@ if_nz r0.x
   ld_raw r0.x, l(0), g2.xxxx
   iadd r0.x, r0.x, vThreadIDInGroup.x
   ld_structured r0.yz, vThreadIDInGroup.x, l(0), g0.xxyx
-  store_structured u7.xy, r0.x, l(0), r0.yzyy
+  store_structured u10.xy, r0.x, l(0), r0.yzyy
 endif 
 ret 
 // Approximately 76 instruction slots used
@@ -172,10 +172,10 @@ ret
 
 const BYTE g_main_block_cull_optim_cs[] =
 {
-     68,  88,  66,  67, 223,  99, 
-    134, 222, 200, 219, 123, 246, 
-    254, 131, 184, 220,  84,  76, 
-    113,   0,   1,   0,   0,   0, 
+     68,  88,  66,  67, 103, 210, 
+    103, 174,  76,  72,   4, 172, 
+    185, 159, 110, 116,  25, 110, 
+    249, 158,   1,   0,   0,   0, 
     176,  15,   0,   0,   6,   0, 
       0,   0,  56,   0,   0,   0, 
     224,   5,   0,   0, 240,   5, 
@@ -201,23 +201,23 @@ const BYTE g_main_block_cull_optim_cs[] =
      11,   1,   0,   0,   5,   0, 
       0,   0,   6,   0,   0,   0, 
       1,   0,   0,   0,  28,   0, 
-      0,   0,   5,   0,   0,   0, 
+      0,   0,   8,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
       0,   0,  23,   1,   0,   0, 
       2,   0,   0,   0,   4,   0, 
       0,   0,   1,   0,   0,   0, 
-    255, 255, 255, 255,   6,   0, 
+    255, 255, 255, 255,   9,   0, 
       0,   0,   1,   0,   0,   0, 
       1,   0,   0,   0,  35,   1, 
       0,   0,   6,   0,   0,   0, 
       6,   0,   0,   0,   1,   0, 
       0,   0,   8,   0,   0,   0, 
-      7,   0,   0,   0,   1,   0, 
+     10,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
      49,   1,   0,   0,   4,   0, 
       0,   0,   4,   0,   0,   0, 
       1,   0,   0,   0, 255, 255, 
-    255, 255,   8,   0,   0,   0, 
+    255, 255,  11,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
       0,   0,  69,   1,   0,   0, 
       0,   0,   0,   0,   0,   0, 
@@ -438,15 +438,15 @@ const BYTE g_main_block_cull_optim_cs[] =
      16,   0,   0,   0,   0,   0, 
      68,  68,   0,   0, 162,   0, 
       0,   4,   0, 112,  16,   0, 
-      5,   0,   0,   0,  28,   0, 
+      8,   0,   0,   0,  28,   0, 
       0,   0,  88,   8,   0,   4, 
-      0, 112,  16,   0,   6,   0, 
+      0, 112,  16,   0,   9,   0, 
       0,   0,  68,  68,   0,   0, 
     158,   0,   0,   4,   0, 224, 
-     17,   0,   7,   0,   0,   0, 
+     17,   0,  10,   0,   0,   0, 
       8,   0,   0,   0, 156,   8, 
       0,   4,   0, 224,  17,   0, 
-      8,   0,   0,   0,  68,  68, 
+     11,   0,   0,   0,  68,  68, 
       0,   0,  95,   0,   0,   2, 
      18,  16,   2,   0,  95,   0, 
       0,   2,  18,  32,   2,   0, 
@@ -479,14 +479,14 @@ const BYTE g_main_block_cull_optim_cs[] =
       3,  17,  17,   0,  34,   0, 
      16,   0,   0,   0,   0,   0, 
       6,  16,   2,   0,  22, 126, 
-     16,   0,   6,   0,   0,   0, 
+     16,   0,   9,   0,   0,   0, 
     167,   0,   0, 139,   2, 227, 
       0, 128, 131, 153,  25,   0, 
     114,   0,  16,   0,   1,   0, 
       0,   0,  26,   0,  16,   0, 
       0,   0,   0,   0,   1,  64, 
       0,   0,  16,   0,   0,   0, 
-     70, 114,  16,   0,   5,   0, 
+     70, 114,  16,   0,   8,   0, 
       0,   0,  30,   0,   0,   7, 
      66,   0,  16,   0,   0,   0, 
       0,   0,  10,   0,  16, 128, 
@@ -506,7 +506,7 @@ const BYTE g_main_block_cull_optim_cs[] =
      16,   0,   0,   0,   0,   0, 
       1,  64,   0,   0,   0,   0, 
       0,   0,  70, 120,  16,   0, 
-      5,   0,   0,   0,  30,   0, 
+      8,   0,   0,   0,  30,   0, 
       0,   7,  18,   0,  16,   0, 
       2,   0,   0,   0,  42,   0, 
      16,   0,   0,   0,   0,   0, 
@@ -771,7 +771,7 @@ const BYTE g_main_block_cull_optim_cs[] =
       0,   0,   0,   0, 180,   0, 
       0,   9,  18,   0,  16,   0, 
       0,   0,   0,   0,   0, 224, 
-     17,   0,   8,   0,   0,   0, 
+     17,   0,  11,   0,   0,   0, 
       1,  64,   0,   0,   0,   0, 
       0,   0,  26,   0,  16,   0, 
       0,   0,   0,   0, 166,   0, 
@@ -806,7 +806,7 @@ const BYTE g_main_block_cull_optim_cs[] =
       0,   0,   0,   0,   0,   0, 
       6, 241,  17,   0,   0,   0, 
       0,   0, 168,   0,   0,   9, 
-     50, 224,  17,   0,   7,   0, 
+     50, 224,  17,   0,  10,   0, 
       0,   0,  10,   0,  16,   0, 
       0,   0,   0,   0,   1,  64, 
       0,   0,   0,   0,   0,   0, 
