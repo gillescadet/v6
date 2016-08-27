@@ -5,12 +5,15 @@
 // -fps=25
 // -notexturestreaming
 // Edit -> EditorPreferences -> (General)Miscellaneous called "Use Less CPU when in Background"
+// #define DEPTH_32_BIT_CONVERSION 1
+// exposure 4x in tone mapping shader
 
 #include <v6/core/common.h>
 #include "Video6DOFPrivatePCH.h"
 
 #include "D3D11RHIPrivate.h"
 #include "EngineModule.h"
+#include "ImageWrapper.h"
 #include "RHIDefinitions.h"
 #include "SceneViewExtension.h"
 #include "ScenePrivate.h"
@@ -26,7 +29,9 @@
 
 #define STREAM_PREFIX		"d:/tmp/v6/ue"
 #define STREAM_FILEFRAME	STREAM_PREFIX".v6"
-#define RAW_FRAME_TEMPLATE	STREAM_PREFIX"_%06u.v6f"
+#define RAW_FRAME_SUFFIX	STREAM_PREFIX"_%06u"
+#define RAW_FRAME_TEMPLATE	RAW_FRAME_SUFFIX".v6f"
+#define FACE_DUMP_TEMPLATE	RAW_FRAME_SUFFIX"_S%02u_F%u.png"
 
 enum CaptureState_e
 {
@@ -36,27 +41,27 @@ enum CaptureState_e
 	CAPTURE_STATE_ERROR,
 };
 
-FVideo6DOFCaptureSettings	s_captureSettings;
-FDynamicRHI*				s_dynamicRHIOriginal = nullptr;
-FDynamicRHIWrap				s_dynamicRHIWrap;
-FRHICommandContextWrap		s_rhiCommandContextWrap;
-v6::CaptureContext_s		s_captureContext;
-CaptureState_e				s_captureState;
-v6::u32						s_captureFrameID;
-v6::Vec3					s_captureOrigin;
-float						s_captureYaw;
-v6::Vec3					s_captureSamplePos;
-v6::Vec3					s_captureFaceBasis[3];
-FD3D11TextureBase*			s_captureRenderTarget;
-FD3D11TextureBase*			s_colorRenderTarget;
-FD3D11TextureBase*			s_depthRenderTarget;
-v6::u32						s_capturedSampleCount;
-v6::CHeap					s_heap;
-v6::Stack					s_stack( &s_heap, v6::MulMB( 200 ) );
-
-extern ID3D11Device*		v6::g_device;
-extern ID3D11DeviceContext*	v6::g_deviceContext;
-extern bool					v6::g_deviceLogMemory;
+FVideo6DOFCaptureSettings			s_captureSettings;
+FDynamicRHI*						s_dynamicRHIOriginal = nullptr;
+FDynamicRHIWrap						s_dynamicRHIWrap;
+FRHICommandContextWrap				s_rhiCommandContextWrap;
+v6::CaptureContext_s				s_captureContext;
+CaptureState_e						s_captureState;
+v6::u32								s_captureFrameID;
+v6::Vec3							s_captureOrigin;
+float								s_captureYaw;
+v6::Vec3							s_captureSamplePos;
+float								s_captureSampleWeight;
+v6::Vec3							s_captureFaceBasis[3];
+FD3D11TextureBase*					s_captureRenderTarget;
+FD3D11TextureBase*					s_colorRenderTarget;
+FD3D11TextureBase*					s_depthRenderTarget;
+v6::u32								s_capturedSampleCount;
+v6::CHeap							s_heap;
+v6::Stack							s_stack( &s_heap, v6::MulMB( 200 ) );
+extern ID3D11Device*				v6::g_device;
+extern ID3D11DeviceContext*			v6::g_deviceContext;
+extern bool							v6::g_deviceLogMemory;
 
 static void Scene_SetRenderTarget( FD3D11TextureBase* color, FD3D11TextureBase* depth )
 {
@@ -81,40 +86,43 @@ static void Scene_End()
 	else
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
+		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureSampleWeight, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
 	}
 
 	if ( s_captureState == CAPTURE_STATE_END )
 	{
 		v6::CaptureContext_End( &s_captureContext );
-		
-		FString path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
 
-		v6::CUnbufferedFileWriter fileWriter;
-		if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
+		if ( !s_captureSettings.m_dumpRenderTarget )
 		{
-			UE_LOG( LogVideo6DOF, Error, TEXT( "Unable to create file." ) );
-			s_captureState = CAPTURE_STATE_ERROR;
-		}
-		else
-		{
-			v6::CodecRawFrameDesc_s frameDesc = {};
-			frameDesc.gridOrigin = s_captureOrigin;
-			frameDesc.gridYaw = s_captureYaw;
-			frameDesc.frameID = s_captureFrameID;
-			frameDesc.frameRate = s_captureSettings.m_targetFPS;
-			frameDesc.sampleCount = s_captureSettings.m_sampleCount;
-			frameDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
-			frameDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
-			frameDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
-			
-			v6::CodecRawFrameData_s frameData = {};
+			FString path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
 
+			v6::CUnbufferedFileWriter fileWriter;
+			if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
 			{
-				v6::ScopedStack scopedStack( &s_stack );
-				v6::CaptureContext_MapBlocksForRead( &s_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
-				v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData, nullptr, &s_stack );
-				v6::CaptureContext_UnmapBlocksForRead( &s_captureContext );
+				UE_LOG( LogVideo6DOF, Error, TEXT( "Unable to create file." ) );
+				s_captureState = CAPTURE_STATE_ERROR;
+			}
+			else
+			{
+				v6::CodecRawFrameDesc_s frameDesc = {};
+				frameDesc.gridOrigin = s_captureOrigin;
+				frameDesc.gridYaw = s_captureYaw;
+				frameDesc.frameID = s_captureFrameID;
+				frameDesc.frameRate = s_captureSettings.m_targetFPS;
+				frameDesc.sampleCount = s_captureSettings.m_sampleID >= 0 ? 1 : s_captureSettings.m_sampleCount;
+				frameDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
+				frameDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
+				frameDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
+				
+				v6::CodecRawFrameData_s frameData = {};
+
+				{
+					v6::ScopedStack scopedStack( &s_stack );
+					v6::CaptureContext_MapBlocksForRead( &s_captureContext, frameDesc.blockCounts, &frameData.blockPos, &frameData.blockData );
+					v6::Codec_WriteRawFrame( &fileWriter, &frameDesc, &frameData, nullptr, &s_stack );
+					v6::CaptureContext_UnmapBlocksForRead( &s_captureContext );
+				}
 			}
 		}
 	}
@@ -224,7 +232,24 @@ static v6::Vec3 TranformVectorFromUserSpace( const FVector* v )
 	return v6::Vec3_Make( v->X, v->Z, v->Y ); // swapped Y/Z
 }
 
-static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
+static void RenderTarget_Dump( FTextureRenderTargetResource* renderTargetResource, const FString& filename )
+{
+	TArray< FColor > colors;
+	colors.AddUninitialized( renderTargetResource->GetSizeXY().X * renderTargetResource->GetSizeXY().Y );
+	FReadSurfaceDataFlags readSurfaceDataFlags = FReadSurfaceDataFlags();
+	readSurfaceDataFlags.SetLinearToGamma( false );
+	renderTargetResource->ReadPixelsPtr( colors.GetData(), readSurfaceDataFlags );
+	for ( FColor& color : colors )
+		color.A = 255;
+	
+	IImageWrapperModule& imageWrapperModule = FModuleManager::LoadModuleChecked< IImageWrapperModule >( FName( "ImageWrapper" ) );
+	IImageWrapperPtr imageWrapper = imageWrapperModule.CreateImageWrapper( EImageFormat::PNG );
+	imageWrapper->SetRaw( colors.GetData(), colors.GetAllocatedSize(), renderTargetResource->GetSizeXY().X, renderTargetResource->GetSizeXY().Y, ERGBFormat::BGRA, 8 );
+	const TArray<uint8>& pngData = imageWrapper->GetCompressed( 100 );
+	FFileHelper::SaveArrayToFile( pngData, *filename );
+}
+
+static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, float sampleWeight, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetAntiAliasing( false );
@@ -265,6 +290,7 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	s_captureState = captureState;
 	s_captureFrameID = frameID;
 	s_captureSamplePos = TranformVectorFromUserSpace( &samplePosUserSpace );
+	s_captureSampleWeight = sampleWeight;
 	s_captureFaceBasis[0] = TranformVectorFromUserSpace( &rightUserSpace );
 	s_captureFaceBasis[1] = TranformVectorFromUserSpace( &upUserSpace );
 	s_captureFaceBasis[2] = TranformVectorFromUserSpace( &lookAtUserSpace );
@@ -319,23 +345,33 @@ static bool Scene_CaptureCube( const FVector& originUserSpace, const FVector& fo
 
 	for ( uint32 sampleID = 0; sampleID < s_captureSettings.m_sampleCount; ++sampleID )
 	{
+		if ( s_captureSettings.m_sampleID >= 0 && sampleID != s_captureSettings.m_sampleID )
+			continue;
+
 		const v6::Vec3 gridCenterUserSpace = v6::Vec3_Make( originUserSpace.X, originUserSpace.Y, originUserSpace.Z );
-		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + v6::CaptureContext_GetSampleOffset( &s_captureContext, sampleID );
+		const v6::Vec4 sampleOffsetAndWeight = v6::CaptureContext_GetSampleOffsetAndWeight( &s_captureContext, sampleID );
+		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + sampleOffsetAndWeight.xyz;
 
 		for ( uint32 faceID = 0; faceID < 6; ++faceID )
 		{
 			CaptureState_e captureState;
-			if ( sampleID == 0 && faceID == 0)
+			if ( (s_captureSettings.m_sampleID >= 0 || sampleID == 0) && faceID == 0)
 				captureState = CAPTURE_STATE_BEGIN;
-			else if ( sampleID == s_captureSettings.m_sampleCount-1 && faceID == 5 )
+			else if ( (s_captureSettings.m_sampleID >= 0 || sampleID == s_captureSettings.m_sampleCount-1) && faceID == 5 )
 				captureState = CAPTURE_STATE_END;
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
 
-			if ( !Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), forwardUserSpace, frameID, faceID, captureState ) )
+			if ( !Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), sampleOffsetAndWeight.w, forwardUserSpace, frameID, faceID, captureState ) )
 			{
 				success = false;
 				goto cleanup;
+			}
+
+			if ( s_captureSettings.m_dumpRenderTarget )
+			{
+				FString path = FString::Printf( TEXT( FACE_DUMP_TEMPLATE ), frameID, sampleID, faceID );
+				RenderTarget_Dump( renderTargetResource, path );
 			}
 		}
 	}
@@ -395,7 +431,6 @@ UVideo6DOFCapturer::UVideo6DOFCapturer( FVTableHelper& Helper )
 void UVideo6DOFCapturer::Startup()
 {
 	Device_Override();
-	
 }
 
 void UVideo6DOFCapturer::Shutdown()

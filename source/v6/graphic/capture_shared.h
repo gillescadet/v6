@@ -44,12 +44,18 @@ CBUFFER( CBSample, 0 )
 	float4				c_sampleRight;
 	float4				c_sampleUp;
 	float4				c_sampleForward;
+	
 	float				c_sampleDepthLinearScale;
 	float				c_sampleDepthLinearBias;
-	uint				c_sampleGridWidth;
 	float				c_sampleInvCubeSize;
+	uint				c_samplePad1;
+
+	float3				c_sampleGridOrigin;
+	uint				c_sampleGridWidth;
+	
 	float3				c_samplePos;
-	uint				c_samplePad;
+	uint				c_samplePad2;
+	
 	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };
@@ -59,7 +65,7 @@ CBUFFER( CBOctree, 1 )
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeLevelCount;
 	uint				c_octreeCurrentBucket;
-	float				c_octreePad0;
+	uint				c_octreeSampleWeight;
 };
 
 
@@ -71,10 +77,11 @@ struct Sample
 
 struct OctreeLeaf
 {
-	uint x9_r23;
-	uint y9_g23;
-	uint z9_b23;
-	uint x2y2z2_mip4_count15;
+	uint	mip4_none1_x9_y9_z9;
+	uint	done1_x2y2z2_count25;
+	uint	r32;
+	uint	g32;
+	uint	b32;
 };
 
 #define sample_groupCountX_offset							0

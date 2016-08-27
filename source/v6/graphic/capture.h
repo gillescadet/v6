@@ -28,7 +28,7 @@ struct CaptureContext_s
 	static const u32			SAMPLE_MAX_COUNT = 32;
 
 	CaptureDesc_s				desc;
-	Vec3						sampleOffsets[SAMPLE_MAX_COUNT];
+	Vec4						sampleOffsetAndWeights[SAMPLE_MAX_COUNT];
 	GPUCaptureResources_s*		res;
 	struct
 	{
@@ -43,11 +43,11 @@ struct CaptureContext_s
 
 // any thread
 void	CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc );
-Vec3	CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampleID );
+Vec4	CaptureContext_GetSampleOffsetAndWeight( CaptureContext_s* captureContext, u32 sampleID );
 void	CaptureContext_Release( CaptureContext_s* captureContext );
 
 // render thread
-u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView );
+u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, float sampleWeight, const Vec3 basis[3], void* colorView, void* depthView );
 void	CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin );
 void	CaptureContext_End( CaptureContext_s* captureContext );
 void	CaptureContext_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );

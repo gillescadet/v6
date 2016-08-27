@@ -24,6 +24,10 @@ FVideo6DOFManager::FVideo6DOFManager()
 		TEXT( "V6.sampleCount" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_SampleCount", "Set the number of samples used for the capture of a V6 sequence" ).ToString(),
 		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSampleCount ) )
+	, m_sampleIDCommand(
+		TEXT( "V6.sampleID" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_SampleID", "Set the unique sample ID used for the capture of a V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSampleID ) )
 	, m_gridMacroShiftCommand(
 		TEXT( "V6.gridMacroShift" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_SampleCount", "Set the power of 2 of the resolution of the macro grid used for the capture of a V6 sequence" ).ToString(),
@@ -40,13 +44,19 @@ FVideo6DOFManager::FVideo6DOFManager()
 		TEXT( "V6.useToneMapping" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_UseToneMapping", "Use tone mapping for the capture a V6 sequence" ).ToString(),
 		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureUseToneMapping ) )
+	, m_dumpRenderTargetCommand(
+		TEXT( "V6.dumpRenderTarget" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_DumpRenderTarget", "Dump each captured render target" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureDumpRenderTarget ) )
 	, m_capturer( nullptr )
 	, m_fps( 75 )
 	, m_sampleCount( 17 )
+	, m_sampleID( -1 )
 	, m_gridMacroShift( 9 )
 	, m_gridMinScale( 50.0f )
 	, m_gridMaxScale( 2000.0f )
 	, m_useToneMapping( true )
+	, m_dumpRenderTarget( false )
 {
 	UVideo6DOFCapturer::Startup();
 }
@@ -106,10 +116,12 @@ void FVideo6DOFManager::Capture( uint32 frameCount )
 	FVideo6DOFCaptureSettings settings = {};
 	settings.m_targetFPS = m_fps;
 	settings.m_sampleCount = m_sampleCount;
+	settings.m_sampleID = m_sampleID;
 	settings.m_gridMacroShift = m_gridMacroShift;
 	settings.m_gridMinScale = m_gridMinScale;
 	settings.m_gridMaxScale = m_gridMaxScale;
 	settings.m_useToneMapping = m_useToneMapping;
+	settings.m_dumpRenderTarget = m_dumpRenderTarget;
 
 	m_capturer->Capture( position, rotation.Quaternion(), frameCount, &settings );
 }
@@ -185,6 +197,25 @@ void FVideo6DOFManager::SetCaptureSampleCount( const TArray<FString>& Args )
 	m_sampleCount = sampleCount;
 }
 
+void FVideo6DOFManager::SetCaptureSampleID( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need sample ID as argument." ) );
+		return;
+	}
+
+	const int32 sampleID = FCString::Atoi( *Args[0] );
+
+	if ( sampleID < -1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Sample ID should be -1 or >= 0." ) );
+		return;
+	}
+
+	m_sampleID = sampleID;
+}
+
 void FVideo6DOFManager::SetCaptureSetGridMacroShift( const TArray<FString>& Args )
 {
 	if ( Args.Num() < 1 )
@@ -253,4 +284,17 @@ void FVideo6DOFManager::SetCaptureUseToneMapping( const TArray<FString>& Args )
 	const bool useToneMapping = FCString::Atoi( *Args[0] ) != 0;
 
 	m_useToneMapping = useToneMapping;
+}
+
+void FVideo6DOFManager::SetCaptureDumpRenderTarget( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need 0 or 1 as argument." ) );
+		return;
+	}
+
+	const bool dumpRenderTarget = FCString::Atoi( *Args[0] ) != 0;
+
+	m_dumpRenderTarget = dumpRenderTarget;
 }

@@ -655,11 +655,13 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			return false;
 		}
 
+#if 0
 		if ( desc.sampleCount != streamDesc->sampleCount )
 		{
 			V6_ERROR( "Incompatible sample count.\n" );
 			return false;
 		}
+#endif
 
 		if ( desc.gridMacroShift != streamDesc->gridMacroShift )
 		{

@@ -23,8 +23,20 @@ void main_octree_fill_leaf_cs( uint3 DTid : SV_DispatchThreadID )
 
 	const uint nodeOffset = sampleNodeOffsets[sampleID];
 	const uint leafID = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
-	InterlockedAdd( octreeLeaves[leafID].x9_r23, color.r );
-	InterlockedAdd( octreeLeaves[leafID].y9_g23, color.g );
-	InterlockedAdd( octreeLeaves[leafID].z9_b23, color.b );
-	InterlockedAdd( octreeLeaves[leafID].x2y2z2_mip4_count15, 1 );
+	
+	// if ( (octreeLeaves[leafID].done1_x2y2z2_count25 >> 31) == 0 )
+	{
+		uint prevCount;
+		InterlockedAdd( octreeLeaves[leafID].done1_x2y2z2_count25, c_octreeSampleWeight, prevCount );
+		if ( (prevCount & 0x1FFFFFF) < 0xFFFFFF )
+		{
+			InterlockedAdd( octreeLeaves[leafID].r32, color.r * c_octreeSampleWeight );
+			InterlockedAdd( octreeLeaves[leafID].g32, color.g * c_octreeSampleWeight );
+			InterlockedAdd( octreeLeaves[leafID].b32, color.b * c_octreeSampleWeight );
+		}
+		else
+		{
+			InterlockedAdd( (int)octreeLeaves[leafID].done1_x2y2z2_count25, -(int)(c_octreeSampleWeight) );
+		}
+	}
 }

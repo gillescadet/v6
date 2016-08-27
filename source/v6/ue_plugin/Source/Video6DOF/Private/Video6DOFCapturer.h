@@ -24,10 +24,12 @@ struct FVideo6DOFCaptureSettings
 
 	uint32	m_targetFPS;
 	uint32	m_sampleCount;
+	int32	m_sampleID;
 	uint32	m_gridMacroShift;
 	float	m_gridMinScale;
 	float	m_gridMaxScale;
 	bool	m_useToneMapping;
+	bool	m_dumpRenderTarget;
 };
 
 UCLASS()

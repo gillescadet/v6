@@ -33,11 +33,11 @@ void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 	}
 
 	uint3 coords;
-	coords.x = ((octreeLeaves[leafID].x9_r23 >> 21) & ~0x3) | ((octreeLeaves[leafID].x2y2z2_mip4_count15 >> 30) & 0x3);
-	coords.y = ((octreeLeaves[leafID].y9_g23 >> 21) & ~0x3) | ((octreeLeaves[leafID].x2y2z2_mip4_count15 >> 28) & 0x3);
-	coords.z = ((octreeLeaves[leafID].z9_b23 >> 21) & ~0x3) | ((octreeLeaves[leafID].x2y2z2_mip4_count15 >> 26) & 0x3);
+	coords.x = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 >> 16) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 29) & 0x3);
+	coords.y = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 >>  7) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 27) & 0x3);
+	coords.z = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 <<  2) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 25) & 0x3);
 
-	const uint mip = (octreeLeaves[leafID].x2y2z2_mip4_count15 >> 22) & 0xF;	
+	const uint mip = (octreeLeaves[leafID].mip4_none1_x9_y9_z9 >> 28) & 0xF;
 
 	const uint packLevel = c_octreeLevelCount - 3;
 
@@ -90,10 +90,10 @@ void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 					if ( firstLeafID != leafID )
 						return;
 
-					const uint sampleCount = octreeLeaves[childLeafID].x2y2z2_mip4_count15 & 0x7FFF;
-					const uint r = (octreeLeaves[childLeafID].x9_r23 & 0x007FFFFF) / sampleCount;
-					const uint g = (octreeLeaves[childLeafID].y9_g23 & 0x007FFFFF) / sampleCount;
-					const uint b = (octreeLeaves[childLeafID].z9_b23 & 0x007FFFFF) / sampleCount;
+					const uint sampleCount = octreeLeaves[childLeafID].done1_x2y2z2_count25 & 0xFFFFFF;
+					const uint r = octreeLeaves[childLeafID].r32 / sampleCount;
+					const uint g = octreeLeaves[childLeafID].g32 / sampleCount;
+					const uint b = octreeLeaves[childLeafID].b32 / sampleCount;
 					const uint cellPos = ((childID0&4)<<3) | ((childID1&4)<<2) | ((childID0&2)<<2) | ((childID1&2)<<1) | ((childID0&1)<<1) | ((childID1&1)<<0);
 					cellRGBA[cellCount] = (r << 24) | (g << 16) | (b << 8) | cellPos;
 
