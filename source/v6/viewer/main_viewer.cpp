@@ -2165,7 +2165,7 @@ void CRenderingDevice::Draw( float dt )
 					options.showMip = g_showMip;
 					options.showOverdraw = g_showOverdraw;
 					options.noTSAA = g_noTSAA;
-					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options );
+					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options, 0.0f );
 				}
 
 				s_logReadBack = false;

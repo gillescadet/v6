@@ -114,6 +114,12 @@ CBUFFER( CBTSAA, 2 )
 	float2				c_tsaaInvFrameSize;
 };
 
+CBUFFER( CBPostProcess, 3 )
+{
+	float				c_postProcessFadeToBlack;
+	float3				c_postProcessPad;
+};
+
 struct BlockRange
 {
 	int3	macroGridOffset;
@@ -135,6 +141,8 @@ struct VisibleBlockContext
 	uint	groupCountX;
 	uint	groupCountY;
 	uint	groupCountZ;
+	uint	minDistance;
+	float	fadeToBlack;
 };
 
 struct BlockPatch
@@ -192,6 +200,8 @@ struct BlockTraceStats
 #define VISIBLEBLOCKCONTEXT_GROUPCOUNTX_OFFSET	1
 #define VISIBLEBLOCKCONTEXT_GROUPCOUNTY_OFFSET	2
 #define VISIBLEBLOCKCONTEXT_GROUPCOUNTZ_OFFSET	3
+#define VISIBLEBLOCKCONTEXT_MIN_DISTANCE_OFFSET	4
+#define VISIBLEBLOCKCONTEXT_FADETOBLACK_OFFSET	5
 
 END_V6_HLSL_NAMESPACE
 

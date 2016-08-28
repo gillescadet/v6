@@ -87,7 +87,7 @@ static void Scene_End()
 	else
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureSampleID, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
+		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
 	}
 
 	if ( s_captureState == CAPTURE_STATE_END )

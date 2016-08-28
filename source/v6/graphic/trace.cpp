@@ -27,6 +27,7 @@ struct GPUTraceResources_s
 	GPUConstantBuffer_s		cbProject;
 	GPUConstantBuffer_s		cbTrace;
 	GPUConstantBuffer_s		cbTSAA;
+	GPUConstantBuffer_s		cbPostProcess;
 
 	GPUBuffer_s				blockPos;
 	GPUBuffer_s				blockCellPresences0;
@@ -534,9 +535,21 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 	{
 		GPUEvent_Begin( s_gpuEventSharpens[eye] );
 	
+		// Update
+
+		{
+			v6::hlsl::CBPostProcess* cbPostProcess = (v6::hlsl::CBPostProcess*)GPUConstantBuffer_MapWrite( &traceRes->cbPostProcess );
+
+			cbPostProcess->c_postProcessFadeToBlack = traceContext->frameState.fadeToBlack;
+
+			GPUConstantBuffer_UnmapWrite( &traceRes->cbPostProcess );
+		}
+
 		// Set
 
+		g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBPostProcessSlot, 1, &traceRes->cbPostProcess.buf );
 		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &traceRes->histories[traceContext->frameState.curHistoryBufferID][eye].srv );
+		g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, &traceRes->visibleBlockContext.srv );
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &renderTargetSet->colorBuffers[eye].uav, nullptr );
 		g_deviceContext->CSSetShader( traceRes->computeSharpen.m_computeShader, nullptr, 0 );
 
@@ -549,6 +562,7 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 		// unset
 		static const void* nulls[8] = {};
 		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
 		GPUEvent_End();
@@ -649,6 +663,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUConstantBuffer_Create( &res->cbProject, sizeof( v6::hlsl::CBProject ), "project" );
 	GPUConstantBuffer_Create( &res->cbTrace, sizeof( v6::hlsl::CBTrace ), "trace" );
 	GPUConstantBuffer_Create( &res->cbTSAA, sizeof( v6::hlsl::CBTSAA), "tsaa" );
+	GPUConstantBuffer_Create( &res->cbPostProcess, sizeof( v6::hlsl::CBTSAA), "postProcess" );
 
 	GPUBuffer_CreateStructured( &res->visibleBlocks, sizeof( hlsl::VisibleBlock ), traceContext->resVisibleBlockMaxCount, 0, "visibleBlocks" );
 	GPUBuffer_CreateIndirectArgs( &res->visibleBlockContext, sizeof( hlsl::VisibleBlockContext ) / sizeof( u32 ), 0, "visibleBlockContext" );
@@ -728,7 +743,7 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	GPUConstantBuffer_Release( &res->cbCull );
 	GPUConstantBuffer_Release( &res->cbProject );
 	GPUConstantBuffer_Release( &res->cbTrace );
-	GPUConstantBuffer_Release( &res->cbTSAA );
+	GPUConstantBuffer_Release( &res->cbPostProcess );
 	
 	GPUBuffer_Release( &res->visibleBlocks );
 	GPUBuffer_Release( &res->visibleBlockContext );
@@ -764,10 +779,11 @@ void TraceContext_Release( TraceContext_s* traceContext )
 	s_gpuTraceResourcesCreated = false;
 }
 
-void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options )
+void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, float fadeToBlack )
 {
 	const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
+	Vec3 centerEye = Vec3_Zero();
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 	{
 		Mat4x4 worldToProj;
@@ -776,7 +792,13 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 		traceContext->frameState.curWorldToProjsX[eye] = worldToProj.m_row0;
 		traceContext->frameState.curWorldToProjsY[eye] = worldToProj.m_row1;
 		traceContext->frameState.curWorldToProjsW[eye] = worldToProj.m_row3;
+
+		centerEye += views[eye].org;
+		
 	}
+
+	const Vec3 eyeDistanceToOrigin = Abs( centerEye * (1.0f / eyeCount) - traceContext->frameState.origin );
+	traceContext->frameState.fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (traceContext->stream->desc.gridScaleMin - 5.0f), 0.0f, 5.0f ) / 5.0f );
 
 	if ( traceContext->frameState.resetJitter )
 	{

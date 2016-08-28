@@ -54,6 +54,7 @@ struct TraceFrameState_s
 	Vec4					curWorldToProjsW[2];
 	Vec3					origin;
 	Vec2					jitter;
+	float					fadeToBlack;
 	u32						groupCount;
 	u32						sequenceID;
 	u32						frameID;
@@ -78,7 +79,7 @@ struct TraceContext_s
 };
 
 void	TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* traceDesc, const VideoStream_s* stream );
-void	TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options );
+void	TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s* renderTargetSet, const View_s* views, const TraceOptions_s* options, float fadeToBlack );
 void	TraceContext_GetFrameBasis( TraceContext_s* traceContext, Vec3* origin, float* yaw );
 void	TraceContext_Release( TraceContext_s* traceContext );
 void	TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack* stack );

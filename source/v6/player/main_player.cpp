@@ -1248,12 +1248,16 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 	View_s views[EYE_COUNT];
 
+	float fadeToBlack = 0.0f;
+
 #if V6_USE_HMD == 1
+	fadeToBlack = 1.0f;
+
 	Hmd_SetPerfHUdMode( player->playerOptions.showHMDPerfHUD );
 
 	HmdRenderTarget_s hmdColorRenderTargets[2];
 	HmdEyePose_s hmdEyePoses[2];
-		
+
 	player->hmdState = Hmd_BeginRendering( hmdColorRenderTargets, hmdEyePoses, player->camera.znear, player->camera.zfar );
 	if ( player->hmdState & HMD_TRACKING_STATE_ON )
 	{
@@ -1282,6 +1286,9 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 			Camera_MakeView( &views[eye], &player->camera, eye, &viewProjection );
 		}
+
+		if ( player->hmdState & HMD_TRACKING_STATE_POS )
+			fadeToBlack = 0.0f;
 	}
 	else
 #endif // #if V6_USE_HMD == 1
@@ -1308,7 +1315,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
 		if ( PlayerStream_IsValid( player ) )
-			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, fadeToBlack );
 		else
 			PlayerScene_Draw( player, views );
 	}

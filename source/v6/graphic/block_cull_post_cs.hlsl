@@ -12,4 +12,8 @@ void main_block_cull_post_cs( uint3 DTid : SV_DispatchThreadID )
 	visibleBlockContext[VISIBLEBLOCKCONTEXT_GROUPCOUNTX_OFFSET] = blockGroupCount;
 	visibleBlockContext[VISIBLEBLOCKCONTEXT_GROUPCOUNTY_OFFSET] = 1;
 	visibleBlockContext[VISIBLEBLOCKCONTEXT_GROUPCOUNTZ_OFFSET] = 1;
+
+	const float minDistanceToOrigin = (0xFFFFFFFF - visibleBlockContext[VISIBLEBLOCKCONTEXT_MIN_DISTANCE_OFFSET]) / 16.0f;
+	const float fadeToBlack = saturate( (15.0f - minDistanceToOrigin) / 5.0f );
+	visibleBlockContext[VISIBLEBLOCKCONTEXT_FADETOBLACK_OFFSET] = fadeToBlack;
 }
