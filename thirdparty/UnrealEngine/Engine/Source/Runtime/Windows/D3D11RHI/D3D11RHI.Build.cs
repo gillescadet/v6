@@ -1,0 +1,33 @@
+// Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
+
+using UnrealBuildTool;
+
+public class D3D11RHI : ModuleRules
+{
+	public D3D11RHI(TargetInfo Target)
+	{
+		// v6: give more precision
+		Definitions.Add("DEPTH_32_BIT_CONVERSION=1");
+		
+		PrivateIncludePaths.Add("Runtime/Windows/D3D11RHI/Private");
+
+		PrivateDependencyModuleNames.AddRange(
+			new string[] {
+				"Core",
+				"Engine",
+				"RHI",
+				"RenderCore",
+				"ShaderCore",
+				"UtilityShaders",
+			}
+			);
+
+		AddThirdPartyPrivateStaticDependencies(Target, "DX11");
+        AddThirdPartyPrivateStaticDependencies(Target, "NVAPI");
+
+		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
+		{
+			PrivateIncludePathModuleNames.AddRange(new string[] { "TaskGraph" });
+		}
+	}
+}
