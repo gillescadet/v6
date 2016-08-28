@@ -36,9 +36,7 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 		const float3 pos = mad( dir, cubeDepth, c_samplePos );
 		const uint mip = GetMip( pos );
 
-		const bool isVisible = dot( c_sampleGridOrigin - pos, c_samplePos - pos ) > 0.0f;
-
-		if ( mip < HLSL_MIP_MAX_COUNT && isVisible )
+		if ( mip < HLSL_MIP_MAX_COUNT )
 		{
 			const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
 			const float3 cellCoords = mad( posInMip, c_sampleInvGridScales[mip].x * gridHalfWidth, gridHalfWidth );

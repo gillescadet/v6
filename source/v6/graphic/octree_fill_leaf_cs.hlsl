@@ -24,19 +24,16 @@ void main_octree_fill_leaf_cs( uint3 DTid : SV_DispatchThreadID )
 	const uint nodeOffset = sampleNodeOffsets[sampleID];
 	const uint leafID = firstChildOffsets[nodeOffset] & ~HLSL_NODE_CREATED;
 	
-	// if ( (octreeLeaves[leafID].done1_x2y2z2_count25 >> 31) == 0 )
+	uint prevCount;
+	InterlockedAdd( octreeLeaves[leafID].done1_x2y2z2_count25, 1, prevCount );
+	if ( (prevCount & 0x1FFFFFF) < 0xFFFFFF )
 	{
-		uint prevCount;
-		InterlockedAdd( octreeLeaves[leafID].done1_x2y2z2_count25, c_octreeSampleWeight, prevCount );
-		if ( (prevCount & 0x1FFFFFF) < 0xFFFFFF )
-		{
-			InterlockedAdd( octreeLeaves[leafID].r32, color.r * c_octreeSampleWeight );
-			InterlockedAdd( octreeLeaves[leafID].g32, color.g * c_octreeSampleWeight );
-			InterlockedAdd( octreeLeaves[leafID].b32, color.b * c_octreeSampleWeight );
-		}
-		else
-		{
-			InterlockedAdd( (int)octreeLeaves[leafID].done1_x2y2z2_count25, -(int)(c_octreeSampleWeight) );
-		}
+		InterlockedAdd( octreeLeaves[leafID].r32, color.r * 1 );
+		InterlockedAdd( octreeLeaves[leafID].g32, color.g * 1 );
+		InterlockedAdd( octreeLeaves[leafID].b32, color.b * 1 );
+	}
+	else
+	{
+		InterlockedAdd( (int)octreeLeaves[leafID].done1_x2y2z2_count25, -1 );
 	}
 }

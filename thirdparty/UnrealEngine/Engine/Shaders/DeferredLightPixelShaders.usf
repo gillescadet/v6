@@ -69,6 +69,9 @@ void DirectionalPixelMain(
 		float SceneDepth = CalcSceneDepth(InUV);
 		float3 WorldPosition = ScreenVector * SceneDepth + View.WorldCameraOrigin;
 
+		// v6
+		CameraVector = normalize(WorldPosition - View.WorldEyeOrigin);
+
 		FDeferredLightData LightData = SetupLightDataForStandardDeferred();
 		
 		uint2 Random = ScrambleTEA( uint2( SVPos.xy ) );
@@ -103,7 +106,9 @@ void RadialPixelMain(
 		float SceneDepth = CalcSceneDepth(ScreenUV);
 		float4 HomogeneousWorldPosition = mul(float4(InScreenPosition.xy / InScreenPosition.w * SceneDepth, SceneDepth, 1), View.ScreenToWorld);
 		float3 WorldPosition = HomogeneousWorldPosition.xyz / HomogeneousWorldPosition.w;
-		float3 CameraVector = normalize(WorldPosition - View.WorldCameraOrigin);
+		// v6
+		float3 CameraVector = normalize(WorldPosition - View.WorldEyeOrigin);
+		// float3 CameraVector = normalize(WorldPosition - View.WorldCameraOrigin);
 
 		FDeferredLightData LightData = SetupLightDataForStandardDeferred();
 

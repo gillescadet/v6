@@ -417,6 +417,7 @@ FSceneView::FSceneView(const FSceneViewInitOptions& InitOptions)
 	if(IsPerspectiveProjection())
 	{
 		ViewMatrices.ViewOrigin = ViewOrigin;
+		ViewMatrices.ViewOriginForLighting = InitOptions.ViewOriginForLighting;
 	}
 #if WITH_EDITOR
 	else if (InitOptions.bUseFauxOrthoViewPos)

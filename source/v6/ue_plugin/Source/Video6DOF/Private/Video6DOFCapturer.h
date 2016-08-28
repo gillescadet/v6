@@ -30,6 +30,7 @@ struct FVideo6DOFCaptureSettings
 	float	m_gridMaxScale;
 	bool	m_useToneMapping;
 	bool	m_dumpRenderTarget;
+	bool	m_lockCameraForLighting;
 };
 
 UCLASS()

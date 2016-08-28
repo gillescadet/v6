@@ -75,6 +75,9 @@ struct FSceneViewInitOptions : public FSceneViewProjectionData
 	const AActor* ViewActor;
 	FViewElementDrawer* ViewElementDrawer;
 
+	// v6
+	FVector ViewOriginForLighting;
+
 	FLinearColor BackgroundColor;
 	FLinearColor OverlayColor;
 	FLinearColor ColorScale;
@@ -120,6 +123,7 @@ struct FSceneViewInitOptions : public FSceneViewProjectionData
 		, SceneViewStateInterface(NULL)
 		, ViewActor(NULL)
 		, ViewElementDrawer(NULL)
+		, ViewOriginForLighting( FLT_MAX )
 		, BackgroundColor(FLinearColor::Transparent)
 		, OverlayColor(FLinearColor::Transparent)
 		, ColorScale(FLinearColor::White)
@@ -157,6 +161,8 @@ struct FViewMatrices
 		PreShadowTranslation = FVector::ZeroVector;
 		PreViewTranslation = FVector::ZeroVector;
 		ViewOrigin = FVector::ZeroVector;
+		// v6
+		ViewOriginForLighting = FVector( FLT_MAX );
 		ProjectionScale = FVector2D::ZeroVector;
 		TemporalAAProjJitter = FVector2D::ZeroVector;
 		ScreenScale = 1.f;
@@ -180,6 +186,8 @@ struct FViewMatrices
 	FVector		PreViewTranslation;
 	/** To support ortho and other modes this is redundant, in world space */
 	FVector		ViewOrigin;
+	// v6
+	FVector		ViewOriginForLighting;
 	/** Scale applied by the projection matrix in X and Y. */
 	FVector2D	ProjectionScale;
 	/** TemporalAA jitter offset currently stored in the projection matrix */
@@ -384,6 +392,8 @@ BEGIN_UNIFORM_BUFFER_STRUCT(FViewUniformShaderParameters,ENGINE_API)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector4, InvDeviceZToWorldZTransform)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_EX(FVector4, ScreenPositionScaleBias, EShaderPrecisionModifier::Half)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldCameraOrigin)
+	// v6
+	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldEyeOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, TranslatedWorldCameraOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldViewOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, PreViewTranslation)
@@ -425,6 +435,8 @@ BEGIN_UNIFORM_BUFFER_STRUCT(FInstancedViewUniformShaderParameters, ENGINE_API)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector4, InvDeviceZToWorldZTransform)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_EX(FVector4, ScreenPositionScaleBias, EShaderPrecisionModifier::Half)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldCameraOrigin)
+	// v6
+	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldEyeOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, TranslatedWorldCameraOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, WorldViewOrigin)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector, PreViewTranslation)

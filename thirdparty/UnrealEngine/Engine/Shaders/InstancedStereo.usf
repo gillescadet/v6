@@ -25,6 +25,8 @@ struct ViewDependentState {
 	float4 InvDeviceZToWorldZTransform;
 	float4 ScreenPositionScaleBias;
 	float3 WorldCameraOrigin;
+	// v6
+	float3 WorldEyeOrigin;
 	float3 TranslatedWorldCameraOrigin;
 	float3 WorldViewOrigin;
 	float3 PreViewTranslation;
@@ -70,6 +72,8 @@ ViewDependentState ResolveView()
 	Result.InvDeviceZToWorldZTransform = View.InvDeviceZToWorldZTransform;
 	Result.ScreenPositionScaleBias = View.ScreenPositionScaleBias;
 	Result.WorldCameraOrigin = View.WorldCameraOrigin;
+	// v6
+	Result.WorldEyeOrigin = View.WorldEyeOrigin;
 	Result.TranslatedWorldCameraOrigin = View.TranslatedWorldCameraOrigin;
 	Result.WorldViewOrigin = View.WorldViewOrigin;
 	Result.PreViewTranslation = View.PreViewTranslation;
@@ -149,6 +153,8 @@ ViewDependentState ResolveView(uint ViewIndex)
 		Result.InvDeviceZToWorldZTransform = View.InvDeviceZToWorldZTransform;
 		Result.ScreenPositionScaleBias = View.ScreenPositionScaleBias;
 		Result.WorldCameraOrigin = View.WorldCameraOrigin;
+		// v6
+		Result.WorldEyeOrigin = View.WorldEyeOrigin;
 		Result.TranslatedWorldCameraOrigin = View.TranslatedWorldCameraOrigin;
 		Result.WorldViewOrigin = View.WorldViewOrigin;
 		Result.PreViewTranslation = View.PreViewTranslation;
@@ -189,6 +195,8 @@ ViewDependentState ResolveView(uint ViewIndex)
 		Result.InvDeviceZToWorldZTransform = InstancedView.InvDeviceZToWorldZTransform;
 		Result.ScreenPositionScaleBias = InstancedView.ScreenPositionScaleBias;
 		Result.WorldCameraOrigin = InstancedView.WorldCameraOrigin;
+		// v6
+		Result.WorldEyeOrigin = InstancedView.WorldEyeOrigin;
 		Result.TranslatedWorldCameraOrigin = InstancedView.TranslatedWorldCameraOrigin;
 		Result.WorldViewOrigin = InstancedView.WorldViewOrigin;
 		Result.PreViewTranslation = InstancedView.PreViewTranslation;

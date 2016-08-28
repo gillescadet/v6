@@ -85,7 +85,7 @@ static const float FOV							= DegToRad( 90.0f );
 static const float FOV							= DegToRad( 90.0f );
 #endif
 static const u32 GRID_COUNT						= Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
-static const int SAMPLE_MAX_COUNT				= 17;
+static const int SAMPLE_MAX_COUNT				= 9;
 static const float FREE_SCALE					= 50.0f;
 static const u32 RANDOM_CUBE_COUNT				= 100;
 
@@ -1918,8 +1918,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	V6_MSG( "Capturing sample #%03d...", g_sample );
 
-	const Vec4 sampleOffsetAndWeight = CaptureContext_GetSampleOffsetAndWeight( &m_captureContext, g_sample );
-	const Vec3 samplePos = s_buildOrigin + sampleOffsetAndWeight.xyz;
+	const Vec3 samplePos = s_buildOrigin + CaptureContext_GetSampleOffset( &m_captureContext, g_sample );
 
 	u32 sumLeafCount = 0;
 
@@ -1930,7 +1929,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		basis[0] = Cross( basis[2], basis[1] );
 
 		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, basis );
-		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, sampleOffsetAndWeight.w, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
+		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;

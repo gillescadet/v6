@@ -26,7 +26,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -144,6 +144,7 @@ enum CommandAction_e
 
 	COMMAND_ACTION_PLAYER_OPTION_METRICS,
 	COMMAND_ACTION_PLAYER_OPTION_UI,
+	COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX,
 	COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD,
 	COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD,
 };
@@ -158,6 +159,7 @@ struct PlayerOptions_s
 {
 	bool					showMetrics;
 	bool					showUI;
+	bool					lockBox;
 	bool					lockHMD;
 	u32						showHMDPerfHUD;
 };
@@ -193,6 +195,8 @@ struct Player_s
 	int						keyRightPressed;
 	int						keyUpPressed;
 	int						keyDownPressed;
+	int						keyPlusPressed;
+	int						keyMinusPressed;
 	char					commandLine[256];
 	u32						commandLineSize;
 };
@@ -428,6 +432,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 {
 	switch ( commandLine[0] )
 	{
+	case 'B':
+		if ( strcmp( commandLine, "BOX_LOCK ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "BOX_LOCK OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
 	case 'C':
 		if ( strcmp( commandLine, "CAMERA RECENTER" ) == 0 )
 		{
@@ -435,12 +456,16 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 			return;
 		}
 
+		break;
+
 	case 'E':
 		if ( strcmp( commandLine, "EXIT" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_EXIT;
 			return;
 		}
+
+		break;
 
 	case 'H':
 		if ( strcmp( commandLine, "HISTORY ON" ) == 0 )
@@ -725,6 +750,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_PLAYER_OPTION_UI:
 		player->playerOptions.showUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.showUI;
 		break;
+	case COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX:
+		player->playerOptions.lockBox = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockBox;
+		break;
 	case COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD:
 		player->playerOptions.lockHMD = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockHMD;
 		break;
@@ -783,6 +811,8 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'D': player->keyRightPressed = keyEvent->pressed; break;
 	case 'S': player->keyDownPressed = keyEvent->pressed; break;
 	case 'W': player->keyUpPressed = keyEvent->pressed; break;
+	case 0x26: player->keyPlusPressed = keyEvent->pressed; break;
+	case 0x28: player->keyMinusPressed = keyEvent->pressed; break;
 	}
 
 	if ( !keyEvent->pressed )
@@ -818,6 +848,9 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandLineSize = 0;
 		V6_MSG( "~" );
 		break;
+	case 'B': 
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+		break;
 	case 'C':
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
@@ -840,7 +873,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD;
 		player->commandBuffer.arg[0] = 2;
 		break;
-	case 0x74:
 	case 'L':
 		{
 			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
@@ -859,7 +891,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
 		player->commandBuffer.arg[0] = 2;
 		break;
-	case 0x42:
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
 		break;
@@ -956,18 +987,22 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 
 	{
 		int keyDeltaX = 0;
+		int keyDeltaY = 0;
 		int keyDeltaZ = 0;
 
 		if ( player->keyLeftPressed != player->keyRightPressed )
 			keyDeltaX = player->keyLeftPressed ? -1 : 1;
 
+		if ( player->keyMinusPressed != player->keyPlusPressed )
+			keyDeltaY = player->keyMinusPressed ? -1 : 1;
+
 		if ( player->keyDownPressed != player->keyUpPressed )
 			keyDeltaZ = player->keyDownPressed ? -1 : 1;
-
 	
-		if ( keyDeltaX || keyDeltaZ )
+		if ( keyDeltaX || keyDeltaY || keyDeltaZ )
 		{
 			player->camera.pos += player->camera.right * (float)keyDeltaX * KEY_TRANSLATION_SPEED * dt;
+			player->camera.pos += player->camera.up * (float)keyDeltaY * KEY_TRANSLATION_SPEED * dt;
 			player->camera.pos += player->camera.forward * (float)keyDeltaZ * KEY_TRANSLATION_SPEED * dt;
 		}
 	}
@@ -1251,6 +1286,16 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	else
 #endif // #if V6_USE_HMD == 1
 	{
+		if ( player->playerOptions.lockBox )
+		{
+			float gridScaleMin = 50.0f;
+			if ( PlayerStream_IsValid( player ) )
+				gridScaleMin = player->stream.desc.gridScaleMin;
+			player->camera.pos.x = Clamp( player->camera.pos.x, -gridScaleMin, gridScaleMin );
+			player->camera.pos.y = Clamp( player->camera.pos.y, -gridScaleMin, gridScaleMin );
+			player->camera.pos.z = Clamp( player->camera.pos.z, -gridScaleMin, gridScaleMin );
+		}
+
 		Camera_SetStereoUsingIPD( &player->camera, IPD );
 		Camera_UpdateBasis( &player->camera );
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
@@ -1433,12 +1478,12 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 512;
 #endif
 
-#if 0
+#if 1
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
 
-#if 1
+#if 0
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;

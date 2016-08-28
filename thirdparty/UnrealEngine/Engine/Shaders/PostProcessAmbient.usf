@@ -356,7 +356,15 @@ void MainPS(in noperspective float4 UVAndScreenPos : TEXCOORD0, float4 SvPositio
 	float2 ScreenSpacePos = UVAndScreenPos.zw;
 	int2 PixelPos = (int2)SvPosition.xy;
 
-	float3 ScreenVector = normalize(mul(float4(ScreenSpacePos, 1, 0), View.ScreenToWorld).xyz);
+	// v6
+	float3 ScreenVectorU = mul(float4(ScreenSpacePos, 1, 0), View.ScreenToWorld).xyz;
+	//float3 ScreenVector = normalize(mul(float4(ScreenSpacePos, 1, 0), View.ScreenToWorld).xyz);
+	
+	// v6
+	float SceneDepth = CalcSceneDepth( UV );
+	float3 WorldPosition = ScreenVectorU * SceneDepth + View.WorldCameraOrigin;
+	
+	float3 ScreenVector = normalize(WorldPosition - View.WorldEyeOrigin);
 
 	float3 N = GBuffer.WorldNormal;
 	float3 V = -ScreenVector;

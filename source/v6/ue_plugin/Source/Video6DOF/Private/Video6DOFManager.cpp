@@ -48,6 +48,10 @@ FVideo6DOFManager::FVideo6DOFManager()
 		TEXT( "V6.dumpRenderTarget" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_DumpRenderTarget", "Dump each captured render target" ).ToString(),
 		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureDumpRenderTarget ) )
+	, m_lockCameraForLightingCommand(
+		TEXT( "V6.lockCameraForLighting" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_LockCameraForLighting", "Lock the camera for lighting" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureLockCameraForLighting ) )
 	, m_capturer( nullptr )
 	, m_fps( 75 )
 	, m_sampleCount( 17 )
@@ -57,6 +61,7 @@ FVideo6DOFManager::FVideo6DOFManager()
 	, m_gridMaxScale( 2000.0f )
 	, m_useToneMapping( true )
 	, m_dumpRenderTarget( false )
+	, m_lockCameraForLighting( true )
 {
 	UVideo6DOFCapturer::Startup();
 }
@@ -78,14 +83,26 @@ void FVideo6DOFManager::CreateCapturer()
 	m_capturer->AddToRoot();
 }
 
-void FVideo6DOFManager::Capture( uint32 frameCount )
+bool FVideo6DOFManager::Capture( uint32 frameCount )
 {
 	APlayerController* playerController = UGameplayStatics::GetPlayerController( GWorld, 0 );
 
 	if ( playerController == nullptr )
 	{
 		UE_LOG( LogVideo6DOF, Warning, TEXT( "No player controller" ) );
-		return;
+		return false;
+	}
+
+	if ( m_dumpRenderTarget && frameCount > 1 )
+	{
+		UE_LOG( LogVideo6DOF, Warning, TEXT( "Dump render target could only be used for one frame" ) );
+		return false;
+	}
+
+	if ( m_sampleID == -2 && frameCount > 1 )
+	{
+		UE_LOG( LogVideo6DOF, Warning, TEXT( "Sample ID -2 could only be used for one frame" ) );
+		return false;
 	}
 	
 	CreateCapturer();
@@ -122,14 +139,17 @@ void FVideo6DOFManager::Capture( uint32 frameCount )
 	settings.m_gridMaxScale = m_gridMaxScale;
 	settings.m_useToneMapping = m_useToneMapping;
 	settings.m_dumpRenderTarget = m_dumpRenderTarget;
+	settings.m_lockCameraForLighting = m_lockCameraForLighting;
 
 	m_capturer->Capture( position, rotation.Quaternion(), frameCount, &settings );
+
+	return true;
 }
 
 void FVideo6DOFManager::CaptureScreenshot( const TArray<FString>& Args )
 {
-	Capture( 1 );
-	UE_LOG( LogVideo6DOF, Log, TEXT( "Screenshot..." ) );
+	if ( Capture( 1 ) )
+		UE_LOG( LogVideo6DOF, Log, TEXT( "Screenshot..." ) );
 }
 
 void FVideo6DOFManager::CaptureSequence( const TArray<FString>& Args )
@@ -148,8 +168,8 @@ void FVideo6DOFManager::CaptureSequence( const TArray<FString>& Args )
 		return;
 	}
 
-	Capture( frameCount );
-	UE_LOG( LogVideo6DOF, Log, TEXT( "Sequence..." ) );
+	if ( Capture( frameCount ) )
+		UE_LOG( LogVideo6DOF, Log, TEXT( "Sequence..." ) );
 }
 
 void FVideo6DOFManager::CaptureStop(  const TArray<FString>& Args )
@@ -207,9 +227,9 @@ void FVideo6DOFManager::SetCaptureSampleID( const TArray<FString>& Args )
 
 	const int32 sampleID = FCString::Atoi( *Args[0] );
 
-	if ( sampleID < -1 )
+	if ( sampleID < -2 )
 	{
-		UE_LOG( LogVideo6DOF, Error, TEXT( "Sample ID should be -1 or >= 0." ) );
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Sample ID should be -2 or -1 or >= 0." ) );
 		return;
 	}
 
@@ -297,4 +317,17 @@ void FVideo6DOFManager::SetCaptureDumpRenderTarget( const TArray<FString>& Args 
 	const bool dumpRenderTarget = FCString::Atoi( *Args[0] ) != 0;
 
 	m_dumpRenderTarget = dumpRenderTarget;
+}
+
+void FVideo6DOFManager::SetCaptureLockCameraForLighting( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need 0 or 1 as argument." ) );
+		return;
+	}
+
+	const bool lockCameraForLighting = FCString::Atoi( *Args[0] ) != 0;
+
+	m_lockCameraForLighting = lockCameraForLighting;
 }

@@ -7,6 +7,7 @@
 // Edit -> EditorPreferences -> (General)Miscellaneous called "Use Less CPU when in Background"
 // #define DEPTH_32_BIT_CONVERSION 1
 // exposure 4x in tone mapping shader
+// added FViewMatrices::ViewOriginForLighting and used that in the shaders
 
 #include <v6/core/common.h>
 #include "Video6DOFPrivatePCH.h"
@@ -51,7 +52,7 @@ v6::u32								s_captureFrameID;
 v6::Vec3							s_captureOrigin;
 float								s_captureYaw;
 v6::Vec3							s_captureSamplePos;
-float								s_captureSampleWeight;
+v6::u32								s_captureSampleID;
 v6::Vec3							s_captureFaceBasis[3];
 FD3D11TextureBase*					s_captureRenderTarget;
 FD3D11TextureBase*					s_colorRenderTarget;
@@ -86,7 +87,7 @@ static void Scene_End()
 	else
 	{
 		v6::g_deviceContext->OMSetRenderTargets( 0, nullptr, nullptr );
-		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureSampleWeight, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
+		s_capturedSampleCount = v6::CaptureContext_AddSamplesFromCubeFace( &s_captureContext, &s_captureSamplePos, s_captureSampleID, s_captureFaceBasis, s_colorRenderTarget->GetShaderResourceView(), s_depthRenderTarget->GetShaderResourceView() );
 	}
 
 	if ( s_captureState == CAPTURE_STATE_END )
@@ -95,7 +96,11 @@ static void Scene_End()
 
 		if ( !s_captureSettings.m_dumpRenderTarget )
 		{
-			FString path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
+			FString path;
+			if ( s_captureSettings.m_sampleID == -2 )
+				path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureSampleID );
+			else
+				path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
 
 			v6::CUnbufferedFileWriter fileWriter;
 			if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
@@ -249,12 +254,13 @@ static void RenderTarget_Dump( FTextureRenderTargetResource* renderTargetResourc
 	FFileHelper::SaveArrayToFile( pngData, *filename );
 }
 
-static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, float sampleWeight, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
+static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResource, const FVector& originUserSpace, const FVector& samplePosUserSpace, uint32 sampleID, const FVector& forwardUserSpace, uint32 frameID, uint32 faceID, CaptureState_e captureState )
 {
 	FEngineShowFlags showFlags( ESFIM_Game );
 	showFlags.SetAntiAliasing( false );
 	showFlags.SetBloom( false );
 	showFlags.SetCameraImperfections( false );
+	showFlags.SetCameraInterpolation( false );
 	showFlags.SetDepthOfField( false );
 	// showFlags.SetEyeAdaptation( false );
 	showFlags.SetFog( false );
@@ -263,9 +269,14 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	showFlags.SetLensFlares( false );
 	showFlags.SetMotionBlur( false );
 	showFlags.SetParticles( false );
+	showFlags.SetSceneColorFringe( false );
+	showFlags.SetScreenPercentage( false );
+	showFlags.SetScreenSpaceAO( false );
+	showFlags.SetScreenSpaceReflections( false );
 	showFlags.SetSeparateTranslucency( false );
 	showFlags.SetTonemapper( s_captureSettings.m_useToneMapping ); // should reinvestigate that
 	showFlags.SetTranslucency( false );
+	showFlags.SetVignette( false );
 	
 	FSceneViewFamilyContext viewFamily( FSceneViewFamily::ConstructionValues( renderTargetResource, GWorld->Scene, showFlags ) );
 
@@ -276,6 +287,8 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	viewInitOptions.SetViewRectangle( FIntRect( 0, 0, renderTargetResource->GetSizeXY().X, renderTargetResource->GetSizeXY().Y ) );
 	viewInitOptions.ViewFamily = &viewFamily;
 	viewInitOptions.ViewOrigin = samplePosUserSpace;
+	if ( s_captureSettings.m_lockCameraForLighting )
+		viewInitOptions.ViewOriginForLighting = originUserSpace;
 	viewInitOptions.ViewRotationMatrix = FBasisVectorMatrix( rightUserSpace, upUserSpace, lookAtUserSpace, FVector::ZeroVector );
 	viewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix( v6::DegToRad( 90.0f ) * 0.5f, 1.0f, 1.0f, GNearClippingPlane );
 
@@ -290,7 +303,7 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	s_captureState = captureState;
 	s_captureFrameID = frameID;
 	s_captureSamplePos = TranformVectorFromUserSpace( &samplePosUserSpace );
-	s_captureSampleWeight = sampleWeight;
+	s_captureSampleID = sampleID;
 	s_captureFaceBasis[0] = TranformVectorFromUserSpace( &rightUserSpace );
 	s_captureFaceBasis[1] = TranformVectorFromUserSpace( &upUserSpace );
 	s_captureFaceBasis[2] = TranformVectorFromUserSpace( &lookAtUserSpace );
@@ -349,20 +362,19 @@ static bool Scene_CaptureCube( const FVector& originUserSpace, const FVector& fo
 			continue;
 
 		const v6::Vec3 gridCenterUserSpace = v6::Vec3_Make( originUserSpace.X, originUserSpace.Y, originUserSpace.Z );
-		const v6::Vec4 sampleOffsetAndWeight = v6::CaptureContext_GetSampleOffsetAndWeight( &s_captureContext, sampleID );
-		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + sampleOffsetAndWeight.xyz;
+		const v6::Vec3 samplePosUserSpace = gridCenterUserSpace + v6::CaptureContext_GetSampleOffset( &s_captureContext, sampleID );
 
 		for ( uint32 faceID = 0; faceID < 6; ++faceID )
 		{
 			CaptureState_e captureState;
-			if ( (s_captureSettings.m_sampleID >= 0 || sampleID == 0) && faceID == 0)
+			if ( (s_captureSettings.m_sampleID != -1 || sampleID == 0) && faceID == 0)
 				captureState = CAPTURE_STATE_BEGIN;
-			else if ( (s_captureSettings.m_sampleID >= 0 || sampleID == s_captureSettings.m_sampleCount-1) && faceID == 5 )
+			else if ( (s_captureSettings.m_sampleID != -1 || sampleID == s_captureSettings.m_sampleCount-1) && faceID == 5 )
 				captureState = CAPTURE_STATE_END;
 			else
 				captureState = CAPTURE_STATE_MIDDLE;
 
-			if ( !Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), sampleOffsetAndWeight.w, forwardUserSpace, frameID, faceID, captureState ) )
+			if ( !Scene_CaptureFace( renderTargetResource, originUserSpace, FVector( samplePosUserSpace.x, samplePosUserSpace.y, samplePosUserSpace.z ), sampleID, forwardUserSpace, frameID, faceID, captureState ) )
 			{
 				success = false;
 				goto cleanup;
@@ -478,21 +490,43 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 			++m_captureFrameID;
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Captured frame %d/%d" ), m_captureFrameID, m_captureFrameTotalCount );
 
-			const uint32 notEncodedFrameCount = m_captureFrameID - m_captureFrameEncodedCount;
-			if ( notEncodedFrameCount == m_captureSettings.m_targetFPS || m_captureFrameID == m_captureFrameTotalCount )
+			if ( m_captureSettings.m_sampleID == -2 )
 			{
-				if ( Scene_EncodeFrames( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
+				check( m_captureFrameID == 1 );
+				for ( uint32 sampleID = 0; sampleID < m_captureSettings.m_sampleCount; ++sampleID )
 				{
-					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID + 1 - notEncodedFrameCount, m_captureFrameID );
-					m_captureFrameEncodedCount += notEncodedFrameCount;
-
-					if ( m_captureFrameID == m_captureFrameTotalCount )
+					if ( !Scene_EncodeFrames( sampleID, 1 ) )
+					{
+						UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
 						m_state = EVideo6DOFCapturerState::DONE;
+					}
 				}
-				else
+
+				if ( m_state != EVideo6DOFCapturerState::DONE )
 				{
-					UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
+					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded %d samples" ), m_captureSettings.m_sampleCount );
+					++m_captureFrameEncodedCount;
 					m_state = EVideo6DOFCapturerState::DONE;
+				}
+			}
+			else
+			{
+				const uint32 notEncodedFrameCount = m_captureFrameID - m_captureFrameEncodedCount;
+				if ( notEncodedFrameCount == m_captureSettings.m_targetFPS || m_captureFrameID == m_captureFrameTotalCount )
+				{
+					if ( Scene_EncodeFrames( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
+					{
+						UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID + 1 - notEncodedFrameCount, m_captureFrameID );
+						m_captureFrameEncodedCount += notEncodedFrameCount;
+
+						if ( m_captureFrameID == m_captureFrameTotalCount )
+							m_state = EVideo6DOFCapturerState::DONE;
+					}
+					else
+					{
+						UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
+						m_state = EVideo6DOFCapturerState::DONE;
+					}
 				}
 			}
 		}

@@ -22,13 +22,14 @@ public:
 	void					SetCaptureSetGridMaxScale( const TArray<FString>& Args );
 	void					SetCaptureUseToneMapping( const TArray<FString>& Args );
 	void					SetCaptureDumpRenderTarget( const TArray<FString>& Args );
+	void					SetCaptureLockCameraForLighting( const TArray<FString>& Args );
 
 public:
 	UPROPERTY()
 	class					UVideo6DOFCapturer*	m_capturer;
 
 private:
-	void					Capture( uint32 frameCount );
+	bool					Capture( uint32 frameCount );
 private:
 
 	FAutoConsoleCommand		m_screenshotCommand;
@@ -42,6 +43,7 @@ private:
 	FAutoConsoleCommand		m_gridMaxScaleCommand;
 	FAutoConsoleCommand		m_useToneMappingCommand;
 	FAutoConsoleCommand		m_dumpRenderTargetCommand;
+	FAutoConsoleCommand		m_lockCameraForLightingCommand;
 
 	uint32					m_fps;
 	uint32					m_sampleCount;
@@ -51,4 +53,5 @@ private:
 	float					m_gridMaxScale;
 	bool					m_useToneMapping;
 	bool					m_dumpRenderTarget;
+	bool					m_lockCameraForLighting;
 };

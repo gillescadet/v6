@@ -65,7 +65,7 @@ CBUFFER( CBOctree, 1 )
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeLevelCount;
 	uint				c_octreeCurrentBucket;
-	uint				c_octreeSampleWeight;
+	uint				c_octreePad;
 };
 
 

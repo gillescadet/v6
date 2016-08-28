@@ -676,9 +676,13 @@ float4 MaterialExpressionAtmosphericFog(FMaterialPixelParameters Parameters, flo
 {
 #if MATERIAL_ATMOSPHERIC_FOG
 	// WorldPosition default value is Parameters.AbsoluteWorldPosition if not overridden by the user
-	float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldCameraOrigin;
+	// v6
+	float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldEyeOrigin;
+	// float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldCameraOrigin;
 	float SceneDepth = length(ViewVector);
-	return GetAtmosphericFog(ResolvedView.WorldCameraOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
+	// v6
+	return GetAtmosphericFog(ResolvedView.WorldEyeOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
+	// return GetAtmosphericFog(ResolvedView.WorldCameraOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
 #else
 	return float4(0.f, 0.f, 0.f, 0.f);
 #endif

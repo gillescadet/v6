@@ -36,7 +36,6 @@ struct GPUCaptureResources_s
 	GPUCompute_s				computeBuildInner;
 	GPUCompute_s				computeBuildLeaf;
 	GPUCompute_s				computeFillLeaf;
-	GPUCompute_s				computeTerminateLeaf;
 	GPUCompute_s				computePackColor;
 };
 
@@ -267,7 +266,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 	return addedLeafCount;
 }
 
-static void FillLeaf( CaptureContext_s* captureContext, float sampleWeight )
+static void FillLeaf( CaptureContext_s* captureContext )
 {
 	GPUEvent_Begin( s_gpuEventFillLeaf );
 
@@ -279,7 +278,6 @@ static void FillLeaf( CaptureContext_s* captureContext, float sampleWeight )
 		cbOctree->c_octreeCurrentLevel = 0;
 		cbOctree->c_octreeLevelCount = 0;
 		cbOctree->c_octreeCurrentBucket = 0;
-		cbOctree->c_octreeSampleWeight = Clamp( (u32)(sampleWeight * 255.0f), 1u, 255u );
 		GPUConstantBuffer_UnmapWrite( &res->cbOctree );
 	}
 
@@ -301,28 +299,6 @@ static void FillLeaf( CaptureContext_s* captureContext, float sampleWeight )
 	g_deviceContext->CSSetShaderResources( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	g_deviceContext->CSSetShaderResources( HLSL_OCTREE_SAMPLE_NODE_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	g_deviceContext->CSSetShaderResources( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-
-	GPUEvent_End();
-}
-
-static void TerminateLeaf( CaptureContext_s* captureContext )
-{
-	GPUEvent_Begin( s_gpuEventTerminateLeaf );
-
-	GPUCaptureResources_s* res = captureContext->res;
-
-	// Set
-	g_deviceContext->CSSetShaderResources( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &res->octreeIndirectArgs.srv );
-	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, &res->leaves.uav, nullptr );
-	g_deviceContext->CSSetShader( res->computeTerminateLeaf.m_computeShader, nullptr, 0 );
-
-	// Dispatch
-	g_deviceContext->DispatchIndirect( res->octreeIndirectArgs.buf, octree_leafGroupCountX_offset * sizeof( u32 ) );
-
-	// Unset
-	static const void* nulls[8] = {};
-	g_deviceContext->CSSetShaderResources( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, (ID3D11ShaderResourceView**)nulls);
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_LEAF_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
 	GPUEvent_End();
@@ -438,29 +414,26 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 	
 	const float cellScaleMin = desc->gridScaleMin / gridWidth;
 	const float freeScale = desc->gridScaleMin - cellScaleMin;
-	captureContext->sampleOffsetAndWeights[0] = Vec4_Make( 0.0f, 0.0f, 0.0f, 1.0f );
+	captureContext->sampleOffsets[0] = Vec3_Make( 0.0f, 0.0f, 0.0f );
 	for ( u32 sample = 1; sample < desc->sampleCount; ++sample )
 	{
 		if ( sample <= 8 )
 		{
 			const u32 vertexID = sample-1;
-			captureContext->sampleOffsetAndWeights[sample].x = (vertexID&1) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
-			captureContext->sampleOffsetAndWeights[sample].y = (vertexID&2) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
-			captureContext->sampleOffsetAndWeights[sample].z = (vertexID&4) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
-			captureContext->sampleOffsetAndWeights[sample].w = 1.0f / 8.0f;
+			captureContext->sampleOffsets[sample].x = (vertexID&1) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
+			captureContext->sampleOffsets[sample].y = (vertexID&2) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
+			captureContext->sampleOffsets[sample].z = (vertexID&4) == 0 ? (-0.2f * freeScale) : (0.2f * freeScale);
 		}
 		else if ( sample <= 16 )
 		{
 			const u32 vertexID = sample-9;
-			captureContext->sampleOffsetAndWeights[sample].x = (vertexID&1) == 0 ? -freeScale : freeScale;
-			captureContext->sampleOffsetAndWeights[sample].y = (vertexID&2) == 0 ? -freeScale : freeScale;
-			captureContext->sampleOffsetAndWeights[sample].z = (vertexID&4) == 0 ? -freeScale : freeScale;
-			captureContext->sampleOffsetAndWeights[sample].w = 1.0f / 64.0f;
+			captureContext->sampleOffsets[sample].x = (vertexID&1) == 0 ? -freeScale : freeScale;
+			captureContext->sampleOffsets[sample].y = (vertexID&2) == 0 ? -freeScale : freeScale;
+			captureContext->sampleOffsets[sample].z = (vertexID&4) == 0 ? -freeScale : freeScale;
 		}
 		else
 		{
-			captureContext->sampleOffsetAndWeights[sample].xyz = Vec3_Rand() * freeScale;
-			captureContext->sampleOffsetAndWeights[sample].w = 1.0f / 128.0f;
+			captureContext->sampleOffsets[sample] = Vec3_Rand() * freeScale;
 		}
 	}
 
@@ -496,7 +469,6 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 	GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::g_main_octree_build_inner_cs, sizeof( hlsl::g_main_octree_build_inner_cs ) );
 	GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::g_main_octree_build_leaf_cs, sizeof( hlsl::g_main_octree_build_leaf_cs ) );
 	GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::g_main_octree_fill_leaf_cs, sizeof( hlsl::g_main_octree_fill_leaf_cs ) );
-	GPUCompute_CreateFromSource( &res->computeTerminateLeaf, hlsl::g_main_octree_terminate_leaf_cs, sizeof( hlsl::g_main_octree_terminate_leaf_cs ) );
 	GPUCompute_CreateFromSource( &res->computePackColor, hlsl::g_main_octree_pack_cs, sizeof( hlsl::g_main_octree_pack_cs ) );
 
 	s_gpuCaptureResourcesCreated = true;
@@ -525,7 +497,6 @@ void CaptureContext_Release( CaptureContext_s* captureContext )
 	GPUCompute_Release( &res->computeBuildInner );
 	GPUCompute_Release( &res->computeBuildLeaf );
 	GPUCompute_Release( &res->computeFillLeaf );
-	GPUCompute_Release( &res->computeTerminateLeaf );
 	GPUCompute_Release( &res->computePackColor );
 
 #if CAPTURE_DEBUG == 1
@@ -546,17 +517,16 @@ void CaptureContext_End( CaptureContext_s* captureContext )
 	PackColor( captureContext );
 }
 
-Vec4 CaptureContext_GetSampleOffsetAndWeight( CaptureContext_s* captureContext, u32 sampleID )
+Vec3 CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampleID )
 {
-	return captureContext->sampleOffsetAndWeights[sampleID];
+	return captureContext->sampleOffsets[sampleID];
 }
 
-u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, float sampleWeight, const Vec3 basis[3], void* colorView, void* depthView )
+u32 CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView )
 {
 	Collect( captureContext, samplePos, basis, (ID3D11ShaderResourceView*)colorView, (ID3D11ShaderResourceView*)depthView );
 	const u32 sumLeafCount = BuildNode( captureContext );
-	FillLeaf( captureContext, sampleWeight );
-	TerminateLeaf( captureContext );
+	FillLeaf( captureContext );
 	return sumLeafCount;
 }
 

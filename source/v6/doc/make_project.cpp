@@ -430,7 +430,6 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/octree_build_node_impl.hlsli",	PROJECT_VIEWER },
 	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/octree_pack_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_terminate_leaf_cs.hlsl",PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_sharpen_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/pixel_tsaa_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/graphic/sample_collect_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile, HLSL_DisableTreatWarningAsError },

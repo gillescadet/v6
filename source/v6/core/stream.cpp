@@ -33,7 +33,7 @@ bool CFileReader::Open( const char* filename )
 	}
 
 	FILE * file = nullptr;
-	if ( fopen_s( &file, filename, "rb") != 0 )
+	if ( fopen_s( &file, filename, "rb" ) != 0 )
 		return false;
 
 	m_file = file;
