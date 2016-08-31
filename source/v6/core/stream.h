@@ -9,24 +9,35 @@ BEGIN_V6_NAMESPACE
 
 class IAllocator;
 
+struct x64 { u64 v;  };
+
+#define ToU64( X64 ) X64.v
+#define ToX64( U64 ) x64 { U64 }
+
 class IStreamWriter
 {
 public:
-	virtual int GetPos() const = 0;
-	virtual int GetSize() const = 0;
-	virtual void SetPos( int pos ) = 0;
-	virtual void Write( const void * pData, int nSize) = 0;
+	virtual x64		GetPos() const = 0;
+	virtual x64		GetSize() const = 0;
+	virtual void	SetPos( x64 pos ) = 0;
+	virtual void	Write( const void * pData, x64 nSize ) = 0;
 };
 
 class IStreamReader
 {
 public:
-	virtual int GetPos() const = 0;
-	virtual int GetRemaining() const { return GetSize() - GetPos(); }
-	virtual int GetSize() const = 0;
-	virtual void Read( int nSize, void * pData ) = 0;
-	virtual void SetPos( int pos ) = 0;
-	virtual void Skip( int nSize ) = 0;
+	virtual x64		GetPos() const = 0;
+	virtual x64		GetRemaining() const { return ToX64( ToU64( GetSize() ) - ToU64( GetPos() ) ); }
+	virtual x64		GetSize() const = 0;
+	virtual void	Read( x64 nSize, void * pData ) = 0;
+	virtual void	SetPos( x64 pos ) = 0;
+	virtual void	Skip( x64 nSize ) = 0;
+};
+
+enum
+{
+	FILE_OPEN_FLAG_EXTEND		= 1 << 0,
+	FILE_OPEN_FLAG_UNBUFFERED	= 1 << 1
 };
 
 class CFileReader : public IStreamReader
@@ -36,37 +47,16 @@ public:
 	virtual ~CFileReader();
 
 public:
-	bool Open(const char * sFilename);
-	void Close();
-
-public:
-	virtual int GetPos() const;
-	virtual int GetSize() const;
-	virtual void Read( int nSize, void *data );
-	virtual void SetPos( int pos );
-	virtual void Skip( int nSize );
-
-private:
-	void* m_file;
-};
-
-class CUnbufferedFileReader : public IStreamReader
-{
-public:
-	CUnbufferedFileReader();
-	virtual ~CUnbufferedFileReader();
-
-public:
-	bool Open(const char * sFilename);
+	bool Open( const char* filename, u32 flags );
 	void Close();
 	const char* GetFilename() const { return m_filename; }
 
 public:
-	virtual int GetPos() const;
-	virtual int GetSize() const;
-	virtual void Read( int nSize, void *data );
-	virtual void SetPos( int pos );
-	virtual void Skip( int nSize );
+	virtual x64 GetPos() const;
+	virtual x64 GetSize() const;
+	virtual void Read( x64 nSize, void *data );
+	virtual void SetPos( x64 pos );
+	virtual void Skip( x64 nSize );
 
 private:
 	void*	m_file;
@@ -80,76 +70,56 @@ public:
 	virtual ~CFileWriter();
 
 public:
-	bool Open( const char * sFilename, bool extend );
-	void Close();
-
-public:
-	virtual int GetPos() const;
-	virtual int GetSize() const;
-	virtual void SetPos( int pos );
-	virtual void Write( const void * pData, int nSize );
-
-private:
-	void * m_pFile;
-};
-
-class CUnbufferedFileWriter : public IStreamWriter
-{
-public:
-	CUnbufferedFileWriter();
-	virtual ~CUnbufferedFileWriter();
-
-public:
-	bool Open(const char * sFilename);
+	bool Open( const char* filename, u32 flags );
 	void Close();
 	const char* GetFilename() const { return m_filename; }
 
 public:
-	virtual int GetPos() const;
-	virtual int GetSize() const;
-	virtual void SetPos( int pos );
-	virtual void Write( const void * pData, int nSize );
+	virtual x64 GetPos() const;
+	virtual x64 GetSize() const;
+	virtual void SetPos( x64 pos );
+	virtual void Write( const void * pData, x64 nSize );
 
 private:
-	void *	m_file;
+	void*	m_file;
 	char	m_filename[256];
 };
 
 class CBufferReader : public IStreamReader
 {
 public:
-	CBufferReader( const void * pBuffer, int nSize );
+	CBufferReader( const void * pBuffer, x64 nSize );
 
 public:
 	const void * GetBuffer() { return m_pBuffer; }
-	virtual int GetPos() const { return m_nPos; }
-	virtual int GetSize() const { return m_nSize; }
-	virtual void Read( int nSize, void * pData );
-	virtual void SetPos( int pos );
-	virtual void Skip( int nSize );
+	virtual x64 GetPos() const { return m_nPos; }
+	virtual x64 GetSize() const { return m_nSize; }
+	virtual void Read( x64 nSize, void * pData );
+	virtual void SetPos( x64 pos );
+	virtual void Skip( x64 nSize );
 
 private:
-	const void * m_pBuffer;
-	int m_nPos;
-	int m_nSize;
+	const void*		m_pBuffer;
+	x64				m_nPos;
+	x64				m_nSize;
 };
 
 class CBufferWriter : public IStreamWriter
 {
 public:
-	CBufferWriter(void * pBuffer, int nSize);
+	CBufferWriter(void * pBuffer, x64 nSize);
 
 public:
 	void * GetBuffer() { return m_pBuffer; }
-	virtual int GetPos() const { return m_nPos; }
-	virtual int GetSize() const { return m_nSize; }
-	virtual void SetPos( int pos );
-	virtual void Write( const void * pData, int nSize);
+	virtual x64 GetPos() const { return m_nPos; }
+	virtual x64 GetSize() const { return m_nSize; }
+	virtual void SetPos( x64 pos );
+	virtual void Write( const void * pData, x64 nSize);
 
 private:
-	void * m_pBuffer;
-	int m_nPos;
-	int m_nSize;
+	void*	m_pBuffer;
+	x64		m_nPos;
+	x64		m_nSize;
 };
 
 END_V6_NAMESPACE

@@ -10,8 +10,10 @@
 
 BEGIN_V6_NAMESPACE
 
-bool Process_Execute( int* returnCode, const char* cmd )
+bool Process_Launch( Process_s* process, const char* cmd )
 {
+	memset( process, 0, sizeof( *process ) );
+
 	SECURITY_ATTRIBUTES securityAttributes = {};
 	securityAttributes.nLength = sizeof( SECURITY_ATTRIBUTES );
 	securityAttributes.lpSecurityDescriptor = NULL;
@@ -34,14 +36,51 @@ bool Process_Execute( int* returnCode, const char* cmd )
 		return false;
 	}
 		
-	WaitForSingleObject( processInformation.hProcess, INFINITE );
-	if ( returnCode )
-		GetExitCodeProcess( processInformation.hProcess, (::DWORD*)returnCode );
-
-	CloseHandle( processInformation.hProcess );
-	CloseHandle( processInformation.hThread );
+	process->processHandle = processInformation.hProcess;
+	process->threadHandle = processInformation.hThread;
 		
 	return true;
+}
+
+int Process_Wait( Process_s* process )
+{
+	V6_ASSERT( process->processHandle );
+	V6_ASSERT( process->threadHandle );
+
+	WaitForSingleObject( process->processHandle, INFINITE );
+	
+	int returnCode;
+	GetExitCodeProcess( process->processHandle, (::DWORD*)&returnCode );
+
+	CloseHandle( process->processHandle );
+	CloseHandle( process->threadHandle );
+	
+	memset( process, 0, sizeof( *process ) );
+
+	return returnCode;
+}
+
+bool Process_Execute( int* returnCode, const char* cmd )
+{
+	Process_s process;
+
+	if ( !Process_Launch( &process, cmd ) ) 
+		return false;
+
+	*returnCode = Process_Wait( &process );
+	return true;
+}
+
+void Process_Cancel( Process_s* process )
+{
+	V6_ASSERT( process->processHandle );
+
+	TerminateProcess( process->processHandle, 1 );
+
+	CloseHandle( process->processHandle );
+	CloseHandle( process->threadHandle );
+
+	memset( process, 0, sizeof( *process ) );
 }
 
 END_V6_NAMESPACE

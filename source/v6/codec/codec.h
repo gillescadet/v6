@@ -136,7 +136,7 @@ struct CodecFrameData_s
 u32		Codec_AlignToClusterSize( u32 size );
 u64		Codec_AlignToClusterSize( u64 size );
 void*	Codec_AlignToClusterSize( void* p );
-void*	Codec_AllocToClusterSizeAndFillPaddingWithZero( void** buffer, u32 size, IAllocator* allocator );
+void*	Codec_AllocToClusterSizeAndFillPaddingWithZero( void** buffer, u64 size, IAllocator* allocator );
 u32		Codec_GetClusterSize();
 Vec3	Codec_ComputeGridCenter( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );
 Vec3i	Codec_ComputeMacroGridCoords( const Vec3* pos, float gridScale, u32 gridMacroHalfWidth );

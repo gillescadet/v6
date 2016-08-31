@@ -12,8 +12,8 @@ BEGIN_V6_NAMESPACE
 
 struct MemoryBlock_s
 {
-	u32			size;
-	u32			capacity;
+	u64				size;
+	u64				capacity;
 	MemoryBlock_s*	next;
 };
 
@@ -26,14 +26,14 @@ CHeap::~CHeap()
 	V6_ASSERT( m_allocCount == m_freeCount );
 }
 
-void* CHeap::alloc(int nSize)
+void* CHeap::alloc( u64 nSize )
 {
 	// V6_MSG( "allocation of %d bytes\n", nSize );
 	Atomic_Inc( &m_allocCount );
-	return ::malloc( (u32)nSize );
+	return ::malloc( nSize );
 }
 
-void CHeap::free(void * p)
+void CHeap::free( void * p )
 {
 	if ( p == nullptr )
 		return;
@@ -42,18 +42,18 @@ void CHeap::free(void * p)
 	::free(p);
 }
 
-void * CHeap::realloc(void * p, int nSize)
+void * CHeap::realloc( void * p, u64 nSize )
 {
 	Atomic_Inc( &m_allocCount );
-	return ::realloc(p, (u32)nSize);
+	return ::realloc( p, nSize );
 }
 
-void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size )
+void* BlockAllocator_Alloc( BlockAllocator_s* allocator, u64 size )
 {
 	if ( allocator->firstBlock == nullptr || allocator->firstBlock->size + size > allocator->firstBlock->capacity )
 	{
-		const u32 capacity = Max( size, allocator->blockCapacity );
-		MemoryBlock_s* newBlock = (MemoryBlock_s *)allocator->heap->alloc( (int)(sizeof( MemoryBlock_s ) + capacity) );
+		const u64 capacity = Max( size, allocator->blockCapacity );
+		MemoryBlock_s* newBlock = (MemoryBlock_s *)allocator->heap->alloc( sizeof( MemoryBlock_s ) + capacity );
 		newBlock->size = size;
 		newBlock->capacity = capacity;
 		newBlock->next = allocator->firstBlock;
@@ -76,7 +76,7 @@ void BlockAllocator_Clear( BlockAllocator_s* allocator )
 	allocator->firstBlock = nullptr;
 }
 
-void BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u32 blockCapacity )
+void BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u64 blockCapacity )
 {
 	allocator->heap = heap;
 	allocator->firstBlock = nullptr;
@@ -98,7 +98,7 @@ Stack::Stack()
 	m_stackSize = 0;
 }
 
-Stack::Stack( IAllocator* heap, u32 capacity )
+Stack::Stack( IAllocator* heap, u64 capacity )
 {
 	Init( heap, capacity );
 }
@@ -110,16 +110,16 @@ Stack::~Stack()
 		m_heap->free( m_buffer );
 }
 
-void Stack::Init( IAllocator* heap, u32 capacity )
+void Stack::Init( IAllocator* heap, u64 capacity )
 {
 	m_heap = heap;
-	m_buffer = m_heap->alloc( (int)capacity );
+	m_buffer = m_heap->alloc( capacity );
 	m_capacity = capacity;
 	m_size = 0;
 	m_stackSize = 0;
 }
 
-void * Stack::alloc( int size )
+void * Stack::alloc( u64 size )
 {
 	V6_ASSERT( m_size + size <= m_capacity );
 	void* p = (u8*)m_buffer + m_size;
@@ -127,10 +127,10 @@ void * Stack::alloc( int size )
 	return p;
 }
 
-void * Stack::realloc( void* p, int size )
+void * Stack::realloc( void* p, u64 size )
 {
 	V6_ASSERT( p > m_buffer );
-	const u32 prevSize = (u32)((u8*)p - (u8*)m_buffer);
+	const u64 prevSize = (u64)((u8*)p - (u8*)m_buffer);
 	V6_ASSERT( prevSize <= m_capacity );
 	V6_ASSERT( m_stackSize ? (prevSize >= m_stack[m_stackSize-1]) : true );
 	m_size = prevSize; 

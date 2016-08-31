@@ -46,7 +46,7 @@ struct Context_s;
 
 struct BlockDataChunk_s
 {
-	u32			filePos;
+	u64			filePos;
 	u32*		offsets;
 	union
 	{
@@ -193,7 +193,7 @@ struct RawFrame_s
 		u32					blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
 	}						shareds[CODEC_FRAME_MAX_COUNT];
 
-	CUnbufferedFileReader	cacheFileReader;
+	CFileReader				cacheFileReader;
 	RawFrameBlockCache_s	threadCaches[ENCODER_THREAD_COUNT];
 };
 
@@ -286,36 +286,36 @@ static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShi
 
 static void BlockDataChunk_Write( IStreamWriter* streamWriter, BlockDataChunk_s* chunk, Context_s* context )
 {
-	chunk->filePos = streamWriter->GetPos();
+	chunk->filePos = ToU64( streamWriter->GetPos() );
 
 	ScopedStack scopedStack( context->stack );
 
-	const u32 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
-	const u32 chunkSize = offsetSize + chunk->compressedSize;
-	const u32 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
+	const u64 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
+	const u64 chunkSize = offsetSize + chunk->compressedSize;
+	const u64 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
 	void* chunkData = Codec_AllocToClusterSizeAndFillPaddingWithZero( nullptr, chunkAlignedSize, context->stack );
 	
-	CBufferWriter bufferWriter( chunkData, chunkAlignedSize );
-	bufferWriter.Write( chunk->offsets, offsetSize );
-	bufferWriter.Write( chunk->compressedRGBA, chunk->compressedSize );
+	CBufferWriter bufferWriter( chunkData, ToX64( chunkAlignedSize ) );
+	bufferWriter.Write( chunk->offsets, ToX64( offsetSize ) );
+	bufferWriter.Write( chunk->compressedRGBA, ToX64( chunk->compressedSize ) );
 	
 	chunk->offsets = nullptr;
 	chunk->compressedRGBA = nullptr;
 
-	streamWriter->Write( chunkData, chunkAlignedSize );
+	streamWriter->Write( chunkData, ToX64( chunkAlignedSize ) );
 }
 
 static bool BlockDataChunk_Read( IStreamReader* streamReader, BlockDataChunk_s* chunk, u8* chunkBuffer, Context_s* context )
 {
 	ScopedStack scopedStack( context->stack );
 
-	const u32 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
-	const u32 chunkSize = offsetSize + chunk->compressedSize;
-	const u32 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
+	const u64 offsetSize = ENCODER_BLOCK_PER_DATA_CHUNK * sizeof( u32 );
+	const u64 chunkSize = offsetSize + chunk->compressedSize;
+	const u64 chunkAlignedSize = Codec_AlignToClusterSize( offsetSize + chunk->compressedSize );
 	u8* chunkData = (u8*)Codec_AllocToClusterSizeAndFillPaddingWithZero( nullptr, chunkAlignedSize, context->stack );
 
-	streamReader->SetPos( chunk->filePos );
-	streamReader->Read( chunkAlignedSize, chunkData );
+	streamReader->SetPos( ToX64( chunk->filePos ) );
+	streamReader->Read( ToX64( chunkAlignedSize ), chunkData );
 	
 	chunk->offsets = (u32*)chunkBuffer;
 	memcpy( chunk->offsets, chunkData, offsetSize );
@@ -759,8 +759,8 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	RawFrame_s* frame = &context->frames[frameRank];
 	memset( frame, 0, sizeof( RawFrame_s ) );
 
-	CUnbufferedFileReader fileReader;
-	if ( !fileReader.Open( filename ) )
+	CFileReader fileReader;
+	if ( !fileReader.Open( filename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", filename );
 		return false;
@@ -768,8 +768,8 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 
 	char cacheFilename[256];
 	FilePath_ChangeExtension( cacheFilename, sizeof( cacheFilename ), filename, "~v6c" );
-	CUnbufferedFileWriter dataCacheWriter;
-	if ( !dataCacheWriter.Open( cacheFilename ) )
+	CFileWriter dataCacheWriter;
+	if ( !dataCacheWriter.Open( cacheFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", cacheFilename );
 		return false;
@@ -1023,8 +1023,8 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 
 	dataCacheWriter.Close();
 
-	new (&frame->cacheFileReader) CUnbufferedFileReader();
-	if ( !frame->cacheFileReader.Open( cacheFilename ) )
+	new (&frame->cacheFileReader) CFileReader();
+	if ( !frame->cacheFileReader.Open( cacheFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", cacheFilename );
 		return false;
@@ -1366,7 +1366,7 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 				const Block_s* block = &frame->blocks[blockID];
 				V6_ASSERT( Block_GetMip( block ) == mip );
 				const u32 mip4_new1_pos27 = block->mip4_none1_pos27 | newMask;
-				blockPosWriter->Write( &mip4_new1_pos27, sizeof( u32 ) );
+				blockPosWriter->Write( &mip4_new1_pos27, ToX64( sizeof( u32 ) ) );
 				const EncodedBlockEx_s* encodedBlock = block->GetEncodedBlock();
 				V6_ASSERT( encodedBlock != nullptr );
 				const u32 cellPresence0 = (encodedBlock->cellPresence >>  0) & 0xFFFFFFFF;
@@ -1375,13 +1375,13 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 				const u32 cellColorIndices1 = (encodedBlock->cellColorIndices[0] >> 32) & 0xFFFFFFFF;
 				const u32 cellColorIndices2 = (encodedBlock->cellColorIndices[1] >>  0) & 0xFFFFFFFF;
 				const u32 cellColorIndices3 = (encodedBlock->cellColorIndices[1] >> 32) & 0xFFFFFFFF;
-				blockDataWriters[0]->Write( &cellPresence0, sizeof( u32 ) );
-				blockDataWriters[1]->Write( &cellPresence1, sizeof( u32 ) );
-				blockDataWriters[2]->Write( &encodedBlock->cellEndColors, sizeof( u32 ) );
-				blockDataWriters[3]->Write( &cellColorIndices0, sizeof( u32 ) );
-				blockDataWriters[4]->Write( &cellColorIndices1, sizeof( u32 ) );
-				blockDataWriters[5]->Write( &cellColorIndices2, sizeof( u32 ) );
-				blockDataWriters[6]->Write( &cellColorIndices3, sizeof( u32 ) );
+				blockDataWriters[0]->Write( &cellPresence0, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[1]->Write( &cellPresence1, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[2]->Write( &encodedBlock->cellEndColors, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[3]->Write( &cellColorIndices0, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[4]->Write( &cellColorIndices1, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[5]->Write( &cellColorIndices2, ToX64( sizeof( u32 ) ) );
+				blockDataWriters[6]->Write( &cellColorIndices3, ToX64( sizeof( u32 ) ) );
 			}
 		}
 	}
@@ -1416,7 +1416,7 @@ static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWrite
 			V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
 			V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
 
-			streamWriter->Write( &rangeID, sizeof( u16 ) );
+			streamWriter->Write( &rangeID, ToX64( sizeof( u16 ) ) );
 
 			++rangeCount;
 		}
@@ -1429,9 +1429,9 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequen
 {
 	ScopedStack scopedStack( context->stack );
 	
-	CBufferWriter memoryRangeDefWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(  1 ) );
+	CBufferWriter memoryRangeDefWriter(		context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(  1llu ) ) );
 
-	memoryRangeDefWriter.Write( context->rangeDefs, context->rangeDefCount * sizeof( CodecRange_s ) );
+	memoryRangeDefWriter.Write( context->rangeDefs, ToX64( context->rangeDefCount * sizeof( CodecRange_s ) ) );
 
 	{
 		CodecSequenceDesc_s desc = {};
@@ -1456,7 +1456,7 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequen
 	}
 #endif // #if ENCODER_DUMP_RANGES == 1
 
-	V6_MSG( "Header: range defs %d KB.\n", DivKB( memoryRangeDefWriter.GetPos() ) );
+	V6_MSG( "Header: range defs %lld KB.\n", DivKB( ToU64( memoryRangeDefWriter.GetPos() ) ) );
 }
 
 static void RawFrame_DumpRange( u32 frameRank, Context_s* context ) 
@@ -1501,18 +1501,18 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 	ScopedStack scopedStack( context->stack );
 
-	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellPresences0(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellPresences1(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellColorIndices2(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
-	CBufferWriter memoryBlockCellColorIndices3(	context->stack->alloc( MulMB( 16 ) ),	MulMB( 16 ) );
+	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellPresences0(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellPresences1(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices2(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices3(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
 
 	IStreamWriter* memoryBlockDataWriters[7] = { &memoryBlockCellPresences0, &memoryBlockCellPresences1, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1, &memoryBlockCellColorIndices2, &memoryBlockCellColorIndices3 };
 
-	CBufferWriter memoryRangeIDWriter(		context->stack->alloc( MulMB(  1 ) ),	MulMB(   1 ) );
+	CBufferWriter memoryRangeIDWriter(			context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(   1llu ) ) );
 
 	u32 blockCount = 0;
 	u32 rangeCount = 0;
@@ -1597,7 +1597,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 		BlockAllocator_Create( &context->threadBlockAllocators[threadID], context->heap, MulMB( 16u ) );
 	}
 
-	const u32 prevSequenceSize = streamWriter->GetPos();
+	const u64 prevSequenceSize = ToU64( streamWriter->GetPos() );
 
 	// Load all frames
 
@@ -1703,7 +1703,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 
 	Context_WriteSequenceHeader( streamWriter, sequenceID, context );
 
-	u32 prevFileSize = streamWriter->GetPos();
+	u64 prevFileSize = ToU64( streamWriter->GetPos() );
 	for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
 	{
 #if ENCODER_SKIP_WRITING == 0
@@ -1721,15 +1721,15 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 #endif // #if ENCODER_DUMP_RANGES == 1
 
 		RawFrame_Release( frameRank, context );
-		V6_MSG( "F%02d: added %d KB.\n", frameRank, DivKB( streamWriter->GetPos() - prevFileSize ) );
-		prevFileSize = streamWriter->GetPos();
+		V6_MSG( "F%02d: added %lld KB.\n", frameRank, DivKB( ToU64( streamWriter->GetPos() ) - prevFileSize ) );
+		prevFileSize = ToU64( streamWriter->GetPos() );
 	}
 
 	Context_UpdateLimits( context );
 
-	const u32 sequenceSize = streamWriter->GetPos() - prevSequenceSize;
+	const u64 sequenceSize = ToU64( streamWriter->GetPos() )- prevSequenceSize;
 	V6_PRINT( "\n" );
-	V6_MSG( "Sequence %d: %d KB, avg of %d KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
+	V6_MSG( "Sequence %d: %lld KB, avg of %lld KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
 
 cleanup:
@@ -1764,7 +1764,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	if ( extend )
 	{
 		CFileReader fileReader;
-		if ( !fileReader.Open( streamFilename ) )
+		if ( !fileReader.Open( streamFilename, 0 ) )
 		{
 			extend = false;
 		}
@@ -1798,7 +1798,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	streamContext.desc.playRate = playRate;
 
 	CFileWriter fileWriter;
-	if ( !fileWriter.Open( streamFilename, extend ) )
+	if ( !fileWriter.Open( streamFilename, extend ? FILE_OPEN_FLAG_EXTEND : 0 ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", streamFilename );
 		return false;
@@ -1806,7 +1806,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 
 	if ( !extend )
 	{
-		V6_ASSERT( fileWriter.GetPos() == 0 );
+		V6_ASSERT( ToU64( fileWriter.GetPos() ) == 0 );
 		Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
 	}
 
@@ -1839,13 +1839,13 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		streamContext.desc.frameCount += prevStreamDesc.frameCount;
 	}
 
-	fileWriter.SetPos( 0 );
+	fileWriter.SetPos( ToX64( 0 ) );
 	Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
 	
-	const u32 streamSize = fileWriter.GetSize();
+	const u64 streamSize = ToU64( fileWriter.GetSize() );
 	
 	V6_PRINT( "\n" );
-	V6_MSG( "Stream: %d KB with %d sequences, avg of %d KB/sequence\n", DivKB( streamSize ), streamContext.desc.sequenceCount, DivKB( streamSize / streamContext.desc.sequenceCount ) );
+	V6_MSG( "Stream: %lld KB with %d sequences, avg of %lld KB/sequence\n", DivKB( streamSize ), streamContext.desc.sequenceCount, DivKB( streamSize / streamContext.desc.sequenceCount ) );
 	V6_PRINT( "\n" );
 
 	return true;
@@ -1857,7 +1857,12 @@ END_V6_NAMESPACE
 
 BEGIN_V6_NAMESPACE
 
-bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
+void VideoStream_CancelEncodingInSeparateProcess( Process_s* process )
+{
+	Process_Cancel( process );
+}
+
+bool VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
 {
 	char cmd[256];
 	sprintf_s( cmd, sizeof( cmd ), "D:/dev/v6/trunk/bin/Release/v6_encoder_2015.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d %s", 
@@ -1868,11 +1873,22 @@ bool VideoStream_EncodeFromSeparateProcess( const char* streamFilename, const ch
 		playRate, 
 		extend ? "-e" : "" );
 
-	int returnCode;
-	if ( Process_Execute( &returnCode, cmd ) && returnCode == 0 )
-		return true;
+	return Process_Launch( process, cmd );
+}
 
-	return false;
+bool VideoStream_WaitEncodingInSeparateProcess( Process_s* process )
+{
+	return Process_Wait( process ) == 0;
+}
+
+bool VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
+{
+	Process_s process;
+
+	if ( !VideoStream_StartEncodingInSeparateProcess( &process, streamFilename, templateRawFilename, frameOffset, frameCount, playRate, extend ) )
+		return false;
+
+	return VideoStream_WaitEncodingInSeparateProcess( &process );
 }
 
 void VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frameOffset, u32 frameCount )

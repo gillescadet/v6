@@ -23,6 +23,7 @@
 #include <v6/codec/encoder.h>
 #include <v6/core/math.h>
 #include <v6/core/memory.h>
+#include <v6/core/process.h>
 #include <v6/core/vec3.h>
 #include <v6/graphic/capture.h>
 #include <v6/graphic/capture_shared.h>
@@ -42,6 +43,13 @@ enum CaptureState_e
 	CAPTURE_STATE_ERROR,
 };
 
+struct FrameToEncodeInfo_s
+{
+	v6::Process_s	process;
+	uint32			frameID;
+	uint32			frameCount;
+};
+
 FVideo6DOFCaptureSettings			s_captureSettings;
 FDynamicRHI*						s_dynamicRHIOriginal = nullptr;
 FDynamicRHIWrap						s_dynamicRHIWrap;
@@ -58,6 +66,7 @@ FD3D11TextureBase*					s_captureRenderTarget;
 FD3D11TextureBase*					s_colorRenderTarget;
 FD3D11TextureBase*					s_depthRenderTarget;
 v6::u32								s_capturedSampleCount;
+FrameToEncodeInfo_s					s_frameToEncodeInfo;
 v6::CHeap							s_heap;
 v6::Stack							s_stack( &s_heap, v6::MulMB( 200 ) );
 extern ID3D11Device*				v6::g_device;
@@ -102,8 +111,8 @@ static void Scene_End()
 			else
 				path = FString::Printf( TEXT( RAW_FRAME_TEMPLATE ), s_captureFrameID );
 
-			v6::CUnbufferedFileWriter fileWriter;
-			if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ) ) )
+			v6::CFileWriter fileWriter;
+			if ( !fileWriter.Open( TCHAR_TO_ANSI( *path ), v6::FILE_OPEN_FLAG_UNBUFFERED ) )
 			{
 				UE_LOG( LogVideo6DOF, Error, TEXT( "Unable to create file." ) );
 				s_captureState = CAPTURE_STATE_ERROR;
@@ -321,13 +330,42 @@ static bool Scene_CaptureFace( FTextureRenderTargetResource* renderTargetResourc
 	return s_captureState != CAPTURE_STATE_ERROR;
 }
 
-static bool Scene_EncodeFrames( uint32 frameID, uint32 frameCount  )
+static void Scene_CancelFramesToEncode()
 {
-	const bool success = v6::VideoStream_EncodeFromSeparateProcess( STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_captureSettings.m_targetFPS, frameID > 0 );
+	if ( s_frameToEncodeInfo.frameCount == 0 )
+		return;
+
+	v6::VideoStream_CancelEncodingInSeparateProcess( &s_frameToEncodeInfo.process );
+
+	memset( &s_frameToEncodeInfo, 0, sizeof( s_frameToEncodeInfo ) );
+}
+
+static bool Scene_WaitFramesToEncode()
+{
+	if ( s_frameToEncodeInfo.frameCount == 0 )
+		return true;
+
+	const bool success = v6::VideoStream_WaitEncodingInSeparateProcess( &s_frameToEncodeInfo.process );
 	if ( success )
-		v6::VideoStream_DeleteRawFrameFiles( RAW_FRAME_TEMPLATE, frameID, frameCount );
+		v6::VideoStream_DeleteRawFrameFiles( RAW_FRAME_TEMPLATE, s_frameToEncodeInfo.frameID, s_frameToEncodeInfo.frameCount );
+
+	memset( &s_frameToEncodeInfo, 0, sizeof( s_frameToEncodeInfo ) );
 
 	return success;
+}
+
+static bool Scene_EnqueueFramesToEncode( uint32 frameID, uint32 frameCount )
+{
+	if ( !Scene_WaitFramesToEncode() )
+		return false;
+
+	if ( !v6::VideoStream_StartEncodingInSeparateProcess( &s_frameToEncodeInfo.process, STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_captureSettings.m_targetFPS, frameID > 0 ) )
+		return false;
+
+	s_frameToEncodeInfo.frameID = frameID;
+	s_frameToEncodeInfo.frameCount = frameCount;
+
+	return true;
 }
 
 static bool Scene_CaptureCube( const FVector& originUserSpace, const FVector& forwardUserSpace, uint32 frameID, const FVideo6DOFCaptureSettings* captureSettings )
@@ -495,7 +533,7 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 				check( m_captureFrameID == 1 );
 				for ( uint32 sampleID = 0; sampleID < m_captureSettings.m_sampleCount; ++sampleID )
 				{
-					if ( !Scene_EncodeFrames( sampleID, 1 ) )
+					if ( !Scene_EnqueueFramesToEncode( sampleID, 1 ) )
 					{
 						UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
 						m_state = EVideo6DOFCapturerState::DONE;
@@ -504,6 +542,7 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 
 				if ( m_state != EVideo6DOFCapturerState::DONE )
 				{
+					Scene_WaitFramesToEncode();
 					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded %d samples" ), m_captureSettings.m_sampleCount );
 					++m_captureFrameEncodedCount;
 					m_state = EVideo6DOFCapturerState::DONE;
@@ -514,13 +553,16 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 				const uint32 notEncodedFrameCount = m_captureFrameID - m_captureFrameEncodedCount;
 				if ( notEncodedFrameCount == m_captureSettings.m_targetFPS || m_captureFrameID == m_captureFrameTotalCount )
 				{
-					if ( Scene_EncodeFrames( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
+					if ( Scene_EnqueueFramesToEncode( m_captureFrameID - notEncodedFrameCount, notEncodedFrameCount ) )
 					{
 						UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded frames %d->%d" ), m_captureFrameID + 1 - notEncodedFrameCount, m_captureFrameID );
 						m_captureFrameEncodedCount += notEncodedFrameCount;
 
 						if ( m_captureFrameID == m_captureFrameTotalCount )
+						{
+							Scene_WaitFramesToEncode();
 							m_state = EVideo6DOFCapturerState::DONE;
+						}
 					}
 					else
 					{
@@ -532,17 +574,20 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 		}
 		else
 		{
+			Scene_CancelFramesToEncode();
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
 			m_state = EVideo6DOFCapturerState::DONE;
 		}
 		break;
 	
 	case EVideo6DOFCapturerState::STOP:
+		Scene_CancelFramesToEncode();
 		UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped by user." ) );
 		m_state = EVideo6DOFCapturerState::DONE;
 		break;
 
 	case EVideo6DOFCapturerState::DONE:
+		check( s_frameToEncodeInfo.frameCount == 0 );
 		FApp::SetUseFixedTimeStep( false );
 		if ( m_captureFrameID == m_captureFrameTotalCount )
 			UE_LOG( LogVideo6DOF, Log, TEXT( "Capture done." ) );

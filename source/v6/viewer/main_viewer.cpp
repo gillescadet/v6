@@ -1215,7 +1215,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 
 			Image_s image = {};
 			CFileReader fileReader;
-			if ( FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename ) && Image_ReadTga( &image, &fileReader, sceneContext->stack ) )
+			if ( FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename, 0 ) && Image_ReadTga( &image, &fileReader, sceneContext->stack ) )
 			{
 				static const char* textureNames[TEXTURE_GENERIC_COUNT] = { "diffuse", "alpha", "bump" };
 				const u32 textureID = scene->textureCount;
@@ -1754,8 +1754,8 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 	char path[256];
 	SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
-	CUnbufferedFileReader fileReader;
-	if ( !fileReader.Open( path ) )
+	CFileReader fileReader;
+	if ( !fileReader.Open( path, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", path );
 		return false;
@@ -1834,8 +1834,8 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 		char path[256];
 		SceneViewer_MakeRawFrameFilename( s_activeScene, path, sizeof( path ), frameID );
 
-		CUnbufferedFileWriter fileWriter;
-		if ( fileWriter.Open( path ) )
+		CFileWriter fileWriter;
+		if ( fileWriter.Open( path, FILE_OPEN_FLAG_UNBUFFERED ) )
 		{
 			CodecRawFrameDesc_s frameDesc = {};
 			frameDesc.gridOrigin = s_buildOrigin;

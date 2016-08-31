@@ -206,8 +206,8 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 			char filename[256];
 			sprintf_s( filename, sizeof( filename ), templateFilename, frameID );
 
-			CUnbufferedFileReader fileReader;
-			if ( !fileReader.Open( filename ) )
+			CFileReader fileReader;
+			if ( !fileReader.Open( filename, FILE_OPEN_FLAG_UNBUFFERED ) )
 			{
 				V6_ERROR( "Unable to open %s.\n", filename );
 				return false;
@@ -391,7 +391,7 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 	memset( stream, 0, sizeof( *stream ) );
 
 	CFileReader fileReader;
-	if ( !fileReader.Open( streamFilename ) )
+	if ( !fileReader.Open( streamFilename, 0 ) )
 	{
 		V6_ERROR( "Unable to open file %s\n", streamFilename );
 		return false;
@@ -414,7 +414,7 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* streamDesc )
 {
 	CFileReader fileReader;
-	if ( !fileReader.Open( streamFilename ) )
+	if ( !fileReader.Open( streamFilename, 0 ) )
 	{
 		V6_ERROR( "Unable to open file %s\n", streamFilename );
 		return false;

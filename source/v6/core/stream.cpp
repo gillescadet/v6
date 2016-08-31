@@ -12,6 +12,13 @@
 
 BEGIN_V6_NAMESPACE
 
+V6_INLINE LARGE_INTEGER LARGE_INTEGER_MAKE( u64 v )
+{
+	LARGE_INTEGER li;
+	li.QuadPart = v;
+	return li;
+}
+
 /// CFileReader
 
 CFileReader::CFileReader()
@@ -24,7 +31,7 @@ CFileReader::~CFileReader()
 	Close();
 }
 
-bool CFileReader::Open( const char* filename )
+bool CFileReader::Open( const char* filename, u32 flags )
 {
 	if ( m_file != nullptr )
 	{
@@ -32,83 +39,13 @@ bool CFileReader::Open( const char* filename )
 		return false;
 	}
 
-	FILE * file = nullptr;
-	if ( fopen_s( &file, filename, "rb" ) != 0 )
-		return false;
+	::DWORD dwCreationDisposition = OPEN_EXISTING;
+	::DWORD dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_READONLY;
 
-	m_file = file;
-
-	return true;
-}
-
-void CFileReader::Close()
-{
-	if ( m_file != nullptr )
-	{
-		fclose( (FILE*)m_file );
-		m_file = nullptr;
-	}
-}
-
-int CFileReader::GetPos() const
-{
-	V6_ASSERT( m_file != nullptr );
-	return ftell( (FILE*)m_file );
-}
-
-int CFileReader::GetSize() const
-{
-	V6_ASSERT( m_file != nullptr );
-	const long cur = ftell( (FILE*)m_file );
-	fseek( (FILE*)m_file, 0, SEEK_END );
-	const long size = ftell( (FILE*)m_file );
-	fseek( (FILE*)m_file, cur, SEEK_SET );
-	return (int)size;
-}
-
-void CFileReader::Read( int nSize, void * pData )
-{
-	if ( nSize == 0 )
-		return;
-
-	V6_ASSERT( m_file != nullptr );
-	const u32 elementCount = (u32)fread( pData, nSize, 1, (FILE*)m_file );
-	V6_ASSERT( elementCount == 1 );
-}
-
-void CFileReader::SetPos( int pos )
-{
-	V6_ASSERT( m_file != nullptr );
-	fseek( (FILE*)m_file, pos, SEEK_SET );
-}
-
-void CFileReader::Skip( int nSize )
-{
-	V6_ASSERT( m_file != nullptr );
-	fseek( (FILE*)m_file, nSize, SEEK_CUR );
-}
-
-/// CUnbufferedFileReader
-
-CUnbufferedFileReader::CUnbufferedFileReader()
-: m_file( nullptr )
-{
-}
-
-CUnbufferedFileReader::~CUnbufferedFileReader()
-{
-	Close();
-}
-
-bool CUnbufferedFileReader::Open( const char* filename )
-{
-	if ( m_file != nullptr )
-	{
-		V6_ASSERT( !"File already open" );
-		return false;
-	}
-
-	HANDLE file = CreateFileA( filename, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_READONLY | FILE_FLAG_NO_BUFFERING, nullptr );
+	if ( flags & FILE_OPEN_FLAG_UNBUFFERED )
+		dwFlagsAndAttributes |= FILE_FLAG_NO_BUFFERING;
+	
+	HANDLE file = CreateFileA( filename, GENERIC_READ, FILE_SHARE_READ, nullptr, dwCreationDisposition, dwFlagsAndAttributes, nullptr );
 	if ( file == INVALID_HANDLE_VALUE )
 		return false;
 
@@ -118,7 +55,7 @@ bool CUnbufferedFileReader::Open( const char* filename )
 	return true;
 }
 
-void CUnbufferedFileReader::Close()
+void CFileReader::Close()
 {
 	if ( m_file != nullptr )
 	{
@@ -127,49 +64,49 @@ void CUnbufferedFileReader::Close()
 	}
 }
 
-int CUnbufferedFileReader::GetPos() const
+x64 CFileReader::GetPos() const
 {
 	V6_ASSERT( m_file != nullptr );
 	LARGE_INTEGER zero = {};
 	LARGE_INTEGER pos = {};
 	SetFilePointerEx( (HANDLE)m_file, zero, &pos, FILE_CURRENT );
-	return (int)pos.QuadPart;
+	return ToX64( (u64)pos.QuadPart );
 }
 
-int CUnbufferedFileReader::GetSize() const
+x64 CFileReader::GetSize() const
 {
 	V6_ASSERT( m_file != nullptr );
 	LARGE_INTEGER size = {};
 	GetFileSizeEx( (HANDLE)m_file, &size );
-	return (int)size.QuadPart;
+	return ToX64( (u64)size.QuadPart );
 }
 
-void CUnbufferedFileReader::Read( int nSize, void * pData )
+void CFileReader::Read( x64 nSize, void * pData )
 {
-	if ( nSize == 0 )
+	if ( ToU64( nSize ) == 0 )
 		return;
 
 	V6_ASSERT( m_file != nullptr );
-	const bool done = ReadFile( (HANDLE)m_file, pData, nSize, nullptr, nullptr ) != 0;
+	const bool done = ReadFile( (HANDLE)m_file, pData, (u32)ToU64( nSize ), nullptr, nullptr ) != 0;
 	V6_ASSERT( done );
 }
 
-void CUnbufferedFileReader::SetPos( int pos )
+void CFileReader::SetPos( x64 pos )
 {
 	V6_ASSERT( m_file != nullptr );
-	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)pos }, nullptr, FILE_BEGIN );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER_MAKE( ToU64( pos ) ), nullptr, FILE_BEGIN );
 }
 
-void CUnbufferedFileReader::Skip( int nSize )
+void CFileReader::Skip( x64 nSize )
 {
 	V6_ASSERT( m_file != nullptr );
-	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)nSize }, nullptr, FILE_CURRENT );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER_MAKE( ToU64( nSize ) ), nullptr, FILE_CURRENT );
 }
 
 /// CFileWriter
 
 CFileWriter::CFileWriter()
-: m_pFile(nullptr)
+	: m_file(nullptr)
 {
 }
 
@@ -178,72 +115,7 @@ CFileWriter::~CFileWriter()
 	Close();
 }
 
-bool CFileWriter::Open( const char * pFilename, bool extend )
-{
-	if (m_pFile != nullptr)
-	{
-		V6_ASSERT( !"File already open" );
-		return false;
-	}
-
-	FILE * pFile = (FILE *)m_pFile;
-	if ( fopen_s( &pFile, pFilename, extend ? "r+b" : "wb" ) != 0 )
-		return false;
-
-	m_pFile = pFile;
-
-	if ( extend )
-		fseek( (FILE*)m_pFile, 0, SEEK_END );
-
-	return true;
-}
-
-void CFileWriter::Close()
-{
-	if (m_pFile != nullptr)
-		fclose((FILE*)m_pFile);
-}
-
-void CFileWriter::SetPos( int pos )
-{
-	V6_ASSERT( m_pFile != nullptr );
-	fseek( (FILE*)m_pFile, pos, SEEK_SET );
-}
-
-void CFileWriter::Write( const void * pData, int nSize )
-{
-	fwrite( pData, (size_t)nSize, 1, (FILE *)m_pFile );
-}
-
-int CFileWriter::GetPos() const
-{
-	V6_ASSERT( m_pFile != nullptr );
-	return ftell( (FILE*)m_pFile );
-}
-
-int CFileWriter::GetSize() const
-{
-	V6_ASSERT( m_pFile != nullptr );
-	const long cur = ftell( (FILE*)m_pFile );
-	fseek( (FILE*)m_pFile, 0, SEEK_END );
-	const long size = ftell( (FILE*)m_pFile );
-	fseek( (FILE*)m_pFile, cur, SEEK_SET );
-	return (int)size;
-}
-
-/// CFileWriter
-
-CUnbufferedFileWriter::CUnbufferedFileWriter()
-	: m_file(nullptr)
-{
-}
-
-CUnbufferedFileWriter::~CUnbufferedFileWriter()
-{
-	Close();
-}
-
-bool CUnbufferedFileWriter::Open( const char * pFilename )
+bool CFileWriter::Open( const char * pFilename, u32 flags )
 {
 	if ( m_file != nullptr )
 	{
@@ -251,9 +123,21 @@ bool CUnbufferedFileWriter::Open( const char * pFilename )
 		return false;
 	}
 
-	HANDLE file = CreateFileA( pFilename, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING, nullptr );
+	::DWORD dwCreationDisposition = CREATE_ALWAYS;
+	::DWORD dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL;
+	
+	if ( flags & FILE_OPEN_FLAG_EXTEND )
+		dwCreationDisposition = OPEN_EXISTING;
+	
+	if ( flags & FILE_OPEN_FLAG_UNBUFFERED )
+		dwFlagsAndAttributes |= FILE_FLAG_NO_BUFFERING;
+
+	HANDLE file = CreateFileA( pFilename, GENERIC_WRITE, 0, nullptr, dwCreationDisposition, dwFlagsAndAttributes, nullptr );
 	if ( file == INVALID_HANDLE_VALUE )
 		return false;
+
+	if ( flags & FILE_OPEN_FLAG_EXTEND )
+		SetFilePointerEx( (HANDLE)file, LARGE_INTEGER_MAKE( 0 ), nullptr, FILE_END );
 
 	m_file = file;
 	strcpy_s( m_filename, sizeof( m_filename ), pFilename );
@@ -261,7 +145,7 @@ bool CUnbufferedFileWriter::Open( const char * pFilename )
 	return true;
 }
 
-void CUnbufferedFileWriter::Close()
+void CFileWriter::Close()
 {
 	if ( m_file != nullptr )
 	{
@@ -270,58 +154,58 @@ void CUnbufferedFileWriter::Close()
 	}
 }
 
-void CUnbufferedFileWriter::SetPos( int pos )
+void CFileWriter::SetPos( x64 pos )
 {
 	V6_ASSERT( m_file != nullptr );
-	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER { (u64)pos }, nullptr, FILE_BEGIN );
+	SetFilePointerEx( (HANDLE)m_file, LARGE_INTEGER_MAKE( ToU64( pos ) ), nullptr, FILE_BEGIN );
 }
 
-void CUnbufferedFileWriter::Write( const void * pData, int nSize )
+void CFileWriter::Write( const void * pData, x64 nSize )
 {
-	const bool done = WriteFile( (HANDLE)m_file, pData, nSize, nullptr, nullptr ) != 0;
+	const bool done = WriteFile( (HANDLE)m_file, pData, (u32)ToU64( nSize ), nullptr, nullptr ) != 0;
 	V6_ASSERT( done );
 }
 
-int CUnbufferedFileWriter::GetPos() const
+x64 CFileWriter::GetPos() const
 {
 	V6_ASSERT( m_file != nullptr );
 	LARGE_INTEGER zero = {};
 	LARGE_INTEGER pos = {};
 	SetFilePointerEx( (HANDLE)m_file, zero, &pos, FILE_CURRENT );
-	return (int)pos.QuadPart;
+	return ToX64( (u64)pos.QuadPart );
 }
 
-int CUnbufferedFileWriter::GetSize() const
+x64 CFileWriter::GetSize() const
 {
 	V6_ASSERT( m_file != nullptr );
 	LARGE_INTEGER size = {};
 	GetFileSizeEx( (HANDLE)m_file, &size );
-	return (int)size.QuadPart;
+	return ToX64( (u64)size.QuadPart );
 }
 
 /// CBufferReader
 
-CBufferReader::CBufferReader( const void * pBuffer, int nSize )
+CBufferReader::CBufferReader( const void * pBuffer, x64 nSize )
 	: m_pBuffer(pBuffer)
-	, m_nPos(0)
+	, m_nPos(ToX64(0))
 	, m_nSize(nSize)
 {
 }
 
-void CBufferReader::Read( int nSize, void * pData )
+void CBufferReader::Read( x64 nSize, void * pData )
 {
-	if ( m_nPos + nSize > m_nSize )
+	if ( ToU64( m_nPos ) + ToU64( nSize ) > ToU64( m_nSize ) )
 	{
 		V6_ASSERT(!"Buffer overrun");
 		return;
 	}
-	memcpy( pData, (char *)m_pBuffer + m_nPos, (size_t)nSize);
-	m_nPos += nSize;
+	memcpy( pData, (char *)m_pBuffer + ToU64( m_nPos ), ToU64( nSize ) );
+	m_nPos = ToX64( ToU64( m_nPos ) + ToU64( nSize ) );
 }
 
-void CBufferReader::SetPos( int pos )
+void CBufferReader::SetPos( x64 pos )
 {
-	if ( pos > m_nPos )
+	if ( ToU64( pos ) > ToU64( m_nPos ) )
 	{
 		V6_ASSERT(!"Buffer overrun");
 		return;
@@ -329,28 +213,28 @@ void CBufferReader::SetPos( int pos )
 	m_nPos = pos;
 }
 
-void CBufferReader::Skip( int nSize )
+void CBufferReader::Skip( x64 nSize )
 {
-	if ( m_nPos + nSize > m_nSize )
+	if ( ToU64( m_nPos ) + ToU64( nSize ) > ToU64( m_nSize ) )
 	{
 		V6_ASSERT(!"Buffer overrun");
 		return;
 	}
-	m_nPos += nSize;
+	m_nPos = ToX64( ToU64( m_nPos ) + ToU64( nSize ) );
 }
 
 /// CBufferWriter
 
-CBufferWriter::CBufferWriter(void * pBuffer, int nSize)
+CBufferWriter::CBufferWriter(void * pBuffer, x64 nSize)
 	: m_pBuffer(pBuffer)
-	, m_nPos(0)
+	, m_nPos(ToX64(0))
 	, m_nSize(nSize)
 {
 }
 
-void CBufferWriter::SetPos( int pos )
+void CBufferWriter::SetPos( x64 pos )
 {
-	if ( pos > m_nSize )
+	if ( ToU64( m_nPos ) > ToU64( m_nSize ) )
 	{
 		V6_ASSERT( !"Buffer overflow" );
 		return;
@@ -358,15 +242,15 @@ void CBufferWriter::SetPos( int pos )
 	m_nPos = pos;
 }
 
-void CBufferWriter::Write( const void * pData, int nSize)
+void CBufferWriter::Write( const void * pData, x64 nSize)
 {
-	if ( m_nPos + nSize > m_nSize )
+	if ( ToU64( m_nPos ) + ToU64( nSize ) > ToU64( m_nSize ) )
 	{
 		V6_ASSERT( !"Buffer overflow" );
 		return;
 	}
-	memcpy( (char *)m_pBuffer + m_nPos, pData, (size_t)nSize );
-	m_nPos += nSize;
+	memcpy( (char *)m_pBuffer + ToU64( m_nPos ), pData, ToU64( nSize ) );
+	m_nPos = ToX64( ToU64( m_nPos ) + ToU64( nSize ) );
 }
 
 END_V6_NAMESPACE

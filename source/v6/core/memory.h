@@ -10,7 +10,7 @@ BEGIN_V6_NAMESPACE
 class IAllocator
 {
 public:
-	virtual void *	alloc(int nSize) = 0;
+	virtual void *	alloc( u64 nSize ) = 0;
 
 	template <typename T>
 	T *				newArray( u32 count )
@@ -59,7 +59,7 @@ public:
 
 	virtual void	free(void * p) {};
 
-	virtual void *	realloc(void * p, int nSize) { return nullptr; };
+	virtual void *	realloc( void * p, u64 nSize ) { return nullptr; };
 };
 
 class IStack : public IAllocator
@@ -78,9 +78,9 @@ public:
 	virtual			~CHeap();
 
 public:
-	virtual void *	alloc(int nSize) override;
-	virtual void	free(void * p) override;
-	virtual void *	realloc(void * p, int nSize) override;
+	virtual void *	alloc( u64 nSize ) override;
+	virtual void	free( void * p ) override;
+	virtual void *	realloc( void * p, u64 nSize ) override;
 
 private:
 	u32				m_allocCount;
@@ -94,24 +94,24 @@ public:
 
 public:
 					Stack();
-					Stack( IAllocator* heap, u32 capacity = 1024 * 1024 );
+					Stack( IAllocator* heap, u64 capacity = 1024 * 1024 );
 	virtual			~Stack();
 
 public:
-	void			Init( IAllocator* heap, u32 capacity = 1024 * 1024 );
+	void			Init( IAllocator* heap, u64 capacity = 1024 * 1024 );
 
 public:
-	virtual void *	alloc( int size ) override;
-	virtual void *	realloc( void*, int nSize) override;
+	virtual void *	alloc( u64 size ) override;
+	virtual void *	realloc( void*, u64 nSize ) override;
 	virtual void	push() override;
 	virtual void	pop() override;
 
 public:
-	u32			m_stack[LEVEL_COUNT];
+	u64			m_stack[LEVEL_COUNT];
 	IAllocator*	m_heap;
 	void*		m_buffer;
-	u32			m_size;
-	u32			m_capacity;
+	u64			m_size;
+	u64			m_capacity;
 	u32			m_stackSize;
 };
 
@@ -135,13 +135,13 @@ struct BlockAllocator_s
 {
 	IAllocator*				heap;
 	struct MemoryBlock_s*	firstBlock;
-	u32						blockCapacity;
+	u64						blockCapacity;
 };
 
 template < typename T > T*	BlockAllocator_Add( BlockAllocator_s* allocator, u32 count );
-void*						BlockAllocator_Alloc( BlockAllocator_s* allocator, u32 size );
+void*						BlockAllocator_Alloc( BlockAllocator_s* allocator, u64 size );
 void						BlockAllocator_Clear( BlockAllocator_s* allocator );
-void						BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u32 blockCapacity );
+void						BlockAllocator_Create( BlockAllocator_s* allocator, IAllocator* heap, u64 blockCapacity );
 void						BlockAllocator_Release( BlockAllocator_s* allocator );
 
 template < typename T >

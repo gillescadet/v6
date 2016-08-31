@@ -123,9 +123,9 @@ void Image_WriteBitmap( Image_s* image, IStreamWriter* stream )
 	bh.PelsPerMeterX = 3780;
 	bh.PelsPerMeterY = 3780;
 
-	stream->Write(&bfh, sizeof(SBitmapFileHeader));
-	stream->Write(&bh, sizeof(SBitmapHeader));
-	stream->Write( image->pixels, bh.SizeImage );
+	stream->Write(&bfh, ToX64( sizeof(SBitmapFileHeader ) ) );
+	stream->Write(&bh, ToX64( sizeof(SBitmapHeader ) ) );
+	stream->Write( image->pixels, ToX64( bh.SizeImage ) );
 }
 
 static void MergeBytes( Color_s *pixel, unsigned char *p, int bytes )
@@ -164,7 +164,7 @@ static void MergeBytes( Color_s *pixel, unsigned char *p, int bytes )
 bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator )
 {
 	TgaHeader_s header;
-	reader->Read( sizeof(header), &header );
+	reader->Read( ToX64( sizeof(header) ), &header );
 
 	if (header.datatypecode != 2 && header.datatypecode != 3 && header.datatypecode != 10)
 	{
@@ -188,10 +188,10 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 	u32 pixelCount = header.width * header.height;
 	Image_Clear(image);
 
-	u32 skipover = 0;
+	u64 skipover = 0;
 	skipover += header.idlength;
 	skipover += header.colourmaptype * header.colourmaplength;
-	reader->Skip( skipover );
+	reader->Skip( ToX64( skipover ) );
 
 	const u32 bytesPerPixel = header.bitsperpixel / 8;
 	for (u32 pixelID = 0; pixelID < pixelCount;)
@@ -200,7 +200,7 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 		if (header.datatypecode == 2)
 		{
 			u8 p[5];
-			reader->Read( bytesPerPixel, p );
+			reader->Read( ToX64( bytesPerPixel ), p );
 			MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
 			++pixelID;
 		}
@@ -208,7 +208,7 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 		else if (header.datatypecode == 3)
 		{
 			u8 p[5];
-			reader->Read( bytesPerPixel, p );
+			reader->Read( ToX64( bytesPerPixel ), p );
 			MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
 			++pixelID;
 		}
@@ -216,7 +216,7 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 		else if (header.datatypecode == 10)
 		{
 			u8 p[5];
-			reader->Read( bytesPerPixel + 1, p );
+			reader->Read( ToX64( bytesPerPixel + 1 ), p );
 			u32 j = p[0] & 0x7f;
 			MergeBytes(&image->pixels[pixelID], &p[1], bytesPerPixel);
 			++pixelID;
@@ -235,7 +235,7 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 			{
 				for (u32 i = 0; i < j; ++i)
 				{
-					reader->Read( bytesPerPixel, p );
+					reader->Read( ToX64( bytesPerPixel ), p );
 					MergeBytes(&image->pixels[pixelID], p, bytesPerPixel);
 					++pixelID;
 				}
@@ -286,9 +286,9 @@ void CImage::WriteBitmap( IStreamWriter& oStream )
 	bh.PelsPerMeterX = 3780;
 	bh.PelsPerMeterY = 3780;
 
-	oStream.Write(&bfh, sizeof(SBitmapFileHeader));
-	oStream.Write(&bh, sizeof(SBitmapHeader));
-	oStream.Write( pixels, bh.SizeImage );
+	oStream.Write(&bfh, ToX64( sizeof( SBitmapFileHeader ) ) );
+	oStream.Write(&bh, ToX64( sizeof( SBitmapHeader ) ) );
+	oStream.Write( pixels, ToX64( bh.SizeImage ) );
 }
 
 END_V6_NAMESPACE

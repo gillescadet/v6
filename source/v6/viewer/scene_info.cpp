@@ -43,14 +43,14 @@ bool SceneInfo_ReadFromFile( SceneInfo_s* sceneInfo, const char* filename )
 	SceneInfo_Clear( sceneInfo );
 
 	CFileReader fileReader;
-	if ( !fileReader.Open( filename ) )
+	if ( !fileReader.Open( filename, 0 ) )
 	{
 		V6_ERROR( "Unable to open file %s.\n", filename );
 		return false;
 	}
 
 	char info[4096] = {};
-	V6_ASSERT( fileReader.GetSize() <= sizeof( info ) );
+	V6_ASSERT( ToU64( fileReader.GetSize() ) <= sizeof( info ) );
 	fileReader.Read( fileReader.GetSize(), info );
 
 	int line = 0;
@@ -173,7 +173,7 @@ bool SceneInfo_WriteToFile( const SceneInfo_s* sceneInfo, const char* filename )
 	str += sprintf_s( str, sizeof( info ) - (str-info), "cameraYaw: %g\n", sceneInfo->cameraYaw );
 	str += sprintf_s( str, sizeof( info ) - (str-info), "worldUnitToCM: %g\n", sceneInfo->worldUnitToCM );
 
-	fileWriter.Write( info, (u32)(str-info) );
+	fileWriter.Write( info, ToX64( (u64)(str - info) ) );
 
 	return false;
 }

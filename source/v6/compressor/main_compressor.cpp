@@ -893,7 +893,7 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 
 	Image_s imageSrc = {};
 	CFileReader fileReader;
-	if ( !fileReader.Open( filenameSrc ) || !Image_ReadTga( &imageSrc, &fileReader, allocator ) )
+	if ( !fileReader.Open( filenameSrc, 0 ) || !Image_ReadTga( &imageSrc, &fileReader, allocator ) )
 	{
 		V6_ERROR( "Unable to read %s\n", filenameSrc );
 		return;
@@ -989,8 +989,8 @@ void BenchBlockCompression( EncodedBlockEx_s* sum, const RawBlock_s* blocks, u32
 
 u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stack, const char* filename )
 {
-	CUnbufferedFileReader fileReader;
-	if ( !fileReader.Open( filename ) )
+	CFileReader fileReader;
+	if ( !fileReader.Open( filename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", filename );
 		return 0;
