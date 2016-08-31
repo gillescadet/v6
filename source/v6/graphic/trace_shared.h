@@ -58,7 +58,7 @@ CBUFFER( CBCull, 0 )
 	uint				c_cullGridMacroShift;
 	float				c_cullInvGridWidth;
 	uint				c_cullFrameChanged;
-	uint				c_cullPad0;
+	uint				c_cullIsFirstFrameOfSequence;
 
 	float4				c_cullCentersAndGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4]; // w is pre-negated

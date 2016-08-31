@@ -110,6 +110,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 		cbCull->c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift;
 		cbCull->c_cullInvGridWidth = invGridWidth;
 		cbCull->c_cullFrameChanged = traceContext->frameState.frameChanged || options->showHistory;
+		cbCull->c_cullIsFirstFrameOfSequence = traceContext->frameState.frameRank == 0;
 
 		float gridScale = traceContext->stream->desc.gridScaleMin;
 		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
