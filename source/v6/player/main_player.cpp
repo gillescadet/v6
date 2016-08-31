@@ -26,7 +26,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -959,10 +959,10 @@ static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButton
 		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
 
 	if ( rightButtonIsPressed.R )
-		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
+		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
 
 	if ( rightButtonIsPressed.B )
-		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
+		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
 }
 
 static void Player_ProcessInputs( Player_s* player, float dt )
@@ -1021,12 +1021,6 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), String_Format( "FPS: %3.1f", averageFPS ) );
 		cursorY += lineHeight;
 
-		if ( PlayerStream_IsValid( player ) )
-			FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
-		else
-			FontContext_AddLine( &player->fontContext, 8, cursorY, Color_White(), "Stream: <none>" );
-		cursorY += lineHeight;
-
 		for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
 		{
 			const GPUEventDuration_s* eventDuration = &eventDurations[eventRank];
@@ -1055,6 +1049,21 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 			const u32 bufferID = (s_ouputMessageCount - messageOffset - 1) % s_ouputMessageBufferCount;
 			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), s_ouputMessageBuffers[bufferID] );
 			cursorY -= lineHeight;
+		}
+	}
+
+	// top middle
+
+	{
+		const u32 cursorX = player->mainRenderTargetSet.width / 2;
+		u32 cursorY = lineHeight / 2;
+
+		if ( PlayerStream_IsValid( player ) )
+		{
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
+			cursorY += lineHeight;
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), String_Format( "Frame: %g/%d", player->curFrameID, player->stream.desc.frameCount ) );
+			cursorY += lineHeight;
 		}
 	}
 
@@ -1445,15 +1454,13 @@ static void Player_Release( Player_s* player )
 
 static void Test()
 {
-	u32 x = 7;
-	u32 w = 1;
-	u32 begin = x;
-	u32 end = x + w;
-	
-	const u32 maskBegin = (1 << begin) - 1;
-	const u32 maskEnd = (1 << end) - 1;
-	const u32 mask = maskEnd & ~maskBegin;
-	
+	Vec3 posMinRS = Vec3_Make( 8, 2, 3 );
+	const u32 distanceToOrigin = 0xFFFFFFFF - (u32)min( posMinRS.Length() * 16.0f, (float)(0xFFFFFFFF) );
+	V6_MSG( "distanceToOrigin: %g, 0x%08X\n", posMinRS.Length(), distanceToOrigin );
+
+	const float minDistanceToOrigin = (0xFFFFFFFF - distanceToOrigin) / 16.0f;
+	const float fadeToBlack = (15.0f - minDistanceToOrigin) / 5.0f;
+	V6_MSG( "distanceToOrigin: %g, %g\n", minDistanceToOrigin, fadeToBlack );
 }
 
 END_V6_NAMESPACE
@@ -1485,12 +1492,12 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 512;
 #endif
 
-#if 1
+#if 0
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #endif
 
-#if 0
+#if 1
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;

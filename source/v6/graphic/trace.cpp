@@ -655,7 +655,7 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUBuffer_CreateTyped( &res->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockGroups1" );
 	
 	const u32 eyeCount = traceDesc->stereo ? 2 : 1;
-	const u32 blockTileCountPerEye = (traceDesc->screenWidth >>3) * (traceDesc->screenHeight >> 3);
+	const u32 blockTileCountPerEye = (traceDesc->screenWidth >> 3) * (traceDesc->screenHeight >> 3);
 	traceContext->resVisibleBlockMaxCount = maxBlockGroupCount * CODEC_BLOCK_THREAD_GROUP_SIZE;
 	traceContext->resBlockPatchCountPerEye = blockTileCountPerEye * HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE;
 
