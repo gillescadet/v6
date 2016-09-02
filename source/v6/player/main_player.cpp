@@ -659,16 +659,17 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_PLAY_PAUSE:
 		if ( PlayerStream_IsValid( player ) )
 		{
-			if ( player->targetFrameID == (u32)-1 )
+			if ( player->targetFrameID == (u32)-1 || (u32)player->curFrameID < player->targetFrameID )
 			{
 				player->targetFrameID = (u32)player->curFrameID;
-				V6_MSG( "Target frame %d\n", player->targetFrameID );
 			}
-			else
+			else 
 			{
-				player->targetFrameID = (u32)-1;
-				V6_MSG( "Target frame loop\n" );
+				if ( player->targetFrameID == player->stream.desc.frameCount-1 )
+					player->curFrameID = 0;
+				player->targetFrameID = player->stream.desc.frameCount-1;
 			}
+			V6_MSG( "Target frame %d\n", player->targetFrameID );
 		}
 		break;
 	case COMMAND_ACTION_BEGIN_FRAME:
@@ -1008,6 +1009,37 @@ static void Player_ProcessInputs( Player_s* player, float dt )
 	}
 }
 
+static void Player_DrawHUD( Player_s* player, float fadeToBlack )
+{
+	const u32 lineHeight = FontContext_GetLineHeight( &player->fontContext );
+
+	// middle
+
+	{
+		const u32 cursorX = player->mainRenderTargetSet.width / 2;
+		u32 cursorY = player->mainRenderTargetSet.height * 3 / 4;
+
+		if ( fadeToBlack > 0.0f )
+		{
+			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_Make( 255, 255, 255, Clamp( (u32)(255 * fadeToBlack), 0u, 255u ) ), "Out of range" );
+			cursorY += lineHeight;
+		}
+
+		if ( PlayerStream_IsValid( player ) && (u32)player->curFrameID == player->targetFrameID )
+		{
+			if ( player->targetFrameID == 0 )
+				FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_Make( 255, 255, 255, 255 ), "Press A to play" );
+			else if ( player->targetFrameID == player->stream.desc.frameCount-1 )
+				FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_Make( 255, 255, 255, 255 ), "Press A to re-play" );
+			else
+				FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_Make( 255, 255, 255, 255 ), "Press A to resume" );
+			cursorY += lineHeight;
+		}
+	}
+
+	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet, true, true );
+}
+
 static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDuration_s* eventDurations, u32 eventCount )
 {
 	const u32 lineHeight = FontContext_GetLineHeight( &player->fontContext );
@@ -1093,7 +1125,7 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 	}
 #endif // #if V6_USE_HMD == 1
 
-	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet );
+	FontContext_Draw( &player->fontContext, &player->mainRenderTargetSet, true, false );
 }
 
 static void Player_UpdateMetrics( Player_s* player, u32 frameID, const GPUEventDuration_s* eventDurations, u32 eventCount )
@@ -1170,7 +1202,7 @@ static void Player_CopyToSurface( Player_s* player )
 {
 	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
-#if V6_STEREO == 1
+#if V6_STEREO == 1 && V6_ENABLE_MIRRORING == 2
 
 	// set
 
@@ -1318,6 +1350,15 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 			Camera_MakeView( &views[eye], &player->camera, eye, nullptr );
 	}
 
+	if ( PlayerStream_IsValid( player ) )
+	{
+		Vec3 centerEye = Vec3_Zero();
+		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
+			centerEye += views[eye].org * (1.0f / EYE_COUNT);
+		const Vec3 eyeDistanceToOrigin = Abs( centerEye - player->traceContext.frameState.origin );
+		fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (player->traceContext.stream->desc.gridScaleMin - 5.0f), 0.0f, 5.0f ) / 5.0f );
+	}
+
 	// draw
 
 	{
@@ -1334,6 +1375,8 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	{
 		GPUEventDuration_s* eventDurations;
 		const u32 eventCount = GPUEvent_UpdateDurations( &eventDurations );
+
+		Player_DrawHUD( player, fadeToBlack );
 
 		if ( player->playerOptions.showUI )
 			Player_DrawUI( player, averageFPS, eventDurations, eventCount );
@@ -1362,12 +1405,12 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	}
 #endif // #if V6_USE_HMD == 
 
-#if V6_ENABLE_MIRRORING == 1
+#if V6_ENABLE_MIRRORING != 0
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventCopy );
 		Player_CopyToSurface( player );
 	}
-#endif // #if V6_ENABLE_MIRRORING == 1
+#endif // #if V6_ENABLE_MIRRORING != 0 
 
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventPresent );
@@ -1402,8 +1445,11 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	V6_MSG( "rt.resolution: %dx%d\n", width, height );
 #endif // #if V6_USE_HMD == 1
 
-#if V6_ENABLE_MIRRORING == 1
+#if V6_ENABLE_MIRRORING == 2
 	const u32 windowWidth = width * EYE_COUNT;
+	const u32 windowHeight = height;
+#elif V6_ENABLE_MIRRORING == 1
+	const u32 windowWidth = width;
 	const u32 windowHeight = height;
 #else
 	const u32 windowWidth = 800;
@@ -1452,22 +1498,9 @@ static void Player_Release( Player_s* player )
 	PlayerDevice_Release( player );
 }
 
-static void Test()
-{
-	Vec3 posMinRS = Vec3_Make( 8, 2, 3 );
-	const u32 distanceToOrigin = 0xFFFFFFFF - (u32)min( posMinRS.Length() * 16.0f, (float)(0xFFFFFFFF) );
-	V6_MSG( "distanceToOrigin: %g, 0x%08X\n", posMinRS.Length(), distanceToOrigin );
-
-	const float minDistanceToOrigin = (0xFFFFFFFF - distanceToOrigin) / 16.0f;
-	const float fadeToBlack = (15.0f - minDistanceToOrigin) / 5.0f;
-	V6_MSG( "distanceToOrigin: %g, %g\n", minDistanceToOrigin, fadeToBlack );
-}
-
 END_V6_NAMESPACE
 
 //----------------------------------------------------------------------------------------------------
-
-#if 1
 
 int main( int argc, char** argv )
 {
@@ -1476,28 +1509,10 @@ int main( int argc, char** argv )
 
 	v6::Player_s* player = stack.newInstance< v6::Player_s >();
 
-#if 0
-	// HD
-	const v6::u32 defaultWidth = 960;
-	const v6::u32 defaultHeight = 1080;
-#endif
-
-#if 0
-	const v6::u32 defaultWidth = 256;
-	const v6::u32 defaultHeight = 256;
-#endif
-
-#if 0
-	const v6::u32 defaultWidth = 512;
-	const v6::u32 defaultHeight = 512;
-#endif
-
-#if 0
+#if V6_ENABLE_HMD == 1
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
-#endif
-
-#if 1
+#else
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
@@ -1535,14 +1550,3 @@ int main( int argc, char** argv )
 
 	return 0;
 }
-
-#else
-
-int main( int argc, char** argv )
-{
-	v6::Test();
-
-	return 0;
-}
-
-#endif

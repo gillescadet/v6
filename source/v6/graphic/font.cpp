@@ -27,7 +27,7 @@ struct GPUFontResources_s
 extern ID3D11Device*		g_device;
 extern ID3D11DeviceContext*	g_deviceContext;
 
-static const GPUEventID_t	s_gpuEventFont = GPUEvent_Register( "Font", true );
+static const GPUEventID_t	s_gpuEventFont = GPUEvent_Register( "Font", false );
 
 static GPUFontResources_s	s_gpuFontResources;
 static bool					s_gpuFontResourcesCreated = false;
@@ -154,7 +154,7 @@ u32 FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeigh
 	return y;
 }
 
-void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet )
+void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet, bool leftEye, bool rightEye )
 {
 	hlsl::Character* gpuCharacters = (hlsl::Character*)fontContext->characters;
 	u32 gpuCharacterCount = 0;
@@ -200,8 +200,6 @@ void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderT
 
 	GPUFontResources_s* fontRes = fontContext->res;
 
-	GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, 0 );
-
 	// update
 
 	{
@@ -212,37 +210,48 @@ void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderT
 	}
 
 	GPUBuffer_Update( &fontRes->characters, 0, gpuCharacters, gpuCharacterCount );
+
+	for ( u32 eye = 0; eye < 2; ++eye )
+	{
+		if ( eye == 0 && !leftEye )
+			continue;
+
+		if ( eye == 1 && !rightEye )
+			continue;
+
+		GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
+
+		// set
+
+		g_deviceContext->VSSetConstantBuffers( v6::hlsl::CBFontSlot, 1, &fontRes->cb.buf );
+
+		g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &fontRes->trilinearSamplerState );
+
+		g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, &fontRes->characters.srv );
+		g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, &fontRes->fontBitmap.srv );
+
+		// draw
 	
-	// set
+		g_deviceContext->IASetInputLayout( fontRes->shader.m_inputLayout );
+		g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
+		g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
 
-	g_deviceContext->VSSetConstantBuffers( v6::hlsl::CBFontSlot, 1, &fontRes->cb.buf );
+		u32 stride = 0;
+		u32 offset = 0;
+		g_deviceContext->IASetVertexBuffers( 0, 0, nullptr, &stride, &offset );
+		g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP   );
+		g_deviceContext->IASetIndexBuffer( fontRes->indices, DXGI_FORMAT_R16_UINT, 0 );
 
-	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &fontRes->trilinearSamplerState );
-
-	g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, &fontRes->characters.srv );
-	g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, &fontRes->fontBitmap.srv );
-
-	// draw
+		g_deviceContext->DrawIndexedInstanced( 4, gpuCharacterCount, 0, 0, 0 );
 	
-	g_deviceContext->IASetInputLayout( fontRes->shader.m_inputLayout );
-	g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
-	g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
-
-	u32 stride = 0;
-	u32 offset = 0;
-	g_deviceContext->IASetVertexBuffers( 0, 0, nullptr, &stride, &offset );
-	g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP   );
-	g_deviceContext->IASetIndexBuffer( fontRes->indices, DXGI_FORMAT_R16_UINT, 0 );
-
-	g_deviceContext->DrawIndexedInstanced( 4, gpuCharacterCount, 0, 0, 0 );
+		// unset
 	
-	// unset
-	
-	static const void* nulls[8] = {};
-	g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-	g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		static const void* nulls[8] = {};
+		g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+		g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 
-	GPURenderTargetSet_Unbind( renderTargetSet );
+		GPURenderTargetSet_Unbind( renderTargetSet );
+	}
 
 	GPUEvent_End();
 }

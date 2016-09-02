@@ -550,7 +550,6 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 
 		g_deviceContext->CSSetConstantBuffers( v6::hlsl::CBPostProcessSlot, 1, &traceRes->cbPostProcess.buf );
 		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, &traceRes->histories[traceContext->frameState.curHistoryBufferID][eye].srv );
-		g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, &traceRes->visibleBlockContext.srv );
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, &renderTargetSet->colorBuffers[eye].uav, nullptr );
 		g_deviceContext->CSSetShader( traceRes->computeSharpen.m_computeShader, nullptr, 0 );
 
@@ -563,7 +562,6 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 		// unset
 		static const void* nulls[8] = {};
 		g_deviceContext->CSSetShaderResources( HLSL_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-		g_deviceContext->CSSetShaderResources( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_COLOR_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
 
 		GPUEvent_End();
@@ -637,23 +635,25 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	traceContext->frameState.frameID =(u32)-1;
 
 	const u32 blockCount = Max( 1u, stream->desc.maxBlockCountPerSequence );
+
 	const u32 maxBlockRangeCount = Max( 1u, stream->desc.maxBlockRangeCountPerFrame );
 	const u32 maxBlockGroupCount = Max( 1u, stream->desc.maxBlockGroupCountPerFrame );
 
 	V6_ASSERT( maxBlockGroupCount <= SEQUENCE_BLOCK_GROUP_MAX_COUNT );
 
-	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockPositions" );
-	GPUBuffer_CreateTyped( &res->blockCellPresences0, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences0" );
-	GPUBuffer_CreateTyped( &res->blockCellPresences1, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellPresences1" );
-	GPUBuffer_CreateTyped( &res->blockCellEndColors, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellEndColors" );
-	GPUBuffer_CreateTyped( &res->blockCellColorIndices0, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices0" );
-	GPUBuffer_CreateTyped( &res->blockCellColorIndices1, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices1" );
-	GPUBuffer_CreateTyped( &res->blockCellColorIndices2, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices2" );
-	GPUBuffer_CreateTyped( &res->blockCellColorIndices3, DXGI_FORMAT_R32_UINT, blockCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockCellColorIndices3" );
-	GPUBuffer_CreateStructured( &res->ranges[0], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges0" );
-	GPUBuffer_CreateStructured( &res->ranges[1], sizeof( hlsl::BlockRange ), maxBlockRangeCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockRanges1" );
-	GPUBuffer_CreateTyped( &res->groups[0], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockGroups0" );
-	GPUBuffer_CreateTyped( &res->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE, "sequenceBlockGroups1" );
+	const u32 gpuBufferFlag = GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE;
+	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockPositions" );
+	GPUBuffer_CreateTyped( &res->blockCellPresences0, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellPresences0" );
+	GPUBuffer_CreateTyped( &res->blockCellPresences1, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellPresences1" );
+	GPUBuffer_CreateTyped( &res->blockCellEndColors, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellEndColors" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices0, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellColorIndices0" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices1, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellColorIndices1" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices2, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellColorIndices2" );
+	GPUBuffer_CreateTyped( &res->blockCellColorIndices3, DXGI_FORMAT_R32_UINT, blockCount, gpuBufferFlag, "sequenceBlockCellColorIndices3" );
+	GPUBuffer_CreateStructured( &res->ranges[0], sizeof( hlsl::BlockRange ), maxBlockRangeCount, gpuBufferFlag, "sequenceBlockRanges0" );
+	GPUBuffer_CreateStructured( &res->ranges[1], sizeof( hlsl::BlockRange ), maxBlockRangeCount, gpuBufferFlag, "sequenceBlockRanges1" );
+	GPUBuffer_CreateTyped( &res->groups[0], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, gpuBufferFlag, "sequenceBlockGroups0" );
+	GPUBuffer_CreateTyped( &res->groups[1], DXGI_FORMAT_R32_UINT, maxBlockGroupCount, gpuBufferFlag, "sequenceBlockGroups1" );
 	
 	const u32 eyeCount = traceDesc->stereo ? 2 : 1;
 	const u32 blockTileCountPerEye = (traceDesc->screenWidth >> 3) * (traceDesc->screenHeight >> 3);
@@ -784,7 +784,7 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 {
 	const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
-	Vec3 centerEye = Vec3_Zero();
+	
 	for ( u32 eye = 0; eye < eyeCount; ++eye )
 	{
 		Mat4x4 worldToProj;
@@ -793,13 +793,9 @@ void TraceContext_DrawFrame( TraceContext_s* traceContext, GPURenderTargetSet_s*
 		traceContext->frameState.curWorldToProjsX[eye] = worldToProj.m_row0;
 		traceContext->frameState.curWorldToProjsY[eye] = worldToProj.m_row1;
 		traceContext->frameState.curWorldToProjsW[eye] = worldToProj.m_row3;
-
-		centerEye += views[eye].org;
-		
 	}
 
-	const Vec3 eyeDistanceToOrigin = Abs( centerEye * (1.0f / eyeCount) - traceContext->frameState.origin );
-	traceContext->frameState.fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (traceContext->stream->desc.gridScaleMin - 5.0f), 0.0f, 5.0f ) / 5.0f );
+	traceContext->frameState.fadeToBlack = fadeToBlack;
 
 	if ( traceContext->frameState.resetJitter )
 	{

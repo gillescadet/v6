@@ -2,7 +2,6 @@
 #include "trace_shared.h"
 
 Texture2D< float4 > inputColors			: REGISTER_SRV( HLSL_COLOR_SLOT );
-Buffer< uint > visibleBlockContext		: REGISTER_SRV( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT );
 
 RWTexture2D< float4 > outputColors		: REGISTER_UAV( HLSL_COLOR_SLOT );
 
@@ -33,8 +32,7 @@ void main_pixel_sharpen_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Gr
 		s0 *= (l0 * 2.0f - blurryLuminance) / l0;
 	}
 	
-	const float3 black = ((Gid.x & 1) == (Gid.y & 1)) ? float3( 0.02f, 0.01f, 0.01f ) : (float3( l0 * 2.0f, l0, l0 ) * 0.01f);
-	const float fadeToBlack = max( visibleBlockContext[VISIBLEBLOCKCONTEXT_FADETOBLACK_OFFSET], c_postProcessFadeToBlack );
+	const float3 black = ((Gid.x & 1) == (Gid.y & 1)) ? float3( 0.01f, 0.01f, 0.01f ) : (float3( l0, l0, l0 ) * 0.01f);
 
-	outputColors[pixelCoords] = float4( lerp( s0, black, fadeToBlack ), 0.0f );
+	outputColors[pixelCoords] = float4( lerp( s0, black, c_postProcessFadeToBlack ), 0.0f );
 }

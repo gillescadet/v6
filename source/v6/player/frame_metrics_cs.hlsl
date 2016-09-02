@@ -16,26 +16,8 @@ void main_frame_metrics_cs( uint3 DTid : SV_DispatchThreadID )
 	const uint y = c_frameMetricsRTSize.y - DTid.y - 1;
 
 	const uint cursor = (HLSL_FRAME_METRICS_WIDTH + c_frameMetricsEnd - c_frameMetricsRTSize.x + DTid.x ) % HLSL_FRAME_METRICS_WIDTH;
-	const uint cursorDistance = (HLSL_FRAME_METRICS_WIDTH + c_frameMetricsEnd - cursor) % HLSL_FRAME_METRICS_WIDTH;
-
-	float t;
-	if ( cursorDistance < 4 )
-	{
-		t = -1000.0f;
-	}
-	else
-	{
-		t = 0.0f;
-		for ( uint rank = 0; rank < 4; ++rank )
-		{
-			const uint slot = (cursor & ~3) + rank;
-			t += TimeUSToY( frameMetrics[slot].drawTimeUS );
-		}
-		t *= 0.25f;
-	}
-
-	t = min( t, c_frameMetricsRTSize.y - 1 );
-	const float plotFade = (uint)t == y || (uint)t == y-1;
+	const float t = min( TimeUSToY( frameMetrics[cursor].drawTimeUS ), c_frameMetricsRTSize.y - 1 );
+	const float plotFade = saturate( t - y ) * 0.25f;
 
 	const float tMin = TimeUSToY( c_frameMetricsMarkerMin );
 	const float tMid = TimeUSToY( c_frameMetricsMarkerMid );
@@ -50,7 +32,7 @@ void main_frame_metrics_cs( uint3 DTid : SV_DispatchThreadID )
 	finalColor.g += plotMin;
 	finalColor.b += plotMid;
 
-	if ( (cursor % 75) == 0 )
+	if ( (cursor % 75) <= 2 )
 		finalColor += float3( 0.05f, 0.05f, 0.05f );
 
 	surfaceColors[DTid.xy + c_frameMetricsRTOffset] = float4( finalColor, 0.0f );

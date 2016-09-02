@@ -15,16 +15,12 @@ RWStructuredBuffer< BlockCullStats > blockCullStats				: REGISTER_UAV( HLSL_CULL
 groupshared VisibleBlock gs_visibleBlocks[HLSL_BLOCK_THREAD_GROUP_SIZE];
 groupshared uint gs_visibleBlockCount;
 groupshared uint gs_visibleBlockOffset;
-groupshared uint gs_minDistanceToOrigin;
 
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
 void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : SV_DispatchThreadID )
 {
 	if ( GTid.x == 0 )
-	{
 		gs_visibleBlockCount = 0;
-		gs_minDistanceToOrigin = 0;
-	}
 
 	const uint blockGroupID = Gid.x;
 	const uint rangeID = blockGroups[blockGroupID];
@@ -56,12 +52,11 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint blockPosZ = range.macroGridOffset.z + ((blockPos >> (c_cullGridMacroShift*2)) & gridMacroMask);
 
 		uint insidePlaneCount = 0;
-		float3 posMinRS;
 		{
 			const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
 			const float gridScale = c_cullCentersAndGridScales[mip].w;
 			const float cellSize = gridScale * 2.0f * c_cullInvGridWidth;
-			posMinRS = mad( cellMinCoords, cellSize, -gridScale );
+			const float3 posMinRS = mad( cellMinCoords, cellSize, -gridScale );
 			const float3 posMinWS = posMinRS + c_cullCentersAndGridScales[mip].xyz;
 			const float3 centerWS = posMinWS + cellSize * 2;
 			for ( uint planeID = 0; planeID < 4; ++planeID )
@@ -76,8 +71,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			uint visibleBlockRank = 0;
 			InterlockedAdd( gs_visibleBlockCount, 1, visibleBlockRank );
 
-			//const bool isNewBlockHack = (range.frameDistance == 0) && !c_cullIsFirstFrameOfSequence;
-			const bool isNewBlockHack = 0;
+			const bool isNewBlockHack = (range.frameDistance == 0) && !c_cullIsFirstFrameOfSequence;
 			const bool isNewBlock = (isNewBlockFromData | isNewBlockHack) & c_cullFrameChanged;
 
 			VisibleBlock visibleBlock;
@@ -85,9 +79,6 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			visibleBlock.mip4_newBlock1_blockPos27 = (mip << 28) | (isNewBlock << 27) | (blockPosZ << (c_cullGridMacroShift*2)) | (blockPosY << c_cullGridMacroShift) | blockPosX;
 
 			gs_visibleBlocks[visibleBlockRank] = visibleBlock;
-
-			const uint distanceToOrigin = 0xFFFFFFFF - (uint)min( length( posMinRS ) * 16.0f, (float)(0xFFFFFFFF) );
-			InterlockedMax( gs_minDistanceToOrigin, distanceToOrigin );
 
 #if BLOCK_GET_STATS == 1
 			InterlockedAdd( blockCullStats[0].blockPassedCount, 1 );
@@ -98,10 +89,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 	GroupMemoryBarrierWithGroupSync(); // ensure that gs_visibleBlockCount is up to date
 	
 	if ( GTid.x == 0 && gs_visibleBlockCount > 0 )
-	{
 		InterlockedAdd( visibleBlockContext[VISIBLEBLOCKCONTEXT_COUNT_OFFSET], gs_visibleBlockCount, gs_visibleBlockOffset );
-		InterlockedMax( visibleBlockContext[VISIBLEBLOCKCONTEXT_MIN_DISTANCE_OFFSET], gs_minDistanceToOrigin );
-	}
 
 	GroupMemoryBarrierWithGroupSync(); // ensure that gs_visibleBlockOffset is up to date
 
