@@ -450,6 +450,14 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 		{
 			groupColor += hit.newBlock ? float3( 0.5f, 0.0f, 0.0f ) : float3( 0.0f, 0.f, 0.0f );
 		}
+		else if ( c_traceShowFlag & HLSL_BLOCK_SHOW_FLAG_BLOCK )
+		{
+			const float gridScaleMax = c_traceGridScales[HLSL_MIP_MAX_COUNT-1].x;
+			const float alpha = sqrt( hit.depth / gridScaleMax );
+			const float3 blockColor = U32ToColor( hit.blockPosID );
+			groupColor = blockColor * 0.50f + alpha * 0.50f;
+
+		}
 #endif
 	}
 

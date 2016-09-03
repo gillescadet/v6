@@ -40,6 +40,7 @@ struct TraceOptions_s
 	bool					showHistory;
 	bool					showMip;
 	bool					showOverdraw;
+	bool					showBlock;
 	bool					noTSAA;
 	bool					noSharpenFilter;
 };

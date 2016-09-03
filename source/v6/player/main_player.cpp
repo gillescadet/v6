@@ -26,7 +26,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -135,6 +135,7 @@ enum CommandAction_e
 	
 	COMMAND_ACTION_CAMERA_RECENTER,
 
+	COMMAND_ACTION_TRACE_OPTION_BLOCK,
 	COMMAND_ACTION_TRACE_OPTION_LOG,
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
 	COMMAND_ACTION_TRACE_OPTION_MIP,
@@ -433,6 +434,20 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 	switch ( commandLine[0] )
 	{
 	case 'B':
+		if ( strcmp( commandLine, "BLOCK ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BLOCK;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "BLOCK OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_BLOCK;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
 		if ( strcmp( commandLine, "BOX_LOCK ON" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
@@ -726,6 +741,9 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		V6_MSG( "Camera recentered.\n");
 		break;
 
+	case COMMAND_ACTION_TRACE_OPTION_BLOCK:
+		player->traceOptions.showBlock = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showBlock;
+		break;
 	case COMMAND_ACTION_TRACE_OPTION_LOG:
 		player->traceOptions.logReadBack = true;
 		break;
@@ -849,11 +867,16 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandLineSize = 0;
 		V6_MSG( "~" );
 		break;
-	case 'B': 
-		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+	case 'B':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_BLOCK;
+		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'C':
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
+		break;
+	case 'D': 
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'F':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
@@ -1017,7 +1040,7 @@ static void Player_DrawHUD( Player_s* player, float fadeToBlack )
 
 	{
 		const u32 cursorX = player->mainRenderTargetSet.width / 2;
-		u32 cursorY = player->mainRenderTargetSet.height * 3 / 4;
+		u32 cursorY = player->mainRenderTargetSet.height / 2;
 
 		if ( fadeToBlack > 0.0f )
 		{
@@ -1365,7 +1388,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
 		if ( PlayerStream_IsValid( player ) )
-			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, fadeToBlack );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, 0.0f /*fadeToBlack*/ );
 		else
 			PlayerScene_Draw( player, views );
 	}
