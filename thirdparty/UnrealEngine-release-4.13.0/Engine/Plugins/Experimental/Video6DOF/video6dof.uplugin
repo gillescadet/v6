@@ -1,0 +1,29 @@
+{
+	"FileVersion" : 1,
+	"Version" : 1,
+	"VersionName" : "Pre-Alpha",
+	"FriendlyName" : "V6 Movie Capture",
+	"Description" : "A plugin to capture a sequence of V6 images",
+	"Category" : "Movie Capture",
+	"CreatedBy" : "Video6DOF",
+	"CreatedByURL" : "http://www.video6dof.com/",
+	"DocsURL" : "",
+	"MarketplaceURL" : "",
+	"SupportURL" : "",
+	"EnabledByDefault" : false,
+	"CanContainContent" : false,
+	"IsBetaVersion" : false,
+	"Installed" : false,
+	"Modules" :
+	[
+		{
+			"Name" : "Video6DOF",
+			"Type" : "RuntimeNoCommandlet",
+			"LoadingPhase" : "Default",
+			"WhitelistPlatforms" :
+			[
+				"Win64"
+			]
+		}
+	]
+}
