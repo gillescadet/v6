@@ -202,11 +202,13 @@ float ComputeVolumeShadowing(float3 WorldPositionForLighting)
 		}
 	}
 
-	// fade shadows in the distance
+		// fade shadows in the distance
 		#if !RADIAL_ATTENUATION 
-	float Depth = dot(WorldPositionForLighting - View.WorldCameraOrigin, View.ViewForward);
-	float DistanceFade = saturate(Depth * ShadowInjectParams.z + ShadowInjectParams.w);
-	DynamicShadowFactor = lerp(DynamicShadowFactor, 1.0f, DistanceFade * DistanceFade);
+			// v6
+			float Depth = dot(WorldPositionForLighting - View.WorldEyeOrigin, View.ViewForward);
+			// float Depth = dot(WorldPositionForLighting - View.WorldCameraOrigin, View.ViewForward);
+			float DistanceFade = saturate(Depth * ShadowInjectParams.z + ShadowInjectParams.w);
+			DynamicShadowFactor = lerp(DynamicShadowFactor, 1.0f, DistanceFade * DistanceFade);
 		#endif
 
 	// Combine static shadowing and dynamic shadowing, important for stationary directional lights with CSM

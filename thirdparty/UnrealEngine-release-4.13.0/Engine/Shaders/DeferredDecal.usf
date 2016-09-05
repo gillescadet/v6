@@ -63,7 +63,9 @@ float DistanceFunction(float4 SvPosition, float3 Pos)
 	MaterialParameters.WorldPosition_CamRelative = 
 	MaterialParameters.WorldPosition_NoOffsets = 
 	MaterialParameters.WorldPosition_NoOffsets_CamRelative = mul(DecalToWorld, float4(Pos, 1)).xyz;
-	MaterialParameters.CameraVector = normalize(View.WorldCameraOrigin - MaterialParameters.AbsoluteWorldPosition);
+	// v6
+	MaterialParameters.CameraVector = normalize(View.WorldEyeOrigin - MaterialParameters.AbsoluteWorldPosition);
+	//MaterialParameters.CameraVector = normalize(View.WorldCameraOrigin - MaterialParameters.AbsoluteWorldPosition);
 
 	FPixelMaterialInputs PixelMaterialInputs;
 	CalcPixelMaterialInputs(MaterialParameters, PixelMaterialInputs);
@@ -172,7 +174,9 @@ void FPixelShaderInOut_MainPS(inout FPixelShaderIn In, inout FPixelShaderOut Out
 
 		float4 SvPositionInDistance = float4(In.SvPosition.xy, ConvertToDeviceZ(SceneW), 1);
 
-		float3 WSStartRay = View.WorldCameraOrigin;
+		// v6
+		float3 WSStartRay = View.WorldEyeOrigin;
+		// float3 WSStartRay = View.WorldCameraOrigin;
 		float3 WSEndRay = SvPositionToWorld(SvPositionInDistance);
 
 		// in object/decal space
@@ -213,7 +217,9 @@ void FPixelShaderInOut_MainPS(inout FPixelShaderIn In, inout FPixelShaderOut Out
 		WSPosition = SvPositionToWorld(In.SvPosition);
 	}
 
-	float3 CameraVector = normalize(View.WorldCameraOrigin - WSPosition);
+	// v6
+	float3 CameraVector = normalize(View.WorldEyeOrigin - WSPosition);
+	// float3 CameraVector = normalize(View.WorldCameraOrigin - WSPosition);
 
 	// can be optimized
 	float3 DecalVector = OSPosition * 0.5f + 0.5f;

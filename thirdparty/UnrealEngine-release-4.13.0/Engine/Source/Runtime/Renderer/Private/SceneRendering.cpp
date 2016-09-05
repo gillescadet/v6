@@ -639,6 +639,8 @@ void FViewInfo::CreateUniformBuffer(
 	ViewUniformShaderParameters.InvDeviceZToWorldZTransform = InvDeviceZToWorldZTransform;
 	ViewUniformShaderParameters.WorldViewOrigin = EffectiveViewToTranslatedWorld.TransformPosition(FVector(0)) - ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.WorldCameraOrigin = ViewMatrices.ViewOrigin;
+	// v6
+	ViewUniformShaderParameters.WorldEyeOrigin = ViewMatrices.ViewOriginForLighting != FVector( FLT_MAX ) ? ViewMatrices.ViewOriginForLighting : ViewMatrices.ViewOrigin;
 	ViewUniformShaderParameters.TranslatedWorldCameraOrigin = ViewMatrices.ViewOrigin + ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.PreViewTranslation = ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.PrevProjection = PrevViewMatrices.ProjMatrix;

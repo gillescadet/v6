@@ -221,6 +221,7 @@ static FSceneView& CreateSceneView( FSceneViewFamilyContext& ViewFamilyContext, 
 	ViewUniformShaderParameters.InvDeviceZToWorldZTransform = View->InvDeviceZToWorldZTransform;
 	ViewUniformShaderParameters.WorldViewOrigin = View->ViewMatrices.ViewOrigin;
 	ViewUniformShaderParameters.WorldCameraOrigin = View->ViewMatrices.ViewOrigin;
+	ViewUniformShaderParameters.WorldEyeOrigin = View->ViewMatrices.ViewOrigin;
 	ViewUniformShaderParameters.TranslatedWorldCameraOrigin = ViewUniformShaderParameters.WorldCameraOrigin + View->ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.PreViewTranslation = View->ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.ScreenPositionScaleBias = ScreenPositionScaleBias;
