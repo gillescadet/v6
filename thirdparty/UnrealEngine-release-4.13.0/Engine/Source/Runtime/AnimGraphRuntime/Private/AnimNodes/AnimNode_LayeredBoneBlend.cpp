@@ -48,31 +48,54 @@ void FAnimNode_LayeredBoneBlend::CacheBones(const FAnimationCacheBonesContext& C
 		BlendPoses[ChildIndex].CacheBones(Context);
 	}
 
-	if (Context.AnimInstanceProxy->GetRequiredBones().GetBoneIndicesArray().Num() != DesiredBoneBlendWeights.Num())
-	{
-		ReinitializeBoneBlendWeights(Context.AnimInstanceProxy->GetRequiredBones(), Context.AnimInstanceProxy->GetSkeleton());
-	}
+	ReinitializeBoneBlendWeights(Context.AnimInstanceProxy->GetRequiredBones(), Context.AnimInstanceProxy->GetSkeleton());
 }
 
 void FAnimNode_LayeredBoneBlend::Update(const FAnimationUpdateContext& Context)
 {
 	EvaluateGraphExposedInputs.Execute(Context);
 
-	// initialize children
-	BasePose.Update(Context);
-
 	bHasRelevantPoses = false;
-	const int NumPoses = BlendPoses.Num();
-	if ( NumPoses > 0 )
+	int32 RootMotionBlendPose = -1;
+	float RootMotionWeight = 0.f;
+	const float RootMotionClearWeight = bBlendRootMotionBasedOnRootBone ? 0.f : 1.f;
+
+	for (int32 ChildIndex = 0; ChildIndex < BlendPoses.Num(); ++ChildIndex)
 	{
-		for (int32 ChildIndex = 0; ChildIndex < NumPoses; ++ChildIndex)
+		const float ChildWeight = BlendWeights[ChildIndex];
+		if (FAnimWeight::IsRelevant(ChildWeight))
 		{
-			if (BlendWeights[ChildIndex] > ZERO_ANIMWEIGHT_THRESH)
+			if (bHasRelevantPoses == false)
 			{
+				FAnimationRuntime::UpdateDesiredBoneWeight(DesiredBoneBlendWeights, CurrentBoneBlendWeights, BlendWeights);
 				bHasRelevantPoses = true;
-				BlendPoses[ChildIndex].Update(Context);
+
+				if(bBlendRootMotionBasedOnRootBone)
+				{
+					const float NewRootMotionWeight = CurrentBoneBlendWeights[0].BlendWeight;
+					if(NewRootMotionWeight > ZERO_ANIMWEIGHT_THRESH)
+					{
+						RootMotionWeight = NewRootMotionWeight;
+						RootMotionBlendPose = CurrentBoneBlendWeights[0].SourceIndex;
+					}
+				}
 			}
+
+			const float ThisPoseRootMotionWeight = (ChildIndex == RootMotionBlendPose) ? RootMotionWeight : RootMotionClearWeight;
+			BlendPoses[ChildIndex].Update(Context.FractionalWeightAndRootMotion(ChildWeight, ThisPoseRootMotionWeight));
 		}
+	}
+
+	// initialize children
+	const float BaseRootMotionWeight = 1.f - RootMotionWeight;
+
+	if (BaseRootMotionWeight < ZERO_ANIMWEIGHT_THRESH)
+	{
+		BasePose.Update(Context.FractionalWeightAndRootMotion(1.f, BaseRootMotionWeight));
+	}
+	else
+	{
+		BasePose.Update(Context);
 	}
 }
 
@@ -87,8 +110,6 @@ void FAnimNode_LayeredBoneBlend::Evaluate(FPoseContext& Output)
 	}
 	else
 	{
-		FAnimationRuntime::UpdateDesiredBoneWeight(DesiredBoneBlendWeights, CurrentBoneBlendWeights, BlendWeights);
-
 		FPoseContext BasePoseContext(Output);
 
 		// evaluate children
@@ -107,8 +128,8 @@ void FAnimNode_LayeredBoneBlend::Evaluate(FPoseContext& Output)
 				FPoseContext CurrentPoseContext(Output);
 				BlendPoses[ChildIndex].Evaluate(CurrentPoseContext);
 
-				TargetBlendPoses[ChildIndex].MoveBonesFrom(CurrentPoseContext.Pose);
-				TargetBlendCurves[ChildIndex].MoveFrom(CurrentPoseContext.Curve);
+				TargetBlendPoses[ChildIndex].CopyBonesFrom(CurrentPoseContext.Pose);
+				TargetBlendCurves[ChildIndex].CopyFrom(CurrentPoseContext.Curve);
 			}
 			else
 			{

@@ -5,11 +5,10 @@
 //
 
 #pragma once
-#include "Runtime/Online/OnlineSubsystem/Public/OnlineSubsystemTypes.h"
-#include "Runtime/Online/OnlineSubsystem/Public/UniqueNetIdWrapper.h"
+#include "CoreOnline.h"
 #include "OnlineReplStructs.generated.h"
 
-class FUniqueNetId;
+class FJsonValue;
 
 /**
  * Wrapper for opaque type FUniqueNetId
@@ -17,7 +16,7 @@ class FUniqueNetId;
  * Makes sure that the opaque aspects of FUniqueNetId are properly handled/serialized 
  * over network RPC and actor replication
  */
-USTRUCT()
+USTRUCT(BlueprintType)
 struct FUniqueNetIdRepl
 {
 	GENERATED_USTRUCT_BODY()
@@ -26,10 +25,10 @@ struct FUniqueNetIdRepl
 	{
 	}
 
-	FUniqueNetIdRepl(const FUniqueNetIdWrapper& InWrapper)
-	: UniqueNetId(InWrapper.GetUniqueNetId())
-	{
-	}
+ 	FUniqueNetIdRepl(const FUniqueNetIdWrapper& InWrapper)
+ 	: UniqueNetId(InWrapper.GetUniqueNetId())
+ 	{
+ 	}
 
 	FUniqueNetIdRepl(const TSharedRef<const FUniqueNetId>& InUniqueNetId) :
 		UniqueNetId(InUniqueNetId)
@@ -72,6 +71,9 @@ struct FUniqueNetIdRepl
     /** Export contents of this struct as a string */
 	bool ExportTextItem(FString& ValueStr, FUniqueNetIdRepl const& DefaultValue, UObject* Parent, int32 PortFlags, UObject* ExportRootScope) const;
 
+	/** Import string contexts and try to map them into a unique id */
+	bool ImportTextItem(const TCHAR*& Buffer, int32 PortFlags, UObject* Parent, FOutputDevice* ErrorText);
+
 	/** Network serialization */
 	ENGINE_API bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 
@@ -86,6 +88,17 @@ struct FUniqueNetIdRepl
 	{
 		return IsValid() ? UniqueNetId->ToString() : TEXT("INVALID");
 	}
+
+	/** Convert this value to a string with additional information */
+	virtual FString ToDebugString() const 
+	{
+		return IsValid() ? UniqueNetId->ToDebugString() : TEXT("INVALID");
+	}
+
+	/** Convert this unique id to a json value */
+	TSharedRef<FJsonValue> ToJson() const;
+	/** Create a unique id from a json string */
+	void FromJson(const FString& InValue);
 
 	/** Is the FUniqueNetId wrapped in this object valid */
 	bool IsValid() const
@@ -128,10 +141,10 @@ struct FUniqueNetIdRepl
 	/**
 	 * implicit cast operator to FUniqueNetIdWrapper
 	 */
-	FORCEINLINE operator FUniqueNetIdWrapper() const
-	{
-		return FUniqueNetIdWrapper(UniqueNetId);
-	}
+ 	FORCEINLINE operator FUniqueNetIdWrapper() const
+ 	{
+ 		return FUniqueNetIdWrapper(UniqueNetId);
+ 	}
 
 	friend inline uint32 GetTypeHash(FUniqueNetIdRepl const& Value)
 	{
@@ -145,9 +158,12 @@ struct FUniqueNetIdRepl
 
 protected:
 	TSharedPtr<const FUniqueNetId> UniqueNetId;
+
+	/** Helper to create an FUniqueNetId from a string */
+	void UniqueIdFromString(const FString& Contents);
 };
 
-/** Specify net delta serializer support for the active skill cooldown array */
+/** Specify type trait support for various low level UPROPERTY overrides */
 template<>
 struct TStructOpsTypeTraits<FUniqueNetIdRepl> : public TStructOpsTypeTraitsBase
 {
@@ -163,6 +179,8 @@ struct TStructOpsTypeTraits<FUniqueNetIdRepl> : public TStructOpsTypeTraitsBase
 		WithIdenticalViaEquality = true,
 		// Export contents of this struct as a string (displayall, obj dump, etc)
 		WithExportTextItem = true,
+		// Import string contents as a unique id
+		WithImportTextItem = true
 	};
 };
 

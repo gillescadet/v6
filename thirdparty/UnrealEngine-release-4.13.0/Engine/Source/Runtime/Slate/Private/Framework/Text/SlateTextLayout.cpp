@@ -1,10 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "SlatePrivatePCH.h"
-
-#if WITH_FANCY_TEXT
-
 #include "SlateTextLayout.h"
+#include "SlateTextRun.h"
+#include "SlatePasswordRun.h"
 
 TSharedRef< FSlateTextLayout > FSlateTextLayout::Create(FTextBlockStyle InDefaultTextStyle)
 {
@@ -15,9 +14,10 @@ TSharedRef< FSlateTextLayout > FSlateTextLayout::Create(FTextBlockStyle InDefaul
 }
 
 FSlateTextLayout::FSlateTextLayout(FTextBlockStyle InDefaultTextStyle)
-	: Children()
-	, DefaultTextStyle(MoveTemp(InDefaultTextStyle))
-	, LocalizedFallbackFontRevision(INDEX_NONE)
+	: DefaultTextStyle(MoveTemp(InDefaultTextStyle))
+	, Children()
+	, bIsPassword(false)
+	, LocalizedFallbackFontRevision(0)
 {
 
 }
@@ -137,10 +137,10 @@ void FSlateTextLayout::EndLayout()
 
 void FSlateTextLayout::UpdateIfNeeded()
 {
-	const int32 CurrentLocalizedFallbackFontRevision = FSlateApplication::Get().GetRenderer()->GetFontCache()->GetLocalizedFallbackFontRevision();
+	const uint16 CurrentLocalizedFallbackFontRevision = FSlateApplication::Get().GetRenderer()->GetFontCache()->GetLocalizedFallbackFontRevision();
 	if (CurrentLocalizedFallbackFontRevision != LocalizedFallbackFontRevision)
 	{
-		if (LocalizedFallbackFontRevision != INDEX_NONE)
+		if (LocalizedFallbackFontRevision != 0)
 		{
 			// If the localized fallback font has changed, we need to purge the current layout data as things may need to be re-measured
 			DirtyFlags |= ETextLayoutDirtyState::Layout;
@@ -161,6 +161,11 @@ void FSlateTextLayout::SetDefaultTextStyle(FTextBlockStyle InDefaultTextStyle)
 const FTextBlockStyle& FSlateTextLayout::GetDefaultTextStyle() const
 {
 	return DefaultTextStyle;
+}
+
+void FSlateTextLayout::SetIsPassword(const TAttribute<bool>& InIsPassword)
+{
+	bIsPassword = InIsPassword;
 }
 
 void FSlateTextLayout::AggregateChildren()
@@ -187,7 +192,9 @@ void FSlateTextLayout::AggregateChildren()
 
 TSharedRef<IRun> FSlateTextLayout::CreateDefaultTextRun(const TSharedRef<FString>& NewText, const FTextRange& NewRange) const
 {
+	if (bIsPassword.Get(false))
+	{
+		return FSlatePasswordRun::Create(FRunInfo(), NewText, DefaultTextStyle, NewRange);
+	}
 	return FSlateTextRun::Create(FRunInfo(), NewText, DefaultTextStyle, NewRange);
 }
-
-#endif //WITH_FANCY_TEXT

@@ -64,16 +64,16 @@ UClass* UButton::GetSlotClass() const
 	return UButtonSlot::StaticClass();
 }
 
-void UButton::OnSlotAdded(UPanelSlot* Slot)
+void UButton::OnSlotAdded(UPanelSlot* InSlot)
 {
 	// Add the child to the live slot if it already exists
 	if ( MyButton.IsValid() )
 	{
-		Cast<UButtonSlot>(Slot)->BuildSlot(MyButton.ToSharedRef());
+		CastChecked<UButtonSlot>(InSlot)->BuildSlot(MyButton.ToSharedRef());
 	}
 }
 
-void UButton::OnSlotRemoved(UPanelSlot* Slot)
+void UButton::OnSlotRemoved(UPanelSlot* InSlot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyButton.IsValid() )
@@ -179,11 +179,6 @@ void UButton::SlateHandleUnhovered()
 }
 
 #if WITH_EDITOR
-
-const FSlateBrush* UButton::GetEditorIcon()
-{
-	return FUMGStyle::Get().GetBrush("Widget.Button");
-}
 
 const FText UButton::GetPaletteCategory()
 {

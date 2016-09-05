@@ -40,12 +40,22 @@
 #include "GameFramework/GameMode.h"
 #include "GameDelegates.h"
 #include "Engine/CoreSettings.h"
+#include "EngineAnalytics.h"
 
-#if WITH_EDITOR
-#include "Editor/UnrealEd/Public/Animation/AnimationRecorder.h"
-#endif
+#include "Tickable.h"
 
 ENGINE_API bool GDisallowNetworkTravel = false;
+
+// How slow must a frame be (in seconds) to be logged out (<= 0 to disable)
+ENGINE_API float GSlowFrameLoggingThreshold = 0.0f;
+
+static FAutoConsoleVariableRef CvarSlowFrameLoggingThreshold(
+	TEXT("t.SlowFrameLoggingThreshold"),
+	GSlowFrameLoggingThreshold,
+	TEXT("How slow must a frame be (in seconds) to be logged out (<= 0 to disable)."),
+	ECVF_Default
+	);
+
 
 /** Benchmark results to the log */
 static void RunSynthBenchmark(const TArray<FString>& Args)
@@ -71,17 +81,7 @@ static FAutoConsoleCommand GDumpDrawListStatsCmd(
 
 EWindowMode::Type GetWindowModeType(EWindowMode::Type WindowMode)
 {
-	if (FPlatformProperties::SupportsWindowedMode())
-	{
-		if ((WindowMode != EWindowMode::Windowed && WindowMode != EWindowMode::WindowedMirror) && GEngine && GEngine->HMDDevice.IsValid() && GEngine->HMDDevice->IsFullscreenAllowed())
-		{
-			return EWindowMode::Fullscreen;
-		}
-
-		return WindowMode;
-	}
-
-	return EWindowMode::Fullscreen;
+	return FPlatformProperties::SupportsWindowedMode() ? WindowMode : EWindowMode::Fullscreen;
 }
 
 UGameEngine::UGameEngine(const FObjectInitializer& ObjectInitializer)
@@ -180,7 +180,7 @@ void UGameEngine::ConditionallyOverrideSettings(int32& ResolutionX, int32& Resol
 	else if (FParse::Param(FCommandLine::Get(),TEXT("FullScreen")))
 	{
 		// -FullScreen
-		auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.FullScreenMode"));
+		static auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.FullScreenMode"));
 		check(CVar);
 		WindowMode = CVar->GetValueOnGameThread() == 0 ? EWindowMode::Fullscreen : EWindowMode::WindowedFullscreen;
 
@@ -197,26 +197,54 @@ void UGameEngine::ConditionallyOverrideSettings(int32& ResolutionX, int32& Resol
 	}
 
 	//fullscreen is always supported, but don't allow windowed mode on platforms that dont' support it.
-	WindowMode = (!FPlatformProperties::SupportsWindowedMode() && (WindowMode == EWindowMode::Windowed || WindowMode == EWindowMode::WindowedMirror || WindowMode == EWindowMode::WindowedFullscreen)) ? EWindowMode::Fullscreen : WindowMode;
+	WindowMode = (!FPlatformProperties::SupportsWindowedMode() && (WindowMode == EWindowMode::Windowed || WindowMode == EWindowMode::WindowedFullscreen)) ? EWindowMode::Fullscreen : WindowMode;
 
 	FParse::Value(FCommandLine::Get(), TEXT("ResX="), ResolutionX);
 	FParse::Value(FCommandLine::Get(), TEXT("ResY="), ResolutionY);
 
-		// consume available desktop area
-		FDisplayMetrics DisplayMetrics;
-	FDisplayMetrics::GetDisplayMetrics(DisplayMetrics);
-		
-	int32 DesktopResolutionX = DisplayMetrics.PrimaryDisplayWidth;
-	int32 DesktopResolutionY = DisplayMetrics.PrimaryDisplayHeight;
+	// consume available desktop area
+	FDisplayMetrics DisplayMetrics;
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().GetInitialDisplayMetrics(DisplayMetrics);
+	}
+	else
+	{
+		FDisplayMetrics::GetDisplayMetrics(DisplayMetrics);
+	}
+
+	// Find the maximum allowed resolution
+	// Use PrimaryDisplayWidth/Height in windowed mode
+	int32 MaxResolutionX = DisplayMetrics.PrimaryDisplayWidth;
+	int32 MaxResolutionY = DisplayMetrics.PrimaryDisplayHeight;
+	if (WindowMode == EWindowMode::Fullscreen && DisplayMetrics.MonitorInfo.Num() > 0)
+	{
+		// In fullscreen, PrimaryDisplayWidth/Height is equal to your current resolution, so we will use your max native resolution instead
+		// Since we have info for at least one monitor, default to that if the primary can not be found
+		MaxResolutionX = DisplayMetrics.MonitorInfo[0].NativeWidth;
+		MaxResolutionY = DisplayMetrics.MonitorInfo[0].NativeHeight;
+
+		// Now try to find the primary monitor
+		for (const FMonitorInfo& MonitorInfo : DisplayMetrics.MonitorInfo)
+		{
+			if (MonitorInfo.bIsPrimary)
+			{
+				// This is the primary monitor. Use this monitor's native width/height
+				MaxResolutionX = MonitorInfo.NativeWidth;
+				MaxResolutionY = MonitorInfo.NativeHeight;
+				break;
+			}
+		}
+	}
 
 	// Optionally force the resolution by passing -ForceRes
 	const bool bForceRes = FParse::Param(FCommandLine::Get(), TEXT("ForceRes"));
 
 	//Dont allow a resolution bigger then the desktop found a convenient one
-	if (!bForceRes && !IsRunningDedicatedServer() && ((ResolutionX <= 0 || ResolutionX > DesktopResolutionX) || (ResolutionY <= 0 || ResolutionY > DesktopResolutionY)))
+	if (!bForceRes && !IsRunningDedicatedServer() && ((ResolutionX <= 0 || ResolutionX >= MaxResolutionX) || (ResolutionY <= 0 || ResolutionY >= MaxResolutionY)))
 	{
-		ResolutionX = DesktopResolutionX;
-		ResolutionY = DesktopResolutionY;
+		ResolutionX = MaxResolutionX;
+		ResolutionY = MaxResolutionY;
 
 		// If we're in windowed mode, attempt to choose a suitable starting resolution that is smaller than the desktop, with a matching aspect ratio
 		if (WindowMode == EWindowMode::Windowed)
@@ -277,6 +305,15 @@ TSharedRef<SWindow> UGameEngine::CreateGameWindow()
 		IConsoleManager::Get().CallAllConsoleVariableSinks();
 	}
 
+	const FText WindowTitleOverride = GetDefault<UGeneralProjectSettings>()->ProjectDisplayedTitle;
+	const FText WindowTitleComponent = WindowTitleOverride.IsEmpty() ? NSLOCTEXT("UnrealEd", "GameWindowTitle", "{GameName}") : WindowTitleOverride;
+
+	FText WindowDebugInfoComponent;
+#if !UE_BUILD_SHIPPING
+	const FText WindowDebugInfoOverride = GetDefault<UGeneralProjectSettings>()->ProjectDebugTitleInfo;
+	WindowDebugInfoComponent = WindowDebugInfoOverride.IsEmpty() ? NSLOCTEXT("UnrealEd", "GameWindowTitleDebugInfo", "({PlatformArchitecture}-bit, {RHIName})") : WindowDebugInfoOverride;
+#endif
+
 #if PLATFORM_64BITS
 	//These are invariant strings so they don't need to be localized
 	const FText PlatformBits = FText::FromString( TEXT( "64" ) );
@@ -284,15 +321,15 @@ TSharedRef<SWindow> UGameEngine::CreateGameWindow()
 	const FText PlatformBits = FText::FromString( TEXT( "32" ) );
 #endif	//PLATFORM_64BITS
 
-	// Note: If these parameters are updated or renamed, please update the tooltip on the ProjectDisplayedTitle property
+	// Note: If these parameters are updated or renamed, please update the tooltip on the ProjectDisplayedTitle and ProjectDebugTitleInfo properties
 	FFormatNamedArguments Args;
 	Args.Add( TEXT("GameName"), FText::FromString( FApp::GetGameName() ) );
 	Args.Add( TEXT("PlatformArchitecture"), PlatformBits );
 	Args.Add( TEXT("RHIName"), FText::FromName( LegacyShaderPlatformToShaderFormat( GMaxRHIShaderPlatform ) ) );
 
-	const FText DefaultWindowTitle = NSLOCTEXT("UnrealEd", "GameWindowTitle", "{GameName} ({PlatformArchitecture}-bit, {RHIName})");
-	const FText WindowTitleOverride = GetDefault<UGeneralProjectSettings>()->ProjectDisplayedTitle;
-	const FText WindowTitle = FText::Format(WindowTitleOverride.IsEmpty() ? DefaultWindowTitle : WindowTitleOverride, Args);
+	const FText WindowTitleVar = FText::Format(FText::FromString(TEXT("{0} {1}")), WindowTitleComponent, WindowDebugInfoComponent);
+	const FText WindowTitle = FText::Format(WindowTitleVar, Args);
+	const bool bShouldPreserveAspectRatio = GetDefault<UGeneralProjectSettings>()->bShouldWindowPreserveAspectRatio;
 
 	// Allow optional winX/winY parameters to set initial window position
 	EAutoCenter::Type AutoCenterType = EAutoCenter::PrimaryWorkArea;
@@ -303,14 +340,39 @@ TSharedRef<SWindow> UGameEngine::CreateGameWindow()
 		AutoCenterType = EAutoCenter::None;
 	}
 
+	// Give the window the max width/height of either the requested resolution, or your available desktop resolution
+	// We need to do this as we request some 4K windows when rendering sequences, and the OS may try and clamp that
+	// window to your available desktop resolution
+	TOptional<float> MaxWindowWidth;
+	TOptional<float> MaxWindowHeight;
+	if (WindowMode == EWindowMode::Windowed)
+	{
+		// Get available desktop area
+		FDisplayMetrics DisplayMetrics;
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().GetInitialDisplayMetrics(DisplayMetrics);
+		}
+		else
+		{
+			FDisplayMetrics::GetDisplayMetrics(DisplayMetrics);
+		}
+
+		MaxWindowWidth = FMath::Max(DisplayMetrics.VirtualDisplayRect.Right - DisplayMetrics.VirtualDisplayRect.Left, ResX);
+		MaxWindowHeight = FMath::Max(DisplayMetrics.VirtualDisplayRect.Bottom - DisplayMetrics.VirtualDisplayRect.Top, ResY);
+	}
+
 	TSharedRef<SWindow> Window = SNew(SWindow)
 	.ClientSize(FVector2D( ResX, ResY ))
 	.Title(WindowTitle)
 	.AutoCenter(AutoCenterType)
 	.ScreenPosition(FVector2D(WinX, WinY))
+	.MaxWidth(MaxWindowWidth)
+	.MaxHeight(MaxWindowHeight)
 	.FocusWhenFirstShown(true)
 	.SaneWindowPlacement(AutoCenterType == EAutoCenter::None)
-	.UseOSWindowBorder(true);
+	.UseOSWindowBorder(true)
+	.ShouldPreserveAspectRatio(bShouldPreserveAspectRatio);
 
 	const bool bShowImmediately = false;
 
@@ -351,17 +413,14 @@ void UGameEngine::SwitchGameWindowToUseGameViewport()
 		GameViewportWindowPtr->SetContent(GameViewportWidgetRef);
 		GameViewportWindowPtr->SlatePrepass();
 		
-		SceneViewport->ResizeFrame((uint32)GSystemResolution.ResX, (uint32)GSystemResolution.ResY, GSystemResolution.WindowMode, 0, 0);
+		if ( SceneViewport.IsValid() )
+		{
+			SceneViewport->ResizeFrame((uint32)GSystemResolution.ResX, (uint32)GSystemResolution.ResY, GSystemResolution.WindowMode);
+		}
 
-		// Move the registration of the game viewport to that messages are correctly received.
-		if (!FPlatformProperties::SupportsWindowedMode())
-		{
-			FSlateApplication::Get().RegisterGameViewport(GameViewportWidgetRef);
-		}
-		else
-		{
-			FSlateApplication::Get().ActivateGameViewport();
-		}
+		// Registration of the game viewport to that messages are correctly received.
+		// Could be a re-register, however it's necessary after the window is set.
+		FSlateApplication::Get().RegisterGameViewport(GameViewportWidgetRef);
 	}
 }
 
@@ -423,7 +482,6 @@ UEngine::UEngine(const FObjectInitializer& ObjectInitializer)
 	bUseSound = true;
 
 	bHardwareSurveyEnabled_DEPRECATED = true;
-	bPendingHardwareSurveyResults = false;
 	bIsInitialized = false;
 
 	BeginStreamingPauseDelegate = NULL;
@@ -505,6 +563,7 @@ void UGameEngine::Init(IEngineLoop* InEngineLoop)
 		bool bWindowAlreadyExists = GameViewportWindow.IsValid();
 		if (!bWindowAlreadyExists)
 		{
+			UE_LOG(LogEngine, Log, TEXT("GameWindow did not exist.  Was created"));
 			GameViewportWindow = CreateGameWindow();
 		}
 
@@ -524,14 +583,18 @@ void UGameEngine::Init(IEngineLoop* InEngineLoop)
 		UGameViewportClient::OnViewportCreated().Broadcast();
 	}
 
-	GameInstance->StartGameInstance();
-
 	UE_LOG(LogInit, Display, TEXT("Game Engine Initialized.") );
 
 	// for IsInitialized()
 	bIsInitialized = true;
 }
 
+void UGameEngine::Start()
+{
+	UE_LOG(LogInit, Display, TEXT("Starting Game."));
+
+	GameInstance->StartGameInstance();
+}
 
 void UGameEngine::PreExit()
 {
@@ -563,7 +626,7 @@ void UGameEngine::PreExit()
 
 			if (World->GetGameInstance() != nullptr)
 			{
-			World->GetGameInstance()->Shutdown();
+				World->GetGameInstance()->Shutdown();
 			}
 
 			World->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
@@ -609,7 +672,7 @@ bool UGameEngine::NetworkRemapPath(UWorld* InWorld, FString& Str, bool bReading 
 		{
 			const FString StreamingLevelName = StreamingLevel->GetWorldAsset().GetLongPackageName();
 			if (StreamingLevelName == PrefixedName)
-	{
+			{
 				Str = PrefixedName;
 				return true;
 			}
@@ -769,7 +832,9 @@ bool UGameEngine::Exec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 bool UGameEngine::HandleExitCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	Ar.Log( TEXT("Closing by request") );
+
 	FGameDelegates::Get().GetExitCommandDelegate().Broadcast();
+
 	FPlatformMisc::RequestExit( 0 );
 	return true;
 }
@@ -803,10 +868,6 @@ bool UGameEngine::HandleApplyUserSettingsCommand( const TCHAR* Cmd, FOutputDevic
 #endif // !UE_BUILD_SHIPPING
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void UGameEngine::PostLoadMap()
-{
-}
 
 float UGameEngine::GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing) const
 {
@@ -844,7 +905,7 @@ float UGameEngine::GetMaxTickRate(float DeltaTime, bool bAllowFrameRateSmoothing
 			if( NetDriver && (NetDriver->GetNetMode() == NM_DedicatedServer || (NetDriver->GetNetMode() == NM_ListenServer && NetDriver->bClampListenServerTickRate)))
 			{
 				// We're a dedicated server, use the LAN or Net tick rate.
-				MaxTickRate = FMath::Clamp( NetDriver->NetServerMaxTickRate, 10, 120 );
+				MaxTickRate = FMath::Clamp( NetDriver->NetServerMaxTickRate, 1, 1000 );
 			}
 			/*else if( NetDriver && NetDriver->ServerConnection )
 			{
@@ -891,6 +952,11 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 #endif
 	}
 
+	if ((GSlowFrameLoggingThreshold > 0.0f) && (DeltaSeconds > GSlowFrameLoggingThreshold))
+	{
+		UE_LOG(LogEngine, Log, TEXT("Slow GT frame detected (GT frame %u, delta time %f s)"), GFrameCounter - 1, DeltaSeconds);
+	}
+
 	// Tick the module manager
 	IHotReloadInterface* HotReload = IHotReloadInterface::GetPtr();
 	if(HotReload != nullptr)
@@ -935,6 +1001,8 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 		StaticTick(DeltaSeconds, !!GAsyncLoadingUseFullTimeLimit, GAsyncLoadingTimeLimit / 1000.f);
 	}
 
+	FEngineAnalytics::Tick(DeltaSeconds);
+
 	// -----------------------------------------------------
 	// Begin ticking worlds
 	// -----------------------------------------------------
@@ -954,7 +1022,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	for (int32 WorldIdx = 0; WorldIdx < WorldList.Num(); ++WorldIdx)
 	{
 		FWorldContext &Context = WorldList[WorldIdx];
-		if (Context.World() == NULL)
+		if (Context.World() == NULL || !Context.World()->ShouldTick())
 		{
 			continue;
 		}
@@ -1038,6 +1106,8 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	//	End per-world ticking
 	// ----------------------------
 
+	FTickableGameObject::TickObjects(nullptr, LEVELTICK_All, false, DeltaSeconds);
+
 	// Restore original GWorld*. This will go away one day.
 	if (OriginalGWorldContext != NAME_None)
 	{
@@ -1046,46 +1116,46 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	}
 
 	// Tick the viewport
-		if ( GameViewport != NULL && !bIdleMode )
-		{
-			SCOPE_CYCLE_COUNTER(STAT_GameViewportTick);
-			GameViewport->Tick(DeltaSeconds);
-		}
+	if ( GameViewport != NULL && !bIdleMode )
+	{
+		SCOPE_CYCLE_COUNTER(STAT_GameViewportTick);
+		GameViewport->Tick(DeltaSeconds);
+	}
 
-		if (FPlatformProperties::SupportsWindowedMode())
+	if (FPlatformProperties::SupportsWindowedMode())
+	{
+		// Hide the splashscreen and show the game window
+		static bool bFirstTime = true;
+		if ( bFirstTime )
 		{
-			// Hide the splashscreen and show the game window
-			static bool bFirstTime = true;
-			if ( bFirstTime )
+			bFirstTime = false;
+			FPlatformSplash::Hide();
+			if ( GameViewportWindow.IsValid() )
 			{
-				bFirstTime = false;
-				FPlatformSplash::Hide();
-				if ( GameViewportWindow.IsValid() )
-				{
-					GameViewportWindow.Pin()->ShowWindow();
-					FSlateApplication::Get().RegisterGameViewport( GameViewportWidget.ToSharedRef() );
-				}
+				GameViewportWindow.Pin()->ShowWindow();
+				FSlateApplication::Get().RegisterGameViewport( GameViewportWidget.ToSharedRef() );
 			}
 		}
+	}
 
-		if (!bIdleMode && !IsRunningDedicatedServer() && !IsRunningCommandlet())
-		{
-			// Render everything.
-			RedrawViewports();
-		}
+	if (!bIdleMode && !IsRunningDedicatedServer() && !IsRunningCommandlet())
+	{
+		// Render everything.
+		RedrawViewports();
+	}
 
-		if( GIsClient )
-		{
-			// Update resource streaming after viewports have had a chance to update view information. Normal update.
-				QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_IStreamingManager);
-				IStreamingManager::Get().Tick( DeltaSeconds );
-			}
+	if( GIsClient )
+	{
+		// Update resource streaming after viewports have had a chance to update view information. Normal update.
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_UGameEngine_Tick_IStreamingManager);
+		IStreamingManager::Get().Tick( DeltaSeconds );
+	}
 
 	// Update Audio. This needs to occur after rendering as the rendering code updates the listener position.
-	FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
-	if (AudioDeviceManager)
-			{
-		AudioDeviceManager->UpdateActiveAudioDevices(bIsAnyNonPreviewWorldUnpaused);
+	FAudioDeviceManager* GameAudioDeviceManager = GEngine->GetAudioDeviceManager();
+	if (GameAudioDeviceManager)
+	{
+		GameAudioDeviceManager->UpdateActiveAudioDevices(bIsAnyNonPreviewWorldUnpaused);
 	}
 
 	// rendering thread commands
@@ -1106,11 +1176,7 @@ void UGameEngine::Tick( float DeltaSeconds, bool bIdleMode )
 	}
 
 #if WITH_EDITOR
-	// tick animation recorder. available only in editor builds
-	if (!IsRunningDedicatedServer() && !IsRunningCommandlet())
-	{
-		FAnimationRecorderManager::Get().Tick(DeltaSeconds);
-	}
+	BroadcastPostEditorTick(DeltaSeconds);
 #endif
 }
 
@@ -1172,4 +1238,10 @@ void UGameEngine::HandleTravelFailure_NotifyGameInstance(UWorld* World, ETravelF
 	{
 		GameInstance->HandleTravelError(FailureType);
 	}
+}
+
+void UGameEngine::HandleBrowseToDefaultMapFailure(FWorldContext& Context, const FString& TextURL, const FString& Error)
+{
+	Super::HandleBrowseToDefaultMapFailure(Context, TextURL, Error);
+	FPlatformMisc::RequestExit(false);
 }

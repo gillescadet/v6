@@ -11,7 +11,10 @@
 
 FPerfCounters::FPerfCounters(const FString& InUniqueInstanceId)
 : UniqueInstanceId(InUniqueInstanceId)
+, InternalCountersUpdateInterval(60)
 , Socket(nullptr)
+, ZeroLoadThread(nullptr)
+, ZeroLoadRunnable(nullptr)
 {
 }
 
@@ -30,6 +33,13 @@ FPerfCounters::~FPerfCounters()
 
 bool FPerfCounters::Initialize()
 {
+	float ConfigInternalCountersUpdateInterval = 60.0;
+	if (GConfig->GetFloat(TEXT("PerfCounters"), TEXT("InternalCountersUpdateInterval"), ConfigInternalCountersUpdateInterval, GEngineIni))
+	{
+		InternalCountersUpdateInterval = ConfigInternalCountersUpdateInterval;
+	}
+	LastTimeInternalCountersUpdated = FPlatformTime::Seconds() - InternalCountersUpdateInterval * FMath::FRand();	// randomize between servers
+
 	// get the requested port from the command line (if specified)
 	int32 StatsPort = -1;
 	FParse::Value(FCommandLine::Get(), TEXT("statsPort="), StatsPort);
@@ -146,11 +156,39 @@ static bool SendAsUtf8(FSocket* Conn, const FString& Message)
 
 bool FPerfCounters::Tick(float DeltaTime)
 {
-	// if we didn't get a socket, don't tick
-	if (Socket == nullptr)
+	if (LIKELY(Socket != nullptr))
 	{
-		return false;
+		TickSocket(DeltaTime);
 	}
+
+	if (LIKELY(ZeroLoadThread != nullptr))
+	{
+		TickZeroLoad(DeltaTime);
+	}
+
+	TickSystemCounters(DeltaTime);
+
+	// keep ticking
+	return true;
+}
+
+void FPerfCounters::TickZeroLoad(float DeltaTime)
+{
+	checkf(ZeroLoadThread != nullptr, TEXT("FPerfCounters::TickZeroThread() called without a valid socket!"));
+
+	TArray<FString> LogMessages;
+	if (LIKELY(ZeroLoadThread->GetHitchMessages(LogMessages)))
+	{
+		for (const FString& LogMessage : LogMessages)
+		{
+			UE_LOG(LogPerfCounters, Warning, TEXT("%s"), *LogMessage);
+		}
+	}
+}
+
+void FPerfCounters::TickSocket(float DeltaTime)
+{
+	checkf(Socket != nullptr, TEXT("FPerfCounters::TickSocket() called without a valid socket!"));
 
 	// accept any connections
 	static const FString PerfCounterRequest = TEXT("FPerfCounters Request");
@@ -230,9 +268,35 @@ bool FPerfCounters::Tick(float DeltaTime)
 			}
 		}
 	}
+}
 
-	// keep ticking
-	return true;
+void FPerfCounters::TickSystemCounters(float DeltaTime)
+{
+	// set some internal perf stats ([RCL] FIXME 2015-12-08: move to a better place)
+	float CurrentTime = FPlatformTime::Seconds();
+	if (CurrentTime - LastTimeInternalCountersUpdated > InternalCountersUpdateInterval)
+	{
+		// get CPU stats first
+		FCPUTime CPUStats = FPlatformTime::GetCPUTime();
+		Set(TEXT("ProcessCPUUsageRelativeToCore"), CPUStats.CPUTimePctRelative);
+
+		// memory
+		FPlatformMemoryStats Stats = FPlatformMemory::GetStats();
+		Set(TEXT("AvailablePhysicalMemoryMB"), static_cast<uint64>(Stats.AvailablePhysical / (1024 * 1024)));
+		Set(TEXT("AvailableVirtualMemoryMB"), static_cast<uint64>(Stats.AvailableVirtual / (1024 * 1024)));
+		Set(TEXT("ProcessPhysicalMemoryMB"), static_cast<uint64>(Stats.UsedPhysical/ (1024 * 1024)));
+		Set(TEXT("ProcessVirtualMemoryMB"), static_cast<uint64>(Stats.UsedVirtual / (1024 * 1024)));
+
+		// disk space
+		const FString LogFilename = FPlatformOutputDevices::GetAbsoluteLogFilename();
+		uint64 TotalBytesOnLogDrive = 0, FreeBytesOnLogDrive = 0;
+		if (FPlatformMisc::GetDiskTotalAndFreeSpace(LogFilename, TotalBytesOnLogDrive, FreeBytesOnLogDrive))
+		{
+			Set(TEXT("FreeSpaceOnLogFileDiskInMB"), static_cast<uint64>(FreeBytesOnLogDrive / (1024 * 1024)));
+		}
+
+		LastTimeInternalCountersUpdated = CurrentTime;
+	}
 }
 
 bool FPerfCounters::Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar)
@@ -279,14 +343,6 @@ bool FPerfCounters::ProcessRequest(uint8* Buffer, int32 BufferLen, FResponse& Re
 			else if (Tokens[1].StartsWith(TEXT("/stats")))
 			{
 				Response.Body = GetAllCountersAsJson();
-
-				// retrieving stats resets them by default, unless ?peek parameter is passed
-				const int kStatsTokenLength = 6; // strlen("/stats");
-				FString TokenRemainder = Tokens[1].Mid(kStatsTokenLength);
-				if (TokenRemainder != TEXT("?peek"))
-				{
-					ResetStatsForNextPeriod();
-				}
 			}
 			else if (Tokens[1].StartsWith(TEXT("/exec?c=")))
 			{
@@ -374,4 +430,78 @@ void FPerfCounters::SetJson(const FString& Name, const FProduceJsonCounterValue&
 	JsonValue.Format = FJsonVariant::Callback;
 	JsonValue.Flags = Flags;
 	JsonValue.CallbackValue = InCallback;
+}
+
+bool FPerfCounters::StartMachineLoadTracking()
+{
+	if (UNLIKELY(ZeroLoadRunnable != nullptr || ZeroLoadThread != nullptr))
+	{
+		UE_LOG(LogPerfCounters, Warning, TEXT("Machine load tracking has already been started."));
+		return false;
+	}
+
+	ZeroLoadThread = new FZeroLoad(30.0);
+	ZeroLoadRunnable = FRunnableThread::Create(ZeroLoadThread, TEXT("ZeroLoadThread"), 0, TPri_Normal);
+
+	if (UNLIKELY(ZeroLoadRunnable == nullptr))
+	{
+		UE_LOG(LogPerfCounters, Warning, TEXT("Failed to create zero load thread."));
+
+		delete ZeroLoadThread;
+		ZeroLoadThread = nullptr;
+
+		return false;
+	}
+
+	return true;
+}
+
+bool FPerfCounters::StopMachineLoadTracking()
+{
+	if (UNLIKELY(ZeroLoadRunnable == nullptr || ZeroLoadThread == nullptr))
+	{
+		UE_LOG(LogPerfCounters, Warning, TEXT("Machine load tracking has already been stopped."));
+		return false;
+	}
+
+	// this will first call Stop()
+	if (!ZeroLoadRunnable->Kill(true))
+	{
+		UE_LOG(LogPerfCounters, Warning, TEXT("Could not kill zero-load thread, crash imminent."));
+	}
+
+	// set the its histogram as one of counters
+	FHistogram ZeroLoadFrameTimes;
+	if (ZeroLoadThread->GetFrameTimeHistogram(ZeroLoadFrameTimes))
+	{
+		PerformanceHistograms().Add(IPerfCounters::Histograms::ZeroLoadFrameTime, ZeroLoadFrameTimes);
+	}
+
+	delete ZeroLoadRunnable;
+	ZeroLoadRunnable = nullptr;
+
+	delete ZeroLoadThread;
+	ZeroLoadThread = nullptr;
+
+	return true;
+}
+
+bool FPerfCounters::ReportUnplayableCondition(const FString& ConditionDescription)
+{
+	FString UnplayableConditionFile(FPaths::Combine(*FPaths::GameSavedDir(), *FString::Printf(TEXT("UnplayableConditionForPid_%d.txt"), FPlatformProcess::GetCurrentProcessId())));
+
+	FArchive* ReportFile = IFileManager::Get().CreateFileWriter(*UnplayableConditionFile);
+	if (UNLIKELY(ReportFile == nullptr))
+	{
+		return false;
+	}
+
+	// include description for debugging
+	FTCHARToUTF8 Converter(*FString::Printf(TEXT("Unplayable condition encountered: %s\n"), *ConditionDescription));
+	ReportFile->Serialize(reinterpret_cast<void *>(const_cast<char *>(Converter.Get())), Converter.Length());
+
+	ReportFile->Close();
+	delete ReportFile;
+
+	return true;
 }

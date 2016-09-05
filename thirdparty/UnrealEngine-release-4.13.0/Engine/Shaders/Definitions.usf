@@ -34,6 +34,10 @@
 #define MATERIALBLENDING_MODULATE						0
 #endif
 
+#ifndef MATERIALBLENDING_ALPHACOMPOSITE
+#define MATERIALBLENDING_ALPHACOMPOSITE					0
+#endif
+
 #ifndef MATERIAL_SHADINGMODEL_DEFAULT_LIT
 #define MATERIAL_SHADINGMODEL_DEFAULT_LIT				0
 #endif
@@ -71,7 +75,11 @@
 #endif
 
 #ifndef COMPILER_GLSL_ES2
-#define COMPILER_GLSL_ES2									0
+#define COMPILER_GLSL_ES2								0
+#endif
+
+#ifndef COMPILER_GLSL_ES3_1
+#define COMPILER_GLSL_ES3_1								0
 #endif
 
 #ifndef COMPILER_METAL
@@ -116,6 +124,14 @@
 
 #ifndef VULKAN_PROFILE
 #define	VULKAN_PROFILE									0
+#endif
+
+#ifndef VULKAN_PROFILE_SM4
+#define	VULKAN_PROFILE_SM4								0
+#endif
+
+#ifndef VULKAN_PROFILE_SM5
+#define	VULKAN_PROFILE_SM5								0
 #endif
 
 #ifndef IOS
@@ -180,21 +196,21 @@
 #define ENABLE_RE_Z
 #endif
 
-#ifndef USE_CLEARCOAT
-#define USE_CLEARCOAT									0
-#endif
-
-#ifndef USE_CLOTH
-#define USE_CLOTH										0
-#endif
-
-#ifndef USE_EYE
-#define USE_EYE										0
-#endif
-
 #ifndef INSTANCED_STEREO
 #define INSTANCED_STEREO								0
 #endif	
+
+#ifndef MULTI_VIEW
+#define MULTI_VIEW									0
+#endif	
+
+#ifndef CLEAR_COAT_BOTTOM_NORMAL
+#define CLEAR_COAT_BOTTOM_NORMAL						0
+#endif
+
+#ifndef TEX_COORD_SCALE_ANALYSIS
+#define TEX_COORD_SCALE_ANALYSIS						0		
+#endif
 
 #if SM5_PROFILE || COMPILER_SUPPORTS_ATTRIBUTES
 /** Avoids flow control constructs. */
@@ -219,6 +235,9 @@
 #endif
 #ifndef FLATTEN
 #define FLATTEN
+#endif
+#ifndef ALLOW_UAV_CONDITION	
+#define ALLOW_UAV_CONDITION	
 #endif
 #endif
 
@@ -273,8 +292,13 @@
 #endif
 
 // 'static' asserts
-#if COMPILER_GLSL || COMPILER_GLSL_ES2 || VULKAN_PROFILE || METAL_PROFILE || METAL_MRT_PROFILE || METAL_SM4_PROFILE || METAL_SM5_PROFILE
+#if COMPILER_GLSL || COMPILER_GLSL_ES2 || COMPILER_GLSL_ES3_1 || VULKAN_PROFILE || METAL_PROFILE || METAL_MRT_PROFILE || METAL_SM4_PROFILE || METAL_SM5_PROFILE
 #if !COMPILER_HLSLCC
 #error "Missing COMPILER_HLSLCC define!"
 #endif
+#endif
+
+// Hlslcc platforms ignore the uniform keyword as it can't properly optimize flow
+#if COMPILER_HLSLCC
+#define uniform
 #endif

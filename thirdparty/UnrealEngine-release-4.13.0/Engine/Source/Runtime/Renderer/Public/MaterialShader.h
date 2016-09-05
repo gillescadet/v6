@@ -110,15 +110,15 @@ public:
 	FUniformBufferRHIParamRef GetParameterCollectionBuffer(const FGuid& Id, const FSceneInterface* SceneInterface) const;
 
 	template<typename ShaderRHIParamRef>
-	void SetParameters(FRHICommandList& RHICmdList, const ShaderRHIParamRef ShaderRHI, const FSceneView& View)
+	FORCEINLINE_DEBUGGABLE void SetParameters(FRHICommandList& RHICmdList, const ShaderRHIParamRef ShaderRHI, const FSceneView& View)
 	{
 		const auto& ViewUniformBufferParameter = GetUniformBufferParameter<FViewUniformShaderParameters>();
-		const auto& FrameUniformBufferParameter = GetUniformBufferParameter<FFrameUniformShaderParameters>();
 		const auto& BuiltinSamplersUBParameter = GetUniformBufferParameter<FBuiltinSamplersParameters>();
 		CheckShaderIsValid();
 		SetUniformBufferParameter(RHICmdList, ShaderRHI, ViewUniformBufferParameter, View.ViewUniformBuffer);
-		SetUniformBufferParameter(RHICmdList, ShaderRHI, FrameUniformBufferParameter, View.FrameUniformBuffer);
+#if USE_GBuiltinSamplersUniformBuffer
 		SetUniformBufferParameter(RHICmdList, ShaderRHI, BuiltinSamplersUBParameter, GBuiltinSamplersUniformBuffer.GetUniformBufferRHI());
+#endif
 
 		// Skip if instanced stereo is not enabled
 		if (View.bIsInstancedStereoEnabled && View.Family->Views.Num() > 0)
@@ -164,23 +164,11 @@ private:
 	TArray<FShaderParameter> PerFramePrevScalarExpressions;
 	TArray<FShaderParameter> PerFramePrevVectorExpressions;
 	FDeferredPixelShaderParameters DeferredParameters;
-	FShaderResourceParameter LightAttenuation;
-	FShaderResourceParameter LightAttenuationSampler;
-
-	// For materials using atmospheric fog color 
-	FAtmosphereShaderTextureParameters AtmosphericFogTextureParameters;
+	FShaderResourceParameter SceneColorCopyTexture;
+	FShaderResourceParameter SceneColorCopyTextureSampler;
 
 	//Use of the eye adaptation texture here is experimental and potentially dangerous as it can introduce a feedback loop. May be removed.
 	FShaderResourceParameter EyeAdaptation;
-
-	/** The PerlinNoiseGradientTexture parameter for materials that use GradientNoise */
-	FShaderResourceParameter PerlinNoiseGradientTexture;
-	FShaderResourceParameter PerlinNoiseGradientTextureSampler;
-	/** The PerlinNoise3DTexture parameter for materials that use GradientNoise */
-	FShaderResourceParameter PerlinNoise3DTexture;
-	FShaderResourceParameter PerlinNoise3DTextureSampler;
-
-	FGlobalDistanceFieldParameters GlobalDistanceFieldParameters;
 
 	FDebugUniformExpressionSet	DebugUniformExpressionSet;
 	FRHIUniformBufferLayout		DebugUniformExpressionUBLayout;

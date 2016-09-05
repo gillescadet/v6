@@ -10,6 +10,8 @@
 #include "Widget.generated.h"
 
 class UPanelSlot;
+class UUserWidget;
+class SObjectWidget;
 
 /**
  * Helper macro for binding to a delegate or using the constant value when constructing the underlying SWidget
@@ -116,6 +118,8 @@ public:
 	DECLARE_DYNAMIC_DELEGATE_RetVal(FEventReply, FOnReply);
 	DECLARE_DYNAMIC_DELEGATE_RetVal_TwoParams(FEventReply, FOnPointerEvent, FGeometry, MyGeometry, const FPointerEvent&, MouseEvent);
 
+	typedef TFunctionRef<TSharedPtr<SObjectWidget>( UUserWidget*, TSharedRef<SWidget> )> ConstructMethodType;
+
 	/**
 	 * Allows controls to be exposed as variables in a blueprint.  Not all controls need to be exposed
 	 * as variables, so this allows only the most useful ones to end up being exposed.
@@ -170,7 +174,7 @@ public:
 	FGetSlateVisibility VisibilityDelegate;
 
 	/**  */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, Category="Behavior", meta=(InlineEditConditionToggle))
 	uint32 bOverride_Cursor : 1;
 
 	/** The cursor to show when the mouse is over the widget */
@@ -377,11 +381,43 @@ public:
 	virtual void RemoveFromParent();
 
 	/**
-	 * Gets the underlying slate widget or constructs it if it doesn't exist.  This function is
-	 * virtual however, you should not inherit this function unless you're very aware of what you're
-	 * doing.  Normal derived versions should only ever override RebuildWidget.
+	 * Gets the underlying slate widget or constructs it if it doesn't exist.  If you're looking to replace
+	 * what slate widget gets constructed look for RebuildWidget.  For extremely special cases where you actually
+	 * need to change the the GC Root widget of the constructed User Widget - you need to use TakeDerivedWidget
+	 * you must also take care to not call TakeWidget before calling TakeDerivedWidget, as that would put the wrong
+	 * expected wrapper around the resulting widget being constructed.
 	 */
 	TSharedRef<SWidget> TakeWidget();
+
+	/**
+	 * Gets the underlying slate widget or constructs it if it doesn't exist.
+	 * 
+	 * @param ConstructMethod allows the caller to specify a custom constructor that will be provided the 
+	 *						  default parameters we use to construct the slate widget, this allows the caller 
+	 *						  to construct derived types of SObjectWidget in cases where additional 
+	 *						  functionality at the slate level is desirable.  
+	 * @example
+	 *		class SObjectWidgetCustom : public SObjectWidget, public IMixinBehavior
+	 *      { }
+	 * 
+	 *      Widget->TakeDerivedWidget<SObjectWidgetCustom>( []( UUserWidget* Widget, TSharedRef<SWidget> Content ) {
+	 *			return SNew( SObjectWidgetCustom, Widget ) 
+	 *					[
+	 *						Content
+	 *					];
+	 *		});
+	 * 
+	 */
+	template <class WidgetType, class = typename TEnableIf<TIsDerivedFrom<WidgetType, SObjectWidget>::IsDerived, WidgetType>::Type>
+	TSharedRef<WidgetType> TakeDerivedWidget( ConstructMethodType ConstructMethod )
+	{
+		return StaticCastSharedRef<WidgetType>( TakeWidget_Private( ConstructMethod ) );
+	}
+	
+private:
+	TSharedRef<SWidget> TakeWidget_Private( ConstructMethodType ConstructMethod );
+
+public:
 
 	/** Gets the last created widget does not recreate the gc container for the widget if one is needed. */
 	TSharedPtr<SWidget> GetCachedWidget() const;
@@ -488,8 +524,9 @@ public:
 	virtual void OnCreationFromPalette() { }
 
 	/** Gets the editor icon */
+	DEPRECATED(4.12, "GetEditorIcon is deprecated. Please define widget icons in your style set in the form ClassIcon.MyWidget, and register your style through FClassIconFinder::(Un)RegisterIconSource")
 	virtual const FSlateBrush* GetEditorIcon();
-	
+
 	/** Allows general fixups and connections only used at editor time. */
 	virtual void ConnectEditorData() { }
 
@@ -566,7 +603,7 @@ protected:
 	TWeakPtr<SWidget> MyWidget;
 
 	/** The underlying SWidget contained in a SObjectWidget */
-	TWeakPtr<class SObjectWidget> MyGCWidget;
+	TWeakPtr<SObjectWidget> MyGCWidget;
 
 	/** Native property bindings. */
 	UPROPERTY(Transient)
@@ -591,7 +628,6 @@ private:
 	void VerifySynchronizeProperties();
 
 	/** Did we route the synchronize properties call? */
-	UPROPERTY(Transient)
 	bool bRoutedSynchronizeProperties;
 
 #else

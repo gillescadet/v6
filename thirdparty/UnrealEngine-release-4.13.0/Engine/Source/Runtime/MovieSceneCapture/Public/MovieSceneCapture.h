@@ -9,7 +9,10 @@
 #include "RenderingThread.h"
 #include "IMovieSceneCaptureProtocol.h"
 #include "MovieSceneCaptureProtocolRegistry.h"
+#include "MovieSceneCaptureProtocolSettings.h"
 #include "MovieSceneCapture.generated.h"
+
+class FJsonObject;
 
 /** Structure used to cache various metrics for our capture */
 struct FCachedMetrics
@@ -45,15 +48,33 @@ public:
 	const FMovieSceneCaptureSettings& GetSettings() const override { return Settings; }
 	// End IMovieSceneCaptureInterface
 
+	/** Load save from config helpers */
+	virtual void LoadFromConfig();
+	virtual void SaveToConfig();
+
+	/** Serialize additional json data for this capture */
+	void SerializeJson(FJsonObject& Object);
+
+	/** Deserialize additional json data for this capture */
+	void DeserializeJson(const FJsonObject& Object);
+
+protected:
+
+	/** Custom, additional json serialization */
+	virtual void SerializeAdditionalJson(FJsonObject& Object){}
+
+	/** Custom, additional json deserialization */
+	virtual void DeserializeAdditionalJson(const FJsonObject& Object){}
+
 public:
 
 	/** The type of capture protocol to use */
-	UPROPERTY(config, EditAnywhere, Category=CaptureSettings)
+	UPROPERTY(config, EditAnywhere, Category=CaptureSettings, DisplayName="Output Format")
 	FCaptureProtocolID CaptureType;
 
 	/** Settings specific to the capture protocol */
 	UPROPERTY(EditAnywhere, Category=CaptureSettings)
-	UObject* ProtocolSettings;
+	UMovieSceneCaptureProtocolSettings* ProtocolSettings;
 
 	/** Settings that define how to capture */
 	UPROPERTY(EditAnywhere, config, Category=CaptureSettings, meta=(ShowOnlyInnerProperties))
@@ -62,6 +83,10 @@ public:
 	/** Whether to capture the movie in a separate process or not */
 	UPROPERTY(config, EditAnywhere, Category=General, AdvancedDisplay)
 	bool bUseSeparateProcess;
+
+	/** When enabled, the editor will shutdown when the capture starts */
+	UPROPERTY(EditAnywhere, config, Category=General, AdvancedDisplay, meta=(EditCondition=bUseSeparateProcess))
+	bool bCloseEditorWhenCaptureStarts;
 
 	/** Additional command line arguments to pass to the external process when capturing */
 	UPROPERTY(EditAnywhere, config, Category=General, AdvancedDisplay, meta=(EditCondition=bUseSeparateProcess))
@@ -113,11 +138,18 @@ protected:
 
 	/**~ ICaptureProtocolHost interface */
 	virtual FString GenerateFilename(const FFrameMetrics& FrameMetrics, const TCHAR* Extension) const override;
+	virtual void EnsureFileWritable(const FString& File) const override;
 	virtual float GetCaptureFrequency() const { return Settings.FrameRate; }
 	virtual const ICaptureStrategy& GetCaptureStrategy() const { return *CaptureStrategy; }
 
+	/** Add additional format mappings to be used when generating filenames */
+	virtual void AddFormatMappings(TMap<FString, FStringFormatArg>& OutFormatMappings, const FFrameMetrics& FrameMetrics) const {}
+
 	/** Resolve the specified format using the user supplied formatting rules. */
 	FString ResolveFileFormat(const FString& Format, const FFrameMetrics& FrameMetrics) const;
+
+	/** Initialize the settings structure for the current capture type */
+	void InitializeSettings();
 
 protected:
 
@@ -139,7 +171,7 @@ protected:
 	/** Cached metrics for this capture operation */
 	FCachedMetrics CachedMetrics;
 	/** Format mappings used for generating filenames */
-	mutable TMap<FString, FStringFormatArg> FormatMappings;
+	TMap<FString, FStringFormatArg> FormatMappings;
 	/** The number of frames to capture.  If this is zero, we'll capture the entire sequence. */
 	int32 FrameCount;
 	/** Whether we have started capturing or not */
@@ -149,6 +181,8 @@ protected:
 	int32 FrameNumberOffset;
 	/** Event that is triggered when capturing has finished */
 	FOnCaptureFinished OnCaptureFinishedDelegate;
+	/** Format string used for frame numbers */
+	FString FrameNumberFormat;
 };
 
 /** A strategy that employs a fixed frame time-step, and as such never drops a frame. Potentially accelerated. */

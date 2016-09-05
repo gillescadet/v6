@@ -24,45 +24,27 @@ public:
 	enum
 	{
 		PageSize = 64 * 1024,
-		SmallPageSize = 1024
+		SmallPageSize = 1024-16 // allow a little extra space for allocator headers, etc
 	};
-	FORCEINLINE static void *Alloc()
-	{
-		void *Result = TheAllocator.Allocate();
-		STAT(UpdateStats());
-		return Result;
-	}
-	FORCEINLINE static void Free(void *Mem)
-	{
-		TheAllocator.Free(Mem);
-		STAT(UpdateStats());
-	}
-	FORCEINLINE static void *AllocSmall()
-	{
-		void *Result = TheSmallAllocator.Allocate();
-		STAT(UpdateStats());
-		return Result;
-	}
-	FORCEINLINE static void FreeSmall(void *Mem)
-	{
-		TheSmallAllocator.Free(Mem);
-		STAT(UpdateStats());
-	}
-	static uint64 BytesUsed()
-	{
-		return uint64(TheAllocator.GetNumUsed().GetValue()) * PageSize + uint64(TheSmallAllocator.GetNumUsed().GetValue()) * SmallPageSize;
-	}
-	static uint64 BytesFree()
-	{
-		return uint64(TheAllocator.GetNumFree().GetValue()) * PageSize + uint64(TheSmallAllocator.GetNumFree().GetValue()) * SmallPageSize;
-	}
+#if UE_BUILD_SHIPPING
+	typedef TLockFreeFixedSizeAllocator<PageSize, PLATFORM_CACHE_LINE_SIZE, FNoopCounter> TPageAllocator;
+#else
+	typedef TLockFreeFixedSizeAllocator<PageSize, PLATFORM_CACHE_LINE_SIZE, FThreadSafeCounter> TPageAllocator;
+#endif
+
+	static void *Alloc();
+	static void Free(void *Mem);
+	static void *AllocSmall();
+	static void FreeSmall(void *Mem);
+	static uint64 BytesUsed();
+	static uint64 BytesFree();
+	static void LatchProtectedMode();
 private:
 
 #if STATS
 	static void UpdateStats();
 #endif
-	static TLockFreeFixedSizeAllocator<PageSize, FThreadSafeCounter> TheAllocator;
-	static TLockFreeFixedSizeAllocator<SmallPageSize, FThreadSafeCounter> TheSmallAllocator;
+	static TPageAllocator TheAllocator;
 };
 
 
@@ -74,8 +56,16 @@ private:
 class CORE_API FMemStackBase
 {
 public:
+#if ( PLATFORM_WINDOWS && defined(__clang__) )
+	FMemStackBase()			// @todo clang: parameterless constructor is needed to prevent an ICE in clang
+		: FMemStackBase(1)	// https://llvm.org/bugs/show_bug.cgi?id=28137
+	{
+	}
 
+	FMemStackBase(int32 InMinMarksToAlloc)
+#else
 	FMemStackBase(int32 InMinMarksToAlloc = 1)
+#endif
 		: Top(nullptr)
 		, End(nullptr)
 		, TopChunk(nullptr)
@@ -310,14 +300,27 @@ public:
 				}
 			}
 		}
-		int32 CalculateSlack(int32 NumElements,int32 NumAllocatedElements,int32 NumBytesPerElement) const
+		FORCEINLINE int32 CalculateSlackReserve(int32 NumElements, int32 NumBytesPerElement) const
 		{
-			return DefaultCalculateSlack(NumElements,NumAllocatedElements,NumBytesPerElement);
+			return DefaultCalculateSlackReserve(NumElements, NumBytesPerElement, false, Alignment);
+		}
+		FORCEINLINE int32 CalculateSlackShrink(int32 NumElements, int32 NumAllocatedElements, int32 NumBytesPerElement) const
+		{
+			return DefaultCalculateSlackShrink(NumElements, NumAllocatedElements, NumBytesPerElement, false, Alignment);
+		}
+		FORCEINLINE int32 CalculateSlackGrow(int32 NumElements, int32 NumAllocatedElements, int32 NumBytesPerElement) const
+		{
+			return DefaultCalculateSlackGrow(NumElements, NumAllocatedElements, NumBytesPerElement, false, Alignment);
 		}
 
-		int32 GetAllocatedSize(int32 NumAllocatedElements, int32 NumBytesPerElement) const
+		FORCEINLINE int32 GetAllocatedSize(int32 NumAllocatedElements, int32 NumBytesPerElement) const
 		{
 			return NumAllocatedElements * NumBytesPerElement;
+		}
+
+		bool HasAllocation()
+		{
+			return !!Data;
 		}
 			
 	private:

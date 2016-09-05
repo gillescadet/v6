@@ -18,6 +18,10 @@
 
 #define NUM_MATERIAL_TEXCOORDS_VERTEX %s
 #define NUM_MATERIAL_TEXCOORDS %s
+
+#ifdef MIN_MATERIAL_TEXCOORDS 
+	#include "MinMaterialTexCoords.usf"
+#endif
  
 #if MATERIAL_ATMOSPHERIC_FOG
 	#include "AtmosphereCommon.usf"
@@ -43,20 +47,16 @@
 	#define USE_STENCIL_LOD_DITHER	USE_STENCIL_LOD_DITHER_DEFAULT
 #endif
 
-// scale factor for screen position, for cases where we may render certain things at lower resolutions (e.g. separate translucency)
-// any pass wanting to render at reduced resolution needs to simply set this constant to scale scene texture UVs to make scene texture accesses work
-#if PIXELSHADER && TRANSLUCENCY_RENDERING
-float2 ScreenPositionUVScale;
-#endif
-
 //Platforms that don't run the editor shouldn't need editor features in the shaders.
-#define PLATFORM_SUPPORTS_EDITOR_SHADERS (!PS4_PROFILE && !XBOXONE_PROFILE && !ES31_AEP_PROFILE)
+#define PLATFORM_SUPPORTS_EDITOR_SHADERS (!PS4_PROFILE && !XBOXONE_PROFILE && !ESDEFERRED_PROFILE)
 
 //Tie Editor features to platform support and the COMPILE_SHADERS_FOR_DEVELOPMENT which is set via CVAR.
 #define USE_EDITOR_SHADERS (PLATFORM_SUPPORTS_EDITOR_SHADERS && USE_DEVELOPMENT_SHADERS)
 
 //Materials also have to opt in to these features.
 #define USE_EDITOR_COMPOSITING (USE_EDITOR_SHADERS && EDITOR_PRIMITIVE_MATERIAL)
+
+#define MATERIALBLENDING_ANY_TRANSLUCENT (MATERIALBLENDING_TRANSLUCENT || MATERIALBLENDING_ADDITIVE || MATERIALBLENDING_MODULATE)
 
 /**
  * Parameters used by vertex and pixel shaders to access particle properties.
@@ -73,12 +73,14 @@ struct FMaterialParticleParameters
 	half4 Velocity;
 	/** Per-particle color. */
 	half4 Color;
-	/** Particle world space position and size(radius). */
-	float4 PositionAndSize;
+	/** Particle translated world space position and size(radius). */
+	float4 TranslatedWorldPositionAndSize;
 	/** Macro UV scale and bias. */
 	half4 MacroUV;
 	/** Dynamic parameter used by particle systems. */
 	half4 DynamicParameter;
+	/** mesh particle orientation */
+	float4x4 LocalToWorld;
 
 #if USE_PARTICLE_SUBUVS
 	/** SubUV texture coordinates*/
@@ -197,13 +199,23 @@ struct FMaterialPixelParameters
 #if (ES2_PROFILE || ES3_1_PROFILE)
 	float4 LayerWeights;
 #endif
+
+#if TEX_COORD_SCALE_ANALYSIS
+	/** Parameters used by the MaterialTexCoordScales shader. */
+	FTexCoordScalesParams TexCoordScalesParams;
+#endif
+
+#if POST_PROCESS_MATERIAL && (FEATURE_LEVEL <= FEATURE_LEVEL_ES3_1)
+	/** Used in mobile custom pp material to preserve original SceneColor Alpha */
+	half BackupSceneColorAlpha;
+#endif
 };
 
 // @todo compat hack
 FMaterialPixelParameters MakeInitializedMaterialPixelParameters()
 {
 	FMaterialPixelParameters MPP;
-#if SM5_PROFILE || SM4_PROFILE || PS4_PROFILE || (ES2_PROFILE || ES3_1_PROFILE)
+#if SM5_PROFILE || SM4_PROFILE || PS4_PROFILE || (ES2_PROFILE || ES3_1_PROFILE) || METAL_SM5_PROFILE || METAL_SM4_PROFILE || METAL_MRT_PROFILE
 	MPP = (FMaterialPixelParameters)0;
 #else
 	// @todo compat hack - put back to the 0 typecast (2 lines up)
@@ -232,7 +244,7 @@ FMaterialPixelParameters MakeInitializedMaterialPixelParameters()
 	MPP.LightingPositionOffset = 0;
 	MPP.AOMaterialMask = 0;
 	MPP.Particle.Color = 0;
-	MPP.Particle.PositionAndSize = 0;
+	MPP.Particle.TranslatedWorldPositionAndSize = 0;
 	MPP.Particle.MacroUV = 0;
 	MPP.Particle.DynamicParameter = 0;
 	#if USE_PARTICLE_SUBUVS
@@ -248,6 +260,9 @@ FMaterialPixelParameters MakeInitializedMaterialPixelParameters()
 	MPP.PerInstanceParams = 0;
 	#endif
 	MPP.SvPosition = 0;
+	#if POST_PROCESS_MATERIAL && (FEATURE_LEVEL <= FEATURE_LEVEL_ES3_1)
+	MPP.BackupSceneColorAlpha = 0;
+	#endif
 #endif
 	MPP.TangentToWorld = float3x3(1,0,0,0,1,0,0,0,1);
 	return MPP;
@@ -375,7 +390,7 @@ float4 GetScreenPosition(FMaterialPixelParameters Parameters)
 	return Parameters.ScreenPosition;
 }
 
-#if DECAL_RENDERSTAGE && NUM_MATERIAL_TEXCOORDS
+#if DEFERRED_DECAL && NUM_MATERIAL_TEXCOORDS
 	/*
 	 * Material node DecalMipmapLevel's code designed to avoid the 2x2 pixels artefacts on the edges around where the decal
 	 * is projected to. The technique is fetched from (http://www.humus.name/index.php?page=3D&ID=84).
@@ -435,7 +450,7 @@ float4 GetScreenPosition(FMaterialPixelParameters Parameters)
 		float MaxDiff = max(dot(UvPixelDiffX, UvPixelDiffX), dot(UvPixelDiffY, UvPixelDiffY));
 		return 0.5 * log2(MaxDiff);
 	}
-#else
+#else // DEFERRED_DECAL && NUM_MATERIAL_TEXCOORDS
 	float2 ComputeDecalDDX(FMaterialPixelParameters Parameters)
 	{
 		return 0.0f;
@@ -450,9 +465,9 @@ float4 GetScreenPosition(FMaterialPixelParameters Parameters)
 	{
 		return 0.0f;
 	}
-#endif //DECAL_RENDERSTAGE
+#endif // DEFERRED_DECAL && NUM_MATERIAL_TEXCOORDS
 
-#if DECAL_RENDERSTAGE
+#if DEFERRED_DECAL
 	/*
 	 * Deferred decal don't have a Primitive uniform buffer, because we don't know on which primitive the decal
 	 * is being projected to. But the user may still need to get the decal's actor world position.
@@ -468,7 +483,19 @@ float4 GetScreenPosition(FMaterialPixelParameters Parameters)
 	{
 		return Primitive.ActorWorldPosition;
 	}
-#endif //DECAL_RENDERSTAGE
+#endif // DEFERRED_DECAL
+
+#if DECAL_PRIMITIVE
+	float DecalLifetimeOpacity()
+	{
+		return DecalParams.y;
+	}
+#else
+	float DecalLifetimeOpacity()
+	{
+		return 0.0f;
+	}
+#endif // DECAL_PRIMITIVE
 
 /** Transforms a vector from tangent space to world space, prescaling by an amount calculated previously */
 MaterialFloat3 TransformTangentVectorToWorld_PreScaled(FMaterialTessellationParameters Parameters, MaterialFloat3 InTangentVector)
@@ -601,7 +628,7 @@ float GetPerInstanceFadeAmount(FMaterialVertexParameters Parameters)
  
 MaterialFloat GetDistanceCullFade()
 {
-	return saturate( Frame.RealTime * PrimitiveFade.FadeTimeScaleBias.x + PrimitiveFade.FadeTimeScaleBias.y );
+	return saturate( View.RealTime * PrimitiveFade.FadeTimeScaleBias.x + PrimitiveFade.FadeTimeScaleBias.y );
 }
 
 /** Rotates Position about the given axis by the given angle, in radians, and returns the offset to Position. */
@@ -676,13 +703,9 @@ float4 MaterialExpressionAtmosphericFog(FMaterialPixelParameters Parameters, flo
 {
 #if MATERIAL_ATMOSPHERIC_FOG
 	// WorldPosition default value is Parameters.AbsoluteWorldPosition if not overridden by the user
-	// v6
-	float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldEyeOrigin;
-	// float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldCameraOrigin;
+	float3 ViewVector = AbsoluteWorldPosition - ResolvedView.WorldCameraOrigin;
 	float SceneDepth = length(ViewVector);
-	// v6
-	return GetAtmosphericFog(ResolvedView.WorldEyeOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
-	// return GetAtmosphericFog(ResolvedView.WorldCameraOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
+	return GetAtmosphericFog(ResolvedView.WorldCameraOrigin, ViewVector, SceneDepth, float3(0.f, 0.f, 0.f));
 #else
 	return float4(0.f, 0.f, 0.f, 0.f);
 #endif
@@ -734,14 +757,14 @@ MaterialFloat2 GetParticleMacroUV(FMaterialPixelParameters Parameters)
 }
 
 #ifndef MOBILE_EMULATION
-#define MOBILE_EMULATION ((FEATURE_LEVEL == FEATURE_LEVEL_ES2 || FEATURE_LEVEL == FEATURE_LEVEL_ES3_1) && (!COMPILER_GLSL_ES2 && USE_DEVELOPMENT_SHADERS && !(METAL_PROFILE && MAC)))
+#define MOBILE_EMULATION ((FEATURE_LEVEL == FEATURE_LEVEL_ES2 || FEATURE_LEVEL == FEATURE_LEVEL_ES3_1) && (!(COMPILER_GLSL_ES2||COMPILER_GLSL_ES3_1) && USE_DEVELOPMENT_SHADERS && (COMPILER_METAL && MAC)))
 #endif
 
 MaterialFloat4 ProcessMaterialColorTextureLookup(MaterialFloat4 TextureValue)
 {
 #if (ES2_PROFILE || ES3_1_PROFILE)
 	#if MOBILE_EMULATION
-	if( Frame.MobilePreviewMode > 0.5f)
+	if( View.MobilePreviewMode > 0.5f)
 	{
 		// undo HW srgb->lin
 		TextureValue.rgb = pow(TextureValue.rgb, 1.0f / 2.2f); // TODO: replace with a more accurate lin -> sRGB conversion.
@@ -763,7 +786,7 @@ MaterialFloat ProcessMaterialGreyscaleTextureLookup(MaterialFloat TextureValue)
 {
 #if (ES2_PROFILE || ES3_1_PROFILE)
 	#if MOBILE_EMULATION
-	if( Frame.MobilePreviewMode > 0.5f )
+	if( View.MobilePreviewMode > 0.5f )
 	{
 		// undo HW srgb->lin
 		TextureValue = pow(TextureValue, 1.0f/2.2f); // TODO: replace with a more accurate lin -> sRGB conversion.
@@ -819,14 +842,14 @@ float GetSphericalParticleOpacity(FMaterialPixelParameters Parameters, float Den
 
 #if PARTICLE_FACTORY
 
-	float3 ParticlePosition = Parameters.Particle.PositionAndSize.xyz;
-	float ParticleRadius = max(0.000001f, Parameters.Particle.PositionAndSize.w);
+	float3 ParticleTranslatedWorldPosition = Parameters.Particle.TranslatedWorldPositionAndSize.xyz;
+	float ParticleRadius = max(0.000001f, Parameters.Particle.TranslatedWorldPositionAndSize.w);
 
 #elif HAS_PRIMITIVE_UNIFORM_BUFFER
 
 	// Substitute object attributes if the mesh is not a particle
 	// This is mostly useful for previewing materials using spherical opacity in the material editor
-	float3 ParticlePosition = Primitive.ObjectWorldPositionAndRadius.xyz;
+	float3 ParticleTranslatedWorldPosition = Primitive.ObjectWorldPositionAndRadius.xyz + ResolvedView.PreViewTranslation.xyz;
 	float ParticleRadius = max(0.000001f, Primitive.ObjectWorldPositionAndRadius.w);
 
 #endif
@@ -835,7 +858,7 @@ float GetSphericalParticleOpacity(FMaterialPixelParameters Parameters, float Den
 	float RescaledDensity = Density / ParticleRadius;
 
 	// Distance from point being shaded to particle center
-	float DistanceToParticle = length(Parameters.AbsoluteWorldPosition - ParticlePosition);
+	float DistanceToParticle = length(Parameters.WorldPosition_NoOffsets_CamRelative - ParticleTranslatedWorldPosition);
 
 	FLATTEN
 	if (DistanceToParticle < ParticleRadius) 
@@ -863,7 +886,7 @@ float GetSphericalParticleOpacity(FMaterialPixelParameters Parameters, float Den
 
 #if !SPHERICAL_OPACITY_FOR_SHADOW_DEPTHS
 		// Fade out as the particle approaches the near plane
-		Opacity = lerp(0, Opacity, saturate((Parameters.ScreenPosition.w - ParticleRadius - Frame.NearPlane) / ParticleRadius));
+		Opacity = lerp(0, Opacity, saturate((Parameters.ScreenPosition.w - ParticleRadius - View.NearPlane) / ParticleRadius));
 #endif
 	}
 
@@ -902,11 +925,11 @@ float3 GetSpeedTreeVertexOffsetInner(FMaterialVertexParameters Parameters, int G
 #if !USE_INSTANCING || !USE_DITHERED_LOD_TRANSITION
 	if (LODType == SPEEDTREE_LOD_TYPE_SMOOTH) 
 	{
-		const float ScreenMultiple = 0.5 * max(Frame.ViewSizeAndInvSize.x * ResolvedView.ViewToClip[0][0],
-												Frame.ViewSizeAndInvSize.y * ResolvedView.ViewToClip[1][1]);
+		const float ScreenMultiple = 0.5 * max(View.ViewSizeAndInvSize.x * ResolvedView.ViewToClip[0][0],
+												View.ViewSizeAndInvSize.y * ResolvedView.ViewToClip[1][1]);
 		const float ScreenRadius = ScreenMultiple * Primitive.ObjectWorldPositionAndRadius.w / 
 									max(1.0, dot(TreePos - ResolvedView.WorldCameraOrigin, ResolvedView.ViewForward.xyz));
-		const float ScreenArea = PI * ScreenRadius * ScreenRadius * Frame.ViewSizeAndInvSize.z * Frame.ViewSizeAndInvSize.w;
+		const float ScreenArea = PI * ScreenRadius * ScreenRadius * View.ViewSizeAndInvSize.z * View.ViewSizeAndInvSize.w;
 		LodInterp = saturate((ScreenArea - SpeedTreeLODInfo.x) / SpeedTreeLODInfo.z);
 	}
 #endif
@@ -1070,40 +1093,6 @@ MaterialFloat2 GetLightmapUVs(FMaterialPixelParameters Parameters)
 #if NEEDS_SCENE_TEXTURES
 #include "DeferredShadingCommon.usf"		// GetGBufferData()
 
-float3 GetShadingModelColor(FGBufferData GBuffer)
-{
-	// TODO: PS4 doesn't optimize out correctly the switch(), so it thinks it needs all the Samplers even if they get compiled out
-	//	This will get fixed after launch per Sony...
-#if PS4_PROFILE
-		 if (GBuffer.ShadingModelID == SHADINGMODELID_UNLIT) return float3(0.1f, 0.1f, 0.2f); // Dark Blue
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT) return float3(0.1f, 1.0f, 0.1f); // Green
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_SUBSURFACE) return float3(1.0f, 0.1f, 0.1f); // Red
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_PREINTEGRATED_SKIN) return float3(0.6f, 0.4f, 0.1f); // Brown
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_CLEAR_COAT) return float3(0.1f, 0.4f, 0.4f); 
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_SUBSURFACE_PROFILE) return float3(0.2f, 0.6f, 0.5f); // Cyan
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_TWOSIDED_FOLIAGE) return float3(0.2f, 0.2f, 0.8f); // Blue
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_HAIR) return float3(0.6f, 0.1f, 0.5f);
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_CLOTH) return float3(0.7f, 1.0f, 1.0f); 
-	else if (GBuffer.ShadingModelID == SHADINGMODELID_EYE) return float3(0.3f, 1.0f, 1.0f); 
-	else return float3(1.0f, 1.0f, 1.0f); // White
-#else
-	switch(GBuffer.ShadingModelID)
-	{
-		case SHADINGMODELID_UNLIT: return float3(0.1f, 0.1f, 0.2f); // Dark Blue
-		case SHADINGMODELID_DEFAULT_LIT: return float3(0.1f, 1.0f, 0.1f); // Green
-		case SHADINGMODELID_SUBSURFACE: return float3(1.0f, 0.1f, 0.1f); // Red
-		case SHADINGMODELID_PREINTEGRATED_SKIN: return float3(0.6f, 0.4f, 0.1f); // Brown
-		case SHADINGMODELID_CLEAR_COAT: return float3(0.1f, 0.4f, 0.4f); // Brown
-		case SHADINGMODELID_SUBSURFACE_PROFILE: return float3(0.2f, 0.6f, 0.5f); // Cyan
-		case SHADINGMODELID_TWOSIDED_FOLIAGE: return float3(0.2f, 0.2f, 0.8f); // Cyan
-		case SHADINGMODELID_HAIR: return float3(0.6f, 0.1f, 0.5f);
-		case SHADINGMODELID_CLOTH: return float3(0.7f, 1.0f, 1.0f);
-		case SHADINGMODELID_EYE: return float3(0.3f, 1.0f, 1.0f);
-		default: return float3(1.0f, 1.0f, 1.0f); // White
-	}
-#endif
-}
-
 float4 GetPostProcessInputSize(uint Index)
 {
 #if POST_PROCESS_MATERIAL
@@ -1132,15 +1121,26 @@ float4 GetPostProcessInputMinMax(uint Index)
 	return 1.0f;
 }
 
+MaterialFloat4 MobileLookupPostProcessInput0(inout FMaterialPixelParameters Parameters, float2 UV)
+{
+#if POST_PROCESS_MATERIAL && (FEATURE_LEVEL <= FEATURE_LEVEL_ES3_1)
+	MaterialFloat4 Input0 = Texture2DSample(PostprocessInput0, PostprocessInput0Sampler, UV);
+	#if POST_PROCESS_MATERIAL_BEFORE_TONEMAP
+		Input0 = Decode32BPPHDR(Input0);
+	#endif
+	// We need to preserve original SceneColor Alpha as it's used by tonemaper on mobile
+	Parameters.BackupSceneColorAlpha = Input0.a;
+	return Input0;
+#else
+	return MaterialFloat4(0.0f, 0.0f, 0.0f, 0.0f);
+#endif
+}
+
 /** Applies an offset to the scene texture lookup and decodes the HDR linear space color. */
 float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 {
 #if SCENE_TEXTURES_DISABLED
 	return float4(0.0f, 0.0f, 0.0f, 0.0f);
-#endif
-
-#if PIXELSHADER && TRANSLUCENCY_RENDERING
-	UV *= ScreenPositionUVScale;
 #endif
 
 	FScreenSpaceData ScreenSpaceData = GetScreenSpaceData(UV, false);
@@ -1172,11 +1172,11 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 	else if (SceneTextureIndex == 20)	if (bFiltered) { return Texture2DSample(PostprocessInput6, BilinearTextureSampler0, UV);} else { return Texture2DSample(PostprocessInput6, PostprocessInput6Sampler, UV);} 
 #endif // POST_PROCESS_MATERIAL
 	else if (SceneTextureIndex == 21)	return 0; // material compiler will return an error
-	else if (SceneTextureIndex == 22)	return float4(GetShadingModelColor(ScreenSpaceData.GBuffer), 1);
+	else if (SceneTextureIndex == 22)	return float4(GetShadingModelColor(ScreenSpaceData.GBuffer.ShadingModelID), 1);
 	else if (SceneTextureIndex == 23)	return ScreenSpaceData.AmbientOcclusion;
 	else if (SceneTextureIndex == 24)	return ScreenSpaceData.GBuffer.CustomStencil;
 	else if (SceneTextureIndex == 25)	return float4(ScreenSpaceData.GBuffer.StoredBaseColor, 0);
-	else if (SceneTextureIndex == 26)	return float4(ScreenSpaceData.GBuffer.StoredSpecular, 0);
+	else if (SceneTextureIndex == 26)	return float4(ScreenSpaceData.GBuffer.StoredSpecular.rrr, 0);
 #else
 	switch(SceneTextureIndex)
 	{
@@ -1229,7 +1229,7 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 		// PPI_DecalMask
 		case 21: return 0;  // material compiler will return an error
 		// PPI_ShadingModel
-		case 22: return float4(GetShadingModelColor(ScreenSpaceData.GBuffer), 1);
+		case 22: return float4(GetShadingModelColor(ScreenSpaceData.GBuffer.ShadingModelID), 1);
 		// PPI_AmbientOcclusion
 		case 23: return ScreenSpaceData.AmbientOcclusion;
 		// PPI_CustomStencil
@@ -1237,7 +1237,7 @@ float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered)
 		// PPI_StoredBaseColor
 		case 25: return float4(ScreenSpaceData.GBuffer.StoredBaseColor, 0);
 		// PPI_StoredSpecular
-		case 26: return float4(ScreenSpaceData.GBuffer.StoredSpecular, 0);
+		case 26: return float4(ScreenSpaceData.GBuffer.StoredSpecular.rrr, 0);
 		default:
 			return float4(0, 0, 0, 0);
 	}
@@ -1265,16 +1265,16 @@ half3 GetMaterialNormal(FMaterialPixelParameters Parameters, FPixelMaterialInput
 
 	RetNormal = GetMaterialNormalRaw(PixelMaterialInputs);
 		
-	#if (USE_EDITOR_SHADERS && !(ES2_PROFILE || ES3_1_PROFILE || ES31_AEP_PROFILE)) || MOBILE_EMULATION
+	#if (USE_EDITOR_SHADERS && !(ES2_PROFILE || ES3_1_PROFILE || ESDEFERRED_PROFILE)) || MOBILE_EMULATION
 	{
 		// this feature is only needed for development/editor - we can compile it out for a shipping build (see r.CompileShadersForDevelopment cvar help)
-		half3 OverrideNormal = Frame.NormalOverrideParameter.xyz;
+		half3 OverrideNormal = View.NormalOverrideParameter.xyz;
 
 		#if !MATERIAL_TANGENTSPACENORMAL
-			OverrideNormal = Parameters.TangentToWorld[2] * (1 - Frame.NormalOverrideParameter.w);
+			OverrideNormal = Parameters.TangentToWorld[2] * (1 - View.NormalOverrideParameter.w);
 		#endif
 
-		RetNormal = RetNormal * Frame.NormalOverrideParameter.w + OverrideNormal;
+		RetNormal = RetNormal * View.NormalOverrideParameter.w + OverrideNormal;
 	}
 	#endif
 
@@ -1288,7 +1288,11 @@ half3 GetMaterialEmissiveRaw(FPixelMaterialInputs PixelMaterialInputs)
 
 half3 GetMaterialEmissive(FPixelMaterialInputs PixelMaterialInputs)
 {
-	return max(GetMaterialEmissiveRaw(PixelMaterialInputs), 0.0f);
+	half3 EmissiveColor = GetMaterialEmissiveRaw(PixelMaterialInputs);
+#if !MATERIAL_ALLOW_NEGATIVE_EMISSIVECOLOR
+	EmissiveColor = max(EmissiveColor, 0.0f);
+#endif
+	return EmissiveColor;
 }
 
 half3 GetMaterialEmissiveForCS(FMaterialPixelParameters Parameters)
@@ -1333,6 +1337,9 @@ half GetMaterialRoughnessRaw(FPixelMaterialInputs PixelMaterialInputs)
 
 half GetMaterialRoughness(FPixelMaterialInputs PixelMaterialInputs)
 {
+#if MATERIAL_FULLY_ROUGH
+	return 1;
+#endif
 #if (ES2_PROFILE || ES3_1_PROFILE)
 	// The smallest normalized value that can be represented in IEEE 754 (FP16) is 2^-14 = 6.1e-5.
 	// The code will make the following computation involving roughness: 1.0 / Roughness^4.
@@ -1347,7 +1354,7 @@ half GetMaterialRoughness(FPixelMaterialInputs PixelMaterialInputs)
 	#if MOBILE_EMULATION
 	{
 		// this is only needed for mobile preview on PC
-		Roughness = Roughness * Frame.RoughnessOverrideParameter.y + Frame.RoughnessOverrideParameter.x;
+		Roughness = Roughness * View.RoughnessOverrideParameter.y + View.RoughnessOverrideParameter.x;
 	}
 	#endif
 
@@ -1356,10 +1363,10 @@ half GetMaterialRoughness(FPixelMaterialInputs PixelMaterialInputs)
 #else
 	half Roughness = saturate(GetMaterialRoughnessRaw(PixelMaterialInputs));
 	
-	#if (USE_EDITOR_SHADERS && !ES31_AEP_PROFILE)
+	#if (USE_EDITOR_SHADERS && !ESDEFERRED_PROFILE)
 	{
 		// this feature is only needed for development/editor - we can compile it out for a shipping build (see r.CompileShadersForDevelopment cvar help)
-		Roughness = Roughness * Frame.RoughnessOverrideParameter.y + Frame.RoughnessOverrideParameter.x;
+		Roughness = Roughness * View.RoughnessOverrideParameter.y + View.RoughnessOverrideParameter.x;
 	}
 	#endif
 	
@@ -1535,12 +1542,18 @@ void CalcPixelMaterialInputs(in out FMaterialPixelParameters Parameters, in out 
 	// The Normal is a special case as it might have its own expressions and also be used to calculate other inputs, so perform the assignment here
 %s
 
-	// Note that here the Parameters.TangentNormal can be in world space or tangent space
-	Parameters.TangentNormal = GetMaterialNormal(Parameters, PixelMaterialInputs);
+	// Note that here MaterialNormal can be in world space or tangent space
+	float3 MaterialNormal = GetMaterialNormal(Parameters, PixelMaterialInputs);
 
 #if MATERIAL_TANGENTSPACENORMAL
+
+#if SIMPLE_FORWARD_SHADING
+	// Drop normal with simple forward shading for scalability
+	MaterialNormal = float3(0, 0, 1);
+#endif
+
 	// flip the normal for backfaces being rendered with a two-sided material
-	Parameters.TangentNormal *= Parameters.TwoSidedSign;
+	Parameters.TangentNormal = MaterialNormal * Parameters.TwoSidedSign;
 
 #if FEATURE_LEVEL >= FEATURE_LEVEL_SM4
 	// ES2 will rely on only the final normalize for performance
@@ -1552,7 +1565,7 @@ void CalcPixelMaterialInputs(in out FMaterialPixelParameters Parameters, in out 
 	Parameters.WorldNormal = normalize(float3(TransformTangentVectorToWorld(Parameters.TangentToWorld, Parameters.TangentNormal)));
 #else
 	// Here we don't supoport two sided materials
-	Parameters.TangentNormal = Parameters.WorldNormal = normalize(Parameters.TangentNormal);
+	Parameters.TangentNormal = Parameters.WorldNormal = normalize(MaterialNormal);
 #endif
 
 	Parameters.ReflectionVector = ReflectionAboutCustomWorldNormal(Parameters, Parameters.WorldNormal, false);
@@ -1568,27 +1581,6 @@ void CalcPixelMaterialInputs(in out FMaterialPixelParameters Parameters, in out 
 // Programmatically set the line number after all the material inputs which have a variable number of line endings
 // This allows shader error line numbers after this point to be the same regardless of which material is being compiled
 #line %s
-
-float3 GetMaterialHemisphereLightTransferFull(float3 DiffuseColor,FMaterialPixelParameters Parameters, float3 UpperColor, float3 LowerColor)
-{
-	float3	UpperLighting = 0;
-	float3  LowerLighting = 0;
-
-#if (MATERIALBLENDING_TRANSLUCENT || MATERIALBLENDING_ADDITIVE) && TRANSLUCENCY_LIGHTING_VOLUMETRIC_NONDIRECTIONAL
-	UpperLighting = DiffuseColor;
-	LowerLighting = DiffuseColor;	
-#else
-	float3 SkyVector = float3(0, 0, 1);
-	float  NormalContribution  = dot(SkyVector,Parameters.WorldNormal);
-	float2 ContributionWeightsSqrt = float2(0.5, 0.5f) + float2(0.5f, -0.5f) * NormalContribution;
-	float2 ContributionWeights = ContributionWeightsSqrt * ContributionWeightsSqrt;
-	UpperLighting = DiffuseColor * ContributionWeights[0];
-	LowerLighting = DiffuseColor * ContributionWeights[1];
-#endif
-
-	return UpperLighting * UpperColor +
-	       LowerLighting * LowerColor;
-}
 
 void ClipLODTransition(float2 SvPosition, float DitherFactor)
 {
@@ -1644,9 +1636,9 @@ void ClipLODTransition(float2 SvPosition)
 void GetMaterialClippingShadowDepth(FMaterialPixelParameters Parameters, FPixelMaterialInputs PixelMaterialInputs)
 {
 	ClipLODTransition(Parameters);
-	#if MATERIALBLENDING_MASKED && MATERIAL_DITHER_OPACITY_MASK
-		clip(GetMaterialMaskInputRaw(PixelMaterialInputs) - 1.0f / 255.0f);
-	#elif MATERIALBLENDING_MASKED
+	//#if MATERIALBLENDING_MASKED && MATERIAL_DITHER_OPACITY_MASK
+	//	clip(GetMaterialMaskInputRaw(PixelMaterialInputs) - 1.0f / 255.0f);
+	#if MATERIALBLENDING_MASKED
 		clip(GetMaterialMask(PixelMaterialInputs)); 
 	#elif MATERIALBLENDING_TRANSLUCENT
 		clip(GetMaterialOpacity(PixelMaterialInputs) - 1.0f / 255.0f);
@@ -1666,8 +1658,8 @@ void GetMaterialCoverageAndClipping(FMaterialPixelParameters Parameters, FPixelM
 		234
 		401
 		*/
-		//float Dither5 = ( ( (uint)Parameters.SvPosition.x + (uint)Parameters.SvPosition.y * 2 + (uint)Frame.TemporalAAParams.x ) % 5 ) / 5.0;
-		float Dither5 = frac( ( Parameters.SvPosition.x + Parameters.SvPosition.y * 2 - 1.5 + Frame.TemporalAAParams.x ) / 5 );
+		//float Dither5 = ( ( (uint)Parameters.SvPosition.x + (uint)Parameters.SvPosition.y * 2 + (uint)View.TemporalAAParams.x ) % 5 ) / 5.0;
+		float Dither5 = frac( ( Parameters.SvPosition.x + Parameters.SvPosition.y * 2 - 1.5 + View.TemporalAAParams.x ) / 5 );
 		float Noise = frac( dot( float2( 171.0, 231.0 ) / 71, Parameters.SvPosition.xy ) );
 		float Dither = ( Dither5 * 5 + Noise ) * (1.0 / 6.0) - 0.5;
 		clip( GetMaterialMask(PixelMaterialInputs) + Dither );
@@ -1715,7 +1707,7 @@ void CalcMaterialParametersEx(
 	Parameters.SvPosition = SvPosition;
 	Parameters.ScreenPosition = ScreenPosition;
 
-#if COMPILER_GLSL_ES2
+#if COMPILER_GLSL_ES2 || COMPILER_GLSL_ES3_1
 	// ES2 normalize isn't done accurately. This seems to fix it.
 	// Originally this was normalize(normalize(TranslatedWorldPosition.xyz)) but tegra4 appears to optimize that out.
 	Parameters.CameraVector = normalize(-0.01 * Parameters.WorldPosition_CamRelative.xyz);
@@ -1729,7 +1721,7 @@ void CalcMaterialParametersEx(
 	Parameters.TwoSidedSign = 1.0f;
 
 #if MATERIAL_TWOSIDED && HAS_PRIMITIVE_UNIFORM_BUFFER
-	Parameters.TwoSidedSign *= Frame.CullingSign * Primitive.LocalToWorldDeterminantSign;
+	Parameters.TwoSidedSign *= View.CullingSign * Primitive.LocalToWorldDeterminantSign;
 
 	#if !MATERIAL_TWOSIDED_SEPARATE_PASS
 		Parameters.TwoSidedSign *= GetFloatFacingSign(bIsFrontFace);
@@ -1748,7 +1740,7 @@ void CalcMaterialParameters(
 	float4 SvPosition,
 	FIsFrontFace bIsFrontFace)
 {
-	float4 ScreenPosition = SvPositionToScreenPosition(SvPosition);
+	float4 ScreenPosition = SvPositionToResolvedScreenPosition(SvPosition);
 	float3 TranslatedWorldPosition = SvPositionToResolvedTranslatedWorld(SvPosition);
 
 	CalcMaterialParametersEx(Parameters, PixelMaterialInputs, SvPosition, ScreenPosition, bIsFrontFace, TranslatedWorldPosition, TranslatedWorldPosition);

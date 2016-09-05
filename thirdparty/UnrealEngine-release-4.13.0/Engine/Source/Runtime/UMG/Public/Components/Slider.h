@@ -59,6 +59,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance, meta=( ClampMin="0", ClampMax="1", UIMin="0", UIMax="1"))
 	float StepSize;
 
+	/** Should the slider be focusable? */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Interaction")
+	bool IsFocusable;
+
 public:
 
 	/** Invoked when the mouse is pressed and a capture begins. */
@@ -118,7 +122,6 @@ public:
 	// End of UVisual interface
 
 #if WITH_EDITOR
-	virtual const FSlateBrush* GetEditorIcon() override;
 	virtual const FText GetPaletteCategory() override;
 #endif
 

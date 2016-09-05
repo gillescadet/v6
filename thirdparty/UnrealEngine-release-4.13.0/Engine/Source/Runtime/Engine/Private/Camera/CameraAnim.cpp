@@ -12,6 +12,7 @@
 #include "Matinee/InterpGroupCamera.h"
 #include "Matinee/InterpTrackMove.h"
 
+DEFINE_LOG_CATEGORY(LogCameraAnim);
 
 //////////////////////////////////////////////////////////////////////////
 // UCameraAnim
@@ -21,6 +22,7 @@ UCameraAnim::UCameraAnim(const FObjectInitializer& ObjectInitializer)
 {
 	AnimLength = 3.0f;
 	bRelativeToInitialTransform = true;
+	bRelativeToInitialFOV = true;
 	BaseFOV = 90.0f;
 }
 
@@ -89,12 +91,12 @@ FBox UCameraAnim::GetAABB(FVector const& BaseLoc, FRotator const& BaseRot, float
 }
 
 
-void UCameraAnim::PreSave()
+void UCameraAnim::PreSave(const class ITargetPlatform* TargetPlatform)
 {
 #if WITH_EDITORONLY_DATA
 	CalcLocalAABB();
 #endif // WITH_EDITORONLY_DATA
-	Super::PreSave();
+	Super::PreSave(TargetPlatform);
 }
 
 void UCameraAnim::PostLoad()
@@ -145,7 +147,7 @@ void UCameraAnim::CalcLocalAABB()
 
 SIZE_T UCameraAnim::GetResourceSize(EResourceSizeMode::Type Mode)
 {
-	int32 ResourceSize = 0;
+	int32 ResourceSize = Super::GetResourceSize(Mode);
 
 	if (Mode == EResourceSizeMode::Inclusive && CameraInterpGroup)
 	{

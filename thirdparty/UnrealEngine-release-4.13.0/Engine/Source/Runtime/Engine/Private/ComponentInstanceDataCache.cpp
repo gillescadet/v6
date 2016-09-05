@@ -56,10 +56,13 @@ FActorComponentInstanceData::FActorComponentInstanceData(const UActorComponent* 
 			FComponentPropertyWriter(const UActorComponent* Component, TArray<uint8>& InBytes)
 				: FObjectWriter(InBytes)
 			{
-				Component->GetUCSModifiedProperties(PropertiesToSkip);
+				if (Component)
+				{
+					Component->GetUCSModifiedProperties(PropertiesToSkip);
 
-				UClass* ComponentClass = Component->GetClass();
-				ComponentClass->SerializeTaggedProperties(*this, (uint8*)Component, ComponentClass, (uint8*)Component->GetArchetype());
+					UClass* ComponentClass = Component->GetClass();
+					ComponentClass->SerializeTaggedProperties(*this, (uint8*)Component, ComponentClass, (uint8*)Component->GetArchetype());
+				}
 			}
 
 			virtual bool ShouldSkipProperty(const UProperty* InProperty) const override
@@ -72,7 +75,31 @@ FActorComponentInstanceData::FActorComponentInstanceData(const UActorComponent* 
 		private:
 			TSet<const UProperty*> PropertiesToSkip;
 
-		} ComponentPropertyWriter(SourceComponent, SavedProperties);
+		};
+
+		FComponentPropertyWriter ComponentPropertyWriter(SourceComponent, SavedProperties);
+
+		// Cache off the length of an array that will come from SerializeTaggedProperties that had no properties saved in to it.
+		auto GetSizeOfEmptyArchive = [](const UActorComponent* DummyComponent) -> int32
+		{
+			TArray<uint8> NoWrittenPropertyReference;
+			FComponentPropertyWriter NullWriter(nullptr, NoWrittenPropertyReference);
+			UClass* ComponentClass = DummyComponent->GetClass();
+			
+			// By serializing the component with itself as its defaults we guarantee that no properties will be written out
+			ComponentClass->SerializeTaggedProperties(NullWriter, (uint8*)DummyComponent, ComponentClass, (uint8*)DummyComponent);
+
+			return NoWrittenPropertyReference.Num();
+		};
+
+		static const int32 SizeOfEmptyArchive = GetSizeOfEmptyArchive(SourceComponent);
+
+		// SerializeTaggedProperties will always put a sentinel NAME_None at the end of the Archive. 
+		// If that is the only thing in the buffer then empty it because we want to know that we haven't stored anything.
+		if (SavedProperties.Num() == SizeOfEmptyArchive)
+		{
+			SavedProperties.Empty();
+		}
 	}
 }
 
@@ -179,7 +206,7 @@ FComponentInstanceDataCache::FComponentInstanceDataCache(const AActor* Actor)
 				// If the instance component is attached to a BP component we have to be prepared for the possibility that it will be deleted
 				if (USceneComponent* SceneComponent = Cast<USceneComponent>(Component))
 				{
-					if (SceneComponent->AttachParent && SceneComponent->AttachParent->IsCreatedByConstructionScript())
+					if (SceneComponent->GetAttachParent() && SceneComponent->GetAttachParent()->IsCreatedByConstructionScript())
 					{
 						InstanceComponentTransformToRootMap.Add(SceneComponent, SceneComponent->GetComponentTransform().GetRelativeTransform(Actor->GetRootComponent()->GetComponentTransform()));
 					}
@@ -244,9 +271,9 @@ void FComponentInstanceDataCache::ApplyToActor(AActor* Actor, const ECacheApplyP
 			check(Actor->GetRootComponent());
 
 			USceneComponent* SceneComponent = InstanceTransformPair.Key;
-			if (SceneComponent && (SceneComponent->AttachParent == nullptr || SceneComponent->AttachParent->IsPendingKill()))
+			if (SceneComponent && (SceneComponent->GetAttachParent() == nullptr || SceneComponent->GetAttachParent()->IsPendingKill()))
 			{
-				SceneComponent->AttachTo(Actor->GetRootComponent());
+				SceneComponent->AttachToComponent(Actor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
 				SceneComponent->SetRelativeTransform(InstanceTransformPair.Value);
 			}
 		}

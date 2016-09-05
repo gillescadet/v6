@@ -110,7 +110,8 @@ struct ENGINE_API FVisualLogStatusCategory
 	int32 UniqueId;
 	TArray<FVisualLogStatusCategory> Children;
 
-	FVisualLogStatusCategory(const FString& InCategory = TEXT(""))
+	FVisualLogStatusCategory();
+	explicit FVisualLogStatusCategory(const FString& InCategory/* = TEXT("")*/)
 		: Category(InCategory)
 	{
 	}
@@ -169,6 +170,9 @@ struct ENGINE_API FVisualLogEntry
 #if ENABLE_VISUAL_LOG
 	float TimeStamp;
 	FVector Location;
+	uint8 bIsClassWhitelisted : 1;
+	uint8 bIsObjectWhitelisted : 1;	
+	uint8 bIsAllowedToLog : 1;
 
 	TArray<FVisualLogEvent> Events;
 	TArray<FVisualLogLine> LogLines;
@@ -179,10 +183,11 @@ struct ENGINE_API FVisualLogEntry
 
 	FVisualLogEntry() { Reset(); }
 	FVisualLogEntry(const FVisualLogEntry& Entry);
-	FVisualLogEntry(const class AActor* InActor, TArray<TWeakObjectPtr<UObject> >* Children);
+	FVisualLogEntry(const AActor* InActor, TArray<TWeakObjectPtr<UObject> >* Children);
 	FVisualLogEntry(float InTimeStamp, FVector InLocation, const UObject* Object, TArray<TWeakObjectPtr<UObject> >* Children);
 
 	void Reset();
+	void UpdateAllowedToLog();
 
 	void AddText(const FString& TextLine, const FName& CategoryName, ELogVerbosity::Type Verbosity);
 	// path
@@ -239,13 +244,13 @@ public:
 	};
 
 
-	virtual void Serialize(const class UObject* LogOwner, FName OwnerName, FName InOwnerClassName, const FVisualLogEntry& LogEntry) = 0;
+	virtual void Serialize(const UObject* LogOwner, FName OwnerName, FName InOwnerClassName, const FVisualLogEntry& LogEntry) = 0;
 	virtual void Cleanup(bool bReleaseMemory = false) { /* Empty */ }
 	virtual void StartRecordingToFile(float TImeStamp) { /* Empty */ }
 	virtual void StopRecordingToFile(float TImeStamp) { /* Empty */ }
 	virtual void SetFileName(const FString& InFileName) { /* Empty */ }
 	virtual void GetRecordedLogs(TArray<FVisualLogDevice::FVisualLogEntryItem>& OutLogs)  const { /* Empty */ }
-	virtual bool HasFlags(int32 InFlags) const { return !!(InFlags & EVisualLoggerDeviceFlags::NoFlags); }
+	virtual bool HasFlags(int32 InFlags) const { return false; }
 };
 
 struct ENGINE_API FVisualLoggerCategoryVerbosityPair
@@ -363,16 +368,7 @@ void FVisualLogStatusCategory::AddChild(const FVisualLogStatusCategory& Child)
 	Children.Add(Child);
 }
 
-inline
-FVisualLogShapeElement::FVisualLogShapeElement(EVisualLoggerShapeElement InType)
-: Verbosity(ELogVerbosity::All)
-, TransformationMatrix(FMatrix::Identity)
-, Type(InType)
-, Color(0xff)
-, Thicknes(0)
-{
 
-}
 
 inline
 FVisualLogShapeElement::FVisualLogShapeElement(const FString& InDescription, const FColor& InColor, uint16 InThickness, const FName& InCategory)

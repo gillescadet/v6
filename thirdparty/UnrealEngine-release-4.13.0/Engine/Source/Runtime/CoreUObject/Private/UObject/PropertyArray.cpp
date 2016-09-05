@@ -2,6 +2,7 @@
 
 #include "CoreUObjectPrivate.h"
 #include "PropertyHelper.h"
+#include "PropertyTag.h"
 
 /*-----------------------------------------------------------------------------
 	UArrayProperty.
@@ -59,13 +60,149 @@ void UArrayProperty::SerializeItem( FArchive& Ar, void* Value, void const* Defau
 	Ar << n;
 	if( Ar.IsLoading() )
 	{
-		ArrayHelper.EmptyAndAddValues(n);
+		// If using a custom property list, don't empty the array on load. Not all indices may have been serialized, so we need to preserve existing values at those slots.
+		if (Ar.ArUseCustomPropertyList)
+		{
+			const int32 OldNum = ArrayHelper.Num();
+			if (n > OldNum)
+			{
+				ArrayHelper.AddValues(n - OldNum);
+			}
+			else if (n < OldNum)
+			{
+				ArrayHelper.RemoveValues(n, OldNum - n);
+			}
+		}
+		else
+		{
+			ArrayHelper.EmptyAndAddValues(n);
+		}
 	}
 	ArrayHelper.CountBytes( Ar );
 
-	for( int32 i=0; i<n; i++ )
+	// Serialize a PropertyTag for the inner property of this array, allows us to validate the inner struct to see if it has changed
+	FPropertyTag InnerTag(Ar, Inner, 0, (uint8*)Value, (uint8*)Defaults);
+	if (Ar.UE4Ver() >= VER_UE4_INNER_ARRAY_TAG_INFO && InnerTag.Type == NAME_StructProperty)
 	{
-		Inner->SerializeItem( Ar, ArrayHelper.GetRawPtr(i) );
+		if (Ar.IsSaving())
+		{
+			Ar << InnerTag;
+		}
+		else if (Ar.IsLoading())
+		{
+			Ar << InnerTag;
+
+			auto CanSerializeFromStructWithDifferentName = [](const FArchive& InAr, const FPropertyTag& PropertyTag, const UStructProperty* StructProperty)
+			{
+				return PropertyTag.StructGuid.IsValid() && StructProperty && StructProperty->Struct && (PropertyTag.StructGuid == StructProperty->Struct->GetCustomGuid() && (StructProperty->Struct->StructFlags & STRUCT_SerializeFromMismatchedTag));
+			};
+
+			// Check if the Inner property can successfully serialize, the type may have changed
+			UStructProperty* StructProperty = CastChecked<UStructProperty>(Inner);
+			if (InnerTag.StructName != StructProperty->Struct->GetFName()
+				&& !CanSerializeFromStructWithDifferentName(Ar, InnerTag, StructProperty))
+			{
+				UE_LOG(LogClass, Warning, TEXT("Property %s of %s has a struct type mismatch (tag %s != prop %s) in package:  %s. If that struct got renamed, add an entry to ActiveStructRedirects."),
+					*InnerTag.Name.ToString(), *GetName(), *InnerTag.StructName.ToString(), *CastChecked<UStructProperty>(Inner)->Struct->GetName(), *Ar.GetArchiveName());
+
+#if WITH_EDITOR
+				// Ensure the structure is initialized
+				for (int32 i = 0; i < n; i++)
+				{
+					StructProperty->Struct->InitializeDefaultValue(ArrayHelper.GetRawPtr(i));
+				}
+#endif // WITH_EDITOR
+
+				// Skip the property
+				const int64 StartOfProperty = Ar.Tell();
+				const int64 RemainingSize = InnerTag.Size - (Ar.Tell() - StartOfProperty);
+				uint8 B;
+				for (int64 i = 0; i < RemainingSize; i++)
+				{
+					Ar << B;
+				}
+				return;
+			}
+		}
+	}
+
+	// need to know how much data this call to SerializeItem consumes, so mark where we are
+	int32 DataOffset = Ar.Tell();
+
+	// If we're using a custom property list, first serialize any explicit indices
+	int32 i = 0;
+	bool bSerializeRemainingItems = true;
+	bool bUsingCustomPropertyList = Ar.ArUseCustomPropertyList;
+	if (bUsingCustomPropertyList && Ar.ArCustomPropertyList != nullptr)
+	{
+		// Initially we only serialize indices that are explicitly specified (in order)
+		bSerializeRemainingItems = false;
+
+		const FCustomPropertyListNode* CustomPropertyList = Ar.ArCustomPropertyList;
+		const FCustomPropertyListNode* PropertyNode = CustomPropertyList;
+		while (PropertyNode && i < n && !bSerializeRemainingItems)
+		{
+			if (PropertyNode->Property != Inner)
+			{
+				// A null property value signals that we should serialize the remaining array values in full starting at this index
+				if (PropertyNode->Property == nullptr)
+				{
+					i = PropertyNode->ArrayIndex;
+				}
+
+				bSerializeRemainingItems = true;
+			}
+			else
+			{
+				// Set a temporary node to represent the item
+				FCustomPropertyListNode ItemNode = *PropertyNode;
+				ItemNode.ArrayIndex = 0;
+				ItemNode.PropertyListNext = nullptr;
+				Ar.ArCustomPropertyList = &ItemNode;
+
+				// Serialize the item at this array index
+				i = PropertyNode->ArrayIndex;
+				Inner->SerializeItem(Ar, ArrayHelper.GetRawPtr(i));
+				PropertyNode = PropertyNode->PropertyListNext;
+
+				// Restore the current property list
+				Ar.ArCustomPropertyList = CustomPropertyList;
+			}
+		}
+	}
+
+	if (bSerializeRemainingItems)
+	{
+		// Temporarily suspend the custom property list (as we need these items to be serialized in full)
+		Ar.ArUseCustomPropertyList = false;
+
+		// Serialize each item until we get to the end of the array
+		while (i < n)
+		{
+			Inner->SerializeItem(Ar, ArrayHelper.GetRawPtr(i++));
+		}
+
+		// Restore use of the custom property list (if it was previously enabled)
+		Ar.ArUseCustomPropertyList = bUsingCustomPropertyList;
+	}
+
+	if (Ar.UE4Ver() >= VER_UE4_INNER_ARRAY_TAG_INFO && Ar.IsSaving() && InnerTag.Type == NAME_StructProperty)
+	{
+		// set the tag's size
+		InnerTag.Size = Ar.Tell() - DataOffset;
+
+		if (InnerTag.Size > 0)
+		{
+			// mark our current location
+			DataOffset = Ar.Tell();
+
+			// go back and re-serialize the size now that we know it
+			Ar.Seek(InnerTag.SizeOffset);
+			Ar << InnerTag.Size;
+
+			// return to the current location
+			Ar.Seek(DataOffset);
+		}
 	}
 }
 
@@ -227,7 +364,7 @@ const TCHAR* UArrayProperty::ImportText_Internal( const TCHAR* Buffer, void* Dat
 	int32 Index = 0;
 
 	ArrayHelper.ExpandForIndex(0);
-	while ((Buffer != NULL) && (*Buffer != TCHAR(')')))
+	while (*Buffer != TCHAR(')'))
 	{
 		SkipWhitespace(Buffer);
 
@@ -258,7 +395,6 @@ const TCHAR* UArrayProperty::ImportText_Internal( const TCHAR* Buffer, void* Dat
 	}
 
 	// Make sure we ended on a )
-	CA_SUPPRESS(6011)
 	if (*Buffer++ != TCHAR(')'))
 	{
 		return NULL;
@@ -284,7 +420,7 @@ void UArrayProperty::CopyValuesInternal( void* Dest, void const* Src, int32 Coun
 	int32 Num = SrcArrayHelper.Num();
 	if ( !(Inner->PropertyFlags & CPF_IsPlainOldData) )
 	{
-	DestArrayHelper.EmptyAndAddValues(Num);
+		DestArrayHelper.EmptyAndAddValues(Num);
 	}
 	else
 	{
@@ -352,6 +488,54 @@ void UArrayProperty::InstanceSubobjects( void* Data, void const* DefaultData, UO
 bool UArrayProperty::SameType(const UProperty* Other) const
 {
 	return Super::SameType(Other) && Inner && Inner->SameType(((UArrayProperty*)Other)->Inner);
+}
+
+bool UArrayProperty::ConvertFromType(const FPropertyTag& Tag, FArchive& Ar, uint8* Data, UStruct* DefaultsStruct, bool& bOutAdvanceProperty)
+{
+	// TODO: The ArrayProperty Tag really doesn't have adequate information for
+	// many types. This should probably all be moved in to ::SerializeItem
+	bOutAdvanceProperty = false;
+
+	if (Tag.Type == NAME_ArrayProperty && Tag.InnerType != NAME_None && Tag.InnerType != Inner->GetID())
+	{
+		void* ArrayPropertyData = ContainerPtrToValuePtr<void>(Data);
+
+		int32 ElementCount = 0;
+		Ar << ElementCount;
+
+		FScriptArrayHelper ScriptArrayHelper(this, ArrayPropertyData);
+		ScriptArrayHelper.EmptyAndAddValues(ElementCount);
+
+		// Convert properties from old type to new type automatically if types are compatible (array case)
+		if (ElementCount > 0)
+		{
+			FPropertyTag InnerPropertyTag;
+			InnerPropertyTag.Type = Tag.InnerType;
+			InnerPropertyTag.ArrayIndex = 0;
+
+			bool bDummyAdvance;
+			if (Inner->ConvertFromType(InnerPropertyTag, Ar, ScriptArrayHelper.GetRawPtr(0), DefaultsStruct, bDummyAdvance))
+			{
+				for (int32 i = 1; i < ElementCount; ++i)
+				{
+					verify(Inner->ConvertFromType(InnerPropertyTag, Ar, ScriptArrayHelper.GetRawPtr(i), DefaultsStruct, bDummyAdvance));
+				}
+				bOutAdvanceProperty = true;
+			}
+			// TODO: Implement SerializeFromMismatchedTag handling for arrays of structs
+			else
+			{
+				UE_LOG(LogClass, Warning, TEXT("Array Inner Type mismatch in %s of %s - Previous (%s) Current(%s) for package:  %s"), *Tag.Name.ToString(), *GetName(), *Tag.InnerType.ToString(), *Inner->GetID().ToString(), *Ar.GetArchiveName() );
+			}
+		}
+		else
+		{
+			bOutAdvanceProperty = true;
+		}
+		return true;
+	}
+
+	return false;
 }
 
 IMPLEMENT_CORE_INTRINSIC_CLASS(UArrayProperty, UProperty,

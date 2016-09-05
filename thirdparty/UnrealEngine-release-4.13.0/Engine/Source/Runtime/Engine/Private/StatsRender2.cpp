@@ -309,7 +309,7 @@ static int32 RenderCycle( const FComplexStatMessage& Item, class FCanvas* Canvas
 		const float InMs = FPlatformTime::ToMilliseconds(Item.GetValue_Duration(EComplexStatField::IncAve));
 		// Color will be determined by the average value of history
 		// If show inclusive and and show exclusive is on, then it will choose color based on inclusive average
-		// #YRX_STATS: 2015-06-09 This is slow, fix this
+		// #Stats: 2015-06-09 This is slow, fix this
 		FString CounterName = Item.GetShortName().ToString();
 		CounterName.RemoveFromStart(TEXT("STAT_"), ESearchCase::CaseSensitive);
 		GEngine->GetStatValueColoration(CounterName, InMs, Color);
@@ -333,7 +333,7 @@ static int32 RenderCycle( const FComplexStatMessage& Item, class FCanvas* Canvas
 		}
 	}
 
-	// #TODO: Move to the stats thread to avoid expensive computation on the game thread.
+	// #Stats: Move to the stats thread to avoid expensive computation on the game thread.
 	const FString StatDesc = Item.GetDescription();
 	const FString StatDisplay = StatDesc.Len() == 0 ? Item.GetShortName().GetPlainNameString() : StatDesc;
 
@@ -494,10 +494,10 @@ static int32 RenderMemoryHeadings( class FCanvas* Canvas, const int32 X, const  
 
 	// Determine where the first column goes
 	int32 CurrX = X + Globals.AfterNameColumnOffset;
-	RightJustify(Canvas, CurrX, Y, TEXT("MemUsedMax"), Globals.HeadingColor);
+	RightJustify(Canvas, CurrX, Y, TEXT("UsedMax"), Globals.HeadingColor);
 
 	CurrX += Globals.InterColumnOffset;
-	RightJustify(Canvas, CurrX, Y, TEXT("MemUsedMax%"), Globals.HeadingColor);
+	RightJustify(Canvas, CurrX, Y, TEXT("Mem%"), Globals.HeadingColor);
 
 	CurrX += Globals.InterColumnOffset;
 	RightJustify(Canvas, CurrX, Y, TEXT("MemPool"), Globals.HeadingColor);

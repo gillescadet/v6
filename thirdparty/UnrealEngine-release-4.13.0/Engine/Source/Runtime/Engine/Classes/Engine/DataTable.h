@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "DataTableUtils.h" // Needed here for LogDataTable
+#include "DataTableUtils.h" // Needed here for LogDataTable and EDataTableExportFlags
 #include "DataTable.generated.h"
 
 
@@ -22,6 +22,14 @@ struct FTableRowBase
 	GENERATED_USTRUCT_BODY()
 
 	FTableRowBase() { }
+
+	/** 
+	 * Can be overridden by subclasses; Called whenever the owning data table is imported or re-imported.
+	 * Allows for custom fix-ups, parsing, etc. after initial data is read in.
+	 * 
+	 * @param OutCollectedImportProblems	[OUT] List of problems accumulated during import; Can be added to via this method
+	 */
+	virtual void OnPostDataImport(OUT TArray<FString>& OutCollectedImportProblems) {}
 };
 
 
@@ -45,6 +53,7 @@ class UDataTable
 	ENGINE_API virtual void FinishDestroy() override;
 	ENGINE_API virtual void Serialize(FArchive& Ar) override;
 	ENGINE_API static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+	ENGINE_API virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
 #if WITH_EDITORONLY_DATA
 	ENGINE_API FName GetRowStructName() const;
 	ENGINE_API virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const override;
@@ -67,25 +76,46 @@ class UDataTable
 
 	//~ Begin UDataTable Interface
 
+	/** Get all of the rows in the table, regardless of name */
+	template <class T>
+	void GetAllRows(const FString& ContextString, OUT TArray<T*>& OutRowArray) const
+	{
+		if (RowStruct == nullptr)
+		{
+			UE_LOG(LogDataTable, Error, TEXT("UDataTable::FindRow : DataTable '%s' has no RowStruct specified (%s)."), *GetPathName(), *ContextString);
+		}
+		else if (!RowStruct->IsChildOf(T::StaticStruct()))
+		{
+			UE_LOG(LogDataTable, Error, TEXT("UDataTable::FindRow : Incorrect type specified for DataTable '%s' (%s)."), *GetPathName(), *ContextString);
+		}
+		else
+		{
+			for (TMap<FName, uint8*>::TConstIterator RowMapIter(RowMap.CreateConstIterator()); RowMapIter; ++RowMapIter)
+			{
+				OutRowArray.Add(reinterpret_cast<T*>(RowMapIter.Value()));
+			}
+		}	
+	}
+
 	/** Function to find the row of a table given its name. */
 	template <class T>
 	T* FindRow(FName RowName, const FString& ContextString, bool bWarnIfRowMissing = true) const
 	{
 		if(RowStruct == nullptr)
 		{
-			UE_LOG(LogDataTable, Error, TEXT("UDataTable::FindRow : DataTable '%s' has no RowStruct specified (%s)."), *GetPathName(), *ContextString);
+			UE_LOG(LogDataTable, Error, TEXT("UDataTable::FindRow : '%s' specified no row for DataTable '%s'."), *ContextString, *GetPathName());
 			return nullptr;
 		}
 
 		if(!RowStruct->IsChildOf(T::StaticStruct()))
 		{
-			UE_CLOG(bWarnIfRowMissing, LogDataTable, Error, TEXT("UDataTable::FindRow : Incorrect type specified for DataTable '%s' (%s)."), *GetPathName(), *ContextString);
+			UE_CLOG(bWarnIfRowMissing, LogDataTable, Error, TEXT("UDataTable::FindRow : '%s' specified incorrect type for DataTable '%s'."), *ContextString, *GetPathName());
 			return nullptr;
 		}
 
 		if(RowName == NAME_None)
 		{
-			UE_CLOG(bWarnIfRowMissing, LogDataTable, Warning, TEXT("UDataTable::FindRow : NAME_None is invalid row name for DataTable '%s' (%s)."), *GetPathName(), *ContextString);
+			UE_CLOG(bWarnIfRowMissing, LogDataTable, Warning, TEXT("UDataTable::FindRow : '%s' requested invalid row 'None' from DataTable '%s'."), *ContextString, *GetPathName());
 			return nullptr;
 		}
 
@@ -94,7 +124,7 @@ class UDataTable
 		{
 			if (bWarnIfRowMissing)
 			{
-				UE_LOG(LogDataTable, Warning, TEXT("UDataTable::FindRow : Row '%s' not found in DataTable '%s' (%s)."), *RowName.ToString(), *GetPathName(), *ContextString);
+				UE_LOG(LogDataTable, Warning, TEXT("UDataTable::FindRow : '%s' requested row '%s' not in DataTable '%s'."), *ContextString, *GetPathName(), *RowName.ToString());
 			}
 			return nullptr;
 		}
@@ -102,7 +132,7 @@ class UDataTable
 		uint8* RowData = *RowDataPtr;
 		check(RowData);
 
-		return (T*)RowData;
+		return reinterpret_cast<T*>(RowData);
 	}
 
 	/** Returns the column property where PropertyName matches the name of the column property. Returns nullptr if no match is found or the match is not a supported table property */
@@ -154,19 +184,19 @@ public:
 	ENGINE_API void RestoreAfterStructChange();
 
 	/** Output entire contents of table as a string */
-	ENGINE_API FString GetTableAsString() const;
+	ENGINE_API FString GetTableAsString(const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 
 	/** Output entire contents of table as CSV */
-	ENGINE_API FString GetTableAsCSV() const;
+	ENGINE_API FString GetTableAsCSV(const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 
 	/** Output entire contents of table as JSON */
-	ENGINE_API FString GetTableAsJSON() const;
+	ENGINE_API FString GetTableAsJSON(const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 
 	/** Output entire contents of table as JSON */
-	ENGINE_API bool WriteTableAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter) const;
+	ENGINE_API bool WriteTableAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 
 	/** Output the fields from a particular row (use RowMap to get RowData) to an existing JsonWriter */
-	ENGINE_API bool WriteRowAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const void* RowData) const;
+	ENGINE_API bool WriteRowAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const void* RowData, const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 
 	/** 
 	 *	Create table from CSV style comma-separated string. 
@@ -191,7 +221,7 @@ public:
 	TArray<UProperty*> GetTablePropertyArray(const TArray<const TCHAR*>& Cells, UStruct* RowStruct, TArray<FString>& OutProblems);
 
 	/** Get array for each row in the table. The first row is the titles*/
-	ENGINE_API TArray< TArray<FString> > GetTableData() const;
+	ENGINE_API TArray< TArray<FString> > GetTableData(const EDataTableExportFlags InDTExportFlags = EDataTableExportFlags::None) const;
 #endif //WITH_EDITOR
 
 	//~ End UDataTable Interface
@@ -199,11 +229,19 @@ public:
 private:
 	void SaveStructData(FArchive& Ar);
 	void LoadStructData(FArchive& Ar);
+
+	/**
+	 * Called whenever new data is imported into the data table via CreateTableFrom*; Alerts each imported row and gives the
+	 * row struct a chance to operate on the imported data
+	 * 
+	 * @param OutCollectedImportProblems	[OUT] Array of strings of import problems
+	 */
+	void OnPostDataImported(OUT TArray<FString>& OutCollectedImportProblems);
 };
 
 
 /** Handle to a particular row in a table*/
-USTRUCT()
+USTRUCT(BlueprintType)
 struct ENGINE_API FDataTableRowHandle
 {
 	GENERATED_USTRUCT_BODY()
@@ -223,11 +261,15 @@ struct ENGINE_API FDataTableRowHandle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=DataTableRowHandle)
 	FName				RowName;
 
-	static const FString Unknown;
+	/** Returns true if this handle is specifically pointing to nothing */
+	bool IsNull() const
+	{
+		return DataTable == nullptr && RowName == NAME_None;
+	}
 
 	/** Get the row straight from the row handle */
 	template <class T>
-	T* GetRow(const FString& ContextString = Unknown) const
+	T* GetRow(const FString& ContextString) const
 	{
 		if(DataTable == nullptr)
 		{
@@ -240,8 +282,20 @@ struct ENGINE_API FDataTableRowHandle
 
 		return DataTable->FindRow<T>(RowName, ContextString);
 	}
-};
 
+	FString ToDebugString(bool bUseFullPath = false) const
+	{
+		if (DataTable == nullptr)
+		{
+			return FString::Printf(TEXT("No Data Table Specified, Row: %s"), *RowName.ToString());
+		}
+
+		return FString::Printf(TEXT("Table: %s, Row: %s"), bUseFullPath ? *DataTable->GetPathName() : *DataTable->GetName(), *RowName.ToString());
+	}
+
+	bool operator==(FDataTableRowHandle const& Other) const;
+	bool operator!=(FDataTableRowHandle const& Other) const;
+};
 
 /** Handle to a particular row in a table*/
 USTRUCT()
@@ -261,11 +315,15 @@ struct ENGINE_API FDataTableCategoryHandle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=DataTableCategoryHandle)
 	FName				RowContents;
 
-	static const FString Unknown;
+	/** Returns true if this handle is specifically pointing to nothing */
+	bool IsNull() const
+	{
+		return DataTable == nullptr && ColumnName == NAME_None && RowContents == NAME_None;
+	}
 
 	/** Searches DataTable for all rows that contain entries with RowContents in the column named ColumnName and returns them. */
 	template <class T>
-	void GetRows(TArray<T*>& OutRows, const FString& ContextString = Unknown) const
+	void GetRows(TArray<T*>& OutRows, const FString& ContextString) const
 	{
 		OutRows.Empty();
 		if (DataTable == nullptr)
@@ -314,6 +372,9 @@ struct ENGINE_API FDataTableCategoryHandle
 
 		return;
 	}
+
+	bool operator==(FDataTableCategoryHandle const& Other) const;
+	bool operator!=(FDataTableCategoryHandle const& Other) const;
 };
 
 

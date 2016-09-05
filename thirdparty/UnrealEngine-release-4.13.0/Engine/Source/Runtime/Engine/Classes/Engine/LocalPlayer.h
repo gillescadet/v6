@@ -8,7 +8,9 @@
 #include "SlateCore.h"
 #include "Reply.h"
 #include "Player.h"
+#include "Engine/GameViewportClient.h"
 #include "LocalPlayer.generated.h"
+
 
 #define INVALID_CONTROLLERID 255
 
@@ -190,7 +192,6 @@ private:
 public:
 	// UObject interface
 	virtual void PostInitProperties() override;
-	virtual void BeginDestroy() override;
 	virtual void FinishDestroy() override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	// End of UObject interface
@@ -205,7 +206,6 @@ public:
 
 	bool HandleDNCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleExitCommand( const TCHAR* Cmd, FOutputDevice& Ar );
-	bool HandlePauseCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld );
 	bool HandleListMoveBodyCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleListAwakeBodiesCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleListSimBodiesCommand( const TCHAR* Cmd, FOutputDevice& Ar );
@@ -227,14 +227,6 @@ protected:
 
 	/** @todo document */
 	void ExecMacro( const TCHAR* Filename, FOutputDevice& Ar );
-
-	/**
-	 * Handle controller connection events from the platform
-	 * @param bConnected - determines connection or disconnection event
-	 * @param UserId - platform specfic UserId
-	 * @param UserIndex - Engine level UserIndex.
-	 */
-	void HandleControllerConnectionChange(bool bConnected, int32 InUserId, int32 InControllerId);
 
 	/** FReply used to defer some slate operations. */
 	FReply SlateOperations;
@@ -261,6 +253,22 @@ public:
 	 */
 	UGameInstance* GetGameInstance() const;
 
+
+	/**
+	* Calculate the view init settings for drawing from this view actor
+	*
+	* @param	OutInitOptions - output view struct. Not every field is initialized, some of them are only filled in by CalcSceneView
+	* @param	Viewport - current client viewport
+	* @param	ViewDrawer - optional drawing in the view
+	* @param	StereoPass - whether we are drawing the full viewport, or a stereo left / right pass
+	* @return	true if the view options were filled in. false in various fail conditions.
+	*/
+	bool CalcSceneViewInitOptions(
+		struct FSceneViewInitOptions& OutInitOptions, 
+		FViewport* Viewport,
+		class FViewElementDrawer* ViewDrawer = NULL,
+		EStereoscopicPass StereoPass = eSSP_FULL);
+
 	/**
 	 * Calculate the view settings for drawing from this view actor
 	 *
@@ -271,7 +279,7 @@ public:
 	 * @param	ViewDrawer - optional drawing in the view
 	 * @param	StereoPass - whether we are drawing the full viewport, or a stereo left / right pass
 	 */
-	FSceneView* CalcSceneView(class FSceneViewFamily* ViewFamily,
+	virtual FSceneView* CalcSceneView(class FSceneViewFamily* ViewFamily,
 		FVector& OutViewLocation, 
 		FRotator& OutViewRotation, 
 		FViewport* Viewport,
@@ -397,7 +405,7 @@ public:
 	 * @param	ProjectionData			The structure to be filled with projection data
 	 * @return  False if there is no viewport, or if the Actor is null
 	 */
-	bool GetProjectionData(FViewport* Viewport, EStereoscopicPass StereoPass, FSceneViewProjectionData& ProjectionData) const;
+	virtual bool GetProjectionData(FViewport* Viewport, EStereoscopicPass StereoPass, FSceneViewProjectionData& ProjectionData) const;
 
 	/**
 	 * Determines whether this player is the first and primary player on their machine.

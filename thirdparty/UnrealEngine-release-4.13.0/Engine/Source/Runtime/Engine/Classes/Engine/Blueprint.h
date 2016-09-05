@@ -4,6 +4,7 @@
 
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraph/EdGraphNode.h"
+#include "Engine/EngineTypes.h"
 #include "BlueprintCore.h"
 #include "Blueprint.generated.h"
 
@@ -44,7 +45,7 @@ enum EBlueprintType
 	BPTYPE_Interface			UMETA(DisplayName="Blueprint Interface"),
 	/** Blueprint that handles level scripting. */
 	BPTYPE_LevelScript			UMETA(DisplayName="Level Blueprint"),
-	/** Blueprint that servers as a container for functions to be used in other blueprints. */
+	/** Blueprint that serves as a container for functions to be used in other blueprints. */
 	BPTYPE_FunctionLibrary		UMETA(DisplayName="Blueprint Function Library"),
 
 	BPTYPE_MAX,
@@ -325,6 +326,10 @@ class ENGINE_API UBlueprint : public UBlueprintCore
 	UPROPERTY(EditAnywhere, Category=ClassOptions, AdvancedDisplay)
 	uint32 bGenerateConstClass : 1;
 
+	/** Whether or not this blueprint's class is a abstract class or not.  Should set CLASS_Abstract in the KismetCompiler. */
+	UPROPERTY(EditAnywhere, Category = ClassOptions, AdvancedDisplay)
+	uint32 bGenerateAbstractClass : 1;
+
 	/**shows up in the content browser when the blueprint is hovered */
 	UPROPERTY(EditAnywhere, Category=BlueprintOptions, meta=(MultiLine=true))
 	FString BlueprintDescription;
@@ -333,7 +338,7 @@ class ENGINE_API UBlueprint : public UBlueprintCore
 	UPROPERTY(EditAnywhere, Category=BlueprintOptions)
 	FString BlueprintCategory;
 
-	/** Additional HideCategories. The are added to HideCategories from parent. */
+	/** Additional HideCategories. These are added to HideCategories from parent. */
 	UPROPERTY(EditAnywhere, Category=BlueprintOptions)
 	TArray<FString> HideCategories;
 
@@ -450,7 +455,10 @@ class ENGINE_API UBlueprint : public UBlueprintCore
 	TArray<class UBreakpoint*> Breakpoints;
 
 	UPROPERTY()
-	TArray<class UEdGraphPin*> PinWatches;
+	TArray<FEdGraphPinReference> WatchedPins;
+
+	UPROPERTY()
+	TArray<class UEdGraphPin_Deprecated*> DeprecatedPinWatches;
 #endif // WITH_EDITORONLY_DATA
 
 public:
@@ -466,6 +474,9 @@ public:
 	DECLARE_EVENT_OneParam(UBlueprint, FCompiledEvent, class UBlueprint*);
 	FCompiledEvent& OnCompiled() { return CompiledEvent; }
 	void BroadcastCompiled() { CompiledEvent.Broadcast(this); }
+
+	/** Whether or not this blueprint can be considered for a bytecode only compile */
+	virtual bool IsValidForBytecodeOnlyRecompile() const { return true; }
 
 #if WITH_EDITORONLY_DATA
 protected:
@@ -497,6 +508,10 @@ public:
 
 	// User Defined Structures, the blueprint depends on
 	TSet<TWeakObjectPtr<UStruct>> CachedUDSDependencies;
+
+	// If this BP is just a duplicate created for a specific compilation, the reference to original GeneratedClass is needed
+	UPROPERTY(transient, duplicatetransient)
+	UClass* OriginalClass;
 
 	bool IsUpToDate() const
 	{
@@ -587,6 +602,9 @@ public:
 	virtual void PostLoadSubobjects( FObjectInstancingGraph* OuterInstanceGraph ) override;
 	virtual bool Modify(bool bAlwaysMarkDirty = true) override;
 	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const override;
+	virtual void BeginCacheForCookedPlatformData(const ITargetPlatform *TargetPlatform) override;
+	virtual bool IsCachedCookedPlatformDataLoaded(const ITargetPlatform* TargetPlatform) override;
+	virtual void ClearAllCachedCookedPlatformData() override;
 	//~ End UObject Interface
 
 	/** Consigns the GeneratedClass and the SkeletonGeneratedClass to oblivion, and nulls their references */
@@ -611,6 +629,9 @@ public:
 #endif	//#if WITH_EDITOR
 
 	//~ Begin UObject Interface
+#if WITH_EDITORONLY_DATA
+	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+#endif // WITH_EDITORONLY_DATA
 	virtual void Serialize(FArchive& Ar) override;
 	virtual FString GetDesc(void) override;
 	virtual void TagSubobjects(EObjectFlags NewFlags) override;
@@ -715,6 +736,12 @@ private:
 public:
 	/** If this blueprint is currently being compiled, the CurrentMessageLog will be the log currently being used to send logs to. */
 	class FCompilerResultsLog* CurrentMessageLog;
+
+	/** Message log for storing upgrade notes that were generated within the Blueprint, will be displayed to the compiler results each compiler and will remain until saving */
+	TSharedPtr<class FCompilerResultsLog> UpgradeNotesLog;
+
+	/** Message log for storing pre-compile errors/notes/warnings that will only last until the next Blueprint compile */
+	TSharedPtr<class FCompilerResultsLog> PreCompileLog;
 
 	/** 
 	 * Sends a message to the CurrentMessageLog, if there is one available.  Otherwise, defaults to logging to the normal channels.

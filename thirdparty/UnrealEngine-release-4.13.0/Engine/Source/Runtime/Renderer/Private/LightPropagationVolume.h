@@ -148,8 +148,8 @@ public:
 	void InjectDirectionalLightRSM(
 		FRHICommandListImmediate& RHICmdList,
 		FViewInfo&					View,
-		const FTexture2DRHIRef&		RsmDiffuseTex, 
 		const FTexture2DRHIRef&		RsmNormalTex, 
+		const FTexture2DRHIRef&		RsmDiffuseTex, 
 		const FTexture2DRHIRef&		RsmDepthTex, 
 		const FProjectedShadowInfo&	ProjectedShadowInfo,
 		const FLinearColor&			LightColour );
@@ -175,6 +175,8 @@ public:
 	FUnorderedAccessViewRHIParamRef GetGvListBufferUav()				{ return GvListBuffer->UAV; }
 	FUnorderedAccessViewRHIParamRef GetGvListHeadBufferUav()			{ return GvListHeadBuffer->UAV; }
 
+	bool IsEnabled() const												{ return bEnabled;	}
+	bool IsDirectionalOcclusionEnabled() const							{ return bDirectionalOcclusionEnabled; }
 
 	const FBox&	GetBoundingBox()										{ return BoundingBox; }
 
@@ -215,6 +217,7 @@ public:
 	float								CubeSize;
 	float								Strength;
 	bool								bEnabled;
+	bool								bDirectionalOcclusionEnabled;
 	bool								bGeometryVolumeNeeded;
 
 	uint32								mWriteBufferIndex;
@@ -236,3 +239,10 @@ public:
 
 // use for render thread only
 bool UseLightPropagationVolumeRT(ERHIFeatureLevel::Type InFeatureLevel);
+
+
+static inline bool IsLPVSupported(EShaderPlatform Platform)
+{
+	//@todo-rco: This is requires until we add support for byte/append consume buffers on hlslcc
+	return !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform) && !IsVulkanPlatform(Platform);
+}

@@ -38,7 +38,7 @@ class FPostProcessLpvIndirectPS : public FGlobalShader
 	DECLARE_SHADER_TYPE(FPostProcessLpvIndirectPS, Global);
 
 	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	/** Default constructor. */
 	FPostProcessLpvIndirectPS() {}
@@ -135,7 +135,7 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FPostProcessLpvIndirectPS::ModifyCompilationEnvironment(Platform,OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("APPLY_SEPARATE_SPECULAR_RT"), (uint32)(bApplySeparateSpecularRT ? 1 : 0));
+		OutEnvironment.SetDefine(TEXT("APPLY_SEPARATE_SPECULAR_RT"), bApplySeparateSpecularRT);
 	}
 };
 
@@ -147,7 +147,7 @@ class FPostProcessLpvDirectionalOcclusionPS : public FGlobalShader
 	DECLARE_SHADER_TYPE(FPostProcessLpvDirectionalOcclusionPS, Global);
 
 	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	/** Default constructor. */
 	FPostProcessLpvDirectionalOcclusionPS() {}
@@ -353,7 +353,7 @@ void FRCPassPostProcessLpvIndirect::DoDirectionalOcclusionPass(FRenderingComposi
 
 	SCOPED_DRAW_EVENT(Context.RHICmdList, PostProcessLpvDirectionalOcclusion );
 	const FSceneRenderTargetItem& DestDirectionalOcclusionRenderTarget = SceneContext.DirectionalOcclusion->GetRenderTargetItem();
-	FViewInfo& View = Context.View;
+	const FViewInfo& View = Context.View;
 	FSceneViewState* ViewState = (FSceneViewState*)View.State;
 
 	if(!ViewState)

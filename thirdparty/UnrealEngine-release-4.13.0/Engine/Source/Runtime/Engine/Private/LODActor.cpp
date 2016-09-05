@@ -6,53 +6,121 @@
 
 #include "EnginePrivate.h"
 #include "Engine/LODActor.h"
+#include "Engine/HLODMeshCullingVolume.h"
 #include "MapErrors.h"
 #include "MessageLog.h"
 #include "UObjectToken.h"
 
 #include "StaticMeshResources.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
+
 #define LOCTEXT_NAMESPACE "LODActor"
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-static void ToggleHLODEnabled(UWorld* InWorld)
+int32 GMaximumAllowedHLODLevel = -1;
+
+static FAutoConsoleVariableRef CVarMaximumAllowedHLODLevel(
+	TEXT("r.HLOD.MaximumLevel"),
+	GMaximumAllowedHLODLevel,
+	TEXT("How far down the LOD hierarchy to allow showing (can be used to limit quality loss and streaming texture memory usage on high scalability settings)\n")
+	TEXT("-1: No maximum level (default)\n")
+	TEXT("0: Prevent ever showing a HLOD cluster instead of individual meshes\n")
+	TEXT("1: Allow only the first level of HLOD clusters to be shown\n")
+	TEXT("2+: Allow up to the Nth level of HLOD clusters to be shown"),
+	ECVF_Scalability);
+
+
+#if !(UE_BUILD_SHIPPING)
+static void HLODConsoleCommand(const TArray<FString>& Args, UWorld* World)
 {
-	static bool bHLODEnabled = true;
-
-	FlushRenderingCommands();
-
-	auto Levels = InWorld->GetLevels();
-
-	for (auto Level : Levels)
+	if (Args.Num() == 1)
 	{
-		for (AActor* Actor : Level->Actors)
+		const int32 State = FCString::Atoi(*Args[0]);
+
+		if (State == 0 || State == 1)
 		{
-			ALODActor* LODActor = Cast<ALODActor>(Actor);
-			if (LODActor)
+			const bool bHLODEnabled = (State == 1) ? true : false;
+			FlushRenderingCommands();
+			const TArray<ULevel*>& Levels = World->GetLevels();
+			for (ULevel* Level : Levels)
 			{
-				LODActor->SetActorHiddenInGame(bHLODEnabled);
-	#if WITH_EDITOR
-				LODActor->SetIsTemporarilyHiddenInEditor(bHLODEnabled);
-	#endif // WITH_EDITOR
-				LODActor->MarkComponentsRenderStateDirty();
+				for (AActor* Actor : Level->Actors)
+				{
+					ALODActor* LODActor = Cast<ALODActor>(Actor);
+					if (LODActor)
+					{
+						LODActor->SetActorHiddenInGame(!bHLODEnabled);
+#if WITH_EDITOR
+						LODActor->SetIsTemporarilyHiddenInEditor(!bHLODEnabled);
+#endif // WITH_EDITOR
+						LODActor->MarkComponentsRenderStateDirty();
+					}
+				}
 			}
 		}
 	}
+	else if (Args.Num() == 2)
+	{
+#if WITH_EDITOR
+		if (Args[0] == "force")
+		{
+			const int32 ForcedLevel = FCString::Atoi(*Args[1]);
 
-	bHLODEnabled = !bHLODEnabled;
+			if (ForcedLevel >= -1 && ForcedLevel < World->GetWorldSettings()->HierarchicalLODSetup.Num())
+			{
+				const TArray<ULevel*>& Levels = World->GetLevels();
+				for (ULevel* Level : Levels)
+				{
+					for (AActor* Actor : Level->Actors)
+					{
+						ALODActor* LODActor = Cast<ALODActor>(Actor);
+
+						if (LODActor)
+						{
+							if (ForcedLevel != -1)
+							{
+								if (LODActor->LODLevel == ForcedLevel + 1)
+								{
+									LODActor->SetForcedView(true);
+								}
+								else
+								{
+									LODActor->SetHiddenFromEditorView(true, ForcedLevel + 1);
+								}
+							}
+							else
+							{
+								LODActor->SetForcedView(false);
+								LODActor->SetIsTemporarilyHiddenInEditor(false);
+							}
+						}
+					}
+				}
+			}
+		}		
+#endif // WITH_EDITOR
+	}
 }
 
-static FAutoConsoleCommandWithWorld GToggleHLODEnabledCmd(
-	TEXT("ToggleHLODEnabled"),
-	TEXT("Toggles whether or not the HLOD system is enabled."),
-	FConsoleCommandWithWorldDelegate::CreateStatic(ToggleHLODEnabled),
-	ECVF_Cheat
+static FAutoConsoleCommandWithWorldAndArgs GHLODCmd(
+	TEXT("r.HLOD"),
+	TEXT("Single argument: 0 or 1 to Disable/Enable HLOD System\nMultiple arguments: force X where X is the HLOD level that should be forced into view"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(HLODConsoleCommand)
 	);
-#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+
+#endif // !(UE_BUILD_SHIPPING)
+
+//////////////////////////////////////////////////////////////////////////
+// ALODActor
+
+FAutoConsoleVariableSink ALODActor::CVarSink(FConsoleCommandDelegate::CreateStatic(&ALODActor::OnCVarsChanged));
 
 ALODActor::ALODActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
-	, LODDrawDistance(5000)	
+	, LODDrawDistance(5000)
+	, bHasActorTriedToRegisterComponents(false)
 {
 	bCanBeDamaged = false;
 
@@ -70,51 +138,6 @@ ALODActor::ALODActor(const FObjectInitializer& ObjectInitializer)
 
 	NumTrianglesInSubActors = 0;
 	NumTrianglesInMergedMesh = 0;
-
-	if (SubActors.Num() != 0)
-	{
-		for (auto& Actor : SubActors)
-		{
-			// Adding number of triangles
-			if (!Actor->IsA<ALODActor>())
-			{
-				TArray<UStaticMeshComponent*> StaticMeshComponents;
-				Actor->GetComponents<UStaticMeshComponent>(StaticMeshComponents);
-				for (UStaticMeshComponent* Component : StaticMeshComponents)
-				{
-					if (Component && Component->StaticMesh && Component->StaticMesh->RenderData)
-					{
-						NumTrianglesInSubActors += Component->StaticMesh->RenderData->LODResources[0].GetNumTriangles();
-
-						bCastsShadow |= Component->CastShadow;
-						bCastsStaticShadow |= Component->bCastStaticShadow;
-						bCastsDynamicShadow |= Component->bCastDynamicShadow;
-					}
-
-					Component->MarkRenderStateDirty();
-				}
-			}
-			else
-			{
-				ALODActor* LODActor = Cast<ALODActor>(Actor);
-				NumTrianglesInSubActors += LODActor->GetNumTrianglesInSubActors();
-
-				if (UStaticMeshComponent* ActorMeshComponent = LODActor->StaticMeshComponent)
-				{
-					bCastsShadow |= ActorMeshComponent->CastShadow;
-					bCastsStaticShadow |= ActorMeshComponent->bCastStaticShadow;
-					bCastsDynamicShadow |= ActorMeshComponent->bCastDynamicShadow;
-				}
-			}
-		}
-	
-	}
-
-	if (StaticMeshComponent && StaticMeshComponent->StaticMesh && StaticMeshComponent->StaticMesh->RenderData)
-	{
-		NumTrianglesInMergedMesh = StaticMeshComponent->StaticMesh->RenderData->LODResources[0].GetNumTriangles();
-	}
-
 	
 #endif // WITH_EDITORONLY_DATA
 
@@ -135,16 +158,48 @@ FString ALODActor::GetDetailedInfoInternal() const
 	return StaticMeshComponent ? StaticMeshComponent->GetDetailedInfoInternal() : TEXT("No_StaticMeshComponent");
 }
 
+void ALODActor::PostLoad()
+{
+	Super::PostLoad();
+	UpdateRegistrationToMatchMaximumLODLevel();
+}
+
+void ALODActor::UpdateRegistrationToMatchMaximumLODLevel()
+{
+	// Determine if we can show this HLOD level and allow or prevent the SMC from being registered
+	// This doesn't save the memory of the static mesh or lowest mip levels, but it prevents the proxy from being created
+	// or high mip textures from being streamed in
+	const int32 MaximumAllowedHLODLevel = GMaximumAllowedHLODLevel;
+	const bool bAllowShowingThisLevel = (MaximumAllowedHLODLevel < 0) || (LODLevel <= MaximumAllowedHLODLevel);
+
+	check(StaticMeshComponent);
+	if (StaticMeshComponent->bAutoRegister != bAllowShowingThisLevel)
+	{
+		StaticMeshComponent->bAutoRegister = bAllowShowingThisLevel;
+
+		if (!bAllowShowingThisLevel && StaticMeshComponent->IsRegistered())
+		{
+			ensure(bHasActorTriedToRegisterComponents);
+			StaticMeshComponent->UnregisterComponent();
+		}
+		else if (bAllowShowingThisLevel && !StaticMeshComponent->IsRegistered())
+		{
+			// We should only register components if the actor had already tried to register before (otherwise it'll be taken care of in the normal flow)
+			if (bHasActorTriedToRegisterComponents)
+			{
+				StaticMeshComponent->RegisterComponent();
+			}
+		}
+	}
+}
+
 void ALODActor::PostRegisterAllComponents() 
 {
 	Super::PostRegisterAllComponents();
-#if WITH_EDITOR
-	if (StaticMeshComponent->SceneProxy)
-	{
-		ensure (LODLevel >= 1);
-		(StaticMeshComponent->SceneProxy)->SetHierarchicalLOD_GameThread(LODLevel);
-	}
 
+	bHasActorTriedToRegisterComponents = true;
+
+#if WITH_EDITOR
 	// Clean up sub actor if assets were delete manually
 	CleanSubActorArray();
 
@@ -207,6 +262,8 @@ void ALODActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		SetIsDirty(true);
 	}
 
+	UpdateRegistrationToMatchMaximumLODLevel();
+
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 
@@ -214,6 +271,12 @@ bool ALODActor::GetReferencedContentObjects( TArray<UObject*>& Objects ) const
 {
 	Super::GetReferencedContentObjects(Objects);
 	Objects.Append(SubObjects);
+	
+	// Retrieve referenced objects for sub actors as well
+	for (AActor* SubActor : SubActors)
+	{
+		SubActor->GetReferencedContentObjects(Objects);
+	}
 	return true;
 }
 
@@ -252,7 +315,7 @@ void ALODActor::CheckForErrors()
 	}
 	else
 	{
-		for(auto& Actor : SubActors)
+		for (AActor* Actor : SubActors)
 		{
 			// see if it's null, if so it is not good
 			if(Actor == nullptr)
@@ -290,11 +353,6 @@ void ALODActor::AddSubActor(AActor* InActor)
 	InActor->SetLODParent(StaticMeshComponent, LODDrawDistance);
 	SetIsDirty(true);
 
-	// Cast shadows if any sub-actors do
-	bool bCastsShadow = false;
-	bool bCastsStaticShadow = false;
-	bool bCastsDynamicShadow = false;
-
 	// Adding number of triangles
 	if (!InActor->IsA<ALODActor>())
 	{
@@ -305,12 +363,7 @@ void ALODActor::AddSubActor(AActor* InActor)
 			if (Component && Component->StaticMesh && Component->StaticMesh->RenderData)
 			{
 				NumTrianglesInSubActors += Component->StaticMesh->RenderData->LODResources[0].GetNumTriangles();
-
-				StaticMeshComponent->CastShadow |= Component->CastShadow;
-				StaticMeshComponent->bCastStaticShadow |= Component->bCastStaticShadow;
-				StaticMeshComponent->bCastDynamicShadow |= Component->bCastDynamicShadow;
 			}
-
 			Component->MarkRenderStateDirty();
 		}
 	}
@@ -319,16 +372,10 @@ void ALODActor::AddSubActor(AActor* InActor)
 		ALODActor* LODActor = Cast<ALODActor>(InActor);
 		NumTrianglesInSubActors += LODActor->GetNumTrianglesInSubActors();
 		
-		if (UStaticMeshComponent* ActorMeshComponent = LODActor->StaticMeshComponent)
-		{
-			StaticMeshComponent->CastShadow |= ActorMeshComponent->CastShadow;
-			StaticMeshComponent->bCastStaticShadow |= ActorMeshComponent->bCastStaticShadow;
-			StaticMeshComponent->bCastDynamicShadow |= ActorMeshComponent->bCastDynamicShadow;
-		}
 	}
-
-	StaticMeshComponent->MarkRenderStateDirty();
 	
+	// Reset the shadowing flags and determine them according to our current sub actors
+	DetermineShadowingFlags();
 }
 
 const bool ALODActor::RemoveSubActor(AActor* InActor)
@@ -367,11 +414,38 @@ const bool ALODActor::RemoveSubActor(AActor* InActor)
 				
 		// In case the user removes an actor while the HLOD system is force viewing one LOD level
 		InActor->SetIsTemporarilyHiddenInEditor(false);
+
+		// Reset the shadowing flags and determine them according to our current sub actors
+		DetermineShadowingFlags();
 				
 		return true;
 	}
 
 	return false;
+}
+
+void ALODActor::DetermineShadowingFlags()
+{
+	// Cast shadows if any sub-actors do
+	bool bCastsShadow = false;
+	bool bCastsStaticShadow = false;
+	bool bCastsDynamicShadow = false;
+	for (AActor* Actor : SubActors)
+	{
+		TArray<UStaticMeshComponent*> StaticMeshComponents;
+		Actor->GetComponents<UStaticMeshComponent>(StaticMeshComponents);
+		for (UStaticMeshComponent* Component : StaticMeshComponents)
+		{
+			bCastsShadow |= Component->CastShadow;
+			bCastsStaticShadow |= Component->bCastStaticShadow;
+			bCastsDynamicShadow |= Component->bCastDynamicShadow;
+		}
+	}
+
+	StaticMeshComponent->CastShadow = bCastsShadow;
+	StaticMeshComponent->bCastStaticShadow = bCastsStaticShadow;
+	StaticMeshComponent->bCastDynamicShadow = bCastsDynamicShadow;
+	StaticMeshComponent->MarkRenderStateDirty();
 }
 
 void ALODActor::SetIsDirty(const bool bNewState)
@@ -382,12 +456,13 @@ void ALODActor::SetIsDirty(const bool bNewState)
 	if (IsDirty())
 	{
 		// If this LODActor is a SubActor at a higher LOD level mark parent dirty as well
-		UPrimitiveComponent* ParentComponent = StaticMeshComponent->GetLODParentPrimitive();
-		if (ParentComponent)
+		UPrimitiveComponent* LODParentComponent = StaticMeshComponent->GetLODParentPrimitive();
+		if (LODParentComponent)
 		{
-			ALODActor* LODParentActor = Cast<ALODActor>(ParentComponent->GetOwner());
+			ALODActor* LODParentActor = Cast<ALODActor>(LODParentComponent->GetOwner());
 			if (LODParentActor)
 			{
+				LODParentActor->Modify();
 				LODParentActor->SetIsDirty(true);
 			}
 		}
@@ -396,56 +471,43 @@ void ALODActor::SetIsDirty(const bool bNewState)
 		StaticMeshComponent->StaticMesh = nullptr;
 		// Mark render state dirty to update viewport
 		StaticMeshComponent->MarkRenderStateDirty();
-
-		// Propagate to sub actors that we no longer have a static mesh
-		for (auto& SubActor : SubActors)
-		{
-			SubActor->SetLODParent(nullptr, LODDrawDistance);
-		}
-
-
+#if WITH_EDITOR
 		// Broadcast actor marked dirty event
-		if (GEngine)
+		if (GEditor)
 		{
-			GEngine->BroadcastHLODActorMarkedDirty(this);
-		}		
+			GEditor->BroadcastHLODActorMarkedDirty(this);
+		}
+#endif // WITH_EDITOR
 	}	
 	else
 	{
-		// Update SubActor's LOD parent component
-		for (auto& SubActor : SubActors)
-		{
-			SubActor->SetLODParent(StaticMeshComponent, LODDrawDistance);
-		}
+		UpdateSubActorLODParents();
 	}
 }
 
-const bool ALODActor::HasValidSubActors()
+const bool ALODActor::HasValidSubActors() const
 {
-	if (SubActors.Num() > 1)
+	int32 NumMeshes = 0;
+
+	// Make sure there are at least two meshes in the subactors
+	TInlineComponentArray<UStaticMeshComponent*> Components;
+	for (AActor* SubActor : SubActors)
 	{
-		// More than one sub actor
-		return true;
-	}
-	else if (SubActors.Num() == 0)
-	{
-		// No sub actors
-		return false;
-	}	
-	else
-	{
-		if (SubActors[0]->IsA<ALODActor>())
+		SubActor->GetComponents(/*out*/ Components);
+		NumMeshes += Components.Num();
+
+		if (NumMeshes > 1)
 		{
-			// LODActor as only sub actor (which doesn't make sense for the system)
-			return false;
-		}
-		else
-		{
-			// StaticMeshActor as only sub actor
-			return true;
+			break;
 		}
 	}
-	
+
+	return NumMeshes > 1;
+}
+
+const bool ALODActor::HasAnySubActors() const
+{
+	return (SubActors.Num() != 0);
 }
 
 void ALODActor::ToggleForceView()
@@ -469,7 +531,7 @@ void ALODActor::SetHiddenFromEditorView(const bool InState, const int32 ForceLOD
 	{
 		SetIsTemporarilyHiddenInEditor(InState);			
 
-		for (auto Actor : SubActors)
+		for (AActor* Actor : SubActors)
 		{
 			// If this actor belongs to a lower HLOD level that is being forced hide the sub-actors
 			if (LODLevel < ForceLODLevel)
@@ -511,9 +573,9 @@ void ALODActor::SetStaticMesh(class UStaticMesh* InStaticMesh)
 
 void ALODActor::UpdateSubActorLODParents()
 {
-	for (auto& Actor : SubActors)
+	for (AActor* Actor : SubActors)
 	{	
-		Actor->SetLODParent(StaticMeshComponent, LODDrawDistance);	
+		Actor->SetLODParent(StaticMeshComponent, StaticMeshComponent->MinDrawDistance);
 	}
 }
 
@@ -522,7 +584,7 @@ void ALODActor::CleanSubActorArray()
 	bool bIsDirty = false;
 	for (int32 SubActorIndex = 0; SubActorIndex < SubActors.Num(); ++SubActorIndex)
 	{
-		auto& Actor = SubActors[SubActorIndex];
+		AActor* Actor = SubActors[SubActorIndex];
 		if (Actor == nullptr)
 		{
 			SubActors.RemoveAtSwap(SubActorIndex);
@@ -553,7 +615,7 @@ void ALODActor::CleanSubObjectsArray()
 
 	if (bIsDirty)
 	{
-		SetIsDirty(true);
+		SetIsDirty(true);		
 	}
 }
 
@@ -572,6 +634,7 @@ void ALODActor::RecalculateDrawingDistance(const float InTransitionScreenSize)
 
 	UpdateSubActorLODParents();
 }
+
 
 #endif // WITH_EDITOR
 
@@ -595,7 +658,7 @@ FBox ALODActor::GetComponentsBoundingBox(bool bNonColliding) const
 		}
 		else
 		{
-			for (auto Actor : SubActors)
+			for (AActor* Actor : SubActors)
 			{
 				if (Actor)
 				{
@@ -607,5 +670,26 @@ FBox ALODActor::GetComponentsBoundingBox(bool bNonColliding) const
 
 	return BoundBox;	
 }
+
+void ALODActor::OnCVarsChanged()
+{
+	// Initialized to MIN_int32 to make sure that we run this once at startup regardless of the CVar value (assuming it is valid)
+	static int32 CachedMaximumAllowedHLODLevel = MIN_int32;
+	const int32 MaximumAllowedHLODLevel = GMaximumAllowedHLODLevel;
+
+	if (MaximumAllowedHLODLevel != CachedMaximumAllowedHLODLevel)
+	{
+		CachedMaximumAllowedHLODLevel = MaximumAllowedHLODLevel;
+
+		for (ALODActor* Actor : TObjectRange<ALODActor>(RF_ClassDefaultObject | RF_ArchetypeObject, true, EInternalObjectFlags::PendingKill))
+		{
+			Actor->UpdateRegistrationToMatchMaximumLODLevel();
+		}
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+// AHLODMeshCullingVolume
+
 
 #undef LOCTEXT_NAMESPACE

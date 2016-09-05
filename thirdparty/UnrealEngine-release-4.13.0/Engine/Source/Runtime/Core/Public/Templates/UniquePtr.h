@@ -3,6 +3,7 @@
 #pragma once
 
 #include "UnrealTemplate.h"
+#include "Templates/EnableIf.h"
 
 // Single-ownership smart pointer in the vein of std::unique_ptr.
 // Use this when you need an object's lifetime to be strictly bound to the lifetime of a single smart pointer.
@@ -14,9 +15,37 @@
 // TUniquePtr<MyClass> Ptr3(MoveTemp(Ptr1)); // Ptr3 now owns the MyClass object - Ptr1 is now nullptr.
 
 template <typename T>
-class TUniquePtr
+struct TDefaultDelete
 {
-	template <typename OtherT>
+	TDefaultDelete()
+	{
+	}
+
+	template <typename U, typename = typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value>::Type>
+	TDefaultDelete(TDefaultDelete<U>&&)
+	{
+	}
+
+	template <typename U, typename = typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value>::Type>
+	TDefaultDelete& operator=(TDefaultDelete<U>&&)
+	{
+		return *this;
+	}
+
+	~TDefaultDelete()
+	{
+	}
+
+	void operator()(T* Ptr) const
+	{
+		delete Ptr;
+	}
+};
+
+template <typename T, typename Deleter = TDefaultDelete<T>>
+class TUniquePtr : private Deleter
+{
+	template <typename OtherT, typename OtherDeleter>
 	friend class TUniquePtr;
 
 public:
@@ -50,7 +79,8 @@ public:
 	 * Move constructor
 	 */
 	FORCEINLINE TUniquePtr(TUniquePtr&& Other)
-		: Ptr(Other.Ptr)
+		: Deleter(MoveTemp(Other.GetDeleter()))
+		, Ptr    (Other.Ptr)
 	{
 		Other.Ptr = nullptr;
 	}
@@ -58,9 +88,10 @@ public:
 	/**
 	 * Constructor from rvalues of other (usually derived) types
 	 */
-	template <typename OtherT>
-	FORCEINLINE TUniquePtr(TUniquePtr<OtherT>&& Other)
-		: Ptr(Other.Ptr)
+	template <typename OtherT, typename OtherDeleter>
+	FORCEINLINE TUniquePtr(TUniquePtr<OtherT, OtherDeleter>&& Other)
+		: Deleter(MoveTemp(Other.GetDeleter()))
+		, Ptr    (Other.Ptr)
 	{
 		Other.Ptr = nullptr;
 	}
@@ -76,8 +107,10 @@ public:
 			T* OldPtr = Ptr;
 			Ptr = Other.Ptr;
 			Other.Ptr = nullptr;
-			delete OldPtr;
+			GetDeleter()(OldPtr);
 		}
+
+		GetDeleter() = MoveTemp(Other.GetDeleter());
 
 		return *this;
 	}
@@ -85,14 +118,16 @@ public:
 	/**
 	 * Assignment operator for rvalues of other (usually derived) types
 	 */
-	template <typename OtherT>
+	template <typename OtherT, typename OtherDeleter>
 	FORCEINLINE TUniquePtr& operator=(TUniquePtr<OtherT>&& Other)
 	{
 		// We delete last, because we don't want odd side effects if the destructor of T relies on the state of this or Other
 		T* OldPtr = Ptr;
 		Ptr = Other.Ptr;
 		Other.Ptr = nullptr;
-		delete OldPtr;
+		GetDeleter()(OldPtr);
+
+		GetDeleter() = MoveTemp(Other.GetDeleter());
 
 		return *this;
 	}
@@ -105,7 +140,7 @@ public:
 		// We delete last, because we don't want odd side effects if the destructor of T relies on the state of this
 		T* OldPtr = Ptr;
 		Ptr = nullptr;
-		delete OldPtr;
+		GetDeleter()(OldPtr);
 
 		return *this;
 	}
@@ -115,7 +150,7 @@ public:
 	 */
 	FORCEINLINE ~TUniquePtr()
 	{
-		delete Ptr;
+		GetDeleter()(Ptr);
 	}
 
 	/**
@@ -133,7 +168,7 @@ public:
 	 *
 	 * @return true if the TUniquePtr currently owns an object, false otherwise.
 	 */
-	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
+	FORCEINLINE explicit operator bool() const
 	{
 		return IsValid();
 	}
@@ -200,7 +235,27 @@ public:
 		// We delete last, because we don't want odd side effects if the destructor of T relies on the state of this
 		T* OldPtr = Ptr;
 		Ptr = InPtr;
-		delete OldPtr;
+		GetDeleter()(OldPtr);
+	}
+
+	/**
+	 * Returns a reference to the deleter subobject.
+	 *
+	 * @return A reference to the deleter.
+	 */
+	FORCEINLINE Deleter& GetDeleter()
+	{
+		return static_cast<Deleter&>(*this);
+	}
+
+	/**
+	 * Returns a reference to the deleter subobject.
+	 *
+	 * @return A reference to the deleter.
+	 */
+	FORCEINLINE const Deleter& GetDeleter() const
+	{
+		return static_cast<const Deleter&>(*this);
 	}
 
 private:
@@ -299,60 +354,15 @@ struct TIsBitwiseConstructible<TUniquePtr<T>, T*>
 	enum { Value = true };
 };
 
-#if PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES
-
-	/**
-	 * Constructs a new object with the given arguments and returns it as a TUniquePtr.
-	 *
-	 * @param Args The arguments to pass to the constructor of T.
-	 *
-	 * @return A TUniquePtr which points to a newly-constructed T with the specified Args.
-	 */
-	template <typename T, typename... TArgs>
-	FORCEINLINE TUniquePtr<T> MakeUnique(TArgs&&... Args)
-	{
-		return TUniquePtr<T>(new T(Forward<TArgs>(Args)...));
-	}
-
-#else
-
-	/**
-	 * Constructs a new object with the given arguments and returns it as a TUniquePtr.
-	 *
-	 * @param Args The arguments to pass to the constructor of T.
-	 *
-	 * @return A TUniquePtr which points to a newly-constructed T with the specified Args.
-	 *
-	 * Note: Need to expand this for general argument list arity.
-	 */
-	template <typename T>
-	FORCEINLINE TUniquePtr<T> MakeUnique()
-	{
-		return TUniquePtr<T>(new T());
-	}
-
-	template <typename T, typename TArg0>
-	FORCEINLINE TUniquePtr<T> MakeUnique(TArg0&& Arg0)
-	{
-		return TUniquePtr<T>(new T(Forward<TArg0>(Arg0)));
-	}
-
-	template <typename T, typename TArg0, typename TArg1>
-	FORCEINLINE TUniquePtr<T> MakeUnique(TArg0&& Arg0, TArg1&& Arg1)
-	{
-		return TUniquePtr<T>(new T(Forward<TArg0>(Arg0), Forward<TArg1>(Arg1)));
-	}
-
-	template <typename T, typename TArg0, typename TArg1, typename TArg2>
-	FORCEINLINE TUniquePtr<T> MakeUnique(TArg0&& Arg0, TArg1&& Arg1, TArg2&& Arg2)
-	{
-		return TUniquePtr<T>(new T(Forward<TArg0>(Arg0), Forward<TArg1>(Arg1), Forward<TArg2>(Arg2)));
-	}
-
-	template <typename T, typename TArg0, typename TArg1, typename TArg2, typename TArg3>
-	FORCEINLINE TUniquePtr<T> MakeUnique(TArg0&& Arg0, TArg1&& Arg1, TArg2&& Arg2, TArg3&& Arg3)
-	{
-		return TUniquePtr<T>(new T(Forward<TArg0>(Arg0), Forward<TArg1>(Arg1), Forward<TArg2>(Arg2), Forward<TArg3>(Arg3)));
-	}
-
-#endif
+/**
+ * Constructs a new object with the given arguments and returns it as a TUniquePtr.
+ *
+ * @param Args The arguments to pass to the constructor of T.
+ *
+ * @return A TUniquePtr which points to a newly-constructed T with the specified Args.
+ */
+template <typename T, typename... TArgs>
+FORCEINLINE TUniquePtr<T> MakeUnique(TArgs&&... Args)
+{
+	return TUniquePtr<T>(new T(Forward<TArgs>(Args)...));
+}

@@ -322,6 +322,21 @@ void UObject::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyCh
 {
 	FPropertyChangedEvent PropertyEvent(PropertyChangedEvent.PropertyChain.GetActiveNode()->GetValue(), PropertyChangedEvent.ChangeType);
 
+	// Set up array index per object map so that GetArrayIndex returns a valid result
+	TArray<TMap<FString, int32>> ArrayIndexForProperty;
+	if (PropertyChangedEvent.Property)
+	{
+		const FString PropertyName = PropertyChangedEvent.Property->GetName();
+		const int32 ArrayIndex = PropertyChangedEvent.GetArrayIndex(PropertyName);
+		if (ArrayIndex != INDEX_NONE)
+		{
+			PropertyEvent.ObjectIteratorIndex = 0;
+			ArrayIndexForProperty.AddDefaulted();
+			ArrayIndexForProperty.Last().Add(PropertyName, ArrayIndex);
+			PropertyEvent.SetArrayIndexPerObject(ArrayIndexForProperty);
+		}
+	}
+
 	if( PropertyChangedEvent.PropertyChain.GetActiveMemberNode() )
 	{
 		PropertyEvent.SetActiveMemberProperty( PropertyChangedEvent.PropertyChain.GetActiveMemberNode()->GetValue() );
@@ -473,6 +488,68 @@ void UObject::PostEditUndo(TSharedPtr<ITransactionObjectAnnotation> TransactionA
 
 #endif // WITH_EDITOR
 
+class FCachedClassExclusionData
+{
+public:
+
+	FCachedClassExclusionData(const TCHAR* InSectionName)
+	{
+		check(GConfig != nullptr && GConfig->IsReadyForUse());
+
+		TArray<FString> ConfigData;
+		GConfig->GetArray(TEXT("Core.System"), InSectionName, ConfigData, GEngineIni);
+
+		for (TObjectIterator<UClass> ClassIt; ClassIt; ++ClassIt)
+		{
+			UClass* Class = *ClassIt;
+			if (ConfigData.Contains(Class->GetName()))
+			{
+				ExcludedClasses.Add(Class);
+			}
+		}
+
+		// Now gather all the classes which are derived from the specified ones
+		TSet<UClass*> DerivedClasses;
+
+		for (TObjectIterator<UClass> ClassIt; ClassIt; ++ClassIt)
+		{
+			UClass* Class = *ClassIt;
+
+			for (const UClass* SpecifiedClass : ExcludedClasses)
+			{
+				if (Class->IsChildOf(SpecifiedClass))
+				{
+					if (!ExcludedClasses.Contains(Class))
+					{
+						DerivedClasses.Add(Class);
+					}
+					
+					break;
+				}
+			}
+		}
+
+		// Add them together
+		ExcludedClasses.Append(DerivedClasses);
+	}
+
+	bool IsExcluded(UClass* InClass) const 
+	{
+		return ExcludedClasses.Contains(InClass);
+	}
+
+private:
+
+	TSet<UClass*> ExcludedClasses;
+
+};
+
+bool UObject::NeedsLoadForServer() const
+{
+	static const FCachedClassExclusionData CachedClassExclusionData(TEXT("ClassesExcludedForServer"));
+	return !CachedClassExclusionData.IsExcluded(GetClass());
+}
+
 bool UObject::CanCreateInCurrentContext(UObject* Template)
 {
 	check(Template);
@@ -531,7 +608,7 @@ void UObject::GetArchetypeInstances( TArray<UObject*>& Instances )
 				UObject* Obj = It;
 				
 				// if this object is the correct type and its archetype is this object, add it to the list
-				if ( Obj != this && Obj && Obj->IsBasedOnArchetype(this) )
+				if ( Obj && Obj != this && Obj->IsBasedOnArchetype(this) )
 				{
 					Instances.Add(Obj);
 				}
@@ -723,7 +800,15 @@ void UObject::ConditionalPostLoad()
 
 		{
 			FExclusiveLoadPackageTimeTracker::FScopedPostLoadTracker Tracker(this);
-			PostLoad();
+
+			if (HasAnyFlags(RF_ClassDefaultObject))
+			{
+				GetClass()->PostLoadDefaultObject(this);
+			}
+			else
+			{
+				PostLoad();
+			}
 		}
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -819,7 +904,7 @@ void UObject::ConditionalPostLoadSubobjects( FObjectInstancingGraph* OuterInstan
 	CheckDefaultSubobjects();
 }
 
-void UObject::PreSave()
+void UObject::PreSave(const class ITargetPlatform* TargetPlatform)
 {
 #if WITH_EDITOR
 	FCoreUObjectDelegates::OnObjectSaved.Broadcast(this);
@@ -993,7 +1078,7 @@ void UObject::SerializeScriptProperties( FArchive& Ar ) const
 #endif
 		ObjClass->SerializeTaggedProperties(Ar, (uint8*)this, HasAnyFlags(RF_ClassDefaultObject) ? ObjClass->GetSuperClass() : ObjClass, (uint8*)DiffObject, bBreakSerializationRecursion ? this : NULL);
 	}
-	else if ( Ar.GetPortFlags() != 0 )
+	else if ( Ar.GetPortFlags() != 0 && !Ar.ArUseCustomPropertyList )
 	{
 		UObject* DiffObject = GetArchetype();
 		ObjClass->SerializeBinEx( Ar, const_cast<UObject *>(this), DiffObject, DiffObject ? DiffObject->GetClass() : NULL );
@@ -1313,6 +1398,12 @@ bool UObject::IsAsset () const
 	return false;
 }
 
+bool UObject::IsLocalizedResource() const
+{
+	const UPackage* ObjPackage = GetOutermost();
+	return ObjPackage && FPackageName::IsLocalizedPackage(ObjPackage->GetPathName());
+}
+
 bool UObject::IsSafeForRootSet() const
 {
 	if (IsInBlueprint())
@@ -1615,18 +1706,19 @@ void UObject::LoadConfig( UClass* ConfigClass/*=NULL*/, const TCHAR* InFilename/
 					Key = FString::Printf(TEXT("%s[%i]"), *Property->GetName(), i);
 				}
 
-					FString Value;
-				bool bFoundValue = GConfig->GetString( *ClassSection, *Key, Value, *PropFileName );
-					if (bFoundValue)
+				FString Value;
+				const bool bFoundValue = GConfig->GetString( *ClassSection, *Key, Value, *PropFileName );
+				if (bFoundValue)
+				{
+					if (Property->ImportText(*Value, Property->ContainerPtrToValuePtr<uint8>(this, i), PortFlags, this) == NULL)
 					{
-						if (Property->ImportText(*Value, Property->ContainerPtrToValuePtr<uint8>(this, i), PortFlags, this) == NULL)
-						{
-							// this should be an error as the properties from the .ini / .int file are not correctly being read in and probably are affecting things in subtle ways
-							UE_LOG(LogObj, Error, TEXT("LoadConfig (%s): import failed for %s in: %s"), *GetPathName(), *Property->GetName(), *Value);
-						}
+						// this should be an error as the properties from the .ini / .int file are not correctly being read in and probably are affecting things in subtle ways
+						UE_LOG(LogObj, Error, TEXT("LoadConfig (%s): import failed for %s in: %s"), *GetPathName(), *Property->GetName(), *Value);
 					}
+				}
+
 #if !UE_BUILD_SHIPPING
-				else if (!FPlatformProperties::RequiresCookedData())
+				if (!bFoundValue && !FPlatformProperties::RequiresCookedData())
 				{
 					CheckMissingSection(ClassSection, PropFileName);
 				}
@@ -1640,13 +1732,14 @@ void UObject::LoadConfig( UClass* ConfigClass/*=NULL*/, const TCHAR* InFilename/
 			//@Package name transition
 			if( Sec )
 			{
-				TArray<FString> List;
-				Sec->MultiFind(FName(*Key,FNAME_Find),List);
+				TArray<FConfigValue> List;
+				const FName KeyName(*Key, FNAME_Find);
+				Sec->MultiFind(KeyName,List);
 
 				// If we didn't find anything in the first section, try the alternate
 				if ((List.Num() == 0) && AltSec)
 				{
-					AltSec->MultiFind(FName(*Key,FNAME_Find),List);
+					AltSec->MultiFind(KeyName,List);
 				}
 
 				FScriptArrayHelper_InContainer ArrayHelper(Array, this);
@@ -1655,35 +1748,34 @@ void UObject::LoadConfig( UClass* ConfigClass/*=NULL*/, const TCHAR* InFilename/
 				if ( List.Num() > 0 )
 				{
 					ArrayHelper.EmptyAndAddValues(List.Num());
-
-						for( int32 i=List.Num()-1,c=0; i>=0; i--,c++ )
-						{
-							Array->Inner->ImportText( *List[i], ArrayHelper.GetRawPtr(c), PortFlags, this );
-						}
+					for( int32 i=List.Num()-1,c=0; i>=0; i--,c++ )
+					{
+						Array->Inner->ImportText( *List[i].GetValue(), ArrayHelper.GetRawPtr(c), PortFlags, this );
 					}
+				}
 				else
 				{
 					int32 Index = 0;
-					FString* ElementValue = NULL;
+					const FConfigValue* ElementValue = nullptr;
 					do
 					{
 						// Add array index number to end of key
 						FString IndexedKey = FString::Printf(TEXT("%s[%i]"), *Key, Index);
 
 						// Try to find value of key
-						FName IndexedName(*IndexedKey,FNAME_Find);
+						const FName IndexedName(*IndexedKey,FNAME_Find);
 						if (IndexedName == NAME_None)
 						{
 							break;
 						}
-						ElementValue  = Sec->Find(IndexedName);
+						ElementValue = Sec->Find(IndexedName);
 
 						// If found, import the element
-						if ( ElementValue != NULL )
+						if ( ElementValue != nullptr )
 						{
 							// expand the array if necessary so that Index is a valid element
 							ArrayHelper.ExpandForIndex(Index);
-							Array->Inner->ImportText(**ElementValue, ArrayHelper.GetRawPtr(Index), PortFlags, this);
+							Array->Inner->ImportText(*ElementValue->GetValue(), ArrayHelper.GetRawPtr(Index), PortFlags, this);
 						}
 
 						Index++;
@@ -1812,13 +1904,13 @@ void UObject::SaveConfig( uint64 Flags, const TCHAR* InFilename, FConfigCacheIni
 					FString CompleteKey = FString::Printf(TEXT("%s%s"), bIsADefaultIniWrite ? TEXT("+") : TEXT(""), *Key);
 
 					FScriptArrayHelper_InContainer ArrayHelper(Array, this);
-						for( int32 i=0; i<ArrayHelper.Num(); i++ )
-						{
-							FString	Buffer;
-							Array->Inner->ExportTextItem( Buffer, ArrayHelper.GetRawPtr(i), ArrayHelper.GetRawPtr(i), this, PortFlags );
-							Sec->Add(*CompleteKey, *Buffer);
-						}
+					for( int32 i=0; i<ArrayHelper.Num(); i++ )
+					{
+						FString	Buffer;
+						Array->Inner->ExportTextItem( Buffer, ArrayHelper.GetRawPtr(i), ArrayHelper.GetRawPtr(i), this, PortFlags );
+						Sec->Add(*CompleteKey, *Buffer);
 					}
+				}
 				else if( Property->Identical_InContainer(this, SuperClassDefaultObject) )
 				{
 					// If we are not writing it to config above, we should make sure that this property isn't stagnant in the cache.
@@ -1843,10 +1935,10 @@ void UObject::SaveConfig( uint64 Flags, const TCHAR* InFilename, FConfigCacheIni
 							Key = TempKey;
 						}
 
-							FString	Value;
-							Property->ExportText_InContainer( Index, Value, this, this, this, PortFlags );
-							Config->SetString( *Section, *Key, *Value, *PropFileName );
-						}
+						FString	Value;
+						Property->ExportText_InContainer( Index, Value, this, this, this, PortFlags );
+						Config->SetString( *Section, *Key, *Value, *PropFileName );
+					}
 					else if( Property->Identical_InContainer(this, SuperClassDefaultObject, Index) )
 					{
 						// If we are not writing it to config above, we should make sure that this property isn't stagnant in the cache.
@@ -1992,8 +2084,7 @@ void UObject::ReinitializeProperties( UObject* SourceObject/*=NULL*/, FObjectIns
 		SourceObject = GetArchetype();
 	}
 
-	check( SourceObject||GetClass()==UObject::StaticClass() );
-	checkSlow(GetClass()==UObject::StaticClass()||IsA(SourceObject->GetClass()));
+	check(GetClass() == UObject::StaticClass() || (SourceObject && IsA(SourceObject->GetClass())));
 
 	// Recreate this object based on the new archetype - using StaticConstructObject rather than manually tearing down and re-initializing
 	// the properties for this object ensures that any cleanup required when an object is reinitialized from defaults occurs properly
@@ -2539,7 +2630,7 @@ TArray<const TCHAR*> ParsePropertyFlags(uint64 Flags)
 	return Results;
 }
 
-// @TODO yrx 2014-09-15 Move to ObjectCommads.cpp or ObjectExec.cpp
+// #UObject: 2014-09-15 Move to ObjectCommads.cpp or ObjectExec.cpp
 bool StaticExec( UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	const TCHAR *Str = Cmd;

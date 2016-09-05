@@ -2,14 +2,17 @@
 
 #include "MovieScenePrivatePCH.h"
 #include "MovieScene.h"
-
+#include "MovieSceneFolder.h"
 
 /* UMovieScene interface
  *****************************************************************************/
 
 UMovieScene::UMovieScene(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, SelectionRange(FFloatRange::Empty())
 	, PlaybackRange(FFloatRange::Empty())
+	, bForceFixedFrameIntervalPlayback(false)
+	, FixedFrameInterval(0.0f)
 	, InTime_DEPRECATED(FLT_MAX)
 	, OutTime_DEPRECATED(-FLT_MAX)
 	, StartTime_DEPRECATED(FLT_MAX)
@@ -20,17 +23,68 @@ UMovieScene::UMovieScene(const FObjectInitializer& ObjectInitializer)
 #endif
 }
 
+void UMovieScene::Serialize( FArchive& Ar )
+{
+#if WITH_EDITOR
+
+	// Perform optimizations for cooking
+	if (Ar.IsCooking())
+	{
+		// @todo: Optimize master tracks?
+
+		// Optimize object bindings
+		OptimizeObjectArray(Spawnables);
+		OptimizeObjectArray(Possessables);
+	}
+
+#endif // WITH_EDITOR
+
+	Super::Serialize(Ar);
+}
 
 #if WITH_EDITOR
 
-// @todo sequencer: Some of these methods should only be used by tools, and should probably move out of MovieScene!
-FGuid UMovieScene::AddSpawnable( const FString& Name, UBlueprint* Blueprint )
+template<typename T>
+void UMovieScene::OptimizeObjectArray(TArray<T>& ObjectArray)
 {
-	check( (Blueprint != nullptr) && (Blueprint->GeneratedClass) );
+	for (int32 ObjectIndex = ObjectArray.Num() - 1; ObjectIndex >= 0; --ObjectIndex)
+	{
+		FGuid ObjectGuid = ObjectArray[ObjectIndex].GetGuid();
 
+		// Find the binding relating to this object, and optimize its tracks
+		// @todo: ObjectBindings mapped by ID to avoid linear search
+		for (int32 BindingIndex = 0; BindingIndex < ObjectBindings.Num(); ++BindingIndex)
+		{
+			FMovieSceneBinding& Binding =ObjectBindings[BindingIndex];
+			if (Binding.GetObjectGuid() != ObjectGuid)
+			{
+				continue;
+			}
+			
+			bool bShouldRemoveObject = false;
+
+			// Optimize any tracks
+			Binding.PerformCookOptimization(bShouldRemoveObject);
+
+			// Remove the object if it's completely redundant
+			if (bShouldRemoveObject)
+			{
+				ObjectBindings.RemoveAtSwap(BindingIndex, 1, false);
+				ObjectArray.RemoveAtSwap(ObjectIndex, 1, false);
+			}
+
+			// Process next object
+			break;
+		}
+	}
+}
+
+// @todo sequencer: Some of these methods should only be used by tools, and should probably move out of MovieScene!
+FGuid UMovieScene::AddSpawnable( const FString& Name, UObject& ObjectTemplate )
+{
 	Modify();
 
-	FMovieSceneSpawnable NewSpawnable( Name, Blueprint->GeneratedClass );
+	FMovieSceneSpawnable NewSpawnable( Name, ObjectTemplate );
 	Spawnables.Add( NewSpawnable );
 
 	// Add a new binding so that tracks can be added to it
@@ -51,22 +105,10 @@ bool UMovieScene::RemoveSpawnable( const FGuid& Guid )
 			if( CurSpawnable.GetGuid() == Guid )
 			{
 				Modify();
-
-				{
-					UClass* GeneratedClass = CurSpawnable.GetClass();
-					UBlueprint* Blueprint = GeneratedClass ? Cast<UBlueprint>(GeneratedClass->ClassGeneratedBy) : nullptr;
-					check(nullptr != Blueprint);
-					// @todo sequencer: Also remove created Blueprint inner object.  Is this sufficient?  Needs to work with Undo too!
-					Blueprint->ClearFlags( RF_Standalone );	// @todo sequencer: Probably not needed for Blueprint
-					Blueprint->MarkPendingKill();
-				}
-
 				RemoveBinding( Guid );
 
-				// Found it!
 				Spawnables.RemoveAt( SpawnableIter.GetIndex() );
-
-
+				
 				bAnythingRemoved = true;
 				break;
 			}
@@ -83,6 +125,11 @@ FMovieSceneSpawnable* UMovieScene::FindSpawnable( const TFunctionRef<bool(FMovie
 
 #endif //WITH_EDITOR
 
+
+FMovieSceneSpawnable& UMovieScene::GetSpawnable(int32 Index)
+{
+	return Spawnables[Index];
+}
 
 int32 UMovieScene::GetSpawnableCount() const
 {
@@ -185,6 +232,10 @@ FMovieScenePossessable* UMovieScene::FindPossessable( const FGuid& Guid )
 	return nullptr;
 }
 
+FMovieScenePossessable* UMovieScene::FindPossessable( const TFunctionRef<bool(FMovieScenePossessable&)>& InPredicate )
+{
+	return Possessables.FindByPredicate(InPredicate);
+}
 
 int32 UMovieScene::GetPossessableCount() const
 {
@@ -239,23 +290,32 @@ void UMovieScene::SetObjectDisplayName(const FGuid& ObjectId, const FText& Displ
 		ObjectsToDisplayNames.Add(ObjectId.ToString(), DisplayName);
 	}
 }
+
+
+TArray<UMovieSceneFolder*>&  UMovieScene::GetRootFolders()
+{
+	return RootFolders;
+}
 #endif
 
 
-TRange<float> UMovieScene::GetPlaybackRange() const
-{
-	check(PlaybackRange.HasLowerBound() && PlaybackRange.HasUpperBound());
-	return PlaybackRange;
-}
-
-
-void UMovieScene::SetPlaybackRange(float Start, float End)
+void UMovieScene::SetPlaybackRange(float Start, float End, bool bAlwaysMarkDirty)
 {
 	if (ensure(End >= Start))
 	{
-		Modify();
-		
-		PlaybackRange = TRange<float>(Start, TRangeBound<float>::Inclusive(End));
+		const auto NewRange = TRange<float>(Start, TRangeBound<float>::Inclusive(End));
+
+		if (PlaybackRange == NewRange)
+		{
+			return;
+		}
+
+		if (bAlwaysMarkDirty)
+		{
+			Modify();
+		}
+
+		PlaybackRange = NewRange;
 
 #if WITH_EDITORONLY_DATA
 		if (EditorData.WorkingRange.IsEmpty())
@@ -269,6 +329,38 @@ void UMovieScene::SetPlaybackRange(float Start, float End)
 		}
 #endif
 	}
+}
+
+
+bool UMovieScene::GetForceFixedFrameIntervalPlayback() const
+{
+	return bForceFixedFrameIntervalPlayback;
+}
+
+
+void UMovieScene::SetForceFixedFrameIntervalPlayback( bool bInForceFixedFrameIntervalPlayback )
+{
+	bForceFixedFrameIntervalPlayback = bInForceFixedFrameIntervalPlayback;
+}
+
+
+float UMovieScene::GetFixedFrameInterval() const
+{
+	return FixedFrameInterval;
+}
+
+
+void UMovieScene::SetFixedFrameInterval( float InFixedFrameInterval )
+{
+	FixedFrameInterval = InFixedFrameInterval;
+}
+
+
+const float UMovieScene::FixedFrameIntervalEpsilon = .0001f;
+
+float UMovieScene::CalculateFixedFrameTime( float Time, float FixedFrameInterval )
+{
+	return ( FMath::RoundToInt( Time / FixedFrameInterval ) ) * FixedFrameInterval + FixedFrameIntervalEpsilon;
 }
 
 
@@ -302,15 +394,18 @@ UMovieSceneTrack* UMovieScene::FindTrack(TSubclassOf<UMovieSceneTrack> TrackClas
 	for (const auto& Binding : ObjectBindings)
 	{
 		if (Binding.GetObjectGuid() != ObjectGuid) 
-	{
+		{
 			continue;
 		}
 
 		for (const auto& Track : Binding.GetTracks())
 		{
-			if ((Track->GetClass() == TrackClass) && (Track->GetTrackName() == TrackName))
+			if (Track->GetClass() == TrackClass)
 			{
-				return Track;
+				if (TrackName == NAME_None || Track->GetTrackName() == TrackName)
+				{
+					return Track;
+				}
 			}
 		}
 	}
@@ -319,7 +414,7 @@ UMovieSceneTrack* UMovieScene::FindTrack(TSubclassOf<UMovieSceneTrack> TrackClas
 }
 
 
-class UMovieSceneTrack* UMovieScene::AddTrack( TSubclassOf<UMovieSceneTrack> TrackClass, const FGuid& ObjectGuid )
+UMovieSceneTrack* UMovieScene::AddTrack( TSubclassOf<UMovieSceneTrack> TrackClass, const FGuid& ObjectGuid )
 {
 	UMovieSceneTrack* CreatedType = nullptr;
 
@@ -332,8 +427,8 @@ class UMovieSceneTrack* UMovieScene::AddTrack( TSubclassOf<UMovieSceneTrack> Tra
 			Modify();
 
 			CreatedType = NewObject<UMovieSceneTrack>(this, TrackClass, NAME_None, RF_Transactional);
-			ensure(CreatedType);
-
+			check(CreatedType);
+			
 			Binding.AddTrack( *CreatedType );
 		}
 	}
@@ -346,7 +441,7 @@ bool UMovieScene::RemoveTrack(UMovieSceneTrack& Track)
 {
 	Modify();
 
-	bool bAnythingRemoved = false;
+bool bAnythingRemoved = false;
 
 	for (auto& Binding : ObjectBindings)
 	{
@@ -363,6 +458,22 @@ bool UMovieScene::RemoveTrack(UMovieSceneTrack& Track)
 	return bAnythingRemoved;
 }
 
+bool UMovieScene::FindTrackBinding(const UMovieSceneTrack& InTrack, FGuid& OutGuid) const
+{
+	for (auto& Binding : ObjectBindings)
+	{
+		for(auto& Track : Binding.GetTracks())
+		{
+			if(Track == &InTrack)
+			{
+				OutGuid = Binding.GetObjectGuid();
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
 
 UMovieSceneTrack* UMovieScene::FindMasterTrack( TSubclassOf<UMovieSceneTrack> TrackClass ) const
 {
@@ -381,7 +492,7 @@ UMovieSceneTrack* UMovieScene::FindMasterTrack( TSubclassOf<UMovieSceneTrack> Tr
 }
 
 
-class UMovieSceneTrack* UMovieScene::AddMasterTrack( TSubclassOf<UMovieSceneTrack> TrackClass )
+UMovieSceneTrack* UMovieScene::AddMasterTrack( TSubclassOf<UMovieSceneTrack> TrackClass )
 {
 	Modify();
 
@@ -392,30 +503,30 @@ class UMovieSceneTrack* UMovieScene::AddMasterTrack( TSubclassOf<UMovieSceneTrac
 }
 
 
-UMovieSceneTrack* UMovieScene::AddShotTrack( TSubclassOf<UMovieSceneTrack> TrackClass )
+UMovieSceneTrack* UMovieScene::AddCameraCutTrack( TSubclassOf<UMovieSceneTrack> TrackClass )
 {
-	if( !ShotTrack )
+	if( !CameraCutTrack )
 	{
 		Modify();
-		ShotTrack = NewObject<UMovieSceneTrack>(this, TrackClass, FName("Shots"), RF_Transactional);
+		CameraCutTrack = NewObject<UMovieSceneTrack>(this, TrackClass, FName("Camera Cuts"), RF_Transactional);
 	}
 
-	return ShotTrack;
+	return CameraCutTrack;
 }
 
 
-UMovieSceneTrack* UMovieScene::GetShotTrack()
+UMovieSceneTrack* UMovieScene::GetCameraCutTrack()
 {
-	return ShotTrack;
+	return CameraCutTrack;
 }
 
 
-void UMovieScene::RemoveShotTrack()
+void UMovieScene::RemoveCameraCutTrack()
 {
-	if( ShotTrack )
+	if( CameraCutTrack )
 	{
 		Modify();
-		ShotTrack = nullptr;
+		CameraCutTrack = nullptr;
 	}
 }
 
@@ -519,13 +630,24 @@ void UMovieScene::UpgradeTimeRanges()
 void UMovieScene::PostLoad()
 {
 	UpgradeTimeRanges();
+
+	for (FMovieSceneSpawnable& Spawnable : Spawnables)
+	{
+		if (UObject* Template = Spawnable.GetObjectTemplate())
+		{
+			// Spawnables are no longer marked archetype
+			Template->ClearFlags(RF_ArchetypeObject);
+			
+			FMovieSceneSpawnable::MarkSpawnableTemplate(*Template);
+		}
+	}
 	Super::PostLoad();
 }
 
 
-void UMovieScene::PreSave()
+void UMovieScene::PreSave(const class ITargetPlatform* TargetPlatform)
 {
-	Super::PreSave();
+	Super::PreSave(TargetPlatform);
 
 #if WITH_EDITORONLY_DATA
 	// compress meta data mappings prior to saving

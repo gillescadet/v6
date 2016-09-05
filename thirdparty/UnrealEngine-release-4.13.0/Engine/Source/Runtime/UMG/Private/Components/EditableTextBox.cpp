@@ -15,7 +15,7 @@ UEditableTextBox::UEditableTextBox(const FObjectInitializer& ObjectInitializer)
 	BackgroundColor_DEPRECATED = FLinearColor::White;
 	ReadOnlyForegroundColor_DEPRECATED = FLinearColor::Black;
 
-	if (!UE_SERVER)
+	if (!IsRunningDedicatedServer())
 	{
 		static ConstructorHelpers::FObjectFinder<UFont> RobotoFontObj(TEXT("/Engine/EngineFonts/Roboto"));
 		Font_DEPRECATED = FSlateFontInfo(RobotoFontObj.Object, 12, FName("Bold"));
@@ -81,6 +81,8 @@ void UEditableTextBox::SynchronizeProperties()
 	MyEditableTextBlock->SetClearKeyboardFocusOnCommit(ClearKeyboardFocusOnCommit);
 	MyEditableTextBlock->SetSelectAllTextOnCommit(SelectAllTextOnCommit);
 	MyEditableTextBlock->SetAllowContextMenu(AllowContextMenu);
+
+	ShapedTextOptions.SynchronizeShapedTextProperties(*MyEditableTextBlock);
 }
 
 FText UEditableTextBox::GetText() const
@@ -116,6 +118,16 @@ void UEditableTextBox::ClearError()
 	{
 		MyEditableTextBlock->SetError(FText::GetEmpty());
 	}
+}
+
+bool UEditableTextBox::HasError() const
+{
+	if ( MyEditableTextBlock.IsValid() )
+	{
+		return MyEditableTextBlock->HasError();
+	}
+
+	return false;
 }
 
 void UEditableTextBox::HandleOnTextChanged(const FText& InText)
@@ -180,11 +192,6 @@ void UEditableTextBox::PostLoad()
 }
 
 #if WITH_EDITOR
-
-const FSlateBrush* UEditableTextBox::GetEditorIcon()
-{
-	return FUMGStyle::Get().GetBrush("Widget.EditableTextBox");
-}
 
 const FText UEditableTextBox::GetPaletteCategory()
 {

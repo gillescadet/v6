@@ -4,10 +4,12 @@
 
 #include "CameraAnim.generated.h"
 
+ENGINE_API DECLARE_LOG_CATEGORY_EXTERN(LogCameraAnim, Log, All);
+
 /**
  * A predefined animation to be played on a camera
  */
-UCLASS(notplaceable, MinimalAPI)
+UCLASS(BlueprintType, notplaceable, MinimalAPI)
 class UCameraAnim : public UObject
 {
 	GENERATED_UCLASS_BODY()
@@ -38,6 +40,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category=CameraAnim)
 	uint8 bRelativeToInitialTransform : 1;
 
+	/**
+	* If true, assume all FOV keys are intended be offsets from the start of the animation.
+	* If false, assume all FOV keys are authored relative to the current FOV of the camera at the start of the animation.
+	*/
+	UPROPERTY(EditDefaultsOnly, Category = CameraAnim)
+	uint8 bRelativeToInitialFOV : 1;
+
 	/** The FOV  */
 	UPROPERTY()
 	float BaseFOV;
@@ -51,7 +60,7 @@ public:
 	float BasePostProcessBlendWeight;
 
 	//~ Begin UObject Interface
-	virtual void PreSave() override;
+	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
 	virtual void PostLoad() override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
 	//~ End UObject Interface

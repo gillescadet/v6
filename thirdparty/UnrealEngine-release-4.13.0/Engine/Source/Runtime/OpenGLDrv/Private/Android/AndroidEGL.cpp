@@ -163,6 +163,7 @@ void AndroidEGL::TerminateEGL()
 {
 
 	eglTerminate(PImplData->eglDisplay);
+	PImplData->eglDisplay = EGL_NO_DISPLAY;
 	PImplData->Initalized = false;
 }
 
@@ -324,12 +325,12 @@ void AndroidEGL::CreateEGLSurface(ANativeWindow* InWindow, bool bCreateWndSurfac
 void AndroidEGL::InitEGL(APIVariant API)
 {
 	// make sure we only do this once (it's optionally done early for cooker communication)
-	static bool bAlreadyInitialized = false;
-	if (bAlreadyInitialized)
+//	static bool bAlreadyInitialized = false;
+	if (PImplData->Initalized)
 	{
 		return;
 	}
-	bAlreadyInitialized = true;
+//	bAlreadyInitialized = true;
 
 	check(PImplData->eglDisplay == EGL_NO_DISPLAY)
 	PImplData->eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -819,13 +820,21 @@ void AndroidEGL::UnBind()
 void FAndroidAppEntry::ReInitWindow()
 {
 	FPlatformMisc::LowLevelOutputDebugString(TEXT("AndroidEGL::ReInitWindow()"));
-	AndroidEGL::GetInstance()->ReInit();
+	// @todo vulkan: Clean this up, and does vulkan need any code here?
+	if (!FAndroidMisc::ShouldUseVulkan())
+	{
+		AndroidEGL::GetInstance()->ReInit();
+	}
 }
 
 void FAndroidAppEntry::DestroyWindow()
 {
 	FPlatformMisc::LowLevelOutputDebugString(TEXT("AndroidEGL::DestroyWindow()"));
-	AndroidEGL::GetInstance()->UnBind();
+	// @todo vulkan: Clean this up, and does vulkan need any code here?
+	if (!FAndroidMisc::ShouldUseVulkan())
+	{
+		AndroidEGL::GetInstance()->UnBind();
+	}
 }
 
 void AndroidEGL::LogConfigInfo(EGLConfig  EGLConfigInfo)

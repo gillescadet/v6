@@ -3,6 +3,7 @@
 #pragma once
 
 #include "GameplayTagsModule.h"
+#include "GameplayAbilitiesModule.h"
 #include "AbilitySystemGlobals.generated.h"
 
 class AActor;
@@ -28,7 +29,10 @@ class GAMEPLAYABILITIES_API UAbilitySystemGlobals : public UObject
 	GENERATED_UCLASS_BODY()
 
 	/** Gets the single instance of the globals object, will create it as necessary */
-	static UAbilitySystemGlobals& Get();
+	static UAbilitySystemGlobals& Get()
+	{
+		return *IGameplayAbilitiesModule::Get().GetAbilitySystemGlobals();
+	}
 
 	/** Should be called once as part of project setup to load global data tables and tags */
 	virtual void InitGlobalData();
@@ -141,6 +145,10 @@ class GAMEPLAYABILITIES_API UAbilitySystemGlobals : public UObject
 	UPROPERTY(config)
 	FName ActivateFailNetworkingName;
 
+	/** How many bits to use for "number of tags" in FMinimapReplicationTagCountMap::NetSerialize.  */
+	UPROPERTY(config)
+	int32	MinimalReplicationTagCountBits;
+
 	virtual void InitGlobalTags()
 	{
 		if (ActivateFailCooldownName != NAME_None)
@@ -171,6 +179,7 @@ class GAMEPLAYABILITIES_API UAbilitySystemGlobals : public UObject
 
 	// GameplayCue Parameters
 	virtual void InitGameplayCueParameters(FGameplayCueParameters& CueParameters, const FGameplayEffectSpecForRPC &Spec);
+	virtual void InitGameplayCueParameters_GESpec(FGameplayCueParameters& CueParameters, const FGameplayEffectSpec &Spec);
 	virtual void InitGameplayCueParameters(FGameplayCueParameters& CueParameters, const FGameplayEffectContextHandle& EffectContext);
 
 	// Trigger async loading of the gameplay cue object libraries. By default, the manager will do this on creation,
@@ -194,21 +203,27 @@ protected:
 	bool bIgnoreAbilitySystemCosts;
 #endif // #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
-private:
-
-	/** Holds all of the valid gameplay-related tags that can be applied to assets */
+	/** Name of global curve table to use as the default for scalable floats, etc. */
 	UPROPERTY(config)
-	FString GlobalCurveTableName;
+	FStringAssetReference GlobalCurveTableName;
 
 	/** Holds information about the valid attributes' min and max values and stacking rules */
 	UPROPERTY(config)
-	FString GlobalAttributeMetaDataTableName;
+	FStringAssetReference GlobalAttributeMetaDataTableName;
 
-	/** Holds default values for attribute sets, keyed off of Name/Levels. */
+	/** Holds default values for attribute sets, keyed off of Name/Levels. NOTE: Preserved for backwards compatibility, should use the array version below now */
 	UPROPERTY(config)
-	FString GlobalAttributeSetDefaultsTableName;
+	FStringAssetReference GlobalAttributeSetDefaultsTableName;
 
-	/** The class to instantiate as the global GameplayCue manager. This class is responsible for directing GameplayCue events, loading and cooking assets related to GameplayCues. */
+	/** Array of curve table names to use for default values for attribute sets, keyed off of Name/Levels */
+	UPROPERTY(config)
+	TArray<FStringAssetReference> GlobalAttributeSetDefaultsTableNames;
+
+	/** Class reference to gameplay cue manager. Use this if you want to just instantiate a class for your gameplay cue manager without having to create an asset. */
+	UPROPERTY(config)
+	FStringAssetReference GlobalGameplayCueManagerClass;
+
+	/** Object reference to gameplay cue manager (E.g., reference to a specific blueprint of your GameplayCueManager class. This is not necessary unless you want to have data or blueprints in your gameplay cue manager. */
 	UPROPERTY(config)
 	FStringAssetReference GlobalGameplayCueManagerName;
 
@@ -230,8 +245,9 @@ private:
 	UPROPERTY()
 	UCurveTable* GlobalCurveTable;
 
+	/** Curve tables containing default values for attribute sets, keyed off of Name/Levels */
 	UPROPERTY()
-	UCurveTable* GlobalAttributeDefaultsTable;
+	TArray<UCurveTable*> GlobalAttributeDefaultsTables;
 
 	UPROPERTY()
 	UDataTable* GlobalAttributeMetaDataTable;
@@ -247,6 +263,8 @@ private:
 #if WITH_EDITOR
 	void OnTableReimported(UObject* InObject);
 #endif
+
+	void HandlePreLoadMap(const FString& MapName);
 
 #if WITH_EDITORONLY_DATA
 	bool RegisteredReimportCallback;

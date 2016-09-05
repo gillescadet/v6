@@ -28,6 +28,22 @@ public:
 	 */
 	static EBuildConfigurations::Type GetBuildConfiguration();
 
+	/*
+	* Gets the unique version string for this build. This string is not assumed to have any particular format other being a unique identifier for the build.
+	*
+	* @return The build version
+	*/
+	static const TCHAR* GetBuildVersion();
+
+	/**
+	 * Gets the deployment name (also known as "EpicApp" in the launcher), e.g. DevPlaytest, PublicTest, Live etc.
+	 *
+	 * Does not return FString because it can be used during crash handling, so it should avoid memory allocation.
+	 *
+	 * @return The branch name (guaranteed not to be nullptr).
+	 */
+	static const TCHAR * GetDeploymentName();
+
 	/**
 	 * Gets the date at which this application was built.
 	 *
@@ -308,6 +324,18 @@ public:
 	}
 
 	/**
+	 * Checks whether this application should run with the null RHI.
+	 *
+	 * Distinct from GUsingNullRHI which tells you whether the engine has actually initialized and is running a null RHI.
+	 *
+	 * @return true if the application should use null RHI.
+	 */
+	FORCEINLINE static bool ShouldUseNullRHI()
+	{
+		return (USE_NULL_RHI || FParse::Param(FCommandLine::Get(), TEXT("nullrhi")) || !CanEverRender());
+	}
+
+	/**
 	 * Checks whether this application has been installed.
 	 *
 	 * Non-server desktop shipping builds are assumed to be installed.
@@ -343,6 +371,7 @@ public:
 	 *
 	 * @return true if the application runs unattended, false otherwise.
 	 */
+#if ( !PLATFORM_WINDOWS ) || ( !defined(__clang__) )
 	static bool IsUnattended()
 	{
 		// FCommandLine::Get() will assert that the command line has been set.
@@ -350,6 +379,9 @@ public:
 		static bool bIsUnattended = FParse::Param(FCommandLine::Get(), TEXT("UNATTENDED"));
 		return bIsUnattended || GIsAutomationTesting;
 	}
+#else
+	static bool IsUnattended(); // @todo clang: Workaround for missing symbol export
+#endif
 
 	/**
 	 * Checks whether the application should run multi-threaded for performance critical features.
@@ -489,6 +521,26 @@ public:
 	}
 
 	/**
+	 * Gets idle time in seconds.
+	 *
+	 * @return Idle time in seconds.
+	 */
+	FORCEINLINE static double GetIdleTime()
+	{
+		return IdleTime;
+	}
+
+	/**
+	 * Sets idle time in seconds.
+	 *
+	 * @param seconds - Idle time in seconds.
+	 */
+	static void SetIdleTime(double Seconds)
+	{
+		IdleTime = Seconds;
+	}
+
+	/**
 	 * Get Volume Multiplier
 	 * 
 	 * @return Current volume multiplier
@@ -550,6 +602,9 @@ public:
 	{
 		return bHasVRFocus;
 	}
+	
+	/* If the random seed started with a constant or on time, can be affected by -FIXEDSEED or -BENCHMARK */
+	static bool bUseFixedSeed;
 
 private:
 
@@ -588,6 +643,9 @@ private:
 
 	/** Holds current delta time in seconds. */
 	static double DeltaTime;
+
+	/** Holds time we spent sleeping in UpdateTimeAndHandleMaxTickRate() if our frame time was smaller than one allowed by target FPS. */
+	static double IdleTime;
 
 	/** Use to affect the app volume when it loses focus */
 	static float VolumeMultiplier;

@@ -11,6 +11,8 @@
 DEFINE_STAT(MCR_Physical);
 DEFINE_STAT(MCR_GPU);
 DEFINE_STAT(MCR_TexturePool);
+DEFINE_STAT(MCR_StreamingPool);
+DEFINE_STAT(MCR_UsedStreamingPool);
 
 DEFINE_STAT(STAT_TotalPhysical);
 DEFINE_STAT(STAT_TotalVirtual);
@@ -30,7 +32,7 @@ struct FGenericStatsUpdater
 	/** Called once per second, enqueues stats update. */
 	static bool EnqueueUpdateStats( float /*InDeltaTime*/ )
 	{
-		AsyncTask( ENamedThreads::AnyThread, []()
+		AsyncTask( ENamedThreads::AnyBackgroundThreadNormalTask, []()
 		{
 			DoUpdateStats();
 		} );
@@ -88,6 +90,8 @@ void FGenericPlatformMemory::SetupMemoryPools()
 	SET_MEMORY_STAT(MCR_Physical, 0); // "unlimited" physical memory, we still need to make this call to set the short name, etc
 	SET_MEMORY_STAT(MCR_GPU, 0); // "unlimited" GPU memory, we still need to make this call to set the short name, etc
 	SET_MEMORY_STAT(MCR_TexturePool, 0); // "unlimited" Texture memory, we still need to make this call to set the short name, etc
+	SET_MEMORY_STAT(MCR_StreamingPool, 0);
+	SET_MEMORY_STAT(MCR_UsedStreamingPool, 0);
 
 	BackupOOMMemoryPool = FPlatformMemory::BinnedAllocFromOS(BackupOOMMemoryPoolSize);
 }
@@ -120,22 +124,26 @@ void FGenericPlatformMemory::OnOutOfMemory(uint64 Size, uint32 Alignment)
 	FPlatformMemoryStats PlatformMemoryStats = FPlatformMemory::GetStats();
 	if (BackupOOMMemoryPool)
 	{
-		FPlatformMemory::BinnedFreeToOS(BackupOOMMemoryPool);
+		FPlatformMemory::BinnedFreeToOS(BackupOOMMemoryPool, BackupOOMMemoryPoolSize);
 		UE_LOG(LogMemory, Warning, TEXT("Freeing %d bytes from backup pool to handle out of memory."), BackupOOMMemoryPoolSize);
 	}
 	UE_LOG(LogMemory, Warning, TEXT("MemoryStats:")\
 		TEXT("\n\tAvailablePhysical %llu")\
-		TEXT("\n\tAvailableVirtual %llu")\
-		TEXT("\n\tUsedPhysical %llu")\
-		TEXT("\n\tPeakUsedPhysical %llu")\
-		TEXT("\n\tUsedVirtual %llu")\
-		TEXT("\n\tPeakUsedVirtual %llu"),
+		TEXT("\n\t AvailableVirtual %llu")\
+		TEXT("\n\t     UsedPhysical %llu")\
+		TEXT("\n\t PeakUsedPhysical %llu")\
+		TEXT("\n\t      UsedVirtual %llu")\
+		TEXT("\n\t  PeakUsedVirtual %llu"),
 		(uint64)PlatformMemoryStats.AvailablePhysical,
 		(uint64)PlatformMemoryStats.AvailableVirtual,
 		(uint64)PlatformMemoryStats.UsedPhysical,
 		(uint64)PlatformMemoryStats.PeakUsedPhysical,
 		(uint64)PlatformMemoryStats.UsedVirtual,
 		(uint64)PlatformMemoryStats.PeakUsedVirtual);
+	if (GWarn)
+	{
+		GMalloc->DumpAllocatorStats(*GWarn);
+	}
 	UE_LOG(LogMemory, Fatal, TEXT("Ran out of memory allocating %llu bytes with alignment %u"), Size, Alignment);
 }
 
@@ -181,13 +189,19 @@ uint32 FGenericPlatformMemory::GetPhysicalGBRam()
 	return FPlatformMemory::GetConstants().TotalPhysicalGB;
 }
 
+bool FGenericPlatformMemory::PageProtect(void* const Ptr, const SIZE_T Size, const bool bCanRead, const bool bCanWrite)
+{
+	UE_LOG(LogMemory, Verbose, TEXT("FGenericPlatformMemory::PageProtect not implemented on this platform"));
+	return false;
+}
+
 void* FGenericPlatformMemory::BinnedAllocFromOS( SIZE_T Size )
 {
 	UE_LOG(LogMemory, Error, TEXT("FGenericPlatformMemory::BinnedAllocFromOS not implemented on this platform"));
 	return nullptr;
 }
 
-void FGenericPlatformMemory::BinnedFreeToOS( void* Ptr )
+void FGenericPlatformMemory::BinnedFreeToOS( void* Ptr, SIZE_T Size )
 {
 	UE_LOG(LogMemory, Error, TEXT("FGenericPlatformMemory::BinnedFreeToOS not implemented on this platform"));
 }
@@ -216,7 +230,7 @@ void FGenericPlatformMemory::DumpPlatformAndAllocatorStats( class FOutputDevice&
 	GMalloc->DumpAllocatorStats( Ar );
 }
 
-void FGenericPlatformMemory::MemswapImpl( void* RESTRICT Ptr1, void* RESTRICT Ptr2, SIZE_T Size )
+void FGenericPlatformMemory::MemswapGreaterThan8( void* RESTRICT Ptr1, void* RESTRICT Ptr2, SIZE_T Size )
 {
 	union PtrUnion
 	{
@@ -228,40 +242,29 @@ void FGenericPlatformMemory::MemswapImpl( void* RESTRICT Ptr1, void* RESTRICT Pt
 		UPTRINT PtrUint;
 	};
 
-	if (!Size)
-	{
-		return;
-	}
-
 	PtrUnion Union1 = { Ptr1 };
 	PtrUnion Union2 = { Ptr2 };
+
+	checkf(Union1.PtrVoid && Union2.PtrVoid, TEXT("Pointers must be non-null: %p, %p"), Union1.PtrVoid, Union2.PtrVoid);
+
+	// We may skip up to 7 bytes below, so better make sure that we're swapping more than that
+	// (8 is a common case that we also want to inline before we this call, so skip that too)
+	check(Size > 8);
 
 	if (Union1.PtrUint & 1)
 	{
 		Valswap(*Union1.Ptr8++, *Union2.Ptr8++);
 		Size -= 1;
-		if (!Size)
-		{
-			return;
-		}
 	}
 	if (Union1.PtrUint & 2)
 	{
 		Valswap(*Union1.Ptr16++, *Union2.Ptr16++);
 		Size -= 2;
-		if (!Size)
-		{
-			return;
-		}
 	}
 	if (Union1.PtrUint & 4)
 	{
 		Valswap(*Union1.Ptr32++, *Union2.Ptr32++);
 		Size -= 4;
-		if (!Size)
-		{
-			return;
-		}
 	}
 
 	uint32 CommonAlignment = FMath::Min(FMath::CountTrailingZeros(Union1.PtrUint - Union2.PtrUint), 3u);

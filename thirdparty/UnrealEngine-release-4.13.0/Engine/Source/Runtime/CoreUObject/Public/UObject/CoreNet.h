@@ -7,6 +7,7 @@
 
 DECLARE_DELEGATE_RetVal_OneParam( bool, FNetObjectIsDynamic, const UObject*);
 
+class FOutBunch;
 
 //
 // Information about a field.
@@ -14,13 +15,15 @@ DECLARE_DELEGATE_RetVal_OneParam( bool, FNetObjectIsDynamic, const UObject*);
 class COREUOBJECT_API FFieldNetCache
 {
 public:
-	UField* Field;
-	int32	FieldNetIndex;
-	uint32	FieldChecksum;
+	UField*			Field;
+	int32			FieldNetIndex;
+	uint32			FieldChecksum;
+	mutable bool	bIncompatible;
+
 	FFieldNetCache()
 	{}
 	FFieldNetCache( UField* InField, int32 InFieldNetIndex, uint32 InFieldChecksum )
-		: Field(InField), FieldNetIndex(InFieldNetIndex), FieldChecksum(InFieldChecksum)
+		: Field(InField), FieldNetIndex(InFieldNetIndex), FieldChecksum(InFieldChecksum), bIncompatible(false)
 	{}
 };
 
@@ -81,6 +84,9 @@ public:
 
 	uint32 GetClassChecksum() const { return ClassChecksum; }
 
+	const FClassNetCache* GetSuper() const { return Super; }
+	const TArray< FFieldNetCache >& GetFields() const { return Fields; }
+
 private:
 	int32								FieldsBase;
 	const FClassNetCache*				Super;
@@ -103,7 +109,7 @@ public:
 
 	void				SortProperties( TArray< UProperty* >& Properties ) const;
 	uint32				SortedStructFieldsChecksum( const UStruct* Struct, uint32 Checksum ) const;
-	uint32				GetPropertyChecksum( const UProperty* Property, uint32 Checksum ) const;
+	uint32				GetPropertyChecksum( const UProperty* Property, uint32 Checksum, const bool bIncludeChildren ) const;
 	uint32				GetFunctionChecksum( const UFunction* Function, uint32 Checksum ) const;
 	uint32				GetFieldChecksum( const UField* Field, uint32 Checksum ) const;
 
@@ -136,7 +142,7 @@ class COREUOBJECT_API UPackageMap : public UObject
 
 	virtual void		ReceivedNak( const int32 NakPacketId ) { }
 	virtual void		ReceivedAck( const int32 AckPacketId ) { }
-	virtual void		NotifyBunchCommit( const int32 OutPacketId, const TArray< FNetworkGUID > & ExportNetGUIDs ) { }
+	virtual void		NotifyBunchCommit( const int32 OutPacketId, const FOutBunch* OutBunch ) { }
 
 	virtual void		GetNetGUIDStats(int32& AckCount, int32& UnAckCount, int32& PendingCount) { }
 
@@ -185,6 +191,10 @@ struct FPacketIdRange
 /** Information for tracking retirement and retransmission of a property. */
 struct FPropertyRetirement
 {
+	static const uint32 ExpectedSanityTag = 0xDF41C9A3;
+
+	uint32			SanityTag;
+
 	FPropertyRetirement * Next;
 
 	TSharedPtr<class INetDeltaBaseState> DynamicState;
@@ -196,7 +206,8 @@ struct FPropertyRetirement
 	uint32			Config			: 1;
 
 	FPropertyRetirement()
-		:	Next ( NULL )
+		:	SanityTag( ExpectedSanityTag )
+		,	Next( NULL )
 		,	DynamicState ( NULL )
 		,   Reliable( 0 )
 		,   CustomDelta( 0 )
@@ -208,16 +219,20 @@ struct FPropertyRetirement
 /** Secondary condition to check before considering the replication of a lifetime property. */
 enum ELifetimeCondition
 {
-	COND_None				= 0,		// This property has no condition, and will send anytime it changes
-	COND_InitialOnly		= 1,		// This property will only attempt to send on the initial bunch
-	COND_OwnerOnly			= 2,		// This property will only send to the actor's owner
-	COND_SkipOwner			= 3,		// This property send to every connection EXCEPT the owner
-	COND_SimulatedOnly		= 4,		// This property will only send to simulated actors
-	COND_AutonomousOnly		= 5,		// This property will only send to autonomous actors
-	COND_SimulatedOrPhysics	= 6,		// This property will send to simulated OR bRepPhysics actors
-	COND_InitialOrOwner		= 7,		// This property will send on the initial packet, or to the actors owner
-	COND_Custom				= 8,		// This property has no particular condition, but wants the ability to toggle on/off via SetCustomIsActiveOverride
-	COND_Max				= 9,
+	COND_None						= 0,		// This property has no condition, and will send anytime it changes
+	COND_InitialOnly				= 1,		// This property will only attempt to send on the initial bunch
+	COND_OwnerOnly					= 2,		// This property will only send to the actor's owner
+	COND_SkipOwner					= 3,		// This property send to every connection EXCEPT the owner
+	COND_SimulatedOnly				= 4,		// This property will only send to simulated actors
+	COND_AutonomousOnly				= 5,		// This property will only send to autonomous actors
+	COND_SimulatedOrPhysics			= 6,		// This property will send to simulated OR bRepPhysics actors
+	COND_InitialOrOwner				= 7,		// This property will send on the initial packet, or to the actors owner
+	COND_Custom						= 8,		// This property has no particular condition, but wants the ability to toggle on/off via SetCustomIsActiveOverride
+	COND_ReplayOrOwner				= 9,		// This property will only send to the replay connection, or to the actors owner
+	COND_ReplayOnly					= 10,		// This property will only send to the replay connection
+	COND_SimulatedOnlyNoReplay		= 11,
+	COND_SimulatedOrPhysicsNoReplay	= 12,
+	COND_Max						= 13,
 };
 
 
@@ -331,6 +346,10 @@ public:
 	IRepChangedPropertyTracker() { }
 
 	virtual void SetCustomIsActiveOverride( const uint16 RepIndex, const bool bIsActive ) = 0;
+
+	virtual void SetExternalData( const uint8* Src, const int32 NumBits ) = 0;
+
+	virtual bool IsReplay() const = 0;
 };
 
 

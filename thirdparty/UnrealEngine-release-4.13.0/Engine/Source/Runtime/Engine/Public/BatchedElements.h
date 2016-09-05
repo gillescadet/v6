@@ -104,17 +104,14 @@ public:
 	{
 	}
 
-	/** Adds a line to the batch. */
+	/** Adds a line to the batch. Note only SE_BLEND_Opaque will be used for batched line rendering. */
 	void AddLine(const FVector& Start,const FVector& End,const FLinearColor& Color,FHitProxyId HitProxyId, float Thickness = 0.0f, float DepthBias = 0.0f, bool bScreenSpace = false);
 
-	/** Adds a point to the batch. */
+	/** Adds a point to the batch. Note only SE_BLEND_Opaque will be used for batched point rendering. */
 	void AddPoint(const FVector& Position,float Size,const FLinearColor& Color,FHitProxyId HitProxyId);
 
 	/** Adds a mesh vertex to the batch. */
 	int32 AddVertex(const FVector4& InPosition,const FVector2D& InTextureCoordinate,const FLinearColor& InColor,FHitProxyId HitProxyId);
-
-	/** Adds a quad mesh vertex to the batch. */
-	void AddQuadVertex(const FVector4& InPosition,const FVector2D& InTextureCoordinate,const FLinearColor& InColor,FHitProxyId HitProxyId, const FTexture* Texture,ESimpleElementBlendMode BlendMode);
 
 	/** Adds a triangle to the batch. */
 	void AddTriangle(int32 V0,int32 V1,int32 V2,const FTexture* Texture,EBlendMode BlendMode);
@@ -126,21 +123,40 @@ public:
 	void AddTriangle(int32 V0,int32 V1,int32 V2,FBatchedElementParameters* BatchedElementParameters,ESimpleElementBlendMode BlendMode);
 
 	/** 
-	* Reserves space in index array for a mesh element
+	* Reserves space in index array for a mesh element for current number plus expected number.
 	* 
 	* @param NumMeshTriangles - number of triangles to reserve space for
 	* @param Texture - used to find the mesh element entry
 	* @param BlendMode - used to find the mesh element entry
 	*/
 	void AddReserveTriangles(int32 NumMeshTriangles,const FTexture* Texture,ESimpleElementBlendMode BlendMode);
+
 	/** 
-	* Reserves space in mesh vertex array
+	* Reserves space in index array for a mesh element
+	* 
+	* @param NumMeshTriangles - number of triangles to reserve space for
+	* @param Texture - used to find the mesh element entry
+	* @param BlendMode - used to find the mesh element entry
+	*/
+	void ReserveTriangles(int32 NumMeshTriangles,const FTexture* Texture,ESimpleElementBlendMode BlendMode);
+	
+	/** 
+	* Reserves space in mesh vertex array for current number plus expected number.
 	* 
 	* @param NumMeshVerts - number of verts to reserve space for
 	* @param Texture - used to find the mesh element entry
 	* @param BlendMode - used to find the mesh element entry
 	*/
 	void AddReserveVertices(int32 NumMeshVerts);
+
+	/** 
+	* Reserves space in mesh vertex array for at least this many total verts.
+	* 
+	* @param NumMeshVerts - number of verts to reserve space for
+	* @param Texture - used to find the mesh element entry
+	* @param BlendMode - used to find the mesh element entry
+	*/
+	void ReserveVertices(int32 NumMeshVerts);
 
 	/** 
 	 * Reserves space in line vertex array
@@ -181,7 +197,7 @@ public:
 	
 	FORCEINLINE bool HasPrimsToDraw() const
 	{
-		return( LineVertices.Num() || Points.Num() || Sprites.Num() || MeshElements.Num() || QuadMeshElements.Num() || ThickLines.Num() || WireTris.Num() > 0 );
+		return( LineVertices.Num() || Points.Num() || Sprites.Num() || MeshElements.Num() || ThickLines.Num() || WireTris.Num() > 0 );
 	}
 
 	/** Adds a triangle to the batch. Extensive version where all parameters can be passed in. */
@@ -198,7 +214,7 @@ public:
 	FORCEINLINE uint32 GetAllocatedSize( void ) const
 	{
 		return sizeof(*this) + Points.GetAllocatedSize() + WireTris.GetAllocatedSize() + WireTriVerts.GetAllocatedSize() + ThickLines.GetAllocatedSize()
-			+ Sprites.GetAllocatedSize() + MeshElements.GetAllocatedSize() + MeshVertices.GetAllocatedSize() + QuadMeshElements.GetAllocatedSize();
+			+ Sprites.GetAllocatedSize() + MeshElements.GetAllocatedSize() + MeshVertices.GetAllocatedSize();
 	}
 private:
 
@@ -278,22 +294,13 @@ private:
 		FDepthFieldGlowInfo GlowInfo;
 	};
 
-	struct FBatchedQuadMeshElement
-	{
-		TArray<FSimpleElementVertex> Vertices;
-		const FTexture* Texture;
-		ESimpleElementBlendMode BlendMode;
-	};
-
 	/** Max number of mesh index entries that will fit in a DrawPriUP call */
 	int32 MaxMeshIndicesAllowed;
 	/** Max number of mesh vertices that will fit in a DrawPriUP call */
 	int32 MaxMeshVerticesAllowed;
 
-	TArray<FBatchedMeshElement,TInlineAllocator<1> > MeshElements;
+	TArray<FBatchedMeshElement,TInlineAllocator<2> > MeshElements;
 	TArray<FSimpleElementVertex,TInlineAllocator<4> > MeshVertices;
-
-	TArray<FBatchedQuadMeshElement> QuadMeshElements;
 
 	/** bound shader state for the fast path */
 	class FSimpleElementBSSContainer

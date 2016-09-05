@@ -29,7 +29,7 @@ enum ELandscapeCustomizedCoordType
 };
 
 UCLASS(collapsecategories, hidecategories=Object)
-class UMaterialExpressionLandscapeLayerCoords : public UMaterialExpression
+class LANDSCAPE_API UMaterialExpressionLandscapeLayerCoords : public UMaterialExpression
 {
 	GENERATED_UCLASS_BODY()
 
@@ -58,9 +58,15 @@ class UMaterialExpressionLandscapeLayerCoords : public UMaterialExpression
 	float MappingPanV;
 
 	//~ Begin UMaterialExpression Interface
+#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#endif
 	//~ End UMaterialExpression Interface
+
+	//~ Begin UObject Interface
+	virtual bool NeedsLoadForClient() const override;
+	//~ End UObject Interface
 };
 
 

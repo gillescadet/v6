@@ -7,13 +7,14 @@
 #include "MovieSceneSkeletalAnimationTrack.generated.h"
 
 
+class IMovieSceneTrackInstance;
 class UMovieSceneSection;
 
 
 /**
  * Handles animation of skeletal mesh actors
  */
-UCLASS( MinimalAPI )
+UCLASS(MinimalAPI)
 class UMovieSceneSkeletalAnimationTrack
 	: public UMovieSceneNameableTrack
 {
@@ -22,10 +23,10 @@ class UMovieSceneSkeletalAnimationTrack
 public:
 
 	/** Adds a new animation to this track */
-	virtual void AddNewAnimation(float KeyTime, class UAnimSequence* AnimSequence);
+	virtual void AddNewAnimation(float KeyTime, class UAnimSequenceBase* AnimSequence);
 
-	/** Gets the animation section at a certain time, or NULL if there is none */
-	UMovieSceneSection* GetAnimSectionAtTime(float Time);
+	/** Gets the animation sections at a certain time */
+	TArray<UMovieSceneSection*> GetAnimSectionsAtTime(float Time);
 
 public:
 
@@ -33,7 +34,7 @@ public:
 
 	virtual TSharedPtr<IMovieSceneTrackInstance> CreateInstance() override;
 	virtual void RemoveAllAnimationData() override;
-	virtual bool HasSection(const UMovieSceneSection& Section ) const override;
+	virtual bool HasSection(const UMovieSceneSection& Section) const override;
 	virtual void AddSection(UMovieSceneSection& Section) override;
 	virtual void RemoveSection(UMovieSceneSection& Section) override;
 	virtual bool IsEmpty() const override;
@@ -43,7 +44,7 @@ public:
 	virtual UMovieSceneSection* CreateNewSection() override;
 
 #if WITH_EDITORONLY_DATA
-	virtual FText GetDisplayName() const override;
+	virtual FText GetDefaultDisplayName() const override;
 #endif
 
 private:

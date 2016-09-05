@@ -26,6 +26,12 @@ FCoreDelegates::FObjectArrayForDebugVisualizersDelegate& FCoreDelegates::GetObje
 	return StaticDelegate;
 }
 
+FCoreDelegates::FOnPreMainInit& FCoreDelegates::GetPreMainInitDelegate()
+{
+	static FOnPreMainInit StaticDelegate;
+	return StaticDelegate;
+}
+
 FCoreDelegates::FOnMountPak FCoreDelegates::OnMountPak;
 FCoreDelegates::FOnUnmountPak FCoreDelegates::OnUnmountPak;
 FCoreDelegates::FOnUserLoginChangedEvent FCoreDelegates::OnUserLoginChangedEvent; 
@@ -57,8 +63,10 @@ FCoreDelegates::FApplicationLifetimeDelegate FCoreDelegates::ApplicationHasEnter
 FCoreDelegates::FApplicationLifetimeDelegate FCoreDelegates::ApplicationWillTerminateDelegate; 
 
 FCoreDelegates::FApplicationRegisteredForRemoteNotificationsDelegate FCoreDelegates::ApplicationRegisteredForRemoteNotificationsDelegate;
+FCoreDelegates::FApplicationRegisteredForUserNotificationsDelegate FCoreDelegates::ApplicationRegisteredForUserNotificationsDelegate;
 FCoreDelegates::FApplicationFailedToRegisterForRemoteNotificationsDelegate FCoreDelegates::ApplicationFailedToRegisterForRemoteNotificationsDelegate;
 FCoreDelegates::FApplicationReceivedRemoteNotificationDelegate FCoreDelegates::ApplicationReceivedRemoteNotificationDelegate;
+FCoreDelegates::FApplicationReceivedLocalNotificationDelegate FCoreDelegates::ApplicationReceivedLocalNotificationDelegate;
 
 FCoreDelegates::FStatCheckEnabled FCoreDelegates::StatCheckEnabled;
 FCoreDelegates::FStatEnabled FCoreDelegates::StatEnabled;
@@ -74,3 +82,14 @@ FCoreDelegates::FVRHeadsetRecenter FCoreDelegates::VRHeadsetRecenter;
 FCoreDelegates::FVRHeadsetLost FCoreDelegates::VRHeadsetLost;
 FCoreDelegates::FVRHeadsetReconnected FCoreDelegates::VRHeadsetReconnected;
 
+FCoreDelegates::FOnUserActivityStringChanged FCoreDelegates::UserActivityStringChanged;
+FCoreDelegates::FOnGameSessionIDChange FCoreDelegates::GameSessionIDChanged;
+FCoreDelegates::FOnCrashOverrideParamsChanged FCoreDelegates::CrashOverrideParamsChanged;
+
+FCoreDelegates::FOnAsyncLoadingFlush FCoreDelegates::OnAsyncLoadingFlush;
+FCoreDelegates::FRenderingThreadChanged FCoreDelegates::PostRenderingThreadCreated;
+FCoreDelegates::FRenderingThreadChanged FCoreDelegates::PreRenderingThreadDestroyed;
+FSimpleMulticastDelegate FCoreDelegates::OnFEngineLoopInitComplete;
+FCoreDelegates::FApplicationReceivedOnScreenOrientationChangedNotificationDelegate FCoreDelegates::ApplicationReceivedScreenOrientationChangedNotificationDelegate;
+
+FCoreDelegates::FConfigReadyForUse FCoreDelegates::ConfigReadyForUse;

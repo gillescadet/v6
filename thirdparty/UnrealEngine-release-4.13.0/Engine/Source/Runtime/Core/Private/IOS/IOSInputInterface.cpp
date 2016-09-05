@@ -17,6 +17,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogIOSInput, Log, All);
 //@end
 
 TArray<TouchInput> FIOSInputInterface::TouchInputStack = TArray<TouchInput>();
+TArray<int32> FIOSInputInterface::KeyInputStack;
 FCriticalSection FIOSInputInterface::CriticalSection;
 
 TSharedRef< FIOSInputInterface > FIOSInputInterface::Create(  const TSharedRef< FGenericApplicationMessageHandler >& InMessageHandler )
@@ -207,7 +208,7 @@ void ModifyVectorByOrientation(FVector& Vec, bool bIsRotation)
 }
 #endif
 
-void FIOSInputInterface::ProcessTouches(uint32 ControllerId)
+void FIOSInputInterface::ProcessTouchesAndKeys(uint32 ControllerId)
 {
 	for(int i = 0; i < TouchInputStack.Num(); ++i)
 	{
@@ -229,6 +230,18 @@ void FIOSInputInterface::ProcessTouches(uint32 ControllerId)
 	}
 	
 	TouchInputStack.Empty(0);
+	
+	
+	// these come in pairs
+	for(int32 KeyIndex = 0; KeyIndex < KeyInputStack.Num(); KeyIndex+=2)
+	{
+		int32 KeyCode = KeyInputStack[KeyIndex];
+		int32 CharCode = KeyInputStack[KeyIndex + 1];
+		MessageHandler->OnKeyDown(KeyCode, CharCode, false);
+		MessageHandler->OnKeyChar(KeyCode,  false);
+		MessageHandler->OnKeyUp  (KeyCode, CharCode, false);
+	}
+	KeyInputStack.Empty(0);
 }
 
 void FIOSInputInterface::SendControllerEvents()
@@ -239,9 +252,10 @@ void FIOSInputInterface::SendControllerEvents()
 	
 #if !PLATFORM_TVOS
 	// on ios, touches always go go player 0
-	ProcessTouches(0);
+	ProcessTouchesAndKeys(0);
 #endif
 
+	
 #if !PLATFORM_TVOS // @todo tvos: This needs to come from the Microcontroller rotation
 	// Update motion controls.
 	FVector Attitude;
@@ -326,7 +340,9 @@ if (Controller.Previous##Gamepad != nil && Gamepad.GCAxis.value != Controller.Pr
 			HANDLE_ANALOG(ExtendedGamepad, leftThumbstick.yAxis,	FGamepadKeyNames::LeftAnalogY);
 			HANDLE_ANALOG(ExtendedGamepad, rightThumbstick.xAxis,	FGamepadKeyNames::RightAnalogX);
 			HANDLE_ANALOG(ExtendedGamepad, rightThumbstick.yAxis,	FGamepadKeyNames::RightAnalogY);
-			
+			HANDLE_ANALOG(ExtendedGamepad, leftTrigger,				FGamepadKeyNames::LeftTriggerAnalog);
+			HANDLE_ANALOG(ExtendedGamepad, rightTrigger,			FGamepadKeyNames::RightTriggerAnalog);
+
 			[Controller.PreviousExtendedGamepad release];
 			Controller.PreviousExtendedGamepad = [ExtendedGamepad saveSnapshot];
 			[Controller.PreviousExtendedGamepad retain];
@@ -375,7 +391,7 @@ if (Controller.Previous##Gamepad != nil && Gamepad.GCAxis.value != Controller.Pr
 			// otherwise, process touches like ios for the remote's index
 			else
 			{
-				ProcessTouches(Cont.playerIndex);
+				ProcessTouchesAndKeys(Cont.playerIndex);
 			}
 			
 			HANDLE_BUTTON(MicroGamepad, buttonA,	FGamepadKeyNames::FaceButtonBottom);
@@ -388,7 +404,8 @@ if (Controller.Previous##Gamepad != nil && Gamepad.GCAxis.value != Controller.Pr
         }
 		
 		// motion is orthogonal to buttons
-#if 0 // will need to fix this to work with tvOS SDK 9.1 and higher
+// @todo tvos: handle motion without attitude or rotation rate
+#if 0
 		if (Motion != nil)
 		{
 			FVector Attitude;
@@ -434,16 +451,27 @@ if (Controller.Previous##Gamepad != nil && Gamepad.GCAxis.value != Controller.Pr
 //			NSLog(@"Acce %.2f, %.2f, %.2f\n", Acceleration.X, Acceleration.Y, Acceleration.Z);
 		}
 #endif
+		
 #endif
 	}
 }
 
-void FIOSInputInterface::QueueTouchInput(TArray<TouchInput> InTouchEvents)
+void FIOSInputInterface::QueueTouchInput(const TArray<TouchInput>& InTouchEvents)
 {
 	FScopeLock Lock(&CriticalSection);
 
 	FIOSInputInterface::TouchInputStack.Append(InTouchEvents);
 }
+
+void FIOSInputInterface::QueueKeyInput(int32 Key, int32 Char)
+{
+	FScopeLock Lock(&CriticalSection);
+
+	// put the key and char into the array
+	FIOSInputInterface::KeyInputStack.Add(Key);
+	FIOSInputInterface::KeyInputStack.Add(Char);
+}
+
 
 void FIOSInputInterface::GetMovementData(FVector& Attitude, FVector& RotationRate, FVector& Gravity, FVector& Acceleration)
 {
@@ -574,7 +602,6 @@ bool FIOSInputInterface::Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& 
 
 	return bHandledCommand;
 }
-
 bool FIOSInputInterface::IsControllerAssignedToGamepad(int32 ControllerId)
 {
 	return ControllerId < ARRAY_COUNT(Controllers) &&

@@ -38,6 +38,13 @@ FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FVertex
 	return Result;
 }
 
+FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FIndexBufferRHIParamRef BufferRHI)
+{
+	UE_LOG(LogRHI, Fatal, TEXT("OpenGL RHI doesn't support RHICreateShaderResourceView with FIndexBufferRHIParamRef yet!"));
+	
+	return FShaderResourceViewRHIRef();
+}
+
 FOpenGLShaderResourceView::~FOpenGLShaderResourceView()
 {
 	FShaderCache::RemoveSRV(this);
@@ -99,6 +106,7 @@ FOpenGLVertexBufferUnorderedAccessView::FOpenGLVertexBufferUnorderedAccessView(	
 	// next operation that needs the stage will switch something else in on it.
 
 	this->Resource = TextureID;
+	this->BufferResource = InVertexBuffer->Resource;
 	this->Format = GLFormat.InternalFormat[0];
 }
 
@@ -127,7 +135,9 @@ FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FStruct
 
 void FOpenGLDynamicRHI::RHIClearUAV(FUnorderedAccessViewRHIParamRef UnorderedAccessViewRHI, const uint32* Values)
 {
-	UE_LOG(LogRHI, Fatal,TEXT("OpenGL RHI doesn't support RHIClearUAV."));
+	FOpenGLUnorderedAccessView* Texture = ResourceCast(UnorderedAccessViewRHI);
+	glBindBuffer(GL_TEXTURE_BUFFER, Texture->BufferResource);
+	FOpenGL::ClearBufferData(GL_TEXTURE_BUFFER, Texture->Format, GL_RGBA, GL_UNSIGNED_INT, Values);
 	GPUProfilingData.RegisterGPUWork(1);
 }
 

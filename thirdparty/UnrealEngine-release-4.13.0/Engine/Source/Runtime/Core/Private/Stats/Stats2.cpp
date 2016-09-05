@@ -189,10 +189,6 @@ void FStats::AdvanceFrame( bool bDiscardCallstack, const FOnAdvanceRenderingThre
 	SET_FLOAT_STAT( STAT_SecondsPerCycle, FPlatformTime::GetSecondsPerCycle() );
 
 	FThreadStats::AddMessage( FStatConstants::AdvanceFrame.GetEncodedName(), EStatOperation::AdvanceFrameEventGameThread, Frame ); // we need to flush here if we aren't collecting stats to make sure the meta data is up to date
-	if( FPlatformProperties::IsServerOnly() )
-	{
-		FThreadStats::AddMessage( FStatConstants::AdvanceFrame.GetEncodedName(), EStatOperation::AdvanceFrameEventRenderThread, Frame ); // we need to flush here if we aren't collecting stats to make sure the meta data is up to date
-	}
 
 	if( AdvanceRenderingThreadStatsDelegate.IsBound() )
 	{
@@ -703,13 +699,14 @@ IStatGroupEnableManager& IStatGroupEnableManager::Get()
 FName FStatNameAndInfo::ToLongName(FName InStatName, char const* InGroup, char const* InCategory, TCHAR const* InDescription)
 {
 	FString LongName;
+	LongName.Reserve(255);
 	if (InGroup)
 	{
 		LongName += TEXT("//");
 		LongName += InGroup;
 		LongName += TEXT("//");
 	}
-	LongName += InStatName.ToString();
+	InStatName.AppendString(LongName);
 	if (InDescription)
 	{
 		LongName += TEXT("///");
@@ -843,8 +840,10 @@ public:
 	/** Attaches to the task graph stats thread, all processing will be handled by the task graph. */
 	virtual uint32 Run() override
 	{
+		FMemory::SetupTLSCachesOnCurrentThread();
 		FTaskGraphInterface::Get().AttachToThread(ENamedThreads::StatsThread);
 		FTaskGraphInterface::Get().ProcessThreadUntilRequestReturn(ENamedThreads::StatsThread);
+		FMemory::ClearAndDisableTLSCachesOnCurrentThread();
 		return 0;
 	}
 
@@ -1267,16 +1266,18 @@ void FThreadStats::StartThread()
 	FStatsThreadState::GetLocalState(); // start up the state
 	FStatsThread::Get();
 	FStatsThread::Get().Start();
+
+	// Preallocate a bunch of FThreadStats to avoid dynamic memory allocation.
+	// (Must do this before we expose ourselves to other threads via tls).
+	FThreadStatsPool::Get();
+
 	if (!TlsSlot)
 	{
 		TlsSlot = FPlatformTLS::AllocTlsSlot();
 	}
 	check(IsThreadingReady());
 	CheckEnable();
-
-	// Preallocate a bunch of FThreadStats to avoid dynamic memory allocation.
-	FThreadStatsPool::Get();
-
+	
 	if( FThreadStats::WillEverCollectData() )
 	{
 		FThreadStats::ExplicitFlush(); // flush the stats and set update the scope so we don't flush again until a frame update, this helps prevent fragmentation

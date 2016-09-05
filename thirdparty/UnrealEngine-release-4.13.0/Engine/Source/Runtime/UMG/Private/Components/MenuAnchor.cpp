@@ -9,6 +9,8 @@
 
 UMenuAnchor::UMenuAnchor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
+	, ShouldDeferPaintingAfterWindowContent(true)
+	, UseApplicationMenuStack(true)
 {
 	Placement = MenuPlacement_ComboBox;
 }
@@ -25,7 +27,9 @@ TSharedRef<SWidget> UMenuAnchor::RebuildWidget()
 	MyMenuAnchor = SNew(SMenuAnchor)
 		.Placement(Placement)
 		.OnGetMenuContent(BIND_UOBJECT_DELEGATE(FOnGetContent, HandleGetMenuContent))
-		.OnMenuOpenChanged(BIND_UOBJECT_DELEGATE(FOnIsOpenChanged, HandleMenuOpenChanged));
+		.OnMenuOpenChanged(BIND_UOBJECT_DELEGATE(FOnIsOpenChanged, HandleMenuOpenChanged))
+		.ShouldDeferPaintingAfterWindowContent(ShouldDeferPaintingAfterWindowContent)
+		.UseApplicationMenuStack(UseApplicationMenuStack);
 
 	if ( GetChildrenCount() > 0 )
 	{
@@ -35,16 +39,16 @@ TSharedRef<SWidget> UMenuAnchor::RebuildWidget()
 	return BuildDesignTimeWidget( MyMenuAnchor.ToSharedRef() );
 }
 
-void UMenuAnchor::OnSlotAdded(UPanelSlot* Slot)
+void UMenuAnchor::OnSlotAdded(UPanelSlot* InSlot)
 {
 	// Add the child to the live slot if it already exists
 	if ( MyMenuAnchor.IsValid() )
 	{
-		MyMenuAnchor->SetContent(Slot->Content ? Slot->Content->TakeWidget() : SNullWidget::NullWidget);
+		MyMenuAnchor->SetContent(InSlot->Content ? InSlot->Content->TakeWidget() : SNullWidget::NullWidget);
 	}
 }
 
-void UMenuAnchor::OnSlotRemoved(UPanelSlot* Slot)
+void UMenuAnchor::OnSlotRemoved(UPanelSlot* InSlot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyMenuAnchor.IsValid() )
@@ -152,11 +156,6 @@ bool UMenuAnchor::HasOpenSubMenus() const
 }
 
 #if WITH_EDITOR
-
-const FSlateBrush* UMenuAnchor::GetEditorIcon()
-{
-	return FUMGStyle::Get().GetBrush("Widget.MenuAnchor");
-}
 
 const FText UMenuAnchor::GetPaletteCategory()
 {

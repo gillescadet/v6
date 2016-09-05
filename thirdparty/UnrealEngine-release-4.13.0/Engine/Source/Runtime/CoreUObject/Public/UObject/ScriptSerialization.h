@@ -74,9 +74,27 @@
 #ifndef XFERTEXT
 	#define XFERTEXT() \
 	{ \
-		SerializeExpr( iCode, Ar );	\
-		SerializeExpr( iCode, Ar ); \
-		SerializeExpr( iCode, Ar ); \
+		XFER(uint8); \
+		const EBlueprintTextLiteralType TextLiteralType = (EBlueprintTextLiteralType)Script[iCode - 1]; \
+		switch (TextLiteralType) \
+		{ \
+		case EBlueprintTextLiteralType::Empty: \
+			break; \
+		case EBlueprintTextLiteralType::LocalizedText: \
+			SerializeExpr( iCode, Ar );	\
+			SerializeExpr( iCode, Ar ); \
+			SerializeExpr( iCode, Ar ); \
+			break; \
+		case EBlueprintTextLiteralType::InvariantText: \
+			SerializeExpr( iCode, Ar );	\
+			break; \
+		case EBlueprintTextLiteralType::LiteralString: \
+			SerializeExpr( iCode, Ar );	\
+			break; \
+		default: \
+			checkf(false, TEXT("Unknown EBlueprintTextLiteralType! Please update XFERTEXT to handle this type of text.")); \
+			break; \
+		} \
 	}
 #endif	//XFERTEXT
 
@@ -242,7 +260,7 @@
 		}
 		case EX_InstrumentationEvent:
 		{
-			iCode += sizeof(int32);
+			iCode += sizeof(uint8);
 			break;
 		}
 		case EX_Return:
@@ -296,6 +314,16 @@
 		case EX_IntConst:
 		{
 			XFER(int32);
+			break;
+		}
+		case EX_Int64Const:
+		{
+			XFER(int64);
+			break;
+		}
+		case EX_UInt64Const:
+		{
+			XFER(uint64);
 			break;
 		}
 		case EX_SkipOffsetConst:
@@ -471,6 +499,12 @@
 			SerializeExpr(iCode, Ar);	//default term
 			break;
 		}
+		case EX_ArrayGetByRef:
+			{
+				SerializeExpr( iCode, Ar );
+				SerializeExpr( iCode, Ar );
+				break;
+			}
 		default:
 		{
 			// This should never occur.

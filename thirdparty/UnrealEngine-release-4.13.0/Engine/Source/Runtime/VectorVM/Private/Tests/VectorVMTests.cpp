@@ -11,6 +11,8 @@
 #define SRCOP_RRCR (OP_REGISTER | OP_REGISTER | OP1_CONST | OP_REGISTER)
 #define SRCOP_RCCR (OP_REGISTER | OP2_CONST | OP1_CONST | OP_REGISTER)
 
+#if WITH_DEV_AUTOMATION_TESTS
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorVMTest, "System.Core.Math.Vector VM", EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
 
 /*------------------------------------------------------------------------------
@@ -59,7 +61,6 @@ bool FVectorVMTest::RunTest(const FString& Parameters)
 		InputRegisters, 3,
 		OutputRegisters, 1,
 		ConstantTable,
-		nullptr,
 		dummy,
 		VectorVM::VectorsPerChunk
 		);
@@ -104,3 +105,5 @@ bool FVectorVMTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+#endif //WITH_DEV_AUTOMATION_TESTS

@@ -29,7 +29,7 @@ FArchive& operator<<(FArchive& Ar, FStaticShadowDepthMapData& ShadowMapData)
 
 void FStaticShadowDepthMap::InitRHI()
 {
-	if (Data.ShadowMapSizeX > 0 && Data.ShadowMapSizeY > 0 && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM4)
+	if (!FApp::ShouldUseNullRHI() && Data.ShadowMapSizeX > 0 && Data.ShadowMapSizeY > 0 && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM4)
 	{
 		FRHIResourceCreateInfo CreateInfo;
 		FTexture2DRHIRef Texture2DRHI = RHICreateTexture2D(Data.ShadowMapSizeX, Data.ShadowMapSizeY, PF_R16F, 1, 1, 0, CreateInfo);
@@ -215,6 +215,7 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	, IndirectLightingScale(InLightComponent->IndirectLightingIntensity)
 	, ShadowBias(InLightComponent->ShadowBias)
 	, ShadowSharpen(InLightComponent->ShadowSharpen)
+	, ContactShadowLength(InLightComponent->ContactShadowLength)
 	, MinRoughness(InLightComponent->MinRoughness)
 	, LightGuid(InLightComponent->LightGuid)
 	, ShadowMapChannel(InLightComponent->ShadowMapChannel)
@@ -232,6 +233,8 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	, bAffectDynamicIndirectLighting(InLightComponent->bAffectDynamicIndirectLighting)
 	, bHasReflectiveShadowMap(InLightComponent->bAffectDynamicIndirectLighting && InLightComponent->GetLightType() == LightType_Directional)
 	, bUseRayTracedDistanceFieldShadows(InLightComponent->bUseRayTracedDistanceFieldShadows)
+	, bCastModulatedShadows(false)
+	, bUseWholeSceneCSMForMovableObjects(false)
 	, RayStartOffsetDepthScale(InLightComponent->RayStartOffsetDepthScale)
 	, LightType(InLightComponent->GetLightType())	
 	, LightingChannelMask(GetLightingChannelMaskForStruct(InLightComponent->LightingChannels))
@@ -240,7 +243,6 @@ FLightSceneProxy::FLightSceneProxy(const ULightComponent* InLightComponent)
 	, StatId(InLightComponent->GetStatID(true))
 	, FarShadowDistance(0)
 	, FarShadowCascadeCount(0)
-	, bCastModulatedShadows(false)
 {
 	// Brightness in Lumens
 	float LightBrightness = InLightComponent->ComputeLightBrightness();
@@ -282,6 +284,12 @@ bool FLightSceneProxy::ShouldCreatePerObjectShadowsForDynamicObjects() const
 {
 	// Only create per-object shadows for Stationary lights, which use static shadowing from the world and therefore need a way to integrate dynamic objects
 	return HasStaticShadowing() && !HasStaticLighting();
+}
+
+/** Whether this light should create CSM for dynamic objects only (mobile renderer) */
+bool FLightSceneProxy::UseCSMForDynamicObjects() const
+{
+	return false;
 }
 
 void FLightSceneProxy::SetTransform(const FMatrix& InLightToWorld,const FVector4& InPosition)
@@ -332,6 +340,7 @@ ULightComponent::ULightComponent(const FObjectInitializer& ObjectInitializer)
 	IndirectLightingIntensity = 1.0f;
 	ShadowBias = 0.5f;
 	ShadowSharpen = 0.0f;
+	ContactShadowLength = 0.0f;
 	bUseIESBrightness = false;
 	IESBrightnessScale = 1.0f;
 	IESTexture = NULL;
@@ -364,7 +373,7 @@ bool ULightComponent::AffectsPrimitive(const UPrimitiveComponent* Primitive) con
 	return AffectsBounds(Primitive->Bounds);
 }
 
-bool ULightComponent::AffectsBounds(const FBoxSphereBounds& Bounds) const
+bool ULightComponent::AffectsBounds(const FBoxSphereBounds& InBounds) const
 {
 	return true;
 }
@@ -561,6 +570,7 @@ void ULightComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, DisabledBrightness) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, ShadowBias) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, ShadowSharpen) &&
+		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, ContactShadowLength) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, bEnableLightShaftBloom) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, BloomScale) &&
 		PropertyName != GET_MEMBER_NAME_STRING_CHECKED(ULightComponent, BloomThreshold) &&
@@ -667,6 +677,7 @@ void ULightComponent::CreateRenderState_Concurrent()
 
 	if (bAffectsWorld)
 	{
+		UWorld* World = GetWorld();
 		if (bVisible && !bHidden)
 		{
 			// Add the light to the scene.
@@ -689,14 +700,14 @@ void ULightComponent::CreateRenderState_Concurrent()
 void ULightComponent::SendRenderTransform_Concurrent()
 {
 	// Update the scene info's transform for this light.
-	World->Scene->UpdateLightTransform(this);
+	GetWorld()->Scene->UpdateLightTransform(this);
 	Super::SendRenderTransform_Concurrent();
 }
 
 void ULightComponent::DestroyRenderState_Concurrent()
 {
 	Super::DestroyRenderState_Concurrent();
-	World->Scene->RemoveLight(this);
+	GetWorld()->Scene->RemoveLight(this);
 }
 
 /** Set brightness of the light */
@@ -709,6 +720,7 @@ void ULightComponent::SetIntensity(float NewIntensity)
 		Intensity = NewIntensity;
 
 		// Use lightweight color and brightness update 
+		UWorld* World = GetWorld();
 		if( World && World->Scene )
 		{
 			//@todo - remove from scene if brightness or color becomes 0
@@ -726,6 +738,7 @@ void ULightComponent::SetIndirectLightingIntensity(float NewIntensity)
 		IndirectLightingIntensity = NewIntensity;
 
 		// Use lightweight color and brightness update 
+		UWorld* World = GetWorld();
 		if( World && World->Scene )
 		{
 			//@todo - remove from scene if brightness or color becomes 0
@@ -746,6 +759,7 @@ void ULightComponent::SetLightColor(FLinearColor NewLightColor, bool bSRGB)
 		LightColor	= NewColor;
 
 		// Use lightweight color and brightness update 
+		UWorld* World = GetWorld();
 		if( World && World->Scene )
 		{
 			//@todo - remove from scene if brightness or color becomes 0
@@ -764,6 +778,7 @@ void ULightComponent::SetTemperature(float NewTemperature)
 		Temperature = NewTemperature;
 
 		// Use lightweight color and brightness update 
+		UWorld* World = GetWorld();
 		if( World && World->Scene )
 		{
 			//@todo - remove from scene if brightness or color becomes 0
@@ -891,6 +906,7 @@ FVector ULightComponent::GetDirection() const
 
 void ULightComponent::UpdateColorAndBrightness()
 {
+	UWorld* World = GetWorld();
 	if( World && World->Scene )
 	{
 		World->Scene->UpdateLightColorAndBrightness( this );
@@ -1268,5 +1284,6 @@ static void ToggleLight(const TArray<FString>& Args)
 static FAutoConsoleCommand ToggleLightCmd(
 	TEXT("ToggleLight"),
 	TEXT("Toggles all lights whose name contains the specified string"),
-	FConsoleCommandWithArgsDelegate::CreateStatic(ToggleLight)
+	FConsoleCommandWithArgsDelegate::CreateStatic(ToggleLight),
+	ECVF_Cheat
 	);

@@ -44,6 +44,7 @@ public class Core : ModuleRules
                 "Runtime/Core/Private/Internationalization",
 				"Runtime/Core/Private/Internationalization/Cultures",
                 "Runtime/Analytics/Public",
+				"Runtime/Engine/Public",
 			}
 			);
 
@@ -51,9 +52,9 @@ public class Core : ModuleRules
 			new string[] {
 				"TargetPlatform",
 				"DerivedDataCache",
-                "CookingStats",
-				"InputDevice",
-                "Analytics"
+                "InputDevice",
+                "Analytics",
+				"RHI"
 			}
 			);
 
@@ -66,10 +67,10 @@ public class Core : ModuleRules
 			(Target.Platform == UnrealTargetPlatform.Win32))
 		{
 			PublicIncludePaths.Add("Runtime/Core/Public/Windows");
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"zlib");
 
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"IntelTBB",
 				"XInput"
 				);
@@ -77,7 +78,7 @@ public class Core : ModuleRules
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
 			PublicIncludePaths.AddRange(new string[] { "Runtime/Core/Public/Apple", "Runtime/Core/Public/Mac" });
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"IntelTBB",
 				"zlib",
 				"OpenGL",
@@ -93,7 +94,7 @@ public class Core : ModuleRules
 		else if (Target.Platform == UnrealTargetPlatform.IOS || Target.Platform == UnrealTargetPlatform.TVOS)
 		{
 			PublicIncludePaths.AddRange(new string[] {"Runtime/Core/Public/Apple", "Runtime/Core/Public/IOS"});
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"zlib"
 				);
 			PublicFrameworks.AddRange(new string[] { "UIKit", "Foundation", "AudioToolbox", "AVFoundation", "GameKit", "StoreKit", "CoreVideo", "CoreMedia", "CoreGraphics", "GameController"});
@@ -111,14 +112,15 @@ public class Core : ModuleRules
 		else if (Target.Platform == UnrealTargetPlatform.Android)
 		{
 			PublicIncludePaths.Add("Runtime/Core/Public/Android");
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
+				"cxademangle",
 				"zlib"
 				);
 		}
         else if ((Target.Platform == UnrealTargetPlatform.Linux))
         {
             PublicIncludePaths.Add("Runtime/Core/Public/Linux");
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"zlib",
 				"jemalloc",
 				"elftoolchain",
@@ -131,31 +133,29 @@ public class Core : ModuleRules
             // We need FreeType2 and GL for the Splash, but only in the Editor
             if (Target.Type == TargetRules.TargetType.Editor)
             {
-                AddThirdPartyPrivateStaticDependencies(Target, "FreeType2");
-				AddThirdPartyPrivateStaticDependencies(Target, "OpenGL");
+                AddEngineThirdPartyPrivateStaticDependencies(Target, "FreeType2");
+				AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenGL");
 				PrivateIncludePathModuleNames.Add("ImageWrapper");
 			}
         }
 		else if (Target.Platform == UnrealTargetPlatform.HTML5 && Target.Architecture == "-win32")
 		{
             PublicIncludePaths.Add("Runtime/Core/Public/HTML5");
-			AddThirdPartyPrivateStaticDependencies(Target, "SDL2");
-			AddThirdPartyPrivateStaticDependencies(Target, "OpenAL");
+			AddEngineThirdPartyPrivateStaticDependencies(Target, "SDL2");
+			AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenAL");
 		}
         else if (Target.Platform == UnrealTargetPlatform.HTML5 && Target.Architecture != "-win32")
         {
-            AddThirdPartyPrivateStaticDependencies(Target, "SDL2");
+            AddEngineThirdPartyPrivateStaticDependencies(Target, "SDL2");
             PrivateDependencyModuleNames.Add("HTML5JS");
             PrivateDependencyModuleNames.Add("MapPakDownloader");
         }
 
         if ( UEBuildConfiguration.bCompileICU == true ) 
         {
-			AddThirdPartyPrivateStaticDependencies(Target, "ICU");
+			AddEngineThirdPartyPrivateStaticDependencies(Target, "ICU");
         }
         Definitions.Add("UE_ENABLE_ICU=" + (UEBuildConfiguration.bCompileICU ? "1" : "0")); // Enable/disable (=1/=0) ICU usage in the codebase. NOTE: This flag is for use while integrating ICU and will be removed afterward.
-
-        Definitions.Add("WITH_STEAMWORKS=" + (UEBuildConfiguration.bCompileSteamOSS ? "1" : "0"));
 
         // If we're compiling with the engine, then add Core's engine dependencies
 		if (UEBuildConfiguration.bCompileAgainstEngine == true)
@@ -183,9 +183,7 @@ public class Core : ModuleRules
 		}
 
 
-        if ((Target.Platform == UnrealTargetPlatform.XboxOne) ||
-            (Target.Platform == UnrealTargetPlatform.WinRT) ||
-            (Target.Platform == UnrealTargetPlatform.WinRT_ARM))
+        if (Target.Platform == UnrealTargetPlatform.XboxOne)
         {
             Definitions.Add("WITH_DIRECTXMATH=1");
         }

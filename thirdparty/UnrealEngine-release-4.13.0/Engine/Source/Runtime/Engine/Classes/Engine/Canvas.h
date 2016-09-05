@@ -98,9 +98,11 @@ public:
 
 	void AddColumnIfNeeded();
 
+	float GetTextScale() const;
+
 	float GetYStep() const
 	{
-		return MaxCharHeight * 1.15f;
+		return MaxCharHeight * 1.15f * GetTextScale();
 	}
 
 	float GetXPos() const
@@ -143,7 +145,7 @@ public:
 /**
  * A drawing canvas.
  */
-UCLASS(transient)
+UCLASS(transient, BlueprintType)
 class ENGINE_API UCanvas
 	: public UObject
 {

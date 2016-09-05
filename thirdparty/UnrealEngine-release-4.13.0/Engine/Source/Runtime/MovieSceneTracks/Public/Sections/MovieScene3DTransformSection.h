@@ -2,8 +2,9 @@
 
 #pragma once
 
-#include "MovieSceneSection.h"
 #include "IKeyframeSection.h"
+#include "MovieSceneKeyStruct.h"
+#include "MovieSceneSection.h"
 #include "MovieScene3DTransformSection.generated.h"
 
 
@@ -17,6 +18,17 @@ namespace EKey3DTransformChannel
 		All = Translation | Rotation | Scale
 	};
 }
+
+#if WITH_EDITORONLY_DATA
+/** Visibility options for 3d trajectory. */
+UENUM()
+enum class EShow3DTrajectory
+{
+	EST_OnlyWhenSelected UMETA(DisplayName="Only When Selected"),
+	EST_Always UMETA(DisplayName="Always"),
+	EST_Never UMETA(DisplayName="Never"),
+};
+#endif
 
 /**
 * Stores information about a transform for the purpose of adding keys to a transform section
@@ -70,6 +82,92 @@ struct FTransformKey
 
 
 /**
+ * Proxy structure for translation keys in 3D transform sections.
+ */
+USTRUCT()
+struct FMovieScene3DLocationKeyStruct
+	: public FMovieSceneKeyStruct
+{
+	GENERATED_BODY()
+
+	/** They key's translation value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FVector Location;
+
+	FRichCurveKey* LocationKeys[3];
+
+	virtual void PropagateChanges(const FPropertyChangedEvent& ChangeEvent) override;
+};
+
+
+/**
+ * Proxy structure for translation keys in 3D transform sections.
+ */
+USTRUCT()
+struct FMovieScene3DRotationKeyStruct
+	: public FMovieSceneKeyStruct
+{
+	GENERATED_BODY()
+
+	/** They key's rotation value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FRotator Rotation;
+
+	FRichCurveKey* RotationKeys[3];
+
+	virtual void PropagateChanges(const FPropertyChangedEvent& ChangeEvent) override;
+};
+
+
+/**
+ * Proxy structure for translation keys in 3D transform sections.
+ */
+USTRUCT()
+struct FMovieScene3DScaleKeyStruct
+	: public FMovieSceneKeyStruct
+{
+	GENERATED_BODY()
+
+	/** They key's scale value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FVector Scale;
+
+	FRichCurveKey* ScaleKeys[3];
+
+	virtual void PropagateChanges(const FPropertyChangedEvent& ChangeEvent) override;
+};
+
+
+/**
+ * Proxy structure for 3D transform section key data.
+ */
+USTRUCT()
+struct FMovieScene3DTransformKeyStruct
+	: public FMovieSceneKeyStruct
+{
+	GENERATED_BODY()
+
+	/** They key's translation value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FVector Location;
+
+	/** They key's rotation value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FRotator Rotation;
+
+	/** They key's scale value. */
+	UPROPERTY(EditAnywhere, Category=Key)
+	FVector Scale;
+
+	FRichCurveKey* LocationKeys[3];
+	FRichCurveKey* RotationKeys[3];
+	FRichCurveKey* ScaleKeys[3];
+
+	virtual void PropagateChanges(const FPropertyChangedEvent& ChangeEvent) override;
+};
+
+
+/**
  * A 3D transform section
  */
 UCLASS(MinimalAPI)
@@ -80,11 +178,6 @@ class UMovieScene3DTransformSection
 	GENERATED_UCLASS_BODY()
 
 public:
-
-	/** MovieSceneSection interface */
-	virtual void MoveSection( float DeltaPosition, TSet<FKeyHandle>& KeyHandles ) override;
-	virtual void DilateSection( float DilationFactor, float Origin, TSet<FKeyHandle>& KeyHandles ) override;
-	virtual void GetKeyHandles(TSet<FKeyHandle>& KeyHandles) const override;
 
 	/**
 	 * Evaluates the translation component of the transform
@@ -134,6 +227,26 @@ public:
 	 */
 	MOVIESCENETRACKS_API FRichCurve& GetScaleCurve( EAxis::Type Axis );
 
+	/**
+	 * Return the trajectory visibility
+	 */
+#if WITH_EDITORONLY_DATA
+	MOVIESCENETRACKS_API EShow3DTrajectory GetShow3DTrajectory() { return Show3DTrajectory; }
+#endif
+
+public:
+
+	// UMovieSceneSection interface
+
+	virtual void MoveSection( float DeltaPosition, TSet<FKeyHandle>& KeyHandles ) override;
+	virtual void DilateSection( float DilationFactor, float Origin, TSet<FKeyHandle>& KeyHandles ) override;
+	virtual void GetKeyHandles(TSet<FKeyHandle>& OutKeyHandles, TRange<float> TimeRange) const override;
+	virtual TSharedPtr<FStructOnScope> GetKeyStruct(const TArray<FKeyHandle>& KeyHandles) override;
+	virtual TOptional<float> GetKeyTime( FKeyHandle KeyHandle ) const override;
+	virtual void SetKeyTime( FKeyHandle KeyHandle, float Time ) override;
+
+public:
+
 	// IKeyframeSection interface.
 
 	virtual bool NewKeyIsNewData( float Time, const FTransformKey& KeyData ) const override;
@@ -142,6 +255,7 @@ public:
 	virtual void SetDefault( const FTransformKey& KeyData ) override;
 
 private:
+
 	/** Translation curves */
 	UPROPERTY()
 	FRichCurve Translation[3];
@@ -153,4 +267,10 @@ private:
 	/** Scale curves */
 	UPROPERTY()
 	FRichCurve Scale[3];
+
+#if WITH_EDITORONLY_DATA
+	/** Whether to show the 3d trajectory */
+	UPROPERTY(EditAnywhere, DisplayName = "Show 3D Trajectory", Category = "Transform")
+	TEnumAsByte<EShow3DTrajectory> Show3DTrajectory;
+#endif
 };

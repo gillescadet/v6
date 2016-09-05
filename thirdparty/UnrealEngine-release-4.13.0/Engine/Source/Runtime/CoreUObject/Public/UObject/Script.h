@@ -9,6 +9,19 @@
 class UStruct;
 struct FFrame;
 
+// It's best to set only one of these, but strictly speaking you could set both.
+// The results will be confusing. Native time would be included only in a coarse 
+// 'native time' timer, and all overhead would be broken up per script function
+#define TOTAL_OVERHEAD_SCRIPT_STATS (STATS && 0)
+#define PER_FUNCTION_SCRIPT_STATS (STATS && 1)
+
+DECLARE_STATS_GROUP(TEXT("Scripting"), STATGROUP_Script, STATCAT_Advanced);
+
+#if TOTAL_OVERHEAD_SCRIPT_STATS
+DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Blueprint - (All) VM Time (ms)"),     STAT_ScriptVmTime_Total,     STATGROUP_Script, COREUOBJECT_API);
+DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Blueprint - (All) Native Time (ms)"), STAT_ScriptNativeTime_Total, STATGROUP_Script, COREUOBJECT_API);
+#endif // TOTAL_OVERHEAD_SCRIPT_STATS
+
 /*-----------------------------------------------------------------------------
 	Constants & types.
 -----------------------------------------------------------------------------*/
@@ -188,8 +201,8 @@ enum EExprToken
 	EX_EndArray				= 0x32,
 	//						= 0x33,
 	EX_UnicodeStringConst   = 0x34, // Unicode string constant.
-	//						= 0x35,
-	//						= 0x36,
+	EX_Int64Const			= 0x35,	// 64-bit integer constant.
+	EX_UInt64Const			= 0x36,	// 64-bit unsigned integer constant.
 	//						= 0x37,
 	EX_PrimitiveCast		= 0x38,	// A casting operator for primitives which reads the type as the subsequent byte
 	//						= 0x39,
@@ -242,6 +255,7 @@ enum EExprToken
 	EX_CallMath				= 0x68, // static pure function from on local call space
 	EX_SwitchValue			= 0x69,
 	EX_InstrumentationEvent	= 0x6A, // Instrumentation event
+	EX_ArrayGetByRef		= 0x6B,
 	EX_Max					= 0x100,
 };
 
@@ -252,6 +266,19 @@ enum ECastToken
 	CST_ObjectToBool		= 0x47,
 	CST_InterfaceToBool		= 0x49,
 	CST_Max					= 0xFF,
+};
+
+// Kinds of text literals
+enum class EBlueprintTextLiteralType : uint8
+{
+	/* Text is an empty string. The bytecode contains no strings, and you should use FText::GetEmpty() to initialize the FText instance. */
+	Empty,
+	/** Text is localized. The bytecode will contain three strings - source, key, and namespace - and should be loaded via FInternationalization */
+	LocalizedText,
+	/** Text is culture invariant. The bytecode will contain one string, and you should use FText::AsCultureInvariant to initialize the FText instance. */
+	InvariantText,
+	/** Text is a literal FString. The bytecode will contain one string, and you should use FText::FromString to initialize the FText instance. */
+	LiteralString,
 };
 
 // Kinds of Blueprint exceptions
@@ -275,14 +302,19 @@ namespace EScriptInstrumentation
 	enum Type
 	{
 		Class = 0,
+		ClassScope,
 		Instance,
 		Event,
-		Function,
-		Branch,
-		Macro,
+		ResumeEvent,
+		PureNodeEntry,
+		NodeDebugSite,
 		NodeEntry,
 		NodeExit,
-		NodePin,
+		PushState,
+		RestoreState,
+		ResetState,
+		SuspendState,
+		PopState,
 		Stop
 	};
 }
@@ -316,36 +348,66 @@ protected:
 	FText Description;
 };
 
-// Information about a blueprint instrumentation event
-struct EScriptInstrumentationEvent
+// Information about a blueprint instrumentation signal
+struct COREUOBJECT_API FScriptInstrumentationSignal
 {
 public:
 
-	EScriptInstrumentationEvent(EScriptInstrumentation::Type InEventType, const UObject* InContextObject, const struct FFrame& InStackFrame)
-		: EventType(InEventType)
-		, ContextObject(InContextObject)
-		, StackFramePtr(&InStackFrame)
-	{
-	}
+	FScriptInstrumentationSignal(EScriptInstrumentation::Type InEventType, const UObject* InContextObject, const struct FFrame& InStackFrame);
 
-	EScriptInstrumentationEvent(EScriptInstrumentation::Type InEventType, const UObject* InContextObject)
+	FScriptInstrumentationSignal(EScriptInstrumentation::Type InEventType, const UObject* InContextObject, UFunction* InFunction, const int32 LinkId = INDEX_NONE)
 		: EventType(InEventType)
 		, ContextObject(InContextObject)
+		, Function(InFunction)
 		, StackFramePtr(nullptr)
+		, LatentLinkId(LinkId)
 	{
 	}
 
+	/** Access to the event type */
 	EScriptInstrumentation::Type GetType() const { return EventType; }
+
+	/** Designates the event type */
 	void SetType(EScriptInstrumentation::Type InType) { EventType = InType;	}
+
+	/** Returns true if the context object is valid */
+	bool IsContextObjectValid() const { return ContextObject != nullptr; }
+
+	/** Returns the context object */
 	const UObject* GetContextObject() const { return ContextObject; }
+
+	/** Returns true if the stackframe is valid */
 	bool IsStackFrameValid() const { return StackFramePtr != nullptr; }
+
+	/** Returns the stackframe */
 	const FFrame& GetStackFrame() const { return *StackFramePtr; }
+
+	/** Returns the owner class name of the active instance */
+	const UClass* GetClass() const;
+
+	/** Returns the function scope class */
+	const UClass* GetFunctionClassScope() const;
+
+	/** Returns the name of the active function */
+	FName GetFunctionName() const;
+
+	/** Returns the script code offset */
+	int32 GetScriptCodeOffset() const;
+
+	/** Returns the latent link id for latent events */
+	int32 GetLatentLinkId() const { return LatentLinkId; }
 
 protected:
 
+	/** The event signal type */
 	EScriptInstrumentation::Type EventType;
+	/** The context object the event is from */
 	const UObject* ContextObject;
+	/** The function that emitted this event */
+	const UFunction* Function;
+	/** The stack frame for the  */
 	const struct FFrame* StackFramePtr;
+	const int32 LatentLinkId;
 };
 
 // Blueprint core runtime delegates
@@ -354,14 +416,18 @@ class COREUOBJECT_API FBlueprintCoreDelegates
 public:
 	// Callback for debugging events such as a breakpoint (Object that triggered event, active stack frame, Info)
 	DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnScriptDebuggingEvent, const UObject*, const struct FFrame&, const FBlueprintExceptionInfo&);
-	// Callback for blueprint profiling events
-	DECLARE_MULTICAST_DELEGATE_OneParam(FOnScriptInstrumentEvent, const EScriptInstrumentationEvent& );
+	// Callback for when script execution terminates.
+	DECLARE_MULTICAST_DELEGATE(FOnScriptExecutionEnd);
+	// Callback for blueprint profiling signals
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnScriptInstrumentEvent, const FScriptInstrumentationSignal& );
 	// Callback for blueprint instrumentation enable/disable events
 	DECLARE_MULTICAST_DELEGATE_OneParam(FOnToggleScriptProfiler, bool );
 
 public:
 	// Called when a script exception occurs
 	static FOnScriptDebuggingEvent OnScriptException;
+	// Called when a script execution terminates.
+	static FOnScriptExecutionEnd OnScriptExecutionEnd;
 	// Called when a script profiling event is fired
 	static FOnScriptInstrumentEvent OnScriptProfilingEvent;
 	// Called when a script profiler is enabled/disabled
@@ -369,7 +435,7 @@ public:
 
 public:
 	static void ThrowScriptException(const UObject* ActiveObject, const struct FFrame& StackFrame, const FBlueprintExceptionInfo& Info);
-	static void InstrumentScriptEvent(const EScriptInstrumentationEvent& Info);
+	static void InstrumentScriptEvent(const FScriptInstrumentationSignal& Info);
 	static void SetScriptMaximumLoopIterations( const int32 MaximumLoopIterations );
 };
 
@@ -384,6 +450,101 @@ private:
 	bool bOldGAllowScriptExecutionInEditor;
 };
 
+#if TOTAL_OVERHEAD_SCRIPT_STATS
+	// Low overhead timer used to instrument the VM (ProcessEvent and ProcessInternal):
+	struct FBlueprintEventTimer
+	{
+		struct FPausableScopeTimer;
+		COREUOBJECT_API static FPausableScopeTimer* ActiveTimer;
+
+		struct FPausableScopeTimer
+		{
+			FPausableScopeTimer() 
+			{ 
+				double CurrentTime = FPlatformTime::Seconds();
+				if (ActiveTimer)
+				{
+					ActiveTimer->Pause(CurrentTime);
+				}
+
+				PreviouslyActiveTimer = ActiveTimer;
+				StartTime = CurrentTime;
+				TotalTime = 0.0;
+
+				ActiveTimer = this;
+			}
+
+			~FPausableScopeTimer()
+			{
+				if (PreviouslyActiveTimer)
+				{
+					PreviouslyActiveTimer->Resume();
+				}
+				ActiveTimer = PreviouslyActiveTimer;
+			}
+
+			void Pause(double CurrentTime) { TotalTime += CurrentTime - StartTime; }
+			void Resume() { StartTime = FPlatformTime::Seconds();  }
+			double Stop() { return TotalTime + (FPlatformTime::Seconds() - StartTime); }
+
+		private:
+			FPausableScopeTimer* PreviouslyActiveTimer;
+			double TotalTime;
+			double StartTime;
+		};
+
+		// We need to keep track of the current VM timer because we only want to
+		// track time while 'in' the VM. We use this to detect whether we're running
+		// script or just doing RPC:
+		struct FScopedVMTimer;
+		COREUOBJECT_API static FScopedVMTimer* ActiveVMTimer;
+
+		struct FScopedVMTimer
+		{
+			FScopedVMTimer()
+				: Timer()
+				, VMParent(ActiveVMTimer)
+			{
+				ActiveVMTimer = this;
+			}
+
+			~FScopedVMTimer()
+			{
+				INC_FLOAT_STAT_BY(STAT_ScriptVmTime_Total, Timer.Stop() * 1000.0);
+				ActiveVMTimer = VMParent;
+			}
+
+			FPausableScopeTimer Timer;
+			FScopedVMTimer* VMParent;
+		};
+
+		struct FScopedNativeTimer
+		{
+			FScopedNativeTimer()
+				: Timer()
+			{
+			}
+
+			~FScopedNativeTimer()
+			{
+				// only track native time when in a VM scope, RPC time
+				// can be tracked by the online system or whatever is making RPCs:
+				if (ActiveVMTimer)
+				{
+					INC_FLOAT_STAT_BY(STAT_ScriptNativeTime_Total, Timer.Stop()* 1000.0);
+				}
+			}
+
+			FPausableScopeTimer Timer;
+		};
+	};
+
+#define SCOPED_SCRIPT_NATIVE_TIMER(VarName) \
+	FBlueprintEventTimer::FScopedNativeTimer VarName
+
+#else  // TOTAL_OVERHEAD_SCRIPT_STATS
+	#define SCOPED_SCRIPT_NATIVE_TIMER(VarName) 
+#endif // TOTAL_OVERHEAD_SCRIPT_STATS
 /** @return True if the char can be used in an identifier in c++ */
 COREUOBJECT_API bool IsValidCPPIdentifierChar(TCHAR Char);
 

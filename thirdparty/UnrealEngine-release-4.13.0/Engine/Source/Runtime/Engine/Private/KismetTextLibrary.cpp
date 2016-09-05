@@ -2,6 +2,7 @@
 
 #include "EnginePrivate.h"
 #include "Kismet/KismetTextLibrary.h"
+#include "TextFormatter.h"
 
 #define LOCTEXT_NAMESPACE "Kismet"
 
@@ -16,6 +17,62 @@ UKismetTextLibrary::UKismetTextLibrary(const FObjectInitializer& ObjectInitializ
 
 /* UKismetTextLibrary static functions
  *****************************************************************************/
+
+FText UKismetTextLibrary::Conv_VectorToText(FVector InVec)
+{
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("X"), InVec.X);
+	Args.Add(TEXT("Y"), InVec.Y);
+	Args.Add(TEXT("Z"), InVec.Z);
+
+	return FText::Format(NSLOCTEXT("Core", "Vector3", "X={X} Y={Y} Z={Z}"), Args);
+}
+
+
+FText UKismetTextLibrary::Conv_Vector2dToText(FVector2D InVec)
+{
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("X"), InVec.X);
+	Args.Add(TEXT("Y"), InVec.Y);
+
+	return FText::Format(NSLOCTEXT("Core", "Vector2", "X={X} Y={Y}"), Args);
+}
+
+
+FText UKismetTextLibrary::Conv_RotatorToText(FRotator InRot)
+{
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("P"), InRot.Pitch);
+	Args.Add(TEXT("Y"), InRot.Yaw);
+	Args.Add(TEXT("R"), InRot.Roll);
+
+	return FText::Format(NSLOCTEXT("Core", "Rotator", "P={P} Y={Y} R={R}"), Args);
+}
+
+
+FText UKismetTextLibrary::Conv_TransformToText(const FTransform& InTrans)
+{
+	return FText::FromString(InTrans.ToString());
+}
+
+
+FText UKismetTextLibrary::Conv_ObjectToText(class UObject* InObj)
+{
+	return FText::FromString((InObj != NULL) ? InObj->GetName() : FString(TEXT("None")));
+}
+
+
+FText UKismetTextLibrary::Conv_ColorToText(FLinearColor InColor)
+{
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("R"), InColor.R);
+	Args.Add(TEXT("G"), InColor.G);
+	Args.Add(TEXT("B"), InColor.B);
+	Args.Add(TEXT("A"), InColor.A);
+
+	return FText::Format(NSLOCTEXT("Core", "LinearColor", "R={R} G={G} B={B} A={A}"), Args);
+}
+
 
 FString UKismetTextLibrary::Conv_TextToString(const FText& InText)
 {
@@ -145,7 +202,13 @@ FText UKismetTextLibrary::Conv_FloatToText(float Value, TEnumAsByte<ERoundingMod
 	return FText::AsNumber(Value, &NumberFormatOptions);
 }
 
+FText UKismetTextLibrary::AsCurrencyBase(int32 BaseValue, const FString& CurrencyCode)
+{
+	return FText::AsCurrencyBase(BaseValue, CurrencyCode);
+}
 
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
+// FIXME: we need to deprecate this kismet api too
 FText UKismetTextLibrary::AsCurrency_Integer(int32 Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping/* = true*/, int32 MinimumIntegralDigits/* = 1*/, int32 MaximumIntegralDigits/* = 324*/, int32 MinimumFractionalDigits/* = 0*/, int32 MaximumFractionalDigits/* = 3*/, const FString& CurrencyCode)
 {
 	FNumberFormattingOptions NumberFormatOptions;
@@ -155,11 +218,8 @@ FText UKismetTextLibrary::AsCurrency_Integer(int32 Value, TEnumAsByte<ERoundingM
 	NumberFormatOptions.MaximumIntegralDigits = MaximumIntegralDigits;
 	NumberFormatOptions.MinimumFractionalDigits = MinimumFractionalDigits;
 	NumberFormatOptions.MaximumFractionalDigits = MaximumFractionalDigits;
-
 	return FText::AsCurrency(Value, CurrencyCode, &NumberFormatOptions);
 }
-
-
 FText UKismetTextLibrary::AsCurrency_Float(float Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping/* = true*/, int32 MinimumIntegralDigits/* = 1*/, int32 MaximumIntegralDigits/* = 324*/, int32 MinimumFractionalDigits/* = 0*/, int32 MaximumFractionalDigits/* = 3*/, const FString& CurrencyCode)
 {
 	FNumberFormattingOptions NumberFormatOptions;
@@ -169,10 +229,9 @@ FText UKismetTextLibrary::AsCurrency_Float(float Value, TEnumAsByte<ERoundingMod
 	NumberFormatOptions.MaximumIntegralDigits = MaximumIntegralDigits;
 	NumberFormatOptions.MinimumFractionalDigits = MinimumFractionalDigits;
 	NumberFormatOptions.MaximumFractionalDigits = MaximumFractionalDigits;
-
 	return FText::AsCurrency(Value, CurrencyCode, &NumberFormatOptions);
 }
-
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 FText UKismetTextLibrary::AsPercent_Float(float Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping/* = true*/, int32 MinimumIntegralDigits/* = 1*/, int32 MaximumIntegralDigits/* = 324*/, int32 MinimumFractionalDigits/* = 0*/, int32 MaximumFractionalDigits/* = 3*/)
 {
@@ -214,7 +273,7 @@ FText UKismetTextLibrary::AsTimespan_Timespan(const FTimespan& InTimespan)
 
 FText UKismetTextLibrary::Format(FText InPattern, TArray<FFormatArgumentData> InArgs)
 {
-	return FText::Format(MoveTemp(InPattern), MoveTemp(InArgs));
+	return FTextFormatter::Format(MoveTemp(InPattern), MoveTemp(InArgs), false, false);
 }
 
 

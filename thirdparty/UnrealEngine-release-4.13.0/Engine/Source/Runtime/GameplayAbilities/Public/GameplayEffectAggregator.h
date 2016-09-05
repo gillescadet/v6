@@ -40,6 +40,7 @@ struct GAMEPLAYABILITIES_API FAggregator : public TSharedFromThis<FAggregator>
 	DECLARE_MULTICAST_DELEGATE_OneParam(FOnAggregatorDirty, FAggregator*);
 
 	FAggregator(float InBaseValue=0.f) : NetUpdateID(0), BaseValue(InBaseValue), IsBroadcastingDirty(false), NumPredictiveMods(0) { }
+	~FAggregator();
 
 	/** Simple accessor to base value */
 	float GetBaseValue() const;
@@ -50,7 +51,7 @@ struct GAMEPLAYABILITIES_API FAggregator : public TSharedFromThis<FAggregator>
 
 	void AddAggregatorMod(float EvaluatedData, TEnumAsByte<EGameplayModOp::Type> ModifierOp, const FGameplayTagRequirements*	SourceTagReqs, const FGameplayTagRequirements* TargetTagReqs, bool IsPredicted, FActiveGameplayEffectHandle ActiveHandle = FActiveGameplayEffectHandle() );
 
-	/** Removes all mods for the passed in handle and marks this as dirty to recalculate the aggregator*/
+	/** Removes all mods for the passed in handle and marks this as dirty to recalculate the aggregator */
 	void RemoveAggregatorMod(FActiveGameplayEffectHandle ActiveHandle);
 
 	/** Updates the aggregators for the past in handle, this will handle it so the UAttributeSets stats only get one update for the delta change */
@@ -68,6 +69,9 @@ struct GAMEPLAYABILITIES_API FAggregator : public TSharedFromThis<FAggregator>
 	/** Evaluates the Aggregator to compute its "bonus" (final - base) value */
 	float EvaluateBonus(const FAggregatorEvaluateParameters& Parameters) const;
 
+	/** Evaluates the contribution from the GE associated with ActiveHandle */
+	float EvaluateContribution(const FAggregatorEvaluateParameters& Parameters, FActiveGameplayEffectHandle ActiveHandle) const;
+
 	void TakeSnapshotOf(const FAggregator& AggToSnapshot);
 
 	FOnAggregatorDirty OnDirty;
@@ -79,7 +83,7 @@ struct GAMEPLAYABILITIES_API FAggregator : public TSharedFromThis<FAggregator>
 
 	bool HasPredictedMods() const;
 	
-	/** NetworkID that we had our last update from. Will only be set on clients and is only used to ensure we dont recompute server base value twice. */
+	/** NetworkID that we had our last update from. Will only be set on clients and is only used to ensure we don't recompute server base value twice. */
 	int32 NetUpdateID;
 
 private:

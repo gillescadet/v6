@@ -41,6 +41,7 @@ DEFINE_STAT(STAT_DynamicShadowSetupTime);
 DEFINE_STAT(STAT_RenderQueryResultTime);
 // Use 'stat initviews' to get more detail
 DEFINE_STAT(STAT_InitViewsTime);
+DEFINE_STAT(STAT_InitViewsPossiblyAfterPrepass);
 // Measures the time spent in RenderViewFamily_RenderThread
 // Note that this is not the total rendering thread time, any other rendering commands will not be counted here
 DEFINE_STAT(STAT_TotalSceneRenderingTime);
@@ -71,6 +72,7 @@ DEFINE_STAT(STAT_LightInteractionMemory);
 // The InitViews stats group contains information on how long visibility culling took and how effective it was
 
 DEFINE_STAT(STAT_GatherShadowPrimitivesTime);
+DEFINE_STAT(STAT_BuildCombinedStaticAndCSMVisibilityState);
 DEFINE_STAT(STAT_UpdateIndirectLightingCache);
 DEFINE_STAT(STAT_UpdateIndirectLightingCachePrims);
 DEFINE_STAT(STAT_UpdateIndirectLightingCacheBlocks);
@@ -103,7 +105,9 @@ DEFINE_STAT(STAT_VisibleStaticMeshElements);
 DEFINE_STAT(STAT_VisibleDynamicPrimitives);
 DEFINE_STAT(STAT_IndirectLightingCacheUpdates);
 DEFINE_STAT(STAT_PrecomputedLightingBufferUpdates);
-
+DEFINE_STAT(STAT_CSMSubjects);
+DEFINE_STAT(STAT_CSMStaticMeshReceivers);
+DEFINE_STAT(STAT_CSMStaticPrimitiveReceivers);
 
 // The ShadowRendering stats group shows what kind of shadows are taking a lot of rendering thread time to render
 // Shadow setup is tracked in the InitViews group
@@ -117,6 +121,7 @@ DEFINE_STAT(STAT_RenderPerObjectShadowProjectionsTime);
 DEFINE_STAT(STAT_RenderPerObjectShadowDepthsTime);
 
 DEFINE_STAT(STAT_WholeSceneShadows);
+DEFINE_STAT(STAT_CachedWholeSceneShadows);
 DEFINE_STAT(STAT_PerObjectShadows);
 DEFINE_STAT(STAT_PreShadows);
 DEFINE_STAT(STAT_CachedPreShadows);
@@ -162,6 +167,9 @@ DEFINE_STAT(STAT_ReflectiveShadowMaps);
 DEFINE_STAT(STAT_ReflectiveShadowMapDrawTime);
 DEFINE_STAT(STAT_NumReflectiveShadowMapLights);
 DEFINE_STAT(STAT_RenderWholeSceneReflectiveShadowMapsTime);
+
+DEFINE_STAT(STAT_ShadowmapAtlasMemory);
+DEFINE_STAT(STAT_CachedShadowmapMemory);
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 

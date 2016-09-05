@@ -16,6 +16,7 @@
 #endif
 #include "DebuggingDefines.h"
 #include "ActorEditorUtils.h"
+#include "PhysicsEngine/BodySetup.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogBrushComponent, Log, All);
 
@@ -196,7 +197,7 @@ public:
 			FLocalVertexFactory*,VertexFactory,&VertexFactory,
 			FVertexBuffer*,WireVertexBuffer,&WireVertexBuffer,
 			{
-				FLocalVertexFactory::DataType Data;
+				FLocalVertexFactory::FDataType Data;
 				Data.PositionComponent = STRUCTMEMBER_VERTEXSTREAMCOMPONENT(WireVertexBuffer,FModelWireVertex,Position,VET_Float3);
 				Data.TangentBasisComponents[0] = STRUCTMEMBER_VERTEXSTREAMCOMPONENT(WireVertexBuffer,FModelWireVertex,TangentX,VET_PackedNormal);
 				Data.TangentBasisComponents[1] = STRUCTMEMBER_VERTEXSTREAMCOMPONENT(WireVertexBuffer,FModelWireVertex,TangentZ,VET_PackedNormal);

@@ -25,7 +25,9 @@ void UGameplayAbility_Montage::ActivateAbility(const FGameplayAbilitySpecHandle 
 		return;
 	}
 
-	if (MontageToPlay != NULL && ActorInfo->AnimInstance != NULL && ActorInfo->AnimInstance->GetActiveMontageInstance() == NULL)
+	UAnimInstance* AnimInstance = ActorInfo->GetAnimInstance();
+
+	if (MontageToPlay != nullptr && AnimInstance != nullptr && AnimInstance->GetActiveMontageInstance() == nullptr)
 	{
 		TArray<FActiveGameplayEffectHandle>	AppliedEffects;
 
@@ -34,22 +36,22 @@ void UGameplayAbility_Montage::ActivateAbility(const FGameplayAbilitySpecHandle 
 		GetGameplayEffectsWhileAnimating(Effects);
 		for (const UGameplayEffect* Effect : Effects)
 		{
-			FActiveGameplayEffectHandle EffectHandle = ActorInfo->AbilitySystemComponent->ApplyGameplayEffectToSelf(Effect, 1.f, GetEffectContext(Handle, ActorInfo));
+			FActiveGameplayEffectHandle EffectHandle = ActorInfo->AbilitySystemComponent->ApplyGameplayEffectToSelf(Effect, 1.f, MakeEffectContext(Handle, ActorInfo));
 			if (EffectHandle.IsValid())
 			{
 				AppliedEffects.Add(EffectHandle);
 			}
 		}
 
-		float const Duration = ActorInfo->AnimInstance->Montage_Play(MontageToPlay, PlayRate);
+		float const Duration = AnimInstance->Montage_Play(MontageToPlay, PlayRate);
 
 		FOnMontageEnded EndDelegate;
 		EndDelegate.BindUObject(this, &UGameplayAbility_Montage::OnMontageEnded, ActorInfo->AbilitySystemComponent, AppliedEffects);
-		ActorInfo->AnimInstance->Montage_SetEndDelegate(EndDelegate);
+		AnimInstance->Montage_SetEndDelegate(EndDelegate);
 
 		if (SectionName != NAME_None)
 		{
-			ActorInfo->AnimInstance->Montage_JumpToSection(SectionName);
+			AnimInstance->Montage_JumpToSection(SectionName);
 		}
 	}
 }

@@ -270,31 +270,31 @@ public:
 private:
 
 	/** True if the left shift key was down when this event occurred. */
-	bool bIsLeftShiftDown;
+	uint16 bIsLeftShiftDown:1;
 
 	/** True if the right shift key was down when this event occurred. */
-	bool bIsRightShiftDown;
+	uint16 bIsRightShiftDown:1;
 
 	/** True if the left control key was down when this event occurred. */
-	bool bIsLeftControlDown;
+	uint16 bIsLeftControlDown:1;
 
 	/** True if the right control key was down when this event occurred. */
-	bool bIsRightControlDown;
+	uint16 bIsRightControlDown:1;
 
 	/** True if the left alt key was down when this event occurred. */
-	bool bIsLeftAltDown;
+	uint16 bIsLeftAltDown:1;
 
 	/** True if the right alt key was down when this event occurred. */
-	bool bIsRightAltDown;
+	uint16 bIsRightAltDown:1;
 	
 	/** True if the left command key was down when this event occurred. */
-	bool bIsLeftCommandDown;
+	uint16 bIsLeftCommandDown:1;
 	
 	/** True if the right command key was down when this event occurred. */
-	bool bIsRightCommandDown;
+	uint16 bIsRightCommandDown:1;
 
 	/** True if the Caps Lock key has been toggled to the enabled state. */
-	bool bAreCapsLocked;
+	uint16 bAreCapsLocked:1;
 };
 
 
@@ -352,6 +352,16 @@ struct FDisplayMetrics
 
 	/** Logs out display metrics */
 	CORE_API void PrintToLog() const;
+
+protected:
+	// The title safe zone ratio that will be returned by FDisplayMetrics::GetDisplayMetrics on platforms that don't have a defined safe zone
+	static float GetDebugTitleSafeZoneRatio();
+
+	// The action safe zone ratio that will be returned by FDisplayMetrics::GetDisplayMetrics on platforms that don't have a defined safe zone
+	static float GetDebugActionSafeZoneRatio();
+
+	// Apply the debug/default safe zones
+	void ApplyDefaultSafeZones();
 };
 
 
@@ -427,6 +437,8 @@ public:
 
 	virtual bool IsMouseAttached() const { return true; }
 
+	virtual bool IsGamepadAttached() const { return false; }
+
 	virtual void RegisterConsoleCommandListener(const FOnConsoleCommandListener& InListener) {}
 
 	virtual void AddPendingConsoleCommand(const FString& InCommand) {}
@@ -451,6 +463,15 @@ public:
 
 	virtual void GetInitialDisplayMetrics( FDisplayMetrics& OutDisplayMetrics ) const { FDisplayMetrics::GetDisplayMetrics(OutDisplayMetrics); }
 
+	
+	/** Delegate for virtual keyboard being shown/hidden in case UI wants to slide out of the way */
+	DECLARE_EVENT_OneParam(FSlateApplication, FVirtualKeyboardShownEvent, FPlatformRect);
+	FVirtualKeyboardShownEvent& OnVirtualKeyboardShown()  { return VirtualKeyboardShownEvent; }
+	
+	DECLARE_EVENT(FSlateApplication, FVirtualKeyboardHiddenEvent);
+	FVirtualKeyboardHiddenEvent& OnVirtualKeyboardHidden()  { return VirtualKeyboardHiddenEvent; }
+
+	
 	/** Gets the horizontal alignment of the window title bar's title text. */
 	virtual EWindowTitleAlignment::Type GetWindowTitleAlignment() const
 	{
@@ -497,4 +518,12 @@ protected:
 	
 	// Notifies subscribers when any of the display metrics change: e.g. resolution changes or monitor sare re-arranged.
 	FOnDisplayMetricsChanged OnDisplayMetricsChangedEvent;
+
+	/** Delegate for virtual keyboard being shown */
+	FVirtualKeyboardShownEvent VirtualKeyboardShownEvent;
+	
+	/** Delegate for virtual keyboard being shown */
+	FVirtualKeyboardHiddenEvent VirtualKeyboardHiddenEvent;
+	
+
 };

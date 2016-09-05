@@ -57,7 +57,7 @@ struct FStreamedAudioChunk
 	 * Place chunk data in the derived data cache associated with the provided
 	 * key.
 	 */
-	void StoreInDerivedDataCache(const FString& InDerivedDataKey);
+	uint32 StoreInDerivedDataCache(const FString& InDerivedDataKey);
 #endif // #if WITH_EDITORONLY_DATA
 };
 
@@ -153,6 +153,10 @@ class ENGINE_API USoundWave : public USoundBase
 	UPROPERTY(EditAnywhere, Category=Subtitles )
 	uint32 bSingleLine:1;
 
+	/** Allows sound to play at 0 volume, otherwise will stop the sound when the sound is silent. */
+	UPROPERTY(EditAnywhere, Category=Sound)
+	uint32 bVirtualizeWhenSilent:1;
+
 	/** Whether this SoundWave was decompressed from OGG. */
 	uint32 bDecompressedFromOgg:1;
 
@@ -163,6 +167,9 @@ class ENGINE_API USoundWave : public USoundBase
 	UPROPERTY(EditAnywhere, Category=Subtitles )
 	FString SpokenText;
 
+	/** The priority of the subtitle. */
+	UPROPERTY(EditAnywhere, Category=Subtitles)
+	float SubtitlePriority;
 
 	/** Playback volume of sound 0 to 1 - Default is 1.0. */
 	UPROPERTY(Category=Sound, meta=(ClampMin = "0.0"), EditAnywhere)
@@ -266,9 +273,6 @@ public:
 	/** cooked streaming platform data for this sound */
 	TMap<FString, FStreamedAudioPlatformData*> CookedPlatformData;
 
-	/** Codec used to compress/encode this audio data */
-	FName CompressionName;
-
 	//~ Begin UObject Interface. 
 	virtual void Serialize( FArchive& Ar ) override;
 	virtual void PostInitProperties() override;
@@ -278,7 +282,6 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;	
 #endif // WITH_EDITOR
-	virtual bool IsLocalizedResource() override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
 	virtual FName GetExporterName() override;
 	virtual FString GetDesc() override;
@@ -290,6 +293,7 @@ public:
 	virtual void Parse( class FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanceHash, FActiveSound& ActiveSound, const FSoundParseParameters& ParseParams, TArray<FWaveInstance*>& WaveInstances ) override;
 	virtual float GetMaxAudibleDistance() override;
 	virtual float GetDuration() override;
+	virtual float GetSubtitlePriority() const override;
 	//~ End USoundBase Interface.
 
 	/**
@@ -330,7 +334,7 @@ public:
 	/** 
 	 * Handle any special requirements when the sound starts (e.g. subtitles)
 	 */
-	FWaveInstance* HandleStart( FActiveSound& ActiveSound, const UPTRINT WaveInstanceHash );
+	FWaveInstance* HandleStart( FActiveSound& ActiveSound, const UPTRINT WaveInstanceHash ) const;
 
 	/** 
 	 * This is only for DTYPE_Procedural audio. Override this function.
@@ -354,6 +358,8 @@ public:
 		FByteBulkData* Data = GetCompressedData(Format);
 		return Data ? Data->GetBulkDataSize() : 0;
 	}
+
+	virtual bool HasCompressedData(FName Format) const;
 
 	/** 
 	 * Gets the compressed data from derived data cache for the specified platform
@@ -434,6 +440,18 @@ public:
 	 * @param OutChunkData	Address of pointer that will store data.
 	 */
 	void GetChunkData(int32 ChunkIndex, uint8** OutChunkData);
+
+private:
+
+	enum class ESoundWaveResourceState
+	{
+		NeedsFree,
+		Freeing,
+		Freed
+	};
+
+	ESoundWaveResourceState ResourceState;
+
 };
 
 

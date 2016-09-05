@@ -22,7 +22,6 @@ public:
 	ULinkerPlaceholderClass(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	// UObject interface.
-	static  void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
  	virtual void PostInitProperties() override;
 	virtual void BeginDestroy() override;
 	// End of UObject interface.
@@ -32,7 +31,7 @@ public:
 	// End of UField interface.
 
 	// FLinkerPlaceholderBase interface 
-	virtual UObject* GetPlaceholderAsUObject() override { return this; }
+	virtual UObject* GetPlaceholderAsUObject() override { return (UObject*)(this); }
 	// End of FLinkerPlaceholderBase interface
 }; 
 

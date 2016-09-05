@@ -33,10 +33,6 @@
 	#define WITH_PHYSICS_COOKING (WITH_EDITOR || WITH_APEX)		//APEX currently relies on cooking even at runtime
 #endif
 
-#ifndef WITH_SUBSTEPPING
-#define WITH_SUBSTEPPING 1
-#endif
-
 #if WITH_APEX
 #ifndef WITH_APEX_CLOTHING
 	#define WITH_APEX_CLOTHING	(1 && WITH_APEX)
@@ -55,7 +51,7 @@
 #endif //WITH_APEX_CLOTHING
 
 #ifndef ENABLE_VISUAL_LOG
-	#define ENABLE_VISUAL_LOG (PLATFORM_DESKTOP && !NO_LOGGING && !USING_CODE_ANALYSIS && !(UE_BUILD_SHIPPING || UE_BUILD_TEST))
+	#define ENABLE_VISUAL_LOG (PLATFORM_DESKTOP && !NO_LOGGING && !(UE_BUILD_SHIPPING || UE_BUILD_TEST))
 #endif
 
 #ifndef WITH_FIXED_AREA_ENTERING_COST
@@ -67,6 +63,9 @@
 #ifndef RECAST_ASYNC_REBUILDING
 	#define RECAST_ASYNC_REBUILDING	1
 #endif
+
+// Whether lightmass generates FSHVector2 or FSHVector3. Linked with VER_UE4_INDIRECT_LIGHTING_SH3
+#define NUM_INDIRECT_LIGHTING_SH_COEFFICIENTS 9
 
 /*-----------------------------------------------------------------------------
 	Size of the world.

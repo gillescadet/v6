@@ -14,9 +14,9 @@ FMovieSceneSlomoTrackInstance::FMovieSceneSlomoTrackInstance(UMovieSceneSlomoTra
 { }
 
 	
-void FMovieSceneSlomoTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneSlomoTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	AWorldSettings* WorldSettings = GWorld->GetWorldSettings();
+	AWorldSettings* WorldSettings = Player.GetPlaybackContext()->GetWorld()->GetWorldSettings();
 
 	if (WorldSettings == nullptr)
 	{
@@ -26,9 +26,9 @@ void FMovieSceneSlomoTrackInstance::RestoreState(const TArray<UObject*>& Runtime
 	WorldSettings->MatineeTimeDilation = InitMatineeTimeDilation;
 }
 
-void FMovieSceneSlomoTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneSlomoTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	AWorldSettings* WorldSettings = GWorld->GetWorldSettings();
+	AWorldSettings* WorldSettings = Player.GetPlaybackContext()->GetWorld()->GetWorldSettings();
 
 	if (WorldSettings == nullptr)
 	{
@@ -41,14 +41,14 @@ void FMovieSceneSlomoTrackInstance::SaveState(const TArray<UObject*>& RuntimeObj
 /* IMovieSceneTrackInstance interface
  *****************************************************************************/
 
-void FMovieSceneSlomoTrackInstance::Update(float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass)
+void FMovieSceneSlomoTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	if (!ShouldBeApplied())
+	if (!ShouldBeApplied(Player))
 	{
 		return;
 	}
 
-	AWorldSettings* WorldSettings = GWorld->GetWorldSettings();
+	AWorldSettings* WorldSettings = Player.GetPlaybackContext()->GetWorld()->GetWorldSettings();
 
 	if (WorldSettings == nullptr)
 	{
@@ -57,25 +57,27 @@ void FMovieSceneSlomoTrackInstance::Update(float Position, float LastPosition, c
 
 	float FloatValue = 0.0f;
 
-	if (SlomoTrack->Eval(Position, LastPosition, FloatValue))
+	if (!SlomoTrack->Eval(UpdateData.Position, UpdateData.LastPosition, FloatValue) || (FloatValue <= 0.0f))
 	{
-		WorldSettings->MatineeTimeDilation = FloatValue;
-		WorldSettings->ForceNetUpdate();
+		return;
 	}
+
+	WorldSettings->MatineeTimeDilation = FloatValue;
+	WorldSettings->ForceNetUpdate();
 }
 
 
 /* IMovieSceneTrackInstance implementation
  *****************************************************************************/
 
-bool FMovieSceneSlomoTrackInstance::ShouldBeApplied() const
+bool FMovieSceneSlomoTrackInstance::ShouldBeApplied(IMovieScenePlayer& InMovieScenePlayer) const
 {
 	if (GIsEditor)
 	{
 		return true;
 	}
 
-	if (GWorld->GetNetMode() == NM_Client)
+	if (InMovieScenePlayer.GetPlaybackContext()->GetWorld()->GetNetMode() == NM_Client)
 	{
 		return false;
 	}

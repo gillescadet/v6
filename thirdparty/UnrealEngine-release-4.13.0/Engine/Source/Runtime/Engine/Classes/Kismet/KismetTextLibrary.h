@@ -26,6 +26,28 @@ enum ERoundingMode
 	ToPositiveInfinity,
 };
 
+UENUM(BlueprintType)
+enum class ETextGender : uint8
+{
+	Masculine,
+	Feminine,
+	Neuter,
+};
+
+UENUM(BlueprintType)
+namespace EFormatArgumentType
+{
+	enum Type
+	{
+		Int,
+		UInt,
+		Float,
+		Double,
+		Text,
+		Gender,
+	};
+}
+
 /**
  * Used to pass argument/value pairs into FText::Format.
  * The full C++ struct is located here: Engine\Source\Runtime\Core\Public\Internationalization\Text.h
@@ -33,11 +55,23 @@ enum ERoundingMode
 USTRUCT(noexport)
 struct FFormatArgumentData
 {
-	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentName)
 	FString ArgumentName;
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
+	TEnumAsByte<EFormatArgumentType::Type> ArgumentValueType;
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
 	FText ArgumentValue;
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
+	int32 ArgumentValueInt;
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
+	float ArgumentValueFloat;
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category=ArgumentValue)
+	ETextGender ArgumentValueGender;
 };
 #endif
 
@@ -45,6 +79,30 @@ UCLASS()
 class ENGINE_API UKismetTextLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_UCLASS_BODY()
+
+	/** Converts a vector value to a localizable text, in the form 'X= Y= Z=' */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (Vector)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_VectorToText(FVector InVec);
+
+	/** Converts a vector2d value to a localizable text, in the form 'X= Y=' */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (vector2d)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_Vector2dToText(FVector2D InVec);
+
+	/** Converts a rotator value to a localizable text, in the form 'P= Y= R=' */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (rotator)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_RotatorToText(FRotator InRot);
+
+	/** Converts a transform value to a localizable text, in the form 'Translation: X= Y= Z= Rotation: P= Y= R= Scale: X= Y= Z=' */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (transform)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_TransformToText(const FTransform& InTrans);
+
+	/** Converts a UObject value to a localizable text by calling the object's GetName method */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (object)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_ObjectToText(class UObject* InObj);
+
+	/** Converts a linear color value to a localizable text, in the form '(R=,G=,B=,A=)' */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToText (linear color)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|Text")
+	static FText Conv_ColorToText(FLinearColor InColor);
 
 	/** Converts localizable text to the string */
 	UFUNCTION(BlueprintPure, meta = (DisplayName = "ToString (text)", CompactNodeTitle = "->", BlueprintAutocast), Category = "Utilities|String")
@@ -123,15 +181,24 @@ class ENGINE_API UKismetTextLibrary : public UBlueprintFunctionLibrary
 	/* Converts a passed in float to a text based on formatting options */
 	UFUNCTION(BlueprintPure, meta=(DisplayName = "ToText (float)", AdvancedDisplay = "1", BlueprintAutocast), Category="Utilities|Text")
 	static FText Conv_FloatToText(float Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping = true, int32 MinimumIntegralDigits = 1, int32 MaximumIntegralDigits = 324, int32 MinimumFractionalDigits = 0, int32 MaximumFractionalDigits = 3);
+	
+	/**
+	 * Generate an FText that represents the passed number as currency in the current culture.
+	 * BaseVal is specified in the smallest fractional value of the currency and will be converted for formatting according to the selected culture.
+	 * Keep in mind the CurrencyCode is completely independent of the culture it's displayed in (and they do not imply one another).
+	 * For example: FText::AsCurrencyBase(650, TEXT("EUR")); would return an FText of "€6.50" in most English cultures (en_US/en_UK) and "6,50€" in Spanish (es_ES).
+	 */
+	UFUNCTION(BlueprintPure, meta = (DisplayName = "AsCurrency"), Category = "Utilities|Text")
+	static FText AsCurrencyBase(int32 BaseValue, const FString& CurrencyCode);
 
 	// Default values are duplicated from FNumberFormattingOptions and should be replicated in all functions and in the struct when changed!
 	/* Converts a passed in integer to a text formatted as a currency */
-	UFUNCTION(BlueprintPure, meta=(DisplayName = "AsCurrency (int)", AdvancedDisplay = "1"), Category="Utilities|Text")
+	UFUNCTION(BlueprintPure, meta=(DisplayName = "AsCurrency (int) - DEPRECATED (use AsCurrency)"), Category="Utilities|Text")
 	static FText AsCurrency_Integer(int32 Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping = true, int32 MinimumIntegralDigits = 1, int32 MaximumIntegralDigits = 324, int32 MinimumFractionalDigits = 0, int32 MaximumFractionalDigits = 3, const FString& CurrencyCode = TEXT(""));
 
 	// Default values are duplicated from FNumberFormattingOptions and should be replicated in all functions and in the struct when changed!
 	/* Converts a passed in float to a text formatted as a currency */
-	UFUNCTION(BlueprintPure, meta=(DisplayName = "AsCurrency (float)", AdvancedDisplay = "1"), Category="Utilities|Text")
+	UFUNCTION(BlueprintPure, meta=(DisplayName = "AsCurrency (float) - DEPRECATED (use AsCurrency)"), Category="Utilities|Text")
 	static FText AsCurrency_Float(float Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bUseGrouping = true, int32 MinimumIntegralDigits = 1, int32 MaximumIntegralDigits = 324, int32 MinimumFractionalDigits = 0, int32 MaximumFractionalDigits = 3, const FString& CurrencyCode = TEXT(""));
 
 	// Default values are duplicated from FNumberFormattingOptions and should be replicated in all functions and in the struct when changed!

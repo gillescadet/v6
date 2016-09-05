@@ -64,13 +64,17 @@ float3 SimpleElementFrameBufferBlendOp(float4 Source)
 {
 #if (COMPILER_GLSL_ES2)
 	half4 Dest = FramebufferFetchES2();
-	Dest.rgb = Decode32BPPHDR(Dest);
+	Dest.rgb = Decode32BPPHDR(Dest).rgb;
 #else
 	half4 Dest = half4(0, 0, 0, 0);
 #endif
 
 #if SE_BLEND_MODE == SE_BLEND_OPAQUE || SE_BLEND_MODE == SE_BLEND_MASKED || SE_BLEND_MODE == SE_BLEND_MASKEDDISTANCEFIELD || SE_BLEND_MODE == SE_BLEND_MASKEDDISTANCEFIELDSHADOWED
 	return Source.rgb;
+// AlphaComposite will set both MATERIALBLENDING_TRANSLUCENT and MATERIALBLENDING_ALPHACOMPOSITE defines
+// so ensure  MATERIALBLENDING_ALPHACOMPOSITE gets first in line
+#elif MATERIALBLENDING_ALPHACOMPOSITE
+	return Source.rgb + (Dest.rgb*(1.0 - Source.a));
 #elif SE_BLEND_MODE == SE_BLEND_TRANSLUCENT || SE_BLEND_MODE == SE_BLEND_TRANSLUCENTALPHAONLY || SE_BLEND_MODE == SE_BLEND_ALPHABLEND || SE_BLEND_MODE == SE_BLEND_TRANSLUCENTDISTANCEFIELD || SE_BLEND_MODE == SE_BLEND_TRANSLUCENTDISTANCEFIELDSHADOWED
 	return (Source.rgb*Source.a) + (Dest.rgb*(1.0 - Source.a));
 #elif SE_BLEND_MODE == SE_BLEND_ADDITIVE
@@ -166,7 +170,7 @@ half Gamma;
 void GammaMain(
 	in float2 TextureCoordinate : TEXCOORD0,
 	in float4 Color : TEXCOORD1,
-	in float4 InHitProxyId : TEXCOORD2,			// needed to have d3ddebug warning supressed (VS and PS signatures with SV_Position
+	in float4 InHitProxyId : TEXCOORD2,			// needed to have d3ddebug warning suppressed (VS and PS signatures with SV_Position
 	out float4 OutColor : SV_Target0
 #if ENABLE_EDITOR_COMPOSITING
 	,in float4 SvPosition : SV_Position
@@ -201,7 +205,7 @@ void GammaMain(
 void GammaAlphaOnlyMain(
 	in float2 TextureCoordinate : TEXCOORD0,
 	in float4 Color : TEXCOORD1,
-	in float4 InHitProxyId : TEXCOORD2,			// needed to have d3ddebug warning supressed (VS and PS signatures with SV_Position
+	in float4 InHitProxyId : TEXCOORD2,			// needed to have d3ddebug warning suppressed (VS and PS signatures with SV_Position
 	out float4 OutColor : SV_Target0
 #if ENABLE_EDITOR_COMPOSITING
 	,in float4 SvPosition : SV_Position
@@ -242,7 +246,7 @@ void GammaMaskedMain(
 	,in float4 SvPosition : SV_Position
 #endif
 #if FEATURE_LEVEL >= FEATURE_LEVEL_SM4
-	,out float4 OutWorldNormal : SV_Target1
+	,out float4 OutWorldNormal : SV_Target2
 #endif
 	)
 {
@@ -322,14 +326,15 @@ void GammaDistanceFieldMain(
 
 		// smooth range between ShadowSmoothWidth texels around edge
 		float4 ShadowResult = ShadowColor * smoothstep(0.5-ShadowSmoothWidth, 0.5+ShadowSmoothWidth, ShadowDist);
-		BaseColor = lerp(ShadowResult,BaseColor,BaseColor.a);
+		BaseColor =  lerp(ShadowResult, BaseColor, BaseColor.a);
 	}
 
 	if (EnableGlow)
 	{
 		// testing glow rendering
-		//GlowOuterRadius = float2(0.3,0.45);
-		//GlowInnerRadius = float2(0.45,0.5);	
+		//GlowColor = float4(0, 1, 0, 1);
+		//GlowOuterRadius = float2(0.45,0.5);
+		//GlowInnerRadius = float2(0.5,0.51);	
 
 		if (BaseDist >= GlowOuterRadius[0] && BaseDist <= GlowInnerRadius[1])
 		{
@@ -337,12 +342,14 @@ void GammaDistanceFieldMain(
 			if (BaseDist <= GlowOuterRadius[1])
 			{
 				OutlineFactor = smoothstep(GlowOuterRadius[0],GlowOuterRadius[1],BaseDist);
+				BaseColor = lerp(float4(GlowColor.rgb, 0.0), GlowColor, OutlineFactor);
 			}
 			else
 			{
-				OutlineFactor = smoothstep(GlowInnerRadius[1],GlowInnerRadius[0],BaseDist);			
+				OutlineFactor = smoothstep(GlowInnerRadius[1],GlowInnerRadius[0],BaseDist);
+				BaseColor = lerp(BaseColor, GlowColor, OutlineFactor);
 			}
-			BaseColor = lerp(BaseColor,GlowColor,OutlineFactor);
+			
 		}
 	}
  #endif

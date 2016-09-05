@@ -35,9 +35,7 @@ void Main(
 	float3 AbsoluteWorldPosition = SvPositionToWorld(SvPosition);
 
 	// Calculate radial view distance for stable fading
-	// v6
-	float ViewDistance = length(View.WorldEyeOrigin - AbsoluteWorldPosition);
-	//float ViewDistance = length(View.WorldCameraOrigin - AbsoluteWorldPosition);
+	float ViewDistance = length(View.WorldCameraOrigin - AbsoluteWorldPosition);
 
 	float GreyScale;
 	{

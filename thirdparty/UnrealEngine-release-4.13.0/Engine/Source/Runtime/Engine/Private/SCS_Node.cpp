@@ -32,18 +32,53 @@ UActorComponent* USCS_Node::GetActualComponentTemplate(UBlueprintGeneratedClass*
 	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
 	if (EnableInheritableComponents)
 	{
-		const FComponentKey ComponentKey(this);
-		while (!OverridenComponentTemplate && ActualBPGC)
+		const USimpleConstructionScript* SCS = GetSCS();
+		if (SCS != ActualBPGC->SimpleConstructionScript)
 		{
-			auto InheritableComponentHandler = ActualBPGC->GetInheritableComponentHandler();
-			if (InheritableComponentHandler)
+			const FComponentKey ComponentKey(this);
+			
+			do
 			{
-				OverridenComponentTemplate = InheritableComponentHandler->GetOverridenComponentTemplate(ComponentKey);
-			}
-			ActualBPGC = Cast<UBlueprintGeneratedClass>(ActualBPGC->GetSuperClass());
+				auto InheritableComponentHandler = ActualBPGC->GetInheritableComponentHandler();
+				if (InheritableComponentHandler)
+				{
+					OverridenComponentTemplate = InheritableComponentHandler->GetOverridenComponentTemplate(ComponentKey);
+				}
+
+				ActualBPGC = Cast<UBlueprintGeneratedClass>(ActualBPGC->GetSuperClass());
+
+			} while (!OverridenComponentTemplate && ActualBPGC && SCS != ActualBPGC->SimpleConstructionScript);
 		}
 	}
 	return OverridenComponentTemplate ? OverridenComponentTemplate : ComponentTemplate;
+}
+
+const FBlueprintCookedComponentInstancingData* USCS_Node::GetActualComponentTemplateData(UBlueprintGeneratedClass* ActualBPGC) const
+{
+	const FBlueprintCookedComponentInstancingData* OverridenComponentTemplateData = nullptr;
+	static const FBoolConfigValueHelper EnableInheritableComponents(TEXT("Kismet"), TEXT("bEnableInheritableComponents"), GEngineIni);
+	if (EnableInheritableComponents)
+	{
+		const USimpleConstructionScript* SCS = GetSCS();
+		if (SCS != ActualBPGC->SimpleConstructionScript)
+		{
+			const FComponentKey ComponentKey(this);
+			
+			do
+			{
+				auto InheritableComponentHandler = ActualBPGC->GetInheritableComponentHandler();
+				if (InheritableComponentHandler)
+				{
+					OverridenComponentTemplateData = InheritableComponentHandler->GetOverridenComponentTemplateData(ComponentKey);
+				}
+
+				ActualBPGC = Cast<UBlueprintGeneratedClass>(ActualBPGC->GetSuperClass());
+
+			} while (!OverridenComponentTemplateData && ActualBPGC && SCS != ActualBPGC->SimpleConstructionScript);
+		}
+	}
+
+	return OverridenComponentTemplateData ? OverridenComponentTemplateData : &CookedComponentInstancingData;
 }
 
 UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* ParentComponent, const FTransform* RootTransform, bool bIsDefaultTransform)
@@ -51,11 +86,20 @@ UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* P
 	check(Actor != nullptr);
 	check((ParentComponent != nullptr && !ParentComponent->IsPendingKill()) || (RootTransform != nullptr)); // must specify either a parent component or a world transform
 
-	auto ActualBPGC = Cast<UBlueprintGeneratedClass>(Actor->GetClass());
-	UActorComponent* ActualComponentTemplate = GetActualComponentTemplate(ActualBPGC);
-
 	// Create a new component instance based on the template
-	UActorComponent* NewActorComp = Actor->CreateComponentFromTemplate(ActualComponentTemplate, VariableName);
+	UActorComponent* NewActorComp = nullptr;
+	auto ActualBPGC = Cast<UBlueprintGeneratedClass>(Actor->GetClass());
+	auto ActualComponentTemplateData = FPlatformProperties::RequiresCookedData() ? GetActualComponentTemplateData(ActualBPGC) : nullptr;
+	if (ActualComponentTemplateData && ActualComponentTemplateData->bIsValid)
+	{
+		// Use cooked instancing data if valid (fast path).
+		NewActorComp = Actor->CreateComponentFromTemplateData(ActualComponentTemplateData, VariableName);
+	}
+	else if (UActorComponent* ActualComponentTemplate = GetActualComponentTemplate(ActualBPGC))
+	{
+		NewActorComp = Actor->CreateComponentFromTemplate(ActualComponentTemplate, VariableName);
+	}
+
 	if(NewActorComp != nullptr)
 	{
 		NewActorComp->CreationMethod = EComponentCreationMethod::SimpleConstructionScript;
@@ -66,8 +110,10 @@ UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* P
 		USceneComponent* NewSceneComp = Cast<USceneComponent>(NewActorComp);
 		if (NewSceneComp != nullptr)
 		{
-			// If NULL is passed in, we are the root, so set transform and assign as RootComponent on Actor
-			if (ParentComponent == nullptr || (ParentComponent && ParentComponent->IsPendingKill()))
+			// If NULL is passed in, we are the root, so set transform and assign as RootComponent on Actor, similarly if the 
+			// NewSceneComp is the ParentComponent then we are the root component. This happens when the root component is recycled
+			// by StaticAllocateObject.
+			if (ParentComponent == nullptr || (ParentComponent && ParentComponent->IsPendingKill()) || ParentComponent == NewSceneComp)
 			{
 				FTransform WorldTransform = *RootTransform;
 				if(bIsDefaultTransform)
@@ -81,7 +127,7 @@ UActorComponent* USCS_Node::ExecuteNodeOnActor(AActor* Actor, USceneComponent* P
 			// Otherwise, attach to parent component passed in
 			else
 			{
-				NewSceneComp->AttachTo(ParentComponent, AttachToName);
+				NewSceneComp->SetupAttachment(ParentComponent, AttachToName);
 			}
 		}
 
@@ -299,7 +345,7 @@ void USCS_Node::NameWasModified()
 	if(ComponentTemplate != nullptr)
 	{
 		// Ensure that the template name stays in sync with the variable name; otherwise, new SCS nodes for the same component type will recycle the subobject rather than create a new instance.
-		ComponentTemplate->Rename(*(VariableName.ToString() + TEXT("_GEN_VARIABLE")), nullptr, REN_DontCreateRedirectors);
+		ComponentTemplate->Rename(*(VariableName.ToString() + TEXT("_GEN_VARIABLE")), nullptr, REN_DontCreateRedirectors|REN_ForceNoResetLoaders);
 	}
 
 	OnNameChangedExternal.ExecuteIfBound(VariableName);
@@ -348,6 +394,21 @@ void USCS_Node::RemoveMetaData(const FName& Key)
 	if(EntryIndex != INDEX_NONE)
 	{
 		MetaDataArray.RemoveAt(EntryIndex);
+	}
+}
+
+void USCS_Node::PostLoad()
+{
+	Super::PostLoad();
+
+#if WITH_EDITOR
+	ValidateGuid();
+#endif
+
+	// If valid, load cooked component instancing data.
+	if (ComponentTemplate && CookedComponentInstancingData.bIsValid)
+	{
+		CookedComponentInstancingData.LoadCachedPropertyDataForSerialization(ComponentTemplate);
 	}
 }
 
@@ -458,13 +519,6 @@ USceneComponent* USCS_Node::GetParentComponentTemplate(UBlueprint* InBlueprint) 
 	}
 
 	return ParentComponentTemplate;
-}
-
-void USCS_Node::PostLoad()
-{
-	Super::PostLoad();
-
-	ValidateGuid();
 }
 
 void USCS_Node::ValidateGuid()

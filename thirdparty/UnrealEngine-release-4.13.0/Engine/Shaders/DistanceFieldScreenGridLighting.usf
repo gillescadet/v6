@@ -127,7 +127,7 @@ void HemisphereConeTraceAgainstTileCulledObjects(uint2 OutputCoordinate, uint Sh
 					float WorldStepOffset = GetStepOffset(StartStepIndex);
 
 					#if USE_GLOBAL_DISTANCE_FIELD
-						WorldStepOffset += 10;
+						WorldStepOffset += 2;
 					#endif
 
 					LOOP
@@ -231,7 +231,7 @@ void ConeTraceObjectOcclusionCS(
 	float3 TangentX;
 	float3 TangentY;
 	FindBestAxisVectors2(WorldNormal, TangentX, TangentY);
-	 
+
 	{
 		float2 ScreenUV = GetScreenUVFromScreenGrid(OutputCoordinate);
 		float2 ScreenPosition = (ScreenUV.xy - View.ScreenPositionScaleBias.wz) / View.ScreenPositionScaleBias.xy;

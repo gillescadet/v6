@@ -36,8 +36,18 @@ public:
 			*const_cast<FRotator*>(this) = ZeroRotator;
 		}
 	}
+
+	FORCEINLINE void DiagnosticCheckNaN(const TCHAR* Message) const
+	{
+		if (ContainsNaN())
+		{
+			logOrEnsureNanError(TEXT("%s: FRotator contains NaN: %s"), Message, *ToString());
+			*const_cast<FRotator*>(this) = ZeroRotator;
+		}
+	}
 #else
 	FORCEINLINE void DiagnosticCheckNaN() const {}
+	FORCEINLINE void DiagnosticCheckNaN(const TCHAR* Message) const {}
 #endif
 
 	/**
@@ -304,9 +314,9 @@ public:
 	bool InitFromString( const FString& InSourceString );
 
 	/**
-	 * Utility to check if there are any NaNs in this Rotator.
+	 * Utility to check if there are any non-finite values (NaN or Inf) in this Rotator.
 	 *
-	 * @return true if there are any NaNs in this Rotator, otherwise false.
+	 * @return true if there are any non-finite values in this Rotator, otherwise false.
 	 */
 	bool ContainsNaN() const;
 
@@ -715,9 +725,9 @@ FORCEINLINE bool FRotator::InitFromString( const FString& InSourceString )
 
 FORCEINLINE bool FRotator::ContainsNaN() const
 {
-	return (FMath::IsNaN(Pitch) || !FMath::IsFinite(Pitch) 
-			|| FMath::IsNaN(Yaw) || !FMath::IsFinite(Yaw) 
-			|| FMath::IsNaN(Roll) || !FMath::IsFinite(Roll));
+	return (!FMath::IsFinite(Pitch) ||
+			!FMath::IsFinite(Yaw) ||
+			!FMath::IsFinite(Roll));
 }
 
 

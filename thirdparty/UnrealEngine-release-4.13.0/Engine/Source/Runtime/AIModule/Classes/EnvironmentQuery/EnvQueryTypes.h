@@ -41,6 +41,7 @@ DECLARE_CYCLE_STAT_EXTERN(TEXT("Test Time"),STAT_AI_EQS_TestTime,STATGROUP_AI_EQ
 DECLARE_DWORD_COUNTER_STAT_EXTERN(TEXT("Num Instances"),STAT_AI_EQS_NumInstances,STATGROUP_AI_EQS, );
 DECLARE_DWORD_COUNTER_STAT_EXTERN(TEXT("Num Items"),STAT_AI_EQS_NumItems,STATGROUP_AI_EQS, );
 DECLARE_MEMORY_STAT_EXTERN(TEXT("Instance memory"),STAT_AI_EQS_InstanceMemory,STATGROUP_AI_EQS, AIMODULE_API);
+DECLARE_FLOAT_COUNTER_STAT_EXTERN(TEXT("Avg Instance Response Time (ms)"), STAT_AI_EQS_AvgInstanceResponseTime, STATGROUP_AI_EQS, );
 
 UENUM()
 namespace EEnvTestPurpose
@@ -730,8 +731,11 @@ struct AIMODULE_API FEnvQueryInstance : public FEnvQueryResult
 {
 	typedef float FNamedParamValueType;
 
-	/** short name of query template */
+	/** short name of query template - friendly name for debugging */
 	FString QueryName;
+
+	/** unique name of query template - object name */
+	FName UniqueName;
 
 	/** world owning this query instance */
 	UWorld* World;
@@ -774,6 +778,9 @@ private:
 	/** true if this query has logged a warning that it overran the time limit */
 	uint8 bHasLoggedTimeLimitWarning : 1;
 
+	/** platform time when this query was started */
+	double StartTime;
+
 	/** if > 0 then it's how much time query has for performing current step */
 	double CurrentStepTimeLimit;
 
@@ -809,6 +816,12 @@ public:
 	/** execute single step of query */
 	void ExecuteOneStep(double InCurrentStepTimeLimit);
 
+	/** set when we started the query */
+	void SetQueryStartTime() { StartTime = FPlatformTime::Seconds(); }
+
+	/** get when we started the query */
+	double GetQueryStartTime() const { return StartTime; }
+
 	/** have we logged that we overran time the time limit? */
 	bool HasLoggedTimeLimitWarning() const { return !!bHasLoggedTimeLimitWarning; }
 
@@ -843,6 +856,8 @@ public:
 	{
 		DEC_MEMORY_STAT_BY(STAT_AI_EQS_InstanceMemory, RawData.GetAllocatedSize() + Items.GetAllocatedSize());
 
+		check(GetDefault<TypeItem>()->GetValueSize() == sizeof(TypeValue));
+		check(GetDefault<TypeItem>()->GetValueSize() == ValueSize);
 		const int32 DataOffset = RawData.AddUninitialized(ValueSize);
 		TypeItem::SetValue(RawData.GetData() + DataOffset, ItemValue);
 		Items.Add(FEnvQueryItem(DataOffset));
@@ -858,6 +873,8 @@ public:
 		{
 			DEC_MEMORY_STAT_BY(STAT_AI_EQS_InstanceMemory, RawData.GetAllocatedSize() + Items.GetAllocatedSize());
 
+			check(GetDefault<TypeItem>()->GetValueSize() == sizeof(TypeValue));
+			check(GetDefault<TypeItem>()->GetValueSize() == ValueSize);
 			int32 DataOffset = RawData.AddUninitialized(ValueSize * ItemCollection.Num());
 			Items.Reserve(Items.Num() + ItemCollection.Num());
 
@@ -1061,10 +1078,10 @@ public:
 		/** Force state and score of item
 		 *  Any following SetScore calls for current item will be ignored
 		 */
-		void ForceItemState(EEnvItemStatus::Type Status, float Score = UEnvQueryTypes::SkippedItemValue)
+		void ForceItemState(EEnvItemStatus::Type InStatus, float Score = UEnvQueryTypes::SkippedItemValue)
 		{
 			bForced = true;
-			bPassed = (Status == EEnvItemStatus::Passed);
+			bPassed = (InStatus == EEnvItemStatus::Passed);
 			ItemScore = Score;
 		}
 
@@ -1097,7 +1114,7 @@ public:
 			return GetIndex();
 		}
 
-		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
+		FORCEINLINE explicit operator bool() const
 		{
 			return CurrentItem < Instance->Items.Num() && !Instance->bFoundSingleResult && (Deadline < 0 || FPlatformTime::Seconds() < Deadline);
 		}
@@ -1258,7 +1275,7 @@ struct FEQSParametrizedQueryExecutionRequest
 	UPROPERTY(Category = Node, EditAnywhere)
 	TEnumAsByte<EEnvQueryRunMode::Type> RunMode;
 
-	UPROPERTY()
+	UPROPERTY(Category = Node, EditAnywhere, meta=(InlineEditConditionToggle))
 	uint32 bUseBBKeyForQueryTemplate : 1;
 
 	uint32 bInitialized : 1;

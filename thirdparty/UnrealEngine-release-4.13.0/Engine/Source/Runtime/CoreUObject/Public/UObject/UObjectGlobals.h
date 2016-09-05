@@ -152,7 +152,7 @@ COREUOBJECT_API const FString* GetIniFilenameFromObjectsReference(const FString&
  */
 COREUOBJECT_API FString ResolveIniObjectsReference(const FString& ObjectReference, const FString* IniFilename, bool bThrow = false);
 
-COREUOBJECT_API bool ResolveName( UObject*& Outer, FString& ObjectsReferenceString, bool Create, bool Throw );
+COREUOBJECT_API bool ResolveName(UObject*& Outer, FString& ObjectsReferenceString, bool Create, bool Throw, uint32 LoadFlags = LOAD_None);
 COREUOBJECT_API void SafeLoadError( UObject* Outer, uint32 LoadFlags, const TCHAR* ErrorMessage);
 
 /**
@@ -289,6 +289,17 @@ COREUOBJECT_API void StaticTick( float DeltaTime, bool bUseFullTimeLimit = true,
  * @return	Loaded package if successful, NULL otherwise
  */
 COREUOBJECT_API UPackage* LoadPackage( UPackage* InOuter, const TCHAR* InLongPackageName, uint32 LoadFlags );
+
+/**
+* Scans to determine load order via package dependencies
+*
+* @param	InLongPackageName	Long package name to load
+* @param	InOrderTracker	structure that tracks and returns the load order
+* @param	Order	tracks the current load order
+* @param	InAssetRegistry	asset registry to use for dependency tracking
+*/
+COREUOBJECT_API void ScanPackageDependenciesForLoadOrder(const TCHAR* InLongPackageName, TMap<FName, int32>& InOrderTracker, int32& Order, class IAssetRegistryInterface* InAssetRegistry);
+
 
 /* Async package loading result */
 namespace EAsyncLoadingResult
@@ -708,10 +719,10 @@ public:
 	 * @param	InObj object to initialize, from static allocate object, after construction
 	 * @param	InObjectArchetype object to initialize properties from
 	 * @param	bInCopyTransientsFromClassDefaults - if true, copy transient from the class defaults instead of the pass in archetype ptr (often these are the same)
-	 * @param	bInShouldIntializeProps false is a special case for changing base classes in UCCMake
+	 * @param	bInShouldInitializeProps false is a special case for changing base classes in UCCMake
 	 * @param	InInstanceGraph passed instance graph
 	 */
-	FObjectInitializer(UObject* InObj, UObject* InObjectArchetype, bool bInCopyTransientsFromClassDefaults, bool bInShouldIntializeProps, struct FObjectInstancingGraph* InInstanceGraph = NULL);
+	FObjectInitializer(UObject* InObj, UObject* InObjectArchetype, bool bInCopyTransientsFromClassDefaults, bool bInShouldInitializeProps, struct FObjectInstancingGraph* InInstanceGraph = NULL);
 
 	~FObjectInitializer();
 
@@ -910,6 +921,26 @@ private:
 	 */
 	static void InitProperties(UObject* Obj, UClass* DefaultsClass, UObject* DefaultData, bool bCopyTransientsFromClassDefaults);
 
+	/**
+	 * Helper method to assist with initializing object properties from an explicit list.
+	 * 
+	 * @param	InPropertyList		only these properties will be copied from defaults
+	 * @param	InStruct			the current scope for which the given property list applies
+	 * @param	DataPtr				destination address (where to start copying values to)
+	 * @param	DefaultDataPtr		source address (where to start copying the defaults data from)
+	 */
+	static void InitPropertiesFromCustomList(const FCustomPropertyListNode* InPropertyList, UStruct* InStruct, uint8* DataPtr, const uint8* DefaultDataPtr);
+
+	/**
+	* Helper method to assist with initializing from an array property with an explicit item list.
+	*
+	* @param	ArrayProperty		the array property for which the given property list applies
+	* @param	InPropertyList		only these properties (indices) will be copied from defaults
+	* @param	DataPtr				destination address (where to start copying values to)
+	* @param	DefaultDataPtr		source address (where to start copying the defaults data from)
+	*/
+	static void InitArrayPropertyFromCustomList(const UArrayProperty* ArrayProperty, const FCustomPropertyListNode* InPropertyList, uint8* DataPtr, const uint8* DefaultDataPtr);
+
 	bool IsInstancingAllowed() const;
 
 	/**
@@ -1042,15 +1073,15 @@ private:
 	UObject* ObjectArchetype;
 	/**  if true, copy the transients from the DefaultsClass defaults, otherwise copy the transients from DefaultData **/
 	bool bCopyTransientsFromClassDefaults;
-	/**  If true, intialize the properties **/
-	bool bShouldIntializePropsFromArchetype;
+	/**  If true, initialize the properties **/
+	bool bShouldInitializePropsFromArchetype;
 	/**  Only true until ObjectInitializer has not reached the base UObject class */
 	bool bSubobjectClassInitializationAllowed;
 	/**  Instance graph **/
 	struct FObjectInstancingGraph* InstanceGraph;
 	/**  List of component classes to override from derived classes **/
 	mutable FOverrides ComponentOverrides;
-	/**  List of component classes to intialize after the C++ constructors **/
+	/**  List of component classes to initialize after the C++ constructors **/
 	mutable FSubobjectsToInit ComponentInits;
 #if !UE_BUILD_SHIPPING
 	/** List of all subobject names constructed for this object */
@@ -1146,39 +1177,58 @@ template< class T >
 DEPRECATED(4.8, "ConstructObject is deprecated. Use NewObject instead")
 T* ConstructObject(UClass* Class, UObject* Outer = (UObject*)GetTransientPackage(), FName Name=NAME_None, EObjectFlags SetFlags=RF_NoFlags, UObject* Template=NULL, bool bCopyTransientsFromClassDefaults=false, struct FObjectInstancingGraph* InstanceGraph=NULL );
 
-/*
- * Check if class is child of another class.
- * 
- * @param Parent	Parent class
- * @param Child		Child class
- * 
- * @return True if Child is a child of Parent, false otherwise.
- *
- **/
-COREUOBJECT_API bool DebugIsClassChildOf_Internal(UClass* Parent, UClass* Child);
+#if DO_CHECK
+/** Called by NewObject to make sure Child is actually a child of Parent */
+COREUOBJECT_API void CheckIsClassChildOf_Internal(UClass* Parent, UClass* Child);
+#endif
 
 /**
  * Convenience template for constructing a gameplay object
  *
  * @param	Outer		the outer for the new object.  If not specified, object will be created in the transient package.
  * @param	Class		the class of object to construct
+ * @param	Name		the name for the new object.  If not specified, the object will be given a transient name via MakeUniqueObjectName
+ * @param	Flags		the object flags to apply to the new object
+ * @param	Template	the object to use for initializing the new object.  If not specified, the class's default object will be used
+ * @param	bCopyTransientsFromClassDefaults	if true, copy transient from the class defaults instead of the pass in archetype ptr (often these are the same)
+ * @param	InInstanceGraph						contains the mappings of instanced objects and components to their templates
+ *
+ * @return	a pointer of type T to a new object of the specified class
  */
 template< class T >
-T* NewObject(UObject* Outer = (UObject*)GetTransientPackage(), UClass* Class = T::StaticClass(), FName Name = NAME_None, EObjectFlags Flags = RF_NoFlags, UObject* Template = nullptr, bool bCopyTransientsFromClassDefaults = false, FObjectInstancingGraph* InInstanceGraph = nullptr)
+T* NewObject(UObject* Outer, UClass* Class, FName Name = NAME_None, EObjectFlags Flags = RF_NoFlags, UObject* Template = nullptr, bool bCopyTransientsFromClassDefaults = false, FObjectInstancingGraph* InInstanceGraph = nullptr)
 {
 	if (Name == NAME_None)
 	{
 		FObjectInitializer::AssertIfInConstructor(Outer, TEXT("NewObject with empty name can't be used to create default subobjects (inside of UObject derived class constructor) as it produces inconsistent object names. Use ObjectInitializer.CreateDefaultSuobject<> instead."));
 	}
-	checkf(Class, TEXT("NewObject called with a nullptr class object"));
-	checkSlow(DebugIsClassChildOf_Internal(T::StaticClass(), Class));
+
+#if DO_CHECK
+	// Class was specified explicitly, so needs to be validated
+	CheckIsClassChildOf_Internal(T::StaticClass(), Class);
+#endif
+
 	return static_cast<T*>(StaticConstructObject_Internal(Class, Outer, Name, Flags, EInternalObjectFlags::None, Template, bCopyTransientsFromClassDefaults, InInstanceGraph));
+}
+
+template< class T >
+T* NewObject(UObject* Outer = (UObject*)GetTransientPackage())
+{
+	// Name is always None for this case
+	FObjectInitializer::AssertIfInConstructor(Outer, TEXT("NewObject with empty name can't be used to create default subobjects (inside of UObject derived class constructor) as it produces inconsistent object names. Use ObjectInitializer.CreateDefaultSuobject<> instead."));
+
+	return static_cast<T*>(StaticConstructObject_Internal(T::StaticClass(), Outer, NAME_None, RF_NoFlags, EInternalObjectFlags::None, nullptr, false, nullptr));
 }
 
 template< class T >
 T* NewObject(UObject* Outer, FName Name, EObjectFlags Flags = RF_NoFlags, UObject* Template = nullptr, bool bCopyTransientsFromClassDefaults = false, FObjectInstancingGraph* InInstanceGraph = nullptr)
 {
-	return NewObject<T>(Outer, T::StaticClass(), Name, Flags, Template, bCopyTransientsFromClassDefaults, InInstanceGraph);
+	if (Name == NAME_None)
+	{
+		FObjectInitializer::AssertIfInConstructor(Outer, TEXT("NewObject with empty name can't be used to create default subobjects (inside of UObject derived class constructor) as it produces inconsistent object names. Use ObjectInitializer.CreateDefaultSuobject<> instead."));
+	}
+
+	return static_cast<T*>(StaticConstructObject_Internal(T::StaticClass(), Outer, Name, Flags, EInternalObjectFlags::None, Template, bCopyTransientsFromClassDefaults, InInstanceGraph));
 }
 
 /**
@@ -1438,7 +1488,7 @@ public:
 		Advance();
 	}
 	/** conversion to "bool" returning true if the iterator is valid. */
-	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
+	FORCEINLINE explicit operator bool() const
 	{ 
 		return Index < Array.Num(); 
 	}
@@ -1825,7 +1875,8 @@ struct COREUOBJECT_API FCoreUObjectDelegates
 	static FReinstanceHotReloadedClassesDelegate ReinstanceHotReloadedClassesDelegate;
 
 	// Sent at the very beginning of LoadMap
-	static FSimpleMulticastDelegate PreLoadMap;
+	DECLARE_MULTICAST_DELEGATE_OneParam(FPreLoadMapDelegate, const FString&);
+	static FPreLoadMapDelegate PreLoadMap;
 
 	// Sent at the _successful_ end of LoadMap
 	static FSimpleMulticastDelegate PostLoadMap;
@@ -1846,8 +1897,12 @@ struct COREUOBJECT_API FCoreUObjectDelegates
 	static FOnLoadObjectsOnTop ShouldLoadOnTop;
 
 	/** called when loading a string asset reference */
-	DECLARE_DELEGATE_OneParam(FStringAssetReferenceLoaded, FString const& /*LoadedAssetLongPathname*/);
+	DECLARE_DELEGATE_OneParam(FStringAssetReferenceLoaded, const FString&);
 	static FStringAssetReferenceLoaded StringAssetReferenceLoaded;
+
+	/** called when loading a string asset reference */
+	DECLARE_MULTICAST_DELEGATE_OneParam(FPackageLoadedFromStringAssetReference, const FName&);
+	static FPackageLoadedFromStringAssetReference PackageLoadedFromStringAssetReference;
 
 	/** called when path to world root is changed */
 	DECLARE_MULTICAST_DELEGATE_OneParam(FPackageCreatedForLoad, class UPackage*);
@@ -1875,5 +1930,31 @@ COREUOBJECT_API UPackage* FindOrConstructDynamicTypePackage(const TCHAR* Package
 
 /** Get names of "virtual" packages, that contain Dynamic types  */
 COREUOBJECT_API TMap<FName, FName>& GetConvertedDynamicPackageNameToTypeName();
+
+struct COREUOBJECT_API FDynamicClassStaticData
+{
+	/** Autogenerated Z_Construct* function pointer */
+	UClass* (*ZConstructFn)();
+	/** StaticClass() function pointer */
+	UClass* (*StaticClassFn)();
+	/** Selected AssetRegistrySearchable values */
+	TMap<FName, FName> SelectedSearchableValues;
+};
+
+COREUOBJECT_API TMap<FName, FDynamicClassStaticData>& GetDynamicClassMap();
+
+#if WITH_EDITOR
+/** 
+ * Returns if true if the object is editor-only:
+ * - it's a package marked as PKG_EditorOnly
+ * or
+ * - it's a class from a package marked as PKG_EditorOnly
+ * or
+ * - its class is from a package marked as PKG_EditorOnly
+ * or
+ * - its outer is editor-only
+ */
+COREUOBJECT_API bool IsEditorOnlyObject(const UObject* InObject);
+#endif //WITH_EDITOR
 
 #endif	// __UNOBJGLOBALS_H__

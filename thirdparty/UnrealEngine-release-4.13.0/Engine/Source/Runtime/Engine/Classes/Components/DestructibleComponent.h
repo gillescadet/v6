@@ -109,14 +109,16 @@ public:
 
 	//~ Begin USceneComponent Interface.
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
-	virtual void OnUpdateTransform(bool bSkipPhysicsMove, ETeleportType Teleport = ETeleportType::None) override;
+	virtual void OnUpdateTransform(EUpdateTransformFlags UpdateTransformFlags, ETeleportType Teleport = ETeleportType::None) override;
 	virtual void Activate(bool bReset=false) override;
 	virtual void Deactivate() override;
 	//~ End USceneComponent Interface.
 
 	//~ Begin UActorComponent Interface.
-	virtual void CreatePhysicsState() override;
-	virtual void DestroyPhysicsState() override;
+protected:
+	virtual void OnCreatePhysicsState() override;
+	virtual void OnDestroyPhysicsState() override;
+public:
 	virtual class UBodySetup* GetBodySetup() override;
 	//~ End UActorComponent Interface.
 
@@ -142,12 +144,13 @@ public:
 
 	virtual void SetMaterial(int32 ElementIndex, UMaterialInterface* Material) override;
 	virtual void SetCollisionEnabled(ECollisionEnabled::Type NewType) override;
+	virtual void OnActorEnableCollisionChanged() override;
 	//~ End UPrimitiveComponent Interface.
 
 	//~ Begin SkinnedMeshComponent Interface.
 	virtual bool ShouldUpdateTransform(bool bLODHasChanged) const override;
 	virtual void RefreshBoneTransforms(FActorComponentTickFunction* TickFunction = NULL) override;
-	virtual void SetSkeletalMesh(USkeletalMesh* InSkelMesh) override;
+	virtual void SetSkeletalMesh(USkeletalMesh* InSkelMesh, bool bReinitPose = true) override;
 	virtual FTransform GetSocketTransform(FName InSocketName, ERelativeTransformSpace TransformSpace = RTS_World) const override;
 	//~ End SkinnedMeshComponent Interface.
 

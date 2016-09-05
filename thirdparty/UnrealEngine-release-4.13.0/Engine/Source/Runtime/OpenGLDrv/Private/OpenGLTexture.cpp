@@ -207,6 +207,7 @@ void FOpenGLDynamicRHI::RHIGetTextureMemoryStats(FTextureMemoryStats& OutStats)
 	OutStats.TotalGraphicsMemory = GOpenGLTotalGraphicsMemory ? GOpenGLTotalGraphicsMemory : -1;
 
 	OutStats.AllocatedMemorySize = int64(GCurrentTextureMemorySize) * 1024;
+	OutStats.LargestContiguousAllocation = OutStats.AllocatedMemorySize;
 	OutStats.TexturePoolSize = GTexturePoolSize;
 	OutStats.PendingMemoryAdjustment = 0;
 }
@@ -255,11 +256,14 @@ FRHITexture* FOpenGLDynamicRHI::CreateOpenGLTexture(uint32 SizeX, uint32 SizeY, 
 	check( bArrayTexture != (ArraySize == 1));
 #endif
 
-	bool bNoSRGBSupport = (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES2);
-#if PLATFORM_MAC // Handle versions prior to 10.11.0 that still suffer from radr://16754329 AMD Cards don't always perform FRAMEBUFFER_SRGB if the draw FBO has mixed sRGB & non-SRGB colour attachments
-	bNoSRGBSupport |= (Flags & TexCreate_RenderTargetable) && !FOpenGL::SupportsSRGBFramebuffer();
-#endif
-	
+	bool bNoSRGBSupport = (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1);
+
+	if ((Flags & TexCreate_RenderTargetable) && Format == PF_B8G8R8A8 && !FOpenGL::SupportsBGRA8888RenderTarget())
+	{
+		// Some android devices does not support BGRA as a color attachment
+		Format = PF_R8G8B8A8;
+	}
+		
 	if (bNoSRGBSupport)
 	{
 		// Remove sRGB read flag when not supported
@@ -454,10 +458,12 @@ FRHITexture* FOpenGLDynamicRHI::CreateOpenGLTexture(uint32 SizeX, uint32 SizeY, 
 			uint8* Data = (uint8*)BulkData->GetResourceBulkData();
 			uint32 MipOffset = 0;
 
+			const uint32 BlockSizeX = GPixelFormats[Format].BlockSizeX;
+			const uint32 BlockSizeY = GPixelFormats[Format].BlockSizeY;
 			for(uint32 MipIndex = 0; MipIndex < NumMips; MipIndex++)
 			{
-				uint32 NumBlocksX = FMath::Max<uint32>(1,(SizeX >> MipIndex) / GPixelFormats[Format].BlockSizeX);
-				uint32 NumBlocksY = FMath::Max<uint32>(1,(SizeY >> MipIndex) / GPixelFormats[Format].BlockSizeY);
+				uint32 NumBlocksX = AlignArbitrary(FMath::Max<uint32>(1,(SizeX >> MipIndex)), BlockSizeX) / BlockSizeX;
+				uint32 NumBlocksY = AlignArbitrary(FMath::Max<uint32>(1,(SizeY >> MipIndex)), BlockSizeY) / BlockSizeY;
 				uint32 NumLayers = FMath::Max<uint32>(1,ArraySize);
 				
 				if(bArrayTexture )
@@ -585,7 +591,7 @@ FRHITexture* FOpenGLDynamicRHI::CreateOpenGLTexture(uint32 SizeX, uint32 SizeY, 
 	return Texture;
 }
 
-#if PLATFORM_MAC || PLATFORM_ANDROIDES31 // Flithy hack to workaround radr://16011763
+#if PLATFORM_MAC || PLATFORM_ANDROIDESDEFERRED // Flithy hack to workaround radr://16011763
 GLuint FOpenGLTextureBase::GetOpenGLFramebuffer(uint32 ArrayIndices, uint32 MipmapLevels)
 {
 	GLuint FBO = 0;
@@ -613,6 +619,10 @@ GLuint FOpenGLTextureBase::GetOpenGLFramebuffer(uint32 ArrayIndices, uint32 Mipm
 void FOpenGLTextureBase::InvalidateTextureResourceInCache()
 {
 	OpenGLRHI->InvalidateTextureResourceInCache(Resource);
+	if (SRVResource)
+	{
+		OpenGLRHI->InvalidateTextureResourceInCache(SRVResource);
+	}
 }
 
 template<typename RHIResourceType>
@@ -670,7 +680,7 @@ void TOpenGLTexture<RHIResourceType>::Resolve(uint32 MipIndex,uint32 ArrayIndex)
 	
 	glBindBuffer( GL_PIXEL_PACK_BUFFER, PixelBuffer->Resource );
 
-#if PLATFORM_MAC || PLATFORM_ANDROIDES31 // glReadPixels is async with PBOs - glGetTexImage is not: radr://16011763
+#if PLATFORM_MAC || PLATFORM_ANDROIDESDEFERRED // glReadPixels is async with PBOs - glGetTexImage is not: radr://16011763
 	if(Attachment == GL_COLOR_ATTACHMENT0 && !GLFormat.bCompressed)
 	{
 		GLuint SourceFBO = GetOpenGLFramebuffer(ArrayIndex, MipIndex);
@@ -1283,7 +1293,7 @@ void TOpenGLTexture<RHIResourceType>::CloneViaPBO( TOpenGLTexture<RHIResourceTyp
 				
 				glBindBuffer( GL_PIXEL_PACK_BUFFER, PixelBuffer->Resource );
 				
-#if PLATFORM_MAC || PLATFORM_ANDROIDES31 // glReadPixels is async with PBOs - glGetTexImage is not: radr://16011763
+#if PLATFORM_MAC || PLATFORM_ANDROIDESDEFERRED // glReadPixels is async with PBOs - glGetTexImage is not: radr://16011763
 				if(Attachment == GL_COLOR_ATTACHMENT0 && !GLFormat.bCompressed)
 				{
 					GLuint SourceFBO = Src->GetOpenGLFramebuffer(ArrayIndex, SrcMipIndex);
@@ -1466,7 +1476,7 @@ FTexture2DArrayRHIRef FOpenGLDynamicRHI::RHICreateTexture2DArray(uint32 SizeX,ui
 		NumMips = FindMaxMipmapLevel(SizeX, SizeY);
 	}
 
-	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES2)
+	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1)
 	{
 		// Remove sRGB read flag when not supported
 		Flags &= ~TexCreate_SRGB;
@@ -1577,7 +1587,7 @@ FTexture3DRHIRef FOpenGLDynamicRHI::RHICreateTexture3D(uint32 SizeX,uint32 SizeY
 		NumMips = FindMaxMipmapLevel(SizeX, SizeY, SizeZ);
 	}
 
-	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES2)
+	if (GMaxRHIFeatureLevel <= ERHIFeatureLevel::ES3_1)
 	{
 		// Remove sRGB read flag when not supported
 		Flags &= ~TexCreate_SRGB;
@@ -1755,7 +1765,67 @@ FShaderResourceViewRHIRef FOpenGLDynamicRHI::RHICreateShaderResourceView(FTextur
 	}
 	else
 	{
-		View = new FOpenGLShaderResourceView(this, Texture2D->Resource, Texture2D->Target, MipLevel, false);
+		uint32 const Target = Texture2D->Target;
+		GLuint Resource = Texture2D->Resource;
+		
+		FTexture2DRHIParamRef DepthStencilTex = nullptr;
+		
+		// For stencil sampling we have to use a separate single channel texture to blit stencil data into
+#if PLATFORM_DESKTOP || PLATFORM_ANDROIDESDEFERRED
+		if (FOpenGL::GetFeatureLevel() >= ERHIFeatureLevel::SM4 && Format == PF_X24_G8 && FOpenGL::SupportsPixelBuffers())
+		{
+			check(NumMipLevels == 1 && MipLevel == 0);
+			
+			if (!Texture2D->SRVResource)
+			{
+				FOpenGL::GenTextures(1, &Texture2D->SRVResource);
+				
+				GLenum const InternalFormat = GL_R8UI;
+				GLenum const ChannelFormat = GL_RED_INTEGER;
+				uint32 const SizeX = Texture2D->GetSizeX();
+				uint32 const SizeY = Texture2D->GetSizeY();
+				GLenum const Type = GL_UNSIGNED_BYTE;
+				uint32 const Flags = 0;
+				
+				FOpenGLContextState& ContextState = GetContextStateForCurrentContext();
+				CachedSetupTextureStage(ContextState, FOpenGL::GetMaxCombinedTextureImageUnits() - 1, Target, Texture2D->SRVResource, MipLevel, NumMipLevels);
+				
+				if (!FOpenGL::TexStorage2D(Target, NumMipLevels, InternalFormat, SizeX, SizeY, ChannelFormat, Type, Flags))
+				{
+					glTexImage2D(Target, 0, InternalFormat, SizeX, SizeY, 0, ChannelFormat, Type, nullptr);
+				}
+				
+				TArray<uint8> ZeroData;
+				ZeroData.AddZeroed(SizeX * SizeY);
+				
+				glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+				glTexSubImage2D(
+								Target,
+								0,
+								0,
+								0,
+								SizeX,
+								SizeY,
+								ChannelFormat,
+								Type,
+								ZeroData.GetData());
+				glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+				
+				//set the texture to return the stencil index, and then force the components to match D3D
+				glTexParameteri( Target, GL_TEXTURE_SWIZZLE_R, GL_ZERO);
+				glTexParameteri( Target, GL_TEXTURE_SWIZZLE_G, GL_RED);
+				glTexParameteri( Target, GL_TEXTURE_SWIZZLE_B, GL_ZERO);
+				glTexParameteri( Target, GL_TEXTURE_SWIZZLE_A, GL_ZERO);
+			}
+			check(Texture2D->SRVResource);
+			
+			Resource = Texture2D->SRVResource;
+			DepthStencilTex = Texture2DRHI;
+		}
+#endif
+		
+		View = new FOpenGLShaderResourceView(this, Resource, Target, MipLevel, false);
+		View->Texture2D = DepthStencilTex;
 	}
 	
 	FShaderCache::LogSRV(View, Texture2DRHI, MipLevel, NumMipLevels, Format);
@@ -1955,7 +2025,9 @@ FTexture2DRHIRef FOpenGLDynamicRHI::RHIAsyncReallocateTexture2D(FTexture2DRHIPar
 		{
 			const uint32 MipSizeX = FMath::Max<uint32>(1,NewSizeX >> (MipIndex+DestMipOffset));
 			const uint32 MipSizeY = FMath::Max<uint32>(1,NewSizeY >> (MipIndex+DestMipOffset));
-			const uint32 NumMipBlocks = Align(MipSizeX,BlockSizeX) / BlockSizeX * Align(MipSizeY,BlockSizeY) / BlockSizeY;
+			const uint32 NumBlocksX = AlignArbitrary(MipSizeX, BlockSizeX) / BlockSizeX;
+			const uint32 NumBlocksY = AlignArbitrary(MipSizeY, BlockSizeY) / BlockSizeY;
+			const uint32 NumMipBlocks = NumBlocksX * NumBlocksY;
 
 			// Lock old and new texture.
 			uint32 SrcStride;
@@ -2120,6 +2192,11 @@ void FOpenGLDynamicRHI::InvalidateTextureResourceInCache(GLuint Resource)
 	}
 	
 	TextureMipLimits.Remove(Resource);
+	
+	if (PendingState.DepthStencil && PendingState.DepthStencil->Resource == Resource)
+	{
+		PendingState.DepthStencil = nullptr;
+	}
 }
 
 void FOpenGLDynamicRHI::InvalidateUAVResourceInCache(GLuint Resource)

@@ -60,7 +60,7 @@ FCoreAudioSoundSource::FCoreAudioSoundSource( FAudioDevice* InAudioDevice )
 {
 	AudioDevice = ( FCoreAudioDevice *)InAudioDevice;
 	check( AudioDevice );
-	Effects = ( FCoreAudioEffectsManager* )AudioDevice->Effects;
+	Effects = ( FCoreAudioEffectsManager* )AudioDevice->GetEffects();
 	check( Effects );
 
 	FMemory::Memzero( CoreAudioBuffers, sizeof( CoreAudioBuffers ) );
@@ -313,12 +313,12 @@ void FCoreAudioSoundSource::Update( void )
 
 	float Volume = 0.0f;
 	
-	if (!AudioDevice->bIsDeviceMuted)
+	if (!AudioDevice->IsAudioDeviceMuted())
 	{
 		Volume = WaveInstance->GetActualVolume();
 	}
 
-	Volume *= AudioDevice->PlatformAudioHeadroom;
+	Volume *= AudioDevice->GetPlatformAudioHeadroom();
 
 	if( Buffer->NumChannels < 3 )
 	{
@@ -332,7 +332,6 @@ void FCoreAudioSoundSource::Update( void )
 		}
 		
 		// apply global multiplier (ie to disable sound when not the foreground app)
-		Volume *= FApp::GetVolumeMultiplier();
 		Volume = FMath::Clamp<float>( Volume, 0.0f, MAX_VOLUME );
 		
 		// Convert to dB
@@ -370,7 +369,6 @@ void FCoreAudioSoundSource::Update( void )
 	else
 	{
 		// apply global multiplier (ie to disable sound when not the foreground app)
-		Volume *= FApp::GetVolumeMultiplier();
 		Volume = FMath::Clamp<float>( Volume, 0.0f, MAX_VOLUME );
 		
 		if( AudioDevice->GetMixDebugState() == DEBUGSTATE_IsolateReverb )
@@ -871,10 +869,12 @@ bool FCoreAudioSoundSource::AttachToAUGraph()
 
 	if( ErrorStatus == noErr )
 	{
-		AUGraph Graph = AudioDevice->GetAudioUnitGraph();
-		check(Graph);
-		SAFE_CA_CALL(AUGraphUpdate( Graph, NULL ));
-
+		if (AudioDevice->SourcesDetached.Contains(this))
+		{
+			AudioDevice->UpdateAUGraph();
+		}
+		AudioDevice->SourcesAttached.Add(this);
+		AudioDevice->bNeedsUpdate = true;
 		AudioDevice->AudioChannels[AudioChannel] = this;
 	}
 	return ErrorStatus == noErr;
@@ -959,9 +959,14 @@ bool FCoreAudioSoundSource::DetachFromAUGraph()
 		SAFE_CA_CALL( AUGraphRemoveNode( AudioDevice->GetAudioUnitGraph(), SourceNode ) );
 	}
 
-	SAFE_CA_CALL( AUGraphUpdate( AudioDevice->GetAudioUnitGraph(), NULL ) );
-
-	AudioConverterDispose( CoreAudioConverter );
+	if (AudioDevice->SourcesAttached.Contains(this))
+	{
+		AudioDevice->UpdateAUGraph();
+	}
+	AudioDevice->SourcesDetached.Add(this);
+	AudioDevice->ConvertersToDispose.Add(CoreAudioConverter);
+	AudioDevice->bNeedsUpdate = true;
+	
 	CoreAudioConverter = NULL;
 
 	LowPassNode = 0;

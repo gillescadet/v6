@@ -15,10 +15,9 @@ public:
 	, HighResScreenshotCaptureRegionMaterial(NULL)
 	, bBufferVisualizationDumpRequired(false)
 	{
-		// to avoid reallocations we reserve some elements
-
-		ContributingCubemaps.Empty(8);
-		ContributingLUTs.Empty(8);
+		// to avoid reallocations we reserve some 
+		ContributingCubemaps.Reserve(8);
+		ContributingLUTs.Reserve(8);
 
 		SetLUT(0);
 	}
@@ -49,7 +48,8 @@ public:
 	void UpdateEntry(const FCubemapEntry &Entry, float Weight)
 	{
 		bool Existing = false;
-		for(int32 i = 0; i < ContributingCubemaps.Num(); ++i)
+		// Always verify the index is valid since elements can be removed!
+		for(int32 i = 0; ContributingCubemaps.IsValidIndex(i); ++i)
 		{
 			FCubemapEntry& Local = ContributingCubemaps[i];
 			
@@ -65,7 +65,9 @@ public:
 
 			if(Local.AmbientCubemapTintMulScaleValue.IsAlmostBlack())
 			{
-				ContributingCubemaps.RemoveAt(i);
+				ContributingCubemaps.RemoveAt(i, 1, /*bAllowShrinking=*/ false);
+				i--; // Maintain same index in the loop after loop increment since we removed an element.
+				continue; // Not strictly necessary but protect against future code using i incorrectly.
 			}
 		}
 
@@ -144,14 +146,14 @@ public:
 	void SetLUT(UTexture* Texture)
 	{
 		// intentionally no deallocations
-		ContributingLUTs.Empty();
+		ContributingLUTs.Reset();
 
 		PushLUT(Texture, 1.0f);
 	}
 
 	// was not merged during blending unlike e.g. BloomThreshold 
-	TArray<FCubemapEntry> ContributingCubemaps;
-	TArray<FLUTBlenderEntry> ContributingLUTs;
+	TArray<FCubemapEntry, TInlineAllocator<8>> ContributingCubemaps;
+	TArray<FLUTBlenderEntry, TInlineAllocator<8>> ContributingLUTs;
 
 	// List of materials to use in the buffer visualization overview
 	TArray<UMaterialInterface*> BufferVisualizationOverviewMaterials;
