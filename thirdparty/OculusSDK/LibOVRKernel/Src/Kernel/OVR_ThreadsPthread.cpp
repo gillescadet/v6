@@ -168,16 +168,11 @@ bool    MutexImpl::IsSignaled() const
 
 // *** Actual Mutex class implementation
 
+// NOTE: RefCount mode already thread-safe for all waitables.
 Mutex::Mutex(bool recursive)
-{
-    // NOTE: RefCount mode already thread-safe for all waitables.
-    pImpl = new MutexImpl(this, recursive);
-}
+    : pImpl(new MutexImpl(this, recursive)) { }
 
-Mutex::~Mutex()
-{
-    delete pImpl;
-}
+Mutex::~Mutex() { }
 
 // Lock and try lock
 void Mutex::DoLock()
@@ -357,13 +352,9 @@ void    WaitConditionImpl::NotifyAll()
 // *** Actual implementation of WaitCondition
 
 WaitCondition::WaitCondition()
-{
-    pImpl = new WaitConditionImpl;
-}
-WaitCondition::~WaitCondition()
-{
-    delete pImpl;
-}
+    : pImpl(new WaitConditionImpl) { }
+
+WaitCondition::~WaitCondition() { }
 
 bool    WaitCondition::Wait(Mutex *pmutex, unsigned delay)
 {

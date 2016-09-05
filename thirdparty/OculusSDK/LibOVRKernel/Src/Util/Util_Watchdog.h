@@ -56,8 +56,8 @@ public:
 
 protected:
     // Use 32 bit int so assignment and comparison is atomic
-    AtomicInt<uint32_t> WhenLastFedMilliseconds;
-    AtomicInt<int>      ThreshholdMilliseconds;
+    std::atomic<uint32_t> WhenLastFedMilliseconds = { 0 };
+    std::atomic<int>      ThreshholdMilliseconds = { 0 };
 
     String              ThreadName;
     bool                Listed;

@@ -70,23 +70,16 @@ public:
 class FakeMemoryBlock : public RefCountBase<FakeMemoryBlock>
 {
     String Name;
-    char*  Data;
+    std::unique_ptr<char[]>  Data;
     int    SizeBytes;
     int    References;
 
 public:
     FakeMemoryBlock(const String& name, int size) :
         Name(name),
-        Data(NULL),
+        Data(new char[size]),
         SizeBytes(size),
-        References(1)
-    {
-        Data = new char[SizeBytes];
-    }
-    ~FakeMemoryBlock()
-    {
-        delete[] Data;
-    }
+        References(1) { }
 
     bool IsNamed(const String& name)
     {
@@ -94,7 +87,7 @@ public:
     }
     void* GetData()
     {
-        return Data;
+        return Data.get();
     }
     int GetSizeI()
     {

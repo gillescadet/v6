@@ -49,13 +49,13 @@ LongPollThread::LongPollThread() :
 LongPollThread::~LongPollThread()
 {
     fireTermination();
-
-    Join();
 }
 
 void LongPollThread::OnThreadDestroy()
 {
     fireTermination();
+
+    Join();
 }
 
 void LongPollThread::Wake()

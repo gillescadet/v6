@@ -33,6 +33,8 @@ limitations under the License.
 #include "OVR_Atomic.h"
 #include "OVR_Threads.h"
 
+#include <memory>
+
 namespace OVR {
 
 class ThreadCommand;
@@ -309,7 +311,7 @@ public:
     { return PushCommand(ThreadCommandMF2<C,R,A0,A1>(p, fn, ret, a0, a1, true)); }
 
 private:
-    class ThreadCommandQueueImpl* pImpl;
+    std::unique_ptr<class ThreadCommandQueueImpl> pImpl;
 };
 
 

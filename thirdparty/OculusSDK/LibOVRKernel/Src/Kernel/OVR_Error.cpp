@@ -594,11 +594,11 @@ bool GetErrorCodeString(ovrResult resultIn, bool prefixErrorCode, OVR::String& s
 
     if (prefixErrorCode)
     {
-        OVR_snprintf(codeBuffer, OVR_ARRAY_COUNT(codeBuffer), "0x%llx (%lld) %s", (uint64_t)resultIn, (int64_t)resultIn, errorCodeName);
+        snprintf(codeBuffer, OVR_ARRAY_COUNT(codeBuffer), "0x%llx (%lld) %s", (uint64_t)resultIn, (int64_t)resultIn, errorCodeName);
     }
     else
     {
-        OVR_snprintf(codeBuffer, OVR_ARRAY_COUNT(codeBuffer), "%s", errorCodeName);
+        snprintf(codeBuffer, OVR_ARRAY_COUNT(codeBuffer), "%s", errorCodeName);
     }
 
     sResult = codeBuffer;
@@ -651,7 +651,7 @@ bool GetSysErrorCodeString(ovrSysErrorCode sysErrorCode, bool prefixErrorCode, O
     if (prefixErrorCode)
     {
         char prefixBuffer[64];
-        OVR_snprintf(prefixBuffer, OVR_ARRAY_COUNT(prefixBuffer), "0x%llx (%lld): ", (uint64_t)sysErrorCode, (int64_t)sysErrorCode);
+        snprintf(prefixBuffer, OVR_ARRAY_COUNT(prefixBuffer), "0x%llx (%lld): ", (uint64_t)sysErrorCode, (int64_t)sysErrorCode);
         sResult = prefixBuffer;
     }
     else

@@ -195,7 +195,7 @@ String GetFileVersionStringW(wchar_t filePath[MAX_PATH])
     }
     else
     {
-        BYTE* pVersionInfo = new BYTE[dwSize];
+        auto pVersionInfo = std::make_unique<BYTE[]>(dwSize);
         if (!pVersionInfo)
         {
             OVR_DEBUG_LOG(("Out of memory allocating %d bytes (for %s)", dwSize, filePath));
@@ -203,7 +203,7 @@ String GetFileVersionStringW(wchar_t filePath[MAX_PATH])
         }
         else
         {
-            if (!GetFileVersionInfoW(filePath, 0, dwSize, pVersionInfo))
+            if (!GetFileVersionInfoW(filePath, 0, dwSize, pVersionInfo.get()))
             {
                 OVR_DEBUG_LOG(("Error in GetFileVersionInfo: %d (for %s)", GetLastError(), String(filePath).ToCStr()));
                 result = "Cannot get version info";
@@ -212,7 +212,7 @@ String GetFileVersionStringW(wchar_t filePath[MAX_PATH])
             {
                 VS_FIXEDFILEINFO* pFileInfo = NULL;
                 UINT              pLenFileInfo = 0;
-                if (!VerQueryValueW(pVersionInfo, L"\\", (LPVOID*)&pFileInfo, &pLenFileInfo))
+                if (!VerQueryValueW(pVersionInfo.get(), L"\\", (LPVOID*)&pFileInfo, &pLenFileInfo))
                 {
                     OVR_DEBUG_LOG(("Error in VerQueryValueW: %d (for %s)", GetLastError(), String(filePath).ToCStr()));
                     result = "File has no version info";
@@ -230,8 +230,6 @@ String GetFileVersionStringW(wchar_t filePath[MAX_PATH])
                     result = str;
                 }
             }
-
-            delete[] pVersionInfo;
         }
     }
 

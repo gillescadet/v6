@@ -400,74 +400,8 @@ inline size_t OVR_CDECL OVR_vsprintf(char *dest, size_t destsize, const char * f
     return ret;
 }
 
-// Same behavior as ISO C99 vsnprintf.
 // Returns the strlen of the resulting formatted string, or a negative value if the format is invalid.
-// destsize specifies the capacity of the input buffer.
-//
-// Example usage:
-//     void Log(char *dest, size_t destsize, const char * format, ...)
-//     {
-//         char buffer[1024];
-//         va_list argList;
-//         va_start(argList,format);
-//         int result = OVR_vsnprintf(dest, destsize, format, argList);
-//         assert(result < destsize); // Else we'd have to retry with a dynamically allocated buffer (of size=result+1) and new argList copy.
-//         va_end(argList);
-//     }
-
-inline int OVR_CDECL OVR_vsnprintf(char *dest, size_t destsize, const char * format, va_list argList)
-{
-    int ret;
-#if defined(OVR_CC_MSVC)
-    OVR_DISABLE_MSVC_WARNING(4996) // 'vsnprintf': This function or variable may be unsafe.
-    ret = vsnprintf(dest, destsize, format, argList); // Microsoft vsnprintf is non-conforming; it returns -1 if destsize is insufficient.
-    if (ret < 0) // If there was a format error or if destsize was insufficient...
-    {
-        ret = _vscprintf(format, argList); // Get the expected dest strlen. If the return value is still -1 then there was a format error.
-
-        if (destsize) // If we can 0-terminate the output...
-        {
-            if (ret < 0)
-                dest[0] = 0;
-            else
-                dest[destsize-1] = 0;
-        }
-    }
-    // Else the string was written OK and ret is its strlen.
-    OVR_RESTORE_MSVC_WARNING()
-#else
-    ret = vsnprintf(dest, destsize, format, argList);
-#endif
-    return ret;
-}
-
-
-// Same behavior as ISO C99 snprintf.
-// Returns the strlen of the resulting formatted string, or a negative value if the format is invalid.
-// destsize specifies the capacity of the input buffer.
-//
-// Example usage:
-//     char buffer[16];
-//     int result = OVR_snprintf(buffer, sizeof(buffer), "%d", 37);
-//     if (result >= sizeof(buffer)) // If there was insufficient capacity...
-//     {
-//         char* p = new char[result + 1]; // Or char* p = (char*)OVR_ALLOC(result + 1);
-//         OVR_snprintf(p, (size_t)result, "%d", 37);
-//         delete[] p;
-//     }
-//
-inline int OVR_CDECL OVR_snprintf(char *dest, size_t destsize, const char * format, ...)
-{
-    va_list argList;
-    va_start(argList,format);
-    int ret = OVR_vsnprintf(dest, destsize, format, argList);
-    va_end(argList);
-    return ret;
-}
-
-
-// Returns the strlen of the resulting formatted string, or a negative value if the format is invalid.
-// Note: If you are planning on printing a string then it's more efficient to just use OVR_vsnprintf and
+// Note: If you are planning on printing a string then it's more efficient to just use vsnprintf and
 // look at the return value and handle the uncommon case that there wasn't enough space.
 inline int OVR_CDECL OVR_vscprintf(const char * format, va_list argList)
 {

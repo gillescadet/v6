@@ -139,13 +139,9 @@ bool    MutexImpl::IsSignaled() const
 // *** Actual Mutex class implementation
 
 Mutex::Mutex(bool recursive)
-{    
-    pImpl = new MutexImpl(recursive);
-}
-Mutex::~Mutex()
-{
-    delete pImpl;
-}
+    : pImpl(new MutexImpl(recursive)) { }
+
+Mutex::~Mutex() { }
 
 // Lock and try lock
 void Mutex::DoLock()
@@ -505,13 +501,9 @@ void WaitConditionImpl::NotifyAll()
 // *** Actual implementation of WaitCondition
 
 WaitCondition::WaitCondition()
-{
-    pImpl = new WaitConditionImpl;
-}
-WaitCondition::~WaitCondition()
-{
-    delete pImpl;
-}
+    : pImpl(new WaitConditionImpl) { }
+
+WaitCondition::~WaitCondition() { }
     
 // Wait without a mutex
 bool    WaitCondition::Wait(Mutex *pmutex, unsigned delay)
@@ -996,7 +988,7 @@ bool Thread::Resume()
         return 0;
 
     // Decrement count, and resume thread if it is 0
-    int32_t oldCount = SuspendCount.ExchangeAdd_Acquire(-1);
+    int32_t oldCount = SuspendCount.fetch_add(-1, std::memory_order_acquire);
     if (oldCount >= 1)
     {
         if (oldCount == 1)

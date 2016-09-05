@@ -366,13 +366,9 @@ bool ThreadCommandQueueImpl::PopCommand(ThreadCommand::PopBuffer* popBuffer)
 //-------------------------------------------------------------------------------------
 
 ThreadCommandQueue::ThreadCommandQueue()
-{
-    pImpl = new ThreadCommandQueueImpl(this);
-}
-ThreadCommandQueue::~ThreadCommandQueue()
-{
-    delete pImpl;
-}
+    : pImpl(new ThreadCommandQueueImpl(this)) { }
+
+ThreadCommandQueue::~ThreadCommandQueue() { }
 
 bool ThreadCommandQueue::PushCommand(const ThreadCommand& command)
 {
@@ -398,7 +394,7 @@ void ThreadCommandQueue::PushExitCommand(bool wait)
         pImpl->ExitEnqueued = true;
     }
 
-    PushCommand(ThreadCommandQueueImpl::ExitCommand(pImpl, wait));
+    PushCommand(ThreadCommandQueueImpl::ExitCommand(pImpl.get(), wait));
 }
 
 bool ThreadCommandQueue::IsExiting() const

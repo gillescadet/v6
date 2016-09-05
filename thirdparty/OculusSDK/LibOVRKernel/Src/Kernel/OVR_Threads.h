@@ -32,6 +32,8 @@ limitations under the License.
 #include "OVR_RefCount.h"
 #include "OVR_Array.h"
 
+#include <memory>
+
 // Defines the infinite wait delay timeout
 #define OVR_WAIT_INFINITE 0xFFFFFFFF
 
@@ -66,7 +68,7 @@ class Mutex
     friend class WaitConditionImpl;    
     friend class MutexImpl;
 
-    MutexImpl  *pImpl; 
+    std::unique_ptr<MutexImpl>  pImpl;
 
 public:
     // Constructor/destructor
@@ -88,7 +90,10 @@ public:
     public:
         Mutex *pMutex;
         Locker(Mutex *pmutex)
-            { pMutex = pmutex; pMutex->DoLock(); }
+            : pMutex(pmutex)
+            { pMutex->DoLock(); }
+        Locker(const std::unique_ptr<Mutex> &pmutex)
+            : Locker(pmutex.get()) { }
         ~Locker()
             { pMutex->Unlock(); }
     };
@@ -113,7 +118,7 @@ class WaitCondition
 {
     friend class WaitConditionImpl;
     // Internal implementation structure
-    WaitConditionImpl *pImpl;
+    std::unique_ptr<WaitConditionImpl> pImpl;
 
 public:
     // Constructor/destructor
@@ -392,8 +397,8 @@ private:
 
 protected:    
     // Thread state flags
-    AtomicInt<uint32_t>   ThreadFlags;
-    AtomicInt<int32_t>   SuspendCount;
+    std::atomic<uint32_t>   ThreadFlags = { 0 };
+    std::atomic<int32_t>   SuspendCount = { 0 };
     size_t              StackSize;
 
     // Hardware processor which this thread is running on.

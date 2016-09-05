@@ -56,7 +56,7 @@ template<class T, class SlotType = T>
 class LocklessUpdater
 {
 public:
-    LocklessUpdater() : UpdateBegin( 0 ), UpdateEnd( 0 )
+    LocklessUpdater()
     {
         OVR_COMPILER_ASSERT(sizeof(T) <= sizeof(SlotType));
     }
@@ -66,16 +66,16 @@ public:
         // Copy the state out, then retry with the alternate slot
         // if we determine that our copy may have been partially
         // stepped on by a new update.
-        T    state;
-        int    begin, end, final;
+        T                    state;
+        int                  begin, end, final;
 
         for(;;)
         {
             // We are adding 0, only using these as atomic memory barriers, so it
             // is ok to cast off the const, allowing GetState() to remain const.
-            end   = UpdateEnd.Load_Acquire();
+            end = UpdateEnd.load(std::memory_order_acquire);
             state = Slots[ end & 1 ];
-            begin = UpdateBegin.Load_Acquire();
+            begin = UpdateBegin.load(std::memory_order_acquire);
             if ( begin == end ) {
                 break;
             }
@@ -83,7 +83,7 @@ public:
             // The producer is potentially blocked while only having partially
             // written the update, so copy out the other slot.
             state = Slots[ (begin & 1) ^ 1 ];
-            final = UpdateBegin.Load_Acquire();
+            final = UpdateBegin.load(std::memory_order_acquire);
             if ( final == begin ) {
                 break;
             }
@@ -94,16 +94,16 @@ public:
         return state;
     }
 
-    void    SetState( const T& state )
+    void SetState( const T& state )
     {
-        const int slot = UpdateBegin.ExchangeAdd_Sync(1) & 1;
+        const int slot = UpdateBegin.fetch_add(1) & 1;
         // Write to (slot ^ 1) because ExchangeAdd returns 'previous' value before add.
         Slots[slot ^ 1] = state;
-        UpdateEnd.ExchangeAdd_Sync(1);
+        UpdateEnd.fetch_add(1);
     }
 
-    AtomicInt<int> UpdateBegin;
-    AtomicInt<int> UpdateEnd;
+    std::atomic<int> UpdateBegin = { 0 };
+    std::atomic<int> UpdateEnd = { 0 };
     SlotType       Slots[2];
 };
 
