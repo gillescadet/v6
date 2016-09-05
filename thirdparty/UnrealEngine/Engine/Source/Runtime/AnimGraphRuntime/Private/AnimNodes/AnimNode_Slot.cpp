@@ -34,9 +34,10 @@ void FAnimNode_Slot::Update(const FAnimationUpdateContext& Context)
 	Context.AnimInstanceProxy->GetSlotWeight(SlotName, WeightData.SlotNodeWeight, WeightData.SourceWeight, WeightData.TotalNodeWeight);
 
 	// Update cache in AnimInstance.
-	Context.AnimInstanceProxy->UpdateSlotNodeWeight(SlotName, WeightData.SlotNodeWeight, Context.GetFinalBlendWeight());
+	Context.AnimInstanceProxy->UpdateSlotNodeWeight(SlotName, WeightData.SlotNodeWeight);
+	Context.AnimInstanceProxy->UpdateSlotRootMotionWeight(SlotName, Context.GetFinalBlendWeight());
 
-	if (FAnimWeight::IsRelevant(WeightData.SourceWeight))
+	if (WeightData.SourceWeight > ZERO_ANIMWEIGHT_THRESH)
 	{
 		Source.Update(Context.FractionalWeight(WeightData.SourceWeight));
 	}

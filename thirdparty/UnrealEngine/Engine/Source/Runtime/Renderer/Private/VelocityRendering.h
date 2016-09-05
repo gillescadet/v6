@@ -20,15 +20,13 @@ public:
 		);
 
 	// FMeshDrawingPolicy interface.
-	FDrawingPolicyMatchResult Matches(const FVelocityDrawingPolicy& Other) const
+	bool Matches(const FVelocityDrawingPolicy& Other) const
 	{
-		DRAWING_POLICY_MATCH_BEGIN
-			DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
-			DRAWING_POLICY_MATCH(HullShader == Other.HullShader) &&
-			DRAWING_POLICY_MATCH(DomainShader == Other.DomainShader) &&
-			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-			DRAWING_POLICY_MATCH(PixelShader == Other.PixelShader);
-		DRAWING_POLICY_MATCH_END
+		return FMeshDrawingPolicy::Matches(Other)
+			&& HullShader == Other.HullShader
+			&& DomainShader == Other.DomainShader
+			&& VertexShader == Other.VertexShader
+			&& PixelShader == Other.PixelShader;
 	}
 	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const ContextDataType PolicyContext) const;
 	void SetMeshRenderState(
@@ -42,8 +40,6 @@ public:
 		const ElementDataType& ElementData, 
 		const ContextDataType PolicyContext
 		) const;
-
-	void SetInstancedEyeIndex(FRHICommandList& RHICmdList, const uint32 EyeIndex) const;
 
 	FBoundShaderStateInput GetBoundShaderStateInput(ERHIFeatureLevel::Type InFeatureLevel);
 
@@ -69,7 +65,7 @@ private:
 class FVelocityDrawingPolicyFactory : public FDepthDrawingPolicyFactory
 {
 public:
-	static void AddStaticMesh(FScene* Scene, FStaticMesh* StaticMesh, ContextType = ContextType(DDM_AllOccluders, false));
+	static void AddStaticMesh(FScene* Scene, FStaticMesh* StaticMesh, ContextType = ContextType(DDM_AllOccluders));
 	static bool DrawDynamicMesh(	
 		FRHICommandList& RHICmdList, 
 		const FViewInfo& View,
@@ -78,8 +74,7 @@ public:
 		bool bBackFace,
 		bool bPreFog,
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
-		FHitProxyId HitProxyId, 
-		const bool bIsInstancedStereo = false
+		FHitProxyId HitProxyId
 		);
 };
 

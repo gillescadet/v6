@@ -13,27 +13,21 @@ DECLARE_DWORD_COUNTER_STAT( TEXT( "ThreadPoolDummyCounter" ), STAT_ThreadPoolDum
 
 /** The global thread pool */
 FQueuedThreadPool* GThreadPool = nullptr;
-
-#if USE_NEW_ASYNC_IO
-FQueuedThreadPool* GIOThreadPool = nullptr;
-#endif // USE_NEW_ASYNC_IO
-
 #if WITH_EDITOR
 FQueuedThreadPool* GLargeThreadPool = nullptr;
 #endif
+
+CORE_API bool IsInGameThread()
+{
+	// if the game thread is uninitialized, then we are calling this VERY early before other threads will have started up, so it will be the game thread
+	return !GIsGameThreadIdInitialized || FPlatformTLS::GetCurrentThreadId() == GGameThreadId ||
+		FPlatformTLS::GetCurrentThreadId() == GSlateLoadingThreadId;
+}
 
 CORE_API bool IsInSlateThread()
 {
 	// If this explicitly is a slate thread, not just the main thread running slate
 	return GSlateLoadingThreadId != 0 && FPlatformTLS::GetCurrentThreadId() == GSlateLoadingThreadId;
-}
-
-CORE_API FRunnableThread* GAudioThread = nullptr;
-
-CORE_API bool IsInAudioThread()
-{
-	// True if this is the audio thread or if there is no audio thread, then if it is the game thread
-	return (GAudioThreadId != 0 && FPlatformTLS::GetCurrentThreadId() == GAudioThreadId) || (GAudioThreadId == 0 && FPlatformTLS::GetCurrentThreadId() == GGameThreadId);
 }
 
 CORE_API int32 GIsRenderingThreadSuspended = 0;
@@ -93,18 +87,18 @@ public:
 	{
 		ThreadID = ThreadIdCounter++;
 		// Auto register with single thread manager.
-		FThreadManager::Get().AddThread(ThreadID, this);
+		FSingleThreadManager::Get().AddThread(this);
 	}
 
 	/** Virtual destructor. */
 	virtual ~FFakeThread()
 	{
 		// Remove from the manager.
-		FThreadManager::Get().RemoveThread(this);
+		FSingleThreadManager::Get().RemoveThread(this);
 	}
 
 	/** Tick one time per frame. */
-	virtual void Tick() override
+	void Tick()
 	{
 		if (Runnable && !bIsSuspended)
 		{
@@ -128,13 +122,13 @@ public:
 
 	virtual bool Kill(bool bShouldWait) override
 	{
-		FThreadManager::Get().RemoveThread(this);
+		FSingleThreadManager::Get().RemoveThread(this);
 		return true;
 	}
 
 	virtual void WaitForCompletion() override
 	{
-		FThreadManager::Get().RemoveThread(this);
+		FSingleThreadManager::Get().RemoveThread(this);
 	}
 
 	virtual bool CreateInternal(FRunnable* InRunnable, const TCHAR* InThreadName,
@@ -153,57 +147,30 @@ public:
 uint32 FFakeThread::ThreadIdCounter = 0xffff;
 
 
-void FThreadManager::AddThread(uint32 ThreadId, FRunnableThread* Thread)
+void FSingleThreadManager::AddThread(FFakeThread* Thread)
 {
-	FScopeLock ThreadsLock(&ThreadsCritical);
-	// Some platforms do not support TLS
-	if (!Threads.Contains(ThreadId))
+	ThreadList.Add(Thread);
+}
+
+void FSingleThreadManager::RemoveThread(FFakeThread* Thread)
+{
+	ThreadList.Remove(Thread);
+}
+
+void FSingleThreadManager::Tick()
+{
+	QUICK_SCOPE_CYCLE_COUNTER(STAT_FSingleThreadManager_Tick);
+
+	// Tick all registered threads.
+	for (int32 RunnableIndex = 0; RunnableIndex < ThreadList.Num(); ++RunnableIndex)
 	{
-		Threads.Add(ThreadId, Thread);
+		ThreadList[RunnableIndex]->Tick();
 	}
 }
 
-void FThreadManager::RemoveThread(FRunnableThread* Thread)
+FSingleThreadManager& FSingleThreadManager::Get()
 {
-	FScopeLock ThreadsLock(&ThreadsCritical);
-	const uint32* ThreadId = Threads.FindKey(Thread);
-	if (ThreadId)
-	{
-		Threads.Remove(*ThreadId);
-	}
-}
-
-void FThreadManager::Tick()
-{	
-	if (!FPlatformProcess::SupportsMultithreading())
-	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FSingleThreadManager_Tick);
-
-		FScopeLock ThreadsLock(&ThreadsCritical);
-
-		// Tick all registered threads.
-		for (TPair<uint32, FRunnableThread*>& ThreadPair : Threads)
-		{
-			ThreadPair.Value->Tick();
-		}
-	}
-}
-
-const FString& FThreadManager::GetThreadName(uint32 ThreadId)
-{
-	static FString NoThreadName;
-	FScopeLock ThreadsLock(&ThreadsCritical);
-	FRunnableThread** Thread = Threads.Find(ThreadId);
-	if (Thread)
-	{
-		return (*Thread)->GetThreadName();
-	}
-	return NoThreadName;
-}
-
-FThreadManager& FThreadManager::Get()
-{
-	static FThreadManager Singleton;
+	static FSingleThreadManager Singleton;
 	return Singleton;
 }
 
@@ -290,14 +257,6 @@ FRunnableThread::FRunnableThread()
 	, ThreadPriority(TPri_Normal)
 	, ThreadID(0)
 {
-}
-
-FRunnableThread::~FRunnableThread()
-{
-	if (!GIsRequestingExit)
-	{
-		FThreadManager::Get().RemoveThread(this);
-	}
 }
 
 FRunnableThread* FRunnableThread::Create(

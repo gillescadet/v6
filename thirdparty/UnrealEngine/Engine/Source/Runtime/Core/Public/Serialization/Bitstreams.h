@@ -27,24 +27,14 @@ public:
 	FBitWriter( int64 InMaxBits, bool AllowResize = false );
 
 	void SerializeBits( void* Src, int64 LengthBits );
+	void SerializeInt( uint32& Value, uint32 Max );
 
-	/**
-	 * Serializes a compressed integer - Value must be < Max
-	 *
-	 * @param Value		The value to serialize, must be < Max
-	 * @param Max		The maximum allowed value - good to aim for power-of-two
+	/** serializes the specified value, but does not bounds check against Max; instead, it will wrap around if the value exceeds Max
+	 * (this differs from SerializeInt(), which clamps)
+	 * @param Result - the value to serialize
+	 * @param Max - maximum value to write; wrap Result if it exceeds this
 	 */
-	void SerializeInt(uint32& Value, uint32 Max);
-
-	/**
-	 * Serializes the specified Value, but does not bounds check against ValueMax;
-	 * instead, it will wrap around if the value exceeds ValueMax (this differs from SerializeInt, which clamps)
-	 *
-	 * @param Value		The value to serialize
-	 * @param ValueMax	The maximum value to write; wraps Value if it exceeds this
-	 */
-	void WriteIntWrapped(uint32 Value, uint32 ValueMax);
-
+	void WriteIntWrapped( uint32 Result, uint32 Max );
 	void WriteBit( uint8 In );
 	void Serialize( void* Src, int64 LengthBytes );
 
@@ -53,31 +43,16 @@ public:
 	 */
 	FORCEINLINE uint8* GetData(void)
 	{
-#if !UE_BUILD_SHIPPING
-		// If this happens, your code has insufficient IsError() checks.
-		check(!IsError());
-#endif
-
 		return Buffer.GetData();
 	}
 
 	FORCEINLINE const uint8* GetData(void) const
 	{
-#if !UE_BUILD_SHIPPING
-		// If this happens, your code has insufficient IsError() checks.
-		check(!IsError());
-#endif
-
 		return Buffer.GetData();
 	}
 
 	FORCEINLINE const TArray<uint8>* GetBuffer(void) const
 	{
-#if !UE_BUILD_SHIPPING
-		// If this happens, your code has insufficient IsError() checks.
-		check(!IsError());
-#endif
-
 		return &Buffer;
 	}
 
@@ -107,17 +82,10 @@ public:
 
 	/**
 	 * Marks this bit writer as overflowed.
-	 *
-	 * @param LengthBits	The number of bits being written at the time of overflow
 	 */
-	void SetOverflowed(int32 LengthBits);
-
-	/**
-	 * Sets whether or not this writer intentionally allows overflows (to avoid logspam)
-	 */
-	FORCEINLINE void SetAllowOverflow(bool bInAllow)
+	FORCEINLINE void SetOverflowed(void)
 	{
-		bAllowOverflow = bInAllow;
+		ArIsError = 1;
 	}
 
 	FORCEINLINE bool AllowAppend(int64 LengthBits)
@@ -166,9 +134,6 @@ private:
 	int64   Num;
 	int64   Max;
 	bool	AllowResize;
-
-	/** Whether or not overflowing is allowed (overflows silently) */
-	bool bAllowOverflow;
 };
 
 
@@ -232,7 +197,7 @@ public:
 		{
 			if (!IsError())
 			{
-				SetOverflowed(LengthBits);
+				SetOverflowed();
 				//UE_LOG( LogNetSerialization, Error, TEXT( "FBitReader::SerializeBits: Pos + LengthBits > Num" ) );
 			}
 			FMemory::Memzero( Dest, (LengthBits+7)>>3 );
@@ -256,42 +221,39 @@ public:
 		}
 	}
 
-	// OutValue < ValueMax
-	FORCEINLINE_DEBUGGABLE void SerializeInt(uint32& OutValue, uint32 ValueMax)
+	FORCEINLINE_DEBUGGABLE void SerializeInt( uint32& OutValue, uint32 ValueMax )
 	{
-		if (!IsError())
+		if ( IsError() )
 		{
-			// Use local variable to avoid Load-Hit-Store
-			uint32 Value = 0;
-			int64 LocalPos = Pos;
-			const int64 LocalNum = Num;
-
-			for (uint32 Mask=1; (Value + Mask) < ValueMax && Mask; Mask *= 2, LocalPos++)
-			{
-				if (LocalPos >= LocalNum)
-				{
-					SetOverflowed(LocalPos - Pos);
-					break;
-				}
-
-				if (Buffer[LocalPos >> 3] & Shift(LocalPos & 7))
-				{
-					Value |= Mask;
-				}
-			}
-
-			// Now write back
-			Pos = LocalPos;
-			OutValue = Value;
+			return;
 		}
+
+		uint32 Value=0; // Use local variable to avoid Load-Hit-Store
+		int64 LocalPos = Pos;
+		const int64 LocalNum = Num;
+
+		for( uint32 Mask=1; Value+Mask<ValueMax && Mask; Mask*=2,LocalPos++ )
+		{
+			if( LocalPos>=LocalNum )
+			{
+				SetOverflowed();
+				//UE_LOG( LogNetSerialization, Error, TEXT( "FBitReader::SerializeInt: LocalPos >= LocalNum" ) );
+				break;
+			}
+			if( Buffer[LocalPos>>3] & Shift(LocalPos&7) )
+			{
+				Value |= Mask;
+			}
+		}
+		// Now write back
+		Pos = LocalPos;
+		OutValue = Value;
 	}
 
-	FORCEINLINE_DEBUGGABLE uint32 ReadInt(uint32 Max)
+	FORCEINLINE_DEBUGGABLE uint32 ReadInt( uint32 Max )
 	{
-		uint32 Value = 0;
-
-		SerializeInt(Value, Max);
-
+		uint32 Value=0;
+		SerializeInt( Value, Max );
 		return Value;
 	}
 
@@ -305,7 +267,7 @@ public:
 			const int64 LocalNum = Num;
 			if (LocalPos >= LocalNum)
 			{
-				SetOverflowed(1);
+				SetOverflowed();
 				//UE_LOG( LogNetSerialization, Error, TEXT( "FBitReader::SerializeInt: LocalPos >= LocalNum" ) );
 			}
 			else
@@ -359,25 +321,16 @@ public:
 	}
 	FORCEINLINE_DEBUGGABLE void EatByteAlign()
 	{
-		int32 PrePos = Pos;
-
 		// Skip over remaining bits in current byte
 		Pos = (Pos+7) & (~0x07);
-
 		if ( Pos > Num )
 		{
 			//UE_LOG( LogNetSerialization, Error, TEXT( "FBitReader::EatByteAlign: Pos > Num" ) );
-			SetOverflowed(Pos - PrePos);
+			SetOverflowed();
 		}
 	}
 
-	/**
-	 * Marks this bit reader as overflowed.
-	 *
-	 * @param LengthBits	The number of bits being read at the time of overflow
-	 */
-	void SetOverflowed(int32 LengthBits);
-
+	void SetOverflowed();
 	void AppendDataFromChecked( FBitReader& Src );
 	void AppendDataFromChecked( uint8* Src, uint32 NumBits );
 	void AppendTo( TArray<uint8> &Buffer );

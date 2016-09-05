@@ -825,10 +825,6 @@ void FUntypedBulkData::Serialize( FArchive& Ar, UObject* Owner, int32 Idx )
 						SerializeBulkData(Ar, BulkData.Get());
 					}
 				}
-				else if (BulkDataFlags & BULKDATA_PayloadInSeperateFile)
-				{
-					Filename = FPaths::ChangeExtension(Filename, TEXT(".ubulk"));
-				}
 			}
 			// Serialize the bulk data right away.
 			else
@@ -853,28 +849,15 @@ void FUntypedBulkData::Serialize( FArchive& Ar, UObject* Owner, int32 Idx )
 					else
 					{
 						// if the payload is NOT stored inline ...
-						if (BulkDataFlags & BULKDATA_PayloadInSeperateFile)
-						{
-							// open seperate bulk data file
-							FArchive* TargetArchive = IFileManager::Get().CreateFileReader(*Filename);
-							// seek to the location in the file where the payload is stored
-							TargetArchive->Seek(BulkDataOffsetInFile);
-							// serialize the payload
-							SerializeBulkData(*TargetArchive, BulkData.Get());
-							// cleanup file
-							delete TargetArchive;
-						}
-						else
-						{
-							// store the current file offset
-							int64 CurOffset = Ar.Tell();
-							// seek to the location in the file where the payload is stored
-							Ar.Seek(BulkDataOffsetInFile);
-							// serialize the payload
-							SerializeBulkData(Ar, BulkData.Get());
-							// seek to the location we came from
-							Ar.Seek(CurOffset);
-						}
+
+						// store the current file offset
+						int64 CurOffset = Ar.Tell();
+						// seek to the location in the file where the payload is stored
+						Ar.Seek(BulkDataOffsetInFile);
+						// serialize the payload
+						SerializeBulkData( Ar, BulkData.Get() );
+						// seek to the location we came from
+						Ar.Seek(CurOffset);
 					}
   				}
 			}
@@ -942,7 +925,6 @@ void FUntypedBulkData::Serialize( FArchive& Ar, UObject* Owner, int32 Idx )
 
 				BulkStore.BulkDataOffsetInFilePos = SavedBulkDataOffsetInFilePos;
 				BulkStore.BulkDataSizeOnDiskPos = SavedBulkDataSizeOnDiskPos;
-				BulkStore.BulkDataFlagsPos = SavedBulkDataFlagsPos;
 				BulkStore.BulkDataFlags = BulkDataFlags;
 				BulkStore.BulkData = this;
 				
@@ -1158,7 +1140,7 @@ void FUntypedBulkData::SerializeBulkData( FArchive& Ar, void* Data )
 		// Serialize data compressed.
 		if( BulkDataFlags & BULKDATA_SerializeCompressed )
 		{
-			Ar.SerializeCompressed( Data, GetBulkDataSize(), GetDecompressionFlags(), false, !!(BulkDataFlags&BULKDATA_SerializeCompressedBitWindow) );
+			Ar.SerializeCompressed( Data, GetBulkDataSize(), GetDecompressionFlags());
 		}
 		// Uncompressed/ regular serialization.
 		else
@@ -1185,7 +1167,7 @@ void FUntypedBulkData::SerializeBulkData( FArchive& Ar, void* Data )
 				SerializedData.AddUninitialized( GetBulkDataSize() );
 
 				// Serialize data with passed in archive and compress.
-				Ar.SerializeCompressed( SerializedData.GetData(), SerializedData.Num(), GetDecompressionFlags(), false, !!(BulkDataFlags&BULKDATA_SerializeCompressedBitWindow) );
+				Ar.SerializeCompressed( SerializedData.GetData(), SerializedData.Num(), GetDecompressionFlags());
 				
 				// Initialize memory reader with uncompressed data array and propagate forced byte swapping
 				FMemoryReader MemoryReader( SerializedData, true );
@@ -1205,7 +1187,7 @@ void FUntypedBulkData::SerializeBulkData( FArchive& Ar, void* Data )
 				SerializeElements(MemoryWriter, Data);
 
 				// Serialize data with passed in archive and compress.
-				Ar.SerializeCompressed( SerializedData.GetData(), SerializedData.Num(), GetDecompressionFlags(), false, !!(BulkDataFlags&BULKDATA_SerializeCompressedBitWindow) );
+				Ar.SerializeCompressed( SerializedData.GetData(), SerializedData.Num(), GetDecompressionFlags() );
 			}
 		}
 		// Uncompressed/ regular serialization.
@@ -1256,7 +1238,7 @@ void FUntypedBulkData::WaitForAsyncLoading()
 	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("FUntypedBulkData::WaitForAsyncLoading"), STAT_UBD_WaitForAsyncLoading, STATGROUP_Memory);
 	while (!SerializeFuture.WaitFor(FTimespan(0, 0, 0, 0, 1000)))
 	{
-		UE_LOG(LogSerialization, Warning, TEXT("Waiting for %s bulk data (%d) to be loaded longer than 1000ms"), *Filename, GetBulkDataSize());
+		UE_LOG(LogSerialization, Warning, TEXT("Waiting for %s bulk data (%lld) to be loaded longer than 1000ms"), *Filename, GetBulkDataSize());
 	}
 	check(BulkDataAsync);
 }
@@ -1300,7 +1282,7 @@ void FUntypedBulkData::LoadDataIntoMemory( void* Dest )
 	AttachedAr->Seek( PushedPos );
 #else
 	bool bWasLoadedSuccessfully = false;
-	if ((IsInGameThread() || IsInAsyncLoadingThread()) && Package.IsValid() && Package->LinkerLoad && Package->LinkerLoad->GetOwnerThreadId() == FPlatformTLS::GetCurrentThreadId() && ((BulkDataFlags & BULKDATA_PayloadInSeperateFile) == 0))
+	if ((IsInGameThread() || IsInAsyncLoadingThread()) && Package.IsValid() && Package->LinkerLoad && Package->LinkerLoad->GetOwnerThreadId() == FPlatformTLS::GetCurrentThreadId())
 	{
 		FLinkerLoad* LinkerLoad = Package->LinkerLoad;
 		if (LinkerLoad && LinkerLoad->Loader && !LinkerLoad->IsCompressed())

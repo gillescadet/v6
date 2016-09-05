@@ -30,15 +30,15 @@ public:
 	{ 
 		if (InDependencyType == EAssetRegistryDependencyType::Hard)
 		{
-			HardDependencies.AddUnique(InDependency);
+			HardDependencies.Add(InDependency);
 		}
 		else
 		{
-			SoftDependencies.AddUnique(InDependency);
+			SoftDependencies.Add(InDependency);
 		}
 	}
 	/** Add a referencer to this node */
-	void AddReferencer(FDependsNode* InReferencer) { Referencers.AddUnique(InReferencer); }
+	void AddReferencer(FDependsNode* InReferencer) { Referencers.Add(InReferencer); }
 	/** Remove a dependency from this node */
 	void RemoveDependency(FDependsNode* InDependency) { HardDependencies.Remove(InDependency); SoftDependencies.Remove(InDependency); }
 	/** Remove a referencer from this node */
@@ -107,13 +107,6 @@ public:
 		}
 	}
 
-	void Reserve(int32 InNumHardDependencies, int32 InNumSoftDependencies, int32 InNumReferencers)
-	{
-		HardDependencies.Reserve(InNumHardDependencies);
-		SoftDependencies.Reserve(InNumSoftDependencies);
-		Referencers.Reserve(InNumReferencers);
-	}
-
 private:
 	/** Recursively prints dependencies of the node starting with the specified indent. VisitedNodes should be an empty set at first which is populated recursively. */
 	void PrintDependenciesRecursive(const FString& Indent, TSet<const FDependsNode*>& VisitedNodes) const;
@@ -123,9 +116,9 @@ private:
 	/** The name of the package this node represents */
 	FName PackageName;
 	/** The list of hard dependencies for this node */
-	TArray<FDependsNode*> HardDependencies;
+	TSet<FDependsNode*> HardDependencies;
 	/** The list of soft dependencies for this node */
-	TArray<FDependsNode*> SoftDependencies;
+	TSet<FDependsNode*> SoftDependencies;
 	/** The list of referencers to this node */
-	TArray<FDependsNode*> Referencers;
+	TSet<FDependsNode*> Referencers;
 };

@@ -25,6 +25,6 @@ public:
 	// End of UObject interface
 
 	// FLinkerPlaceholderBase interface
-	virtual UObject* GetPlaceholderAsUObject() override { return (UObject*)(this); }
+	virtual UObject* GetPlaceholderAsUObject() override { return this; }
 	// End of FLinkerPlaceholderBase interface
 }; 

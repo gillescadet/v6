@@ -81,21 +81,21 @@ UClass* UWidgetSwitcher::GetSlotClass() const
 	return UWidgetSwitcherSlot::StaticClass();
 }
 
-void UWidgetSwitcher::OnSlotAdded(UPanelSlot* InSlot)
+void UWidgetSwitcher::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyWidgetSwitcher.IsValid() )
 	{
-		CastChecked<UWidgetSwitcherSlot>(InSlot)->BuildSlot(MyWidgetSwitcher.ToSharedRef());
+		Cast<UWidgetSwitcherSlot>(Slot)->BuildSlot(MyWidgetSwitcher.ToSharedRef());
 	}
 }
 
-void UWidgetSwitcher::OnSlotRemoved(UPanelSlot* InSlot)
+void UWidgetSwitcher::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyWidgetSwitcher.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyWidgetSwitcher->RemoveSlot(Widget.ToSharedRef());
@@ -107,9 +107,9 @@ TSharedRef<SWidget> UWidgetSwitcher::RebuildWidget()
 {
 	MyWidgetSwitcher = SNew(SWidgetSwitcher);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UWidgetSwitcherSlot* TypedSlot = Cast<UWidgetSwitcherSlot>(PanelSlot) )
+		if ( UWidgetSwitcherSlot* TypedSlot = Cast<UWidgetSwitcherSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyWidgetSwitcher.ToSharedRef());
@@ -127,6 +127,11 @@ void UWidgetSwitcher::SynchronizeProperties()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UWidgetSwitcher::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.WidgetSwitcher");
+}
 
 const FText UWidgetSwitcher::GetPaletteCategory()
 {

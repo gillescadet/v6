@@ -3,11 +3,10 @@
 #include "CorePrivatePCH.h"
 #include "AutomationTest.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCircularBufferTest, "System.Core.Misc.CircularBuffer", EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
 
-bool FCircularBufferTest::RunTest(const FString& Parameters)
+bool FCircularBufferTest::RunTest( const FString& Parameters )
 {
 	// buffer capacity
 	TCircularBuffer<int32> b1_1(127);
@@ -42,5 +41,3 @@ bool FCircularBufferTest::RunTest(const FString& Parameters)
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

@@ -18,9 +18,6 @@ Level.cpp: Level-related functions
 #include "BlueprintUtilities.h"
 #include "DynamicMeshBuilder.h"
 #include "Engine/LevelBounds.h"
-#include "ReleaseObjectVersion.h"
-#include "RenderingObjectVersion.h"
-#include "PhysicsEngine/BodySetup.h"
 #if WITH_EDITOR
 #include "Editor/UnrealEd/Public/Kismet2/KismetEditorUtilities.h"
 #include "Editor/UnrealEd/Public/Kismet2/BlueprintEditorUtils.h"
@@ -258,15 +255,13 @@ TMap<FName, TWeakObjectPtr<UWorld> > ULevel::StreamedLevelsOwningWorld;
 
 ULevel::ULevel( const FObjectInitializer& ObjectInitializer )
 	:	UObject( ObjectInitializer )
-	,	Actors()
+	,	Actors(this)
 	,	OwningWorld(NULL)
 	,	TickTaskLevel(FTickTaskManagerInterface::Get().AllocateTickTaskLevel())
 	,	PrecomputedLightVolume(new FPrecomputedLightVolume())
 {
 #if WITH_EDITORONLY_DATA
 	LevelColor = FLinearColor::White;
-	FixupOverrideVertexColorsTime = 0;
-	FixupOverrideVertexColorsCount = 0;
 #endif
 }
 
@@ -286,12 +281,38 @@ void ULevel::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collecto
 {
 	ULevel* This = CastChecked<ULevel>(InThis);
 
+	// Let GC know that we're referencing some UTexture2D objects
+	for( auto& It : This->TextureToInstancesMap )
+	{
+		UTexture2D* Texture2D = It.Key;
+		Collector.AddReferencedObject( Texture2D, This );
+	}
+
+	// Let GC know that we're referencing some UTexture2D objects
+	for( auto& It : This->DynamicTextureInstances )
+	{
+		UPrimitiveComponent* Primitive = It.Key.Get();
+		const TArray<FDynamicTextureInstance>& TextureInstances = It.Value;
+
+		for ( FDynamicTextureInstance& Instance : It.Value )
+		{
+			Collector.AddReferencedObject( Instance.Texture, This );
+		}
+	}
+
+	// Let GC know that we're referencing some UTexture2D objects
+	for( auto& It : This->ForceStreamTextures )
+	{
+		UTexture2D* Texture2D = It.Key;
+		Collector.AddReferencedObject( Texture2D, This );
+	}
+
 	// Let GC know that we're referencing some AActor objects
 	for (auto& Actor : This->Actors)
 	{
 		Collector.AddReferencedObject(Actor, This);
 	}
-	UObject* ActorsOwner = This;
+	UObject* ActorsOwner = This->Actors.GetOwner();
 	Collector.AddReferencedObject(ActorsOwner, This);
 
 	Super::AddReferencedObjects( This, Collector );
@@ -303,23 +324,7 @@ void ULevel::Serialize( FArchive& Ar )
 
 	Super::Serialize( Ar );
 
-	Ar.UsingCustomVersion(FReleaseObjectVersion::GUID);
-
-	if (Ar.IsLoading() && Ar.CustomVer(FReleaseObjectVersion::GUID) < FReleaseObjectVersion::LevelTransArrayConvertedToTArray)
-	{
-		TTransArray<AActor*> OldActors(this);
-		Ar << OldActors;
-		Actors.Reserve(OldActors.Num());
-		for (AActor* Actor : OldActors)
-		{
-			Actors.Push(Actor);
-		}
-	}
-	else
-	{
-		Ar << Actors;
-	}
-
+	Ar << Actors;
 	Ar << URL;
 
 	Ar << Model;
@@ -345,18 +350,37 @@ void ULevel::Serialize( FArchive& Ar )
 	if( !Ar.IsTransacting() )
 	{
 		Ar << LevelScriptActor;
-	}
 
-	// Stop serializing deprecated classes with new versions
-	if ( Ar.IsLoading() && Ar.CustomVer(FRenderingObjectVersion::GUID) < FRenderingObjectVersion::RemovedTextureStreamingLevelData )
-	{
-		// Strip for unsupported platforms
-		TMap< UTexture2D*, TArray< FStreamableTextureInstance > >		Dummy0;
-		TMap< UPrimitiveComponent*, TArray< FDynamicTextureInstance > >	Dummy1;
-		bool Dummy2;
-		Ar << Dummy0;
-		Ar << Dummy1;
-		Ar << Dummy2;
+		if( ( Ar.IsLoading() && !FPlatformProperties::SupportsTextureStreaming() ) ||
+			( Ar.IsCooking() && !Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::TextureStreaming) ) )
+		{
+			// Strip for unsupported platforms
+			TMap< UTexture2D*, TArray< FStreamableTextureInstance > >		Dummy0;
+			TMap< UPrimitiveComponent*, TArray< FDynamicTextureInstance > >	Dummy1;
+			Ar << Dummy0;
+			Ar << Dummy1;
+		}
+		else
+		{
+			Ar << TextureToInstancesMap;
+			Ar << DynamicTextureInstances;
+		}
+
+		bool bIsCooked = Ar.IsCooking();
+		if (Ar.UE4Ver() >= VER_UE4_REBUILD_TEXTURE_STREAMING_DATA_ON_LOAD)
+		{
+			Ar << bIsCooked;
+		}
+		if (Ar.UE4Ver() < VER_UE4_REBUILD_TEXTURE_STREAMING_DATA_ON_LOAD)
+		{
+			bool bTextureStreamingBuiltDummy = bIsCooked;
+			Ar << bTextureStreamingBuiltDummy;
+		}
+		if (Ar.IsLoading())
+		{
+			// Always rebuild texture streaming data after loading
+			bTextureStreamingBuilt = false;
+		}
 
 		//@todo legacy, useless
 		if (Ar.IsLoading())
@@ -377,8 +401,16 @@ void ULevel::Serialize( FArchive& Ar )
 			Ar << DummySetup;
 		}
 
-		TMap< UTexture2D*, bool > Dummy3;
-		Ar << Dummy3;
+		if( ( Ar.IsLoading() && !FPlatformProperties::SupportsTextureStreaming() ) ||
+			( Ar.IsCooking() && !Ar.CookingTarget()->SupportsFeature(ETargetPlatformFeatures::TextureStreaming) ) )
+		{
+			TMap< UTexture2D*, bool > Dummy;
+			Ar << Dummy;
+		}
+		else
+		{
+			Ar << ForceStreamTextures;
+		}
 	}
 
 	// Mark archive and package as containing a map if we're serializing to disk.
@@ -422,7 +454,7 @@ bool ULevel::IsNetActor(const AActor* Actor)
 
 	// If this is a server, use RemoteRole.
 	// If this is a client, use Role.
-	const ENetRole NetRole = (!Actor->IsNetMode(NM_Client)) ? Actor->GetRemoteRole() : (ENetRole)Actor->Role;
+	const ENetRole NetRole = (Actor->GetNetMode() < NM_Client) ? Actor->GetRemoteRole() : (ENetRole)Actor->Role;
 
 	// This test will return true on clients for actors with ROLE_Authority, which might be counterintuitive,
 	// but clients will need to consider these actors in some cases, such as if their bTearOff flag is true.
@@ -437,41 +469,41 @@ void ULevel::SortActorList()
 		return;
 	}
 
+	int32 StartIndex = 0;
 	TArray<AActor*> NewActors;
-	TArray<AActor*> NewNetActors;
 	NewActors.Reserve(Actors.Num());
-	NewNetActors.Reserve(Actors.Num());
 
-	check(WorldSettings);
+	// The WorldSettings has fixed actor index.
+	check(Actors[StartIndex] == GetWorldSettings());
+	NewActors.Add(Actors[StartIndex++]);
 
-	// The WorldSettings tries to stay at index 0
-	NewActors.Add(WorldSettings);
-
-	// Add non-net actors to the NewActors immediately, cache off the net actors to Append after
-	for (AActor* Actor : Actors)
+	// Static not net relevant actors.
+	for (int32 ActorIndex = StartIndex; ActorIndex < Actors.Num(); ActorIndex++)
 	{
-		if (Actor != nullptr && Actor != WorldSettings && !Actor->IsPendingKill())
-		{
-			if (IsNetActor(Actor))
-			{
-				NewNetActors.Add(Actor);
-			}
-			else
-			{
-				NewActors.Add(Actor);
-			}
-		}
+		AActor* Actor = Actors[ActorIndex];
 
+		if (Actor != NULL && !Actor->IsPendingKill() && !IsNetActor(Actor))
+		{
+			NewActors.Add(Actor);
+		}
 	}
 	iFirstNetRelevantActor = NewActors.Num();
 
-	NewActors.Append(MoveTemp(NewNetActors));
+	// Static net relevant actors.
+	for (int32 ActorIndex = StartIndex; ActorIndex < Actors.Num(); ActorIndex++)
+	{
+		AActor* Actor = Actors[ActorIndex];		
+		if (Actor != NULL && !Actor->IsPendingKill() && IsNetActor(Actor))
+		{
+			NewActors.Add(Actor);
+		}
+	}
 
 	// Replace with sorted list.
-	Actors = MoveTemp(NewActors);
+	Actors.AssignButKeepOwner(NewActors);
 
 	// Add all network actors to the owning world
-	if ( OwningWorld != nullptr )
+	if ( OwningWorld != NULL )
 	{
 		// Don't use sorted optimization outside of gameplay so we can safely shuffle around actors e.g. in the Editor
 		// without there being a chance to break code using dynamic/ net relevant actor iterators.
@@ -482,7 +514,7 @@ void ULevel::SortActorList()
 
 		for ( int32 i = iFirstNetRelevantActor; i < Actors.Num(); i++ )
 		{
-			if ( Actors[ i ] != nullptr )
+			if ( Actors[ i ] != NULL )
 			{
 				OwningWorld->AddNetworkActor( Actors[ i ] );
 			}
@@ -506,9 +538,9 @@ void ULevel::ValidateLightGUIDs()
 }
 
 
-void ULevel::PreSave(const class ITargetPlatform* TargetPlatform)
+void ULevel::PreSave()
 {
-	Super::PreSave(TargetPlatform);
+	Super::PreSave();
 
 #if WITH_EDITOR
 	if( !IsTemplate() )
@@ -554,16 +586,14 @@ void ULevel::PostLoad()
 	Actors.Remove(nullptr);
 #endif
 
-	if (WorldSettings == nullptr)
-	{
-		WorldSettings = Cast<AWorldSettings>(Actors[0]);
-	}
-
 	// in the Editor, sort Actor list immediately (at runtime we wait for the level to be added to the world so that it can be delayed in the level streaming case)
 	if (GIsEditor)
 	{
 		SortActorList();
 	}
+
+	// Remove UTexture2D references that are NULL (missing texture).
+	ForceStreamTextures.Remove( NULL );
 
 	// Validate navigable geometry
 	if (Model == NULL || Model->NumUniqueVertices == 0)
@@ -625,10 +655,8 @@ void ULevel::ClearLevelComponents()
 	}
 
 	// Remove the actors' components from the scene and build a list of relevant worlds
-	// In theory (though it is a terrible idea), users could spawn Actors from an OnUnregister event so don't use ranged-for
-	for (int32 ActorIndex = 0; ActorIndex < Actors.Num(); ++ActorIndex)
+	for( AActor* Actor : Actors )
 	{
-		AActor* Actor = Actors[ActorIndex];
 		if (Actor)
 		{
 			Actor->UnregisterAllComponents();
@@ -659,8 +687,9 @@ void ULevel::BeginDestroy()
 	{
 		OwningWorld->Scene->SetPrecomputedVisibility(NULL);
 		OwningWorld->Scene->SetPrecomputedVolumeDistanceField(NULL);
+
+		RemoveFromSceneFence.BeginFence();
 	}
-	RemoveFromSceneFence.BeginFence();
 }
 
 bool ULevel::IsReadyForFinishDestroy()
@@ -709,125 +738,30 @@ void ULevel::UpdateLevelComponents(bool bRerunConstructionScripts)
 	IncrementalUpdateComponents( 0, bRerunConstructionScripts );
 }
 
-namespace FLevelSortUtils
-{
-	void AddToListSafe(AActor* TestActor, TArray<AActor*>& List)
-	{
-		if (TestActor)
-		{
-			const bool bAlreadyAdded = List.Contains(TestActor);
-			if (bAlreadyAdded)
-			{
-				FString ListItemDesc;
-				for (int32 Idx = 0; Idx < List.Num(); Idx++)
-				{
-					if (Idx > 0)
-					{
-						ListItemDesc += TEXT(", ");
-					}
-
-					ListItemDesc += GetNameSafe(List[Idx]);
-				}
-
-				UE_LOG(LogLevel, Warning, TEXT("Found a cycle in actor's parent chain: %s"), *ListItemDesc);
-			}
-			else
-			{
-				List.Add(TestActor);
-			}
-		}
-	}
-
-	// Finds list of parents from an entry in ParentMap, returns them in provided array and removes from map
-	// Logs an error when cycle is found
-	void FindAndRemoveParentChain(TMap<AActor*, AActor*>& ParentMap, TArray<AActor*>& ParentChain)
-	{
-		check(ParentMap.Num());
-		
-		// seed from first entry
-		TMap<AActor*, AActor*>::TIterator It(ParentMap);
-		ParentChain.Add(It.Key());
-		ParentChain.Add(It.Value());
-		It.RemoveCurrent();
-
-		// fill chain's parent nodes
-		bool bLoop = true;
-		while (bLoop)
-		{
-			AActor* MapValue = nullptr;
-			bLoop = ParentMap.RemoveAndCopyValue(ParentChain.Last(), MapValue);
-			AddToListSafe(MapValue, ParentChain);
-		}
-
-		// find chain's child nodes, ignore cycle detection since it would've triggered already from previous loop
-		for (AActor* const* MapKey = ParentMap.FindKey(ParentChain[0]); MapKey; MapKey = ParentMap.FindKey(ParentChain[0]))
-		{
-			AActor* MapValue = nullptr;
-			ParentMap.RemoveAndCopyValue((AActor*)MapKey, MapValue);
-			ParentChain.Insert(MapValue, 0);
-		}
-	}
-
-	struct FDepthSort
-	{
-		TMap<AActor*, int32> DepthMap;
-
-		bool operator()(AActor* A, AActor* B) const
-		{
-			const int32 DepthA = A ? DepthMap.FindRef(A) : MAX_int32;
-			const int32 DepthB = B ? DepthMap.FindRef(B) : MAX_int32;
-			return DepthA < DepthB;
-		}
-	};
-}
-
 /**
 *	Sorts actors such that parent actors will appear before children actors in the list
 *	Stable sort
 */
-static void SortActorsHierarchy(TArray<AActor*>& Actors, UObject* Level)
+static void SortActorsHierarchy(TTransArray<AActor*>& Actors)
 {
-	const double StartTime = FPlatformTime::Seconds();
-
-	// Precalculate parent map to avoid processing cycles during sort
-	TMap<AActor*, AActor*> ParentMap;
-	for (int32 Idx = 0; Idx < Actors.Num(); Idx++)
-	{
-		if (Actors[Idx])
+	auto CalcAttachDepth = [](AActor* InActor) -> int32 {
+		int32 Depth = MAX_int32;
+		if (InActor)
 		{
-			AActor* ParentActor = Actors[Idx]->GetAttachParentActor();
-			if (ParentActor)
+			Depth = 0;
+			if (InActor->GetRootComponent())
 			{
-				ParentMap.Add(Actors[Idx], ParentActor);
+				for (const USceneComponent* Test = InActor->GetRootComponent()->AttachParent; Test != nullptr; Test = Test->AttachParent, Depth++);
 			}
 		}
-	}
-
-	if (ParentMap.Num())
-	{
-		FLevelSortUtils::FDepthSort DepthSorter;
-		TArray<AActor*> ParentChain;
-		while (ParentMap.Num())
-		{
-			ParentChain.Reset();
-			FLevelSortUtils::FindAndRemoveParentChain(ParentMap, ParentChain);
-
-			for (int32 Idx = 0; Idx < ParentChain.Num(); Idx++)
-			{
-				DepthSorter.DepthMap.Add(ParentChain[Idx], ParentChain.Num() - Idx - 1);
-			}
-		}
-
-		// Unfortunately TArray.StableSort assumes no null entries in the array
-		// So it forces me to use internal unrestricted version
-		StableSortInternal(Actors.GetData(), Actors.Num(), DepthSorter);
-	}
-
-	const float ElapsedTime = (float)(FPlatformTime::Seconds() - StartTime);
-	if (ElapsedTime > 1.0f)
-	{
-		UE_LOG(LogLevel, Warning, TEXT("SortActorsHierarchy(%s) took %f seconds"), Level ? *GetNameSafe(Level->GetOutermost()) : TEXT("??"), ElapsedTime);
-	}
+		return Depth;
+	};
+	
+	// Unfortunately TArray.StableSort assumes no null entries in the array
+	// So it forces me to use internal unrestricted version
+	StableSortInternal(Actors.GetData(), Actors.Num(), [&](AActor* L, AActor* R) {
+			return CalcAttachDepth(L) < CalcAttachDepth(R);
+	});
 
 	// Since all the null entries got sorted to the end, lop them off right now
 	int32 RemoveAtIndex = Actors.Num();
@@ -856,7 +790,7 @@ void ULevel::IncrementalUpdateComponents(int32 NumComponentsToUpdate, bool bReru
 	{
 		UpdateModelComponents();
 		// Sort actors to ensure that parent actors will be registered before child actors
-		SortActorsHierarchy(Actors, this);
+		SortActorsHierarchy(Actors);
 	}
 
 	// Find next valid actor to process components registration
@@ -1442,6 +1376,8 @@ void ULevel::BuildStreamingData(UWorld* World, ULevel* TargetLevel/*=NULL*/, UTe
 #if WITH_EDITORONLY_DATA
 	double StartTime = FPlatformTime::Seconds();
 
+	bool bUseDynamicStreaming = false;
+	GConfig->GetBool(TEXT("TextureStreaming"), TEXT("UseDynamicStreaming"), bUseDynamicStreaming, GEngineIni);
 
 	TArray<ULevel* > LevelsToCheck;
 	if ( TargetLevel )
@@ -1468,19 +1404,227 @@ void ULevel::BuildStreamingData(UWorld* World, ULevel* TargetLevel/*=NULL*/, UTe
 	for ( int32 LevelIndex=0; LevelIndex < LevelsToCheck.Num(); LevelIndex++ )
 	{
 		ULevel* Level = LevelsToCheck[LevelIndex];
-		if (!Level) continue;
-
-		if (Level->bIsVisible || Level->IsPersistentLevel())
-		{
-			IStreamingManager::Get().AddLevel(Level);
-		}
-		//@todo : handle UpdateSpecificTextureOnly
+		Level->BuildStreamingData( UpdateSpecificTextureOnly );
 	}
 
 	UE_LOG(LogLevel, Verbose, TEXT("ULevel::BuildStreamingData took %.3f seconds."), FPlatformTime::Seconds() - StartTime);
 #else
 	UE_LOG(LogLevel, Fatal,TEXT("ULevel::BuildStreamingData should not be called on a console"));
 #endif
+}
+
+void ULevel::BuildStreamingData(UTexture2D* UpdateSpecificTextureOnly/*=NULL*/)
+{
+	bool bUseDynamicStreaming = false;
+	GConfig->GetBool(TEXT("TextureStreaming"), TEXT("UseDynamicStreaming"), bUseDynamicStreaming, GEngineIni);
+
+	if ( UpdateSpecificTextureOnly == NULL )
+	{
+		// Reset the streaming manager, when building data for a whole Level
+		IStreamingManager::Get().RemoveLevel( this );
+		TextureToInstancesMap.Empty();
+		DynamicTextureInstances.Empty();
+		ForceStreamTextures.Empty();
+		bTextureStreamingBuilt = false;
+	}
+
+	TArray<UObject *> ObjectsInOuter;
+	GetObjectsWithOuter(this, ObjectsInOuter);
+
+	for( int32 Index = 0; Index < ObjectsInOuter.Num(); Index++ )
+	{
+		UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(ObjectsInOuter[Index]);
+		if (Primitive)
+		{
+			const bool bIsClassDefaultObject = Primitive->IsTemplate(RF_ClassDefaultObject);
+			if ( !bIsClassDefaultObject && Primitive->IsRegistered() )
+			{
+				const AActor* const Owner				= Primitive->GetOwner();
+				const bool bIsStatic					= Owner == NULL 
+															|| Primitive->Mobility == EComponentMobility::Static 
+															|| Primitive->Mobility == EComponentMobility::Stationary;
+
+				TArray<FStreamingTexturePrimitiveInfo> PrimitiveStreamingTextures;
+
+				// Ask the primitive to enumerate the streaming textures it uses.
+				Primitive->GetStreamingTextureInfoWithNULLRemoval(PrimitiveStreamingTextures);
+
+				for(int32 TextureIndex = 0;TextureIndex < PrimitiveStreamingTextures.Num();TextureIndex++)
+				{
+					const FStreamingTexturePrimitiveInfo& PrimitiveStreamingTexture = PrimitiveStreamingTextures[TextureIndex];
+					UTexture2D* Texture2D = Cast<UTexture2D>(PrimitiveStreamingTexture.Texture);
+					bool bCanBeStreamedByDistance = !FMath::IsNearlyZero(PrimitiveStreamingTexture.TexelFactor) && !FMath::IsNearlyZero(PrimitiveStreamingTexture.Bounds.W);
+
+					// Only handle 2D textures that match the target texture.
+					const bool bIsTargetTexture = (!UpdateSpecificTextureOnly || UpdateSpecificTextureOnly == Texture2D);
+					bool bShouldHandleTexture = (Texture2D && bIsTargetTexture);
+
+					// Check if this is a lightmap/shadowmap that shouldn't be streamed.
+					if ( bShouldHandleTexture )
+					{
+						UShadowMapTexture2D* ShadowMap2D	= Cast<UShadowMapTexture2D>(Texture2D);
+						ULightMapTexture2D* Lightmap2D		= Cast<ULightMapTexture2D>(Texture2D);
+						if ( (Lightmap2D && (Lightmap2D->LightmapFlags & LMF_Streamed) == 0) ||
+							(ShadowMap2D && (ShadowMap2D->ShadowmapFlags & SMF_Streamed) == 0) )
+						{
+							bShouldHandleTexture			= false;
+						}
+					}
+
+					// Check if this is a duplicate texture
+					if (bShouldHandleTexture)
+					{
+						for (int32 HandledTextureIndex = 0; HandledTextureIndex < TextureIndex; HandledTextureIndex++)
+						{
+							const FStreamingTexturePrimitiveInfo& HandledStreamingTexture = PrimitiveStreamingTextures[HandledTextureIndex];
+							if ( PrimitiveStreamingTexture.Texture == HandledStreamingTexture.Texture &&
+								FMath::IsNearlyEqual(PrimitiveStreamingTexture.TexelFactor, HandledStreamingTexture.TexelFactor) &&
+								PrimitiveStreamingTexture.Bounds.Equals( HandledStreamingTexture.Bounds ) )
+							{
+								// It's a duplicate, don't handle this one.
+								bShouldHandleTexture = false;
+								break;
+							}
+						}
+					}
+
+					if(bShouldHandleTexture)
+					{
+						// Is the primitive set to force its textures to be resident?
+						if ( Primitive->bForceMipStreaming )
+						{
+							// Add them to the ForceStreamTextures set.
+							ForceStreamTextures.Add(Texture2D,true);
+						}
+						// Is this texture used by a static object?
+						else if ( bIsStatic && bCanBeStreamedByDistance )
+						{
+							// Texture instance information.
+							FStreamableTextureInstance TextureInstance;
+							TextureInstance.BoundingSphere	= PrimitiveStreamingTexture.Bounds;
+							TextureInstance.TexelFactor		= PrimitiveStreamingTexture.TexelFactor;
+
+							// HLOD support.
+							TextureInstance.MinDistance = Primitive->MinDrawDistance;
+							const UPrimitiveComponent* LODParentPrimitive = Primitive->GetLODParentPrimitive();
+							if (LODParentPrimitive) // Max distance when HLOD becomes visible.
+							{
+								TextureInstance.MaxDistance = LODParentPrimitive->MinDrawDistance;
+								// Taken into account the streaming distance offsets.
+								TextureInstance.MaxDistance += (Primitive->Bounds.Origin - LODParentPrimitive->Bounds.Origin).Size();
+							}
+							else
+							{
+								TextureInstance.MaxDistance = FLT_MAX;
+							}
+
+							// See whether there already is an instance in the level.
+							TArray<FStreamableTextureInstance>* TextureInstances = TextureToInstancesMap.Find( Texture2D );
+							// We have existing instances.
+							if( TextureInstances )
+							{
+								// Add to the array.
+								TextureInstances->Add( TextureInstance );
+							}
+							// This is the first instance.
+							else
+							{
+								// Create array with current instance as the only entry.
+								TArray<FStreamableTextureInstance> NewTextureInstances;
+								NewTextureInstances.Add( TextureInstance );
+								// And set it.
+								TextureToInstancesMap.Add( Texture2D, NewTextureInstances );
+							}
+						}
+						// Is the texture used by a dynamic object that we can track at run-time.
+						else if ( bUseDynamicStreaming && Owner && bCanBeStreamedByDistance )
+						{
+							// Texture instance information.
+							FDynamicTextureInstance TextureInstance;
+							TextureInstance.Texture = Texture2D;
+							TextureInstance.BoundingSphere = PrimitiveStreamingTexture.Bounds;
+							TextureInstance.TexelFactor	= PrimitiveStreamingTexture.TexelFactor;
+							TextureInstance.OriginalRadius = PrimitiveStreamingTexture.Bounds.W;
+
+							// See whether there already is an instance in the level.
+							TArray<FDynamicTextureInstance>* TextureInstances = DynamicTextureInstances.Find( Primitive );
+							// We have existing instances.
+							if( TextureInstances )
+							{
+								// Add to the array.
+								TextureInstances->Add( TextureInstance );
+							}
+							// This is the first instance.
+							else
+							{
+								// Create array with current instance as the only entry.
+								TArray<FDynamicTextureInstance> NewTextureInstances;
+								NewTextureInstances.Add( TextureInstance );
+								// And set it.
+								DynamicTextureInstances.Add( Primitive, NewTextureInstances );
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if ( UpdateSpecificTextureOnly == NULL )
+	{
+		// Normalize the texelfactor for lightmaps and shadowmaps
+		NormalizeLightmapTexelFactor();
+
+		bTextureStreamingBuilt = true;
+
+		// Update the streaming manager.
+		IStreamingManager::Get().AddPreparedLevel( this );
+	}
+}
+
+
+void ULevel::NormalizeLightmapTexelFactor()
+{
+	for ( TMap<UTexture2D*,TArray<FStreamableTextureInstance> >::TIterator It(TextureToInstancesMap); It; ++It )
+	{
+		UTexture2D* Texture2D = It.Key();
+		if ( Texture2D->LODGroup == TEXTUREGROUP_Lightmap || Texture2D->LODGroup == TEXTUREGROUP_Shadowmap)
+		{
+			TArray<FStreamableTextureInstance>& TextureInstances = It.Value();
+
+			// Clamp texelfactors to 20-80% range.
+			// This is to prevent very low-res or high-res charts to dominate otherwise decent streaming.
+			struct FCompareTexelFactor
+			{
+				FORCEINLINE bool operator()( const FStreamableTextureInstance& A, const FStreamableTextureInstance& B ) const
+				{
+					return A.TexelFactor < B.TexelFactor;
+				}
+			};
+			TextureInstances.Sort( FCompareTexelFactor() );
+
+			float MinTexelFactor = TextureInstances[ TextureInstances.Num() * 0.2f ].TexelFactor;
+			float MaxTexelFactor = TextureInstances[ TextureInstances.Num() * 0.8f ].TexelFactor;
+			for ( int32 InstanceIndex=0; InstanceIndex < TextureInstances.Num(); ++InstanceIndex )
+			{
+				FStreamableTextureInstance& Instance = TextureInstances[InstanceIndex];
+				Instance.TexelFactor = FMath::Clamp( Instance.TexelFactor, MinTexelFactor, MaxTexelFactor );
+			}
+		}
+	}
+}
+
+TArray<FStreamableTextureInstance>* ULevel::GetStreamableTextureInstances(UTexture2D*& TargetTexture)
+{
+	typedef TArray<FStreamableTextureInstance>	STIA_Type;
+	for (TMap<UTexture2D*,STIA_Type>::TIterator It(TextureToInstancesMap); It; ++It)
+	{
+		TArray<FStreamableTextureInstance>& TSIA = It.Value();
+		TargetTexture = It.Key();
+		return &TSIA;
+	}		
+
+	return NULL;
 }
 
 ABrush* ULevel::GetBrush() const
@@ -1506,43 +1650,12 @@ ABrush* ULevel::GetDefaultBrush() const
 }
 
 
-AWorldSettings* ULevel::GetWorldSettings(bool bChecked) const
+AWorldSettings* ULevel::GetWorldSettings() const
 {
-	if (bChecked)
-	{
-		checkf( WorldSettings != nullptr, *GetPathName() );
-	}
+	checkf( Actors.Num() >= 1, *GetPathName() );
+	AWorldSettings* WorldSettings = Cast<AWorldSettings>( Actors[0] );
+	checkf( WorldSettings != NULL, *GetPathName() );
 	return WorldSettings;
-}
-
-void ULevel::SetWorldSettings(AWorldSettings* NewWorldSettings)
-{
-	check(NewWorldSettings); // Doesn't make sense to be clearing a world settings object
-	if (WorldSettings != NewWorldSettings)
-	{
-		// We'll generally endeavor to keep the world settings at its traditional index 0
-		const int32 NewWorldSettingsIndex = Actors.FindLast( NewWorldSettings );
-		if (NewWorldSettingsIndex != 0)
-		{
-			if (Actors[0] == nullptr || Actors[0]->IsA<AWorldSettings>())
-			{
-				Exchange(Actors[0],Actors[NewWorldSettingsIndex]);
-			}
-			else
-			{
-				Actors[NewWorldSettingsIndex] = nullptr;
-				Actors.Insert(NewWorldSettings,0);
-			}
-		}
-
-		if (WorldSettings)
-		{
-			// Makes no sense to have two WorldSettings so destroy existing one
-			WorldSettings->Destroy();
-		}
-
-		WorldSettings = NewWorldSettings;
-	}
 }
 
 ALevelScriptActor* ULevel::GetLevelScriptActor() const
@@ -1575,7 +1688,7 @@ void ULevel::InitializeNetworkActors()
 				{
 					if (!Actor->bNetLoadOnClient)
 					{
-						Actor->Destroy(true);
+						Actor->Destroy();
 					}
 					else
 					{
@@ -1646,7 +1759,7 @@ void ULevel::RouteActorInitialize()
 					UE_LOG(LogActor, Fatal, TEXT("%s failed to route PostInitializeComponents.  Please call Super::PostInitializeComponents() in your <className>::PostInitializeComponents() function. "), *Actor->GetFullName() );
 				}
 
-				if (bCallBeginPlay && !Actor->IsChildActor())
+				if (bCallBeginPlay)
 				{
 					ActorsToBeginPlay.Add(Actor);
 				}
@@ -1655,7 +1768,7 @@ void ULevel::RouteActorInitialize()
 			// Components are all set up, init touching state.
 			// Note: Not doing notifies here since loading or streaming in isn't actually conceptually beginning a touch.
 			//	     Rather, it was always touching and the mechanics of loading is just an implementation detail.
-			Actor->UpdateOverlaps(Actor->bGenerateOverlapEventsDuringLevelStreaming);
+			Actor->UpdateOverlaps(false);
 		}
 	}
 
@@ -1768,17 +1881,6 @@ void ULevel::OnLevelScriptBlueprintChanged(ULevelScriptBlueprint* InBlueprint)
 	}
 }	
 
-void ULevel::BeginCacheForCookedPlatformData(const ITargetPlatform *TargetPlatform)
-{
-	Super::BeginCacheForCookedPlatformData(TargetPlatform);
-
-	// Cook all level blueprints.
-	for (auto LevelBlueprint : GetLevelBlueprints())
-	{
-		LevelBlueprint->BeginCacheForCookedPlatformData(TargetPlatform);
-	}
-}
-
 #endif	//WITH_EDITOR
 
 bool ULevel::IsPersistentLevel() const
@@ -1805,12 +1907,23 @@ void ULevel::ApplyWorldOffset(const FVector& InWorldOffset, bool bWorldShift)
 {
 	QUICK_SCOPE_CYCLE_COUNTER(STAT_ULevel_ApplyWorldOffset);
 
-	if (!InWorldOffset.IsZero())
+	if (bTextureStreamingBuilt && !InWorldOffset.IsZero())
 	{
+		QUICK_SCOPE_CYCLE_COUNTER(STAT_ULevel_ApplyWorldOffset_TextureStreaming);
+		// Update texture streaming data to account for the move
+		for (TMap< UTexture2D*, TArray<FStreamableTextureInstance> >::TIterator It(TextureToInstancesMap); It; ++It)
+		{
+			TArray<FStreamableTextureInstance>& TextureInfo = It.Value();
+			for (int32 i = 0; i < TextureInfo.Num(); i++)
+			{
+				TextureInfo[i].BoundingSphere.Center+= InWorldOffset;
+			}
+		}
+
 		// Re-add level data to a manager, in case level is visible it this point
 		if (bIsVisible)
 		{
-			IStreamingManager::Get().AddLevel( this );
+			IStreamingManager::Get().AddPreparedLevel( this );
 		}
 	}
 
@@ -1963,7 +2076,3 @@ void ULevel::RemoveUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass)
 	}
 }
 
-bool ULevel::HasVisibilityRequestPending() const
-{
-	return (OwningWorld && this == OwningWorld->CurrentLevelPendingVisibility);
-}

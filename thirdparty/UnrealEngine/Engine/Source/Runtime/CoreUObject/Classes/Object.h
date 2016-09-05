@@ -162,7 +162,6 @@ enum EPixelFormat
 	PF_ASTC_12x12,
 	PF_BC6H,
 	PF_BC7,
-	PF_R8_UINT,
 	PF_MAX,
 };
 
@@ -217,7 +216,7 @@ namespace EMouseCursor
 
 /** A set of numerical unit types supported by the engine. Mirrored from UnitConversion.h */
 UENUM(BlueprintType)
-enum class EUnit : uint8
+enum class EUnit
 {
 	/** Scalar distance/length unit. */
 
@@ -385,16 +384,13 @@ struct FPlane : public FVector
 USTRUCT(immutable, noexport, BlueprintType, meta=(HasNativeMake="Engine.KismetMathLibrary.MakeRotator", HasNativeBreak="Engine.KismetMathLibrary.BreakRotator"))
 struct FRotator
 {
-	/** Pitch (degrees) around Y axis */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame, meta=(DisplayName="Y"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame)
 	float Pitch;
 
-	/** Yaw (degrees) around Z axis */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame, meta=(DisplayName="Z"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame)
 	float Yaw;
 
-	/** Roll (degrees) around X axis */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame, meta=(DisplayName="X"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Rotator, SaveGame)
 	float Roll;
 
 };
@@ -443,30 +439,6 @@ struct FPackedNormal
 
 };
 
-/**
-* A packed basis vector.
-* The full C++ class is located here: Engine\Source\Runtime\RenderCore\Public\PackedNormal.h
-*/
-USTRUCT(immutable, noexport)
-struct FPackedRGB10A2N
-{
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = PackedBasis, SaveGame)
-	int32 Packed;
-};
-
-/**
-* A packed vector.
-* The full C++ class is located here: Engine\Source\Runtime\RenderCore\Public\PackedNormal.h
-*/
-USTRUCT(immutable, noexport)
-struct FPackedRGBA16N
-{
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = PackedNormal, SaveGame)
-	int32 XY;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = PackedNormal, SaveGame)
-	int32 ZW;
-};
 
 /**
  * Screen coordinates.

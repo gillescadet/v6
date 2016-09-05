@@ -44,12 +44,12 @@ UParticleModuleVelocity::UParticleModuleVelocity(const FObjectInitializer& Objec
 
 void UParticleModuleVelocity::InitializeDefaults()
 {
-	if (!StartVelocity.IsCreated())
+	if (!StartVelocity.Distribution)
 	{
 		StartVelocity.Distribution = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionStartVelocity"));
 	}
 
-	if (!StartVelocityRadial.IsCreated())
+	if (!StartVelocityRadial.Distribution)
 	{
 		StartVelocityRadial.Distribution = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionStartVelocityRadial"));
 	}
@@ -161,7 +161,7 @@ UParticleModuleVelocityInheritParent::UParticleModuleVelocityInheritParent(const
 
 void UParticleModuleVelocityInheritParent::InitializeDefaults()
 {
-	if (!Scale.IsCreated())
+	if (!Scale.Distribution)
 	{
 		UDistributionVectorConstant* DistributionScale = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionScale"));
 		DistributionScale->Constant = FVector(1.0f, 1.0f, 1.0f);
@@ -225,7 +225,7 @@ UParticleModuleVelocityOverLifetime::UParticleModuleVelocityOverLifetime(const F
 
 void UParticleModuleVelocityOverLifetime::InitializeDefaults()
 {
-	if (!VelOverLife.IsCreated())
+	if (!VelOverLife.Distribution)
 	{
 		VelOverLife.Distribution = NewObject<UDistributionVectorConstantCurve>(this, TEXT("DistributionVelOverLife"));
 	}
@@ -270,10 +270,9 @@ void UParticleModuleVelocityOverLifetime::Update(FParticleEmitterInstance* Owner
 	UParticleLODLevel* LODLevel	= Owner->SpriteTemplate->GetCurrentLODLevel(Owner);
 	check(LODLevel);
 	FVector OwnerScale(1.0f);
-	const FTransform& OwnerTM = Owner->Component->GetAsyncComponentToWorld();
 	if ((bApplyOwnerScale == true) && Owner->Component)
 	{
-		OwnerScale = OwnerTM.GetScale3D();
+		OwnerScale = Owner->Component->ComponentToWorld.GetScale3D();
 	}
 	if (Absolute)
 	{
@@ -282,7 +281,7 @@ void UParticleModuleVelocityOverLifetime::Update(FParticleEmitterInstance* Owner
 			if (bInWorldSpace == false)
 			{
 				FVector Vel;
-				const FMatrix LocalToWorld = OwnerTM.ToMatrixNoScale();
+				const FMatrix LocalToWorld = Owner->Component->ComponentToWorld.ToMatrixNoScale();
 				BEGIN_UPDATE_LOOP;
 				{
 					Vel = VelOverLife.GetValue(Particle.RelativeTime, Owner->Component);
@@ -312,7 +311,7 @@ void UParticleModuleVelocityOverLifetime::Update(FParticleEmitterInstance* Owner
 			else
 			{
 				FVector Vel;
-				const FMatrix LocalToWorld = OwnerTM.ToMatrixNoScale();
+				const FMatrix LocalToWorld = Owner->Component->ComponentToWorld.ToMatrixNoScale();
 				const FMatrix InvMat = LocalToWorld.InverseFast();
 				BEGIN_UPDATE_LOOP;
 				{
@@ -330,7 +329,7 @@ void UParticleModuleVelocityOverLifetime::Update(FParticleEmitterInstance* Owner
 			FVector Vel;
 			if (bInWorldSpace == false)
 			{
-				const FMatrix LocalToWorld = OwnerTM.ToMatrixNoScale();
+				const FMatrix LocalToWorld = Owner->Component->ComponentToWorld.ToMatrixNoScale();
 				BEGIN_UPDATE_LOOP;
 				{
 					Vel = VelOverLife.GetValue(Particle.RelativeTime, Owner->Component);
@@ -360,7 +359,7 @@ void UParticleModuleVelocityOverLifetime::Update(FParticleEmitterInstance* Owner
 			else
 			{
 				FVector Vel;
-				const FMatrix LocalToWorld = OwnerTM.ToMatrixNoScale();
+				const FMatrix LocalToWorld = Owner->Component->ComponentToWorld.ToMatrixNoScale();
 				const FMatrix InvMat = LocalToWorld.InverseFast();
 				BEGIN_UPDATE_LOOP;
 				{
@@ -386,12 +385,12 @@ UParticleModuleVelocityCone::UParticleModuleVelocityCone(const FObjectInitialize
 
 void UParticleModuleVelocityCone::InitializeDefaults()
 {
-	if (!Angle.IsCreated())
+	if (!Angle.Distribution)
 	{
 		Angle.Distribution = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionAngle"));
 	}
 
-	if (!Velocity.IsCreated())
+	if (!Velocity.Distribution)
 	{
 		Velocity.Distribution = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionVelocity"));
 	}

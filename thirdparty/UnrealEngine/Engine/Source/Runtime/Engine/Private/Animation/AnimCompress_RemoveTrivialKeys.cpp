@@ -19,7 +19,6 @@ UAnimCompress_RemoveTrivialKeys::UAnimCompress_RemoveTrivialKeys(const FObjectIn
 	MaxScaleDiff = 0.00001f;
 }
 
-#if WITH_EDITOR
 void UAnimCompress_RemoveTrivialKeys::DoReduction(UAnimSequence* AnimSeq, const TArray<FBoneData>& BoneData)
 {
 #if WITH_EDITORONLY_DATA
@@ -51,13 +50,3 @@ void UAnimCompress_RemoveTrivialKeys::DoReduction(UAnimSequence* AnimSeq, const 
 	AnimSeq->CompressionScheme = static_cast<UAnimCompress*>( StaticDuplicateObject( this, AnimSeq ) );
 #endif // WITH_EDITORONLY_DATA
 }
-
-void UAnimCompress_RemoveTrivialKeys::PopulateDDCKey(FArchive& Ar)
-{
-	Super::PopulateDDCKey(Ar);
-	Ar << MaxPosDiff;
-	Ar << MaxAngleDiff;
-	Ar << MaxScaleDiff;
-}
-
-#endif // WITH_EDITOR

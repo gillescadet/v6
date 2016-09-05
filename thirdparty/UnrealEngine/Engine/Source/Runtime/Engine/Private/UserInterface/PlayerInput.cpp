@@ -383,11 +383,6 @@ bool UPlayerInput::InputGesture(const FKey Gesture, const EInputEvent Event, con
 	return true;
 }
 
-void UPlayerInput::UpdatePinchStartDistance()
-{
-	GestureRecognizer.SetAnchorDistanceSquared(FVector2D(Touches[ETouchIndex::Touch1]), FVector2D(Touches[ETouchIndex::Touch2]));
-}
-
 bool UPlayerInput::GetAxisProperties(const FKey AxisKey, FInputAxisProperties& OutAxisProperties)
 {
 	ConditionalInitAxisProperties();
@@ -560,7 +555,6 @@ void UPlayerInput::AddActionMapping(const FInputActionKeyMapping& KeyMapping)
 {
 	ActionMappings.AddUnique(KeyMapping);
 	ActionKeyMap.Reset();
-	bKeyMapsBuilt = false;
 }
 
 void UPlayerInput::RemoveActionMapping(const FInputActionKeyMapping& KeyMapping)
@@ -571,7 +565,6 @@ void UPlayerInput::RemoveActionMapping(const FInputActionKeyMapping& KeyMapping)
 		{
 			ActionMappings.RemoveAtSwap(ActionIndex);
 			ActionKeyMap.Reset();
-			bKeyMapsBuilt = false;
 			// we don't break because the mapping may have been in the array twice
 		}
 	}
@@ -581,7 +574,6 @@ void UPlayerInput::AddAxisMapping(const FInputAxisKeyMapping& KeyMapping)
 {
 	AxisMappings.AddUnique(KeyMapping);
 	AxisKeyMap.Reset();
-	bKeyMapsBuilt = false;
 }
 
 void UPlayerInput::RemoveAxisMapping(const FInputAxisKeyMapping& InKeyMapping)
@@ -594,7 +586,6 @@ void UPlayerInput::RemoveAxisMapping(const FInputAxisKeyMapping& InKeyMapping)
 		{
 			AxisMappings.RemoveAtSwap(AxisIndex);
 			AxisKeyMap.Reset();
-			bKeyMapsBuilt = false;
 			// we don't break because the mapping may have been in the array twice
 		}
 	}
@@ -606,7 +597,6 @@ void UPlayerInput::AddEngineDefinedActionMapping(const FInputActionKeyMapping& A
 	for (TObjectIterator<UPlayerInput> It; It; ++It)
 	{
 		It->ActionKeyMap.Reset();
-		It->bKeyMapsBuilt = false;
 	}
 }
 
@@ -616,7 +606,6 @@ void UPlayerInput::AddEngineDefinedAxisMapping(const FInputAxisKeyMapping& AxisM
 	for (TObjectIterator<UPlayerInput> It; It; ++It)
 	{
 		It->AxisKeyMap.Reset();
-		It->bKeyMapsBuilt = false;
 	}
 }
 
@@ -632,10 +621,9 @@ void UPlayerInput::ForceRebuildingKeyMaps(const bool bRestoreDefaults)
 	ActionKeyMap.Reset();
 	AxisKeyMap.Reset();
 	AxisProperties.Reset();
-	bKeyMapsBuilt = false;
 }
 
-void UPlayerInput::ConditionalBuildKeyMappings_Internal()
+void UPlayerInput::ConditionalBuildKeyMappings()
 {
 	if (ActionKeyMap.Num() == 0)
 	{
@@ -654,7 +642,6 @@ void UPlayerInput::ConditionalBuildKeyMappings_Internal()
 		ActionMappingsUtility.Build(ActionMappings, ActionKeyMap);
 		ActionMappingsUtility.Build(EngineDefinedActionMappings, ActionKeyMap);
 	}
-
 	if (AxisKeyMap.Num() == 0)
 	{
 		struct
@@ -695,15 +682,12 @@ void UPlayerInput::ConditionalBuildKeyMappings_Internal()
 			}
 		}
 	}
-
-	bKeyMapsBuilt = true;
 }
 
 void UPlayerInput::GetChordsForKeyMapping(const FInputActionKeyMapping& KeyMapping, const FInputActionBinding& ActionBinding, const bool bGamePaused, TArray<FDelegateDispatchDetails>& FoundChords, TArray<FKey>& KeysToConsume)
 {
+	TArray<uint32> EventIndices;
 	bool bConsumeInput = false;
-
-	checkSlow(!EventIndices.Num());
 
 	// test modifier conditions and ignore the event if they failed
 	if (	(KeyMapping.bAlt == false || IsAltPressed())
@@ -756,8 +740,6 @@ void UPlayerInput::GetChordsForKeyMapping(const FInputActionKeyMapping& KeyMappi
 	{
 		KeysToConsume.AddUnique(KeyMapping.Key);
 	}
-
-	EventIndices.Reset();
 }
 
 void UPlayerInput::GetChordsForAction(const FInputActionBinding& ActionBinding, const bool bGamePaused, TArray<FDelegateDispatchDetails>& FoundChords, TArray<FKey>& KeysToConsume)
@@ -773,7 +755,7 @@ void UPlayerInput::GetChordsForAction(const FInputActionBinding& ActionBinding, 
 			{
 				for (auto KeyStateIt(KeyStateMap.CreateConstIterator()); KeyStateIt; ++KeyStateIt)
 				{
-					if (!KeyStateIt.Key().IsFloatAxis() && !KeyStateIt.Key().IsVectorAxis() && !KeyStateIt.Value().bConsumed)
+					if (!KeyStateIt.Key().IsFloatAxis() && !KeyStateIt.Key().IsVectorAxis() && !IsKeyConsumed(KeyStateIt.Key()))
 					{
 						FInputActionKeyMapping SubKeyMapping(KeyMapping);
 						SubKeyMapping.Key = KeyStateIt.Key();
@@ -797,7 +779,7 @@ void UPlayerInput::GetChordForKey(const FInputKeyBinding& KeyBinding, const bool
 	{
 		for (auto KeyStateIt(KeyStateMap.CreateConstIterator()); KeyStateIt; ++KeyStateIt)
 		{
-			if (!KeyStateIt.Key().IsFloatAxis() && !KeyStateIt.Key().IsVectorAxis() && !KeyStateIt.Value().bConsumed)
+			if (!KeyStateIt.Key().IsFloatAxis() && !KeyStateIt.Key().IsVectorAxis() && !IsKeyConsumed(KeyStateIt.Key()))
 			{
 				FInputKeyBinding SubKeyBinding(KeyBinding);
 				SubKeyBinding.Chord.Key = KeyStateIt.Key();
@@ -807,7 +789,7 @@ void UPlayerInput::GetChordForKey(const FInputKeyBinding& KeyBinding, const bool
 	}
 	else if ( !IsKeyConsumed(KeyBinding.Chord.Key) )
 	{
-		checkSlow(!EventIndices.Num());
+		TArray<uint32> EventIndices;
 
 		// test modifier conditions and ignore the event if they failed
 		if (	(KeyBinding.Chord.bAlt == false || IsAltPressed())
@@ -852,8 +834,6 @@ void UPlayerInput::GetChordForKey(const FInputKeyBinding& KeyBinding, const bool
 				}
 				bConsumeInput = true;
 			}
-
-			EventIndices.Reset();
 		}
 	}
 	if (KeyBinding.bConsumeInput && (bConsumeInput || !(KeyBinding.Chord.bAlt || KeyBinding.Chord.bCtrl || KeyBinding.Chord.bShift || KeyBinding.Chord.bCmd || KeyBinding.KeyEvent == EInputEvent::IE_DoubleClick)))
@@ -1005,7 +985,7 @@ void UPlayerInput::ProcessInputStack(const TArray<UInputComponent*>& InputCompon
 
 
 	// must be called non-recursively and on the game thread
-	check(IsInGameThread() && !AxisDelegates.Num() && !VectorAxisDelegates.Num() && !NonAxisDelegates.Num() && !KeysToConsume.Num() && !FoundChords.Num() && !EventIndices.Num());
+	check(IsInGameThread() && !AxisDelegates.Num() && !VectorAxisDelegates.Num() && !NonAxisDelegates.Num() && !KeysToConsume.Num() && !FoundChords.Num());
 
 	struct FDelegateDispatchDetailsSorter
 	{
@@ -1023,7 +1003,7 @@ void UPlayerInput::ProcessInputStack(const TArray<UInputComponent*>& InputCompon
 		UInputComponent* const IC = InputComponentStack[StackIndex];
 		if (IC)
 		{
-			check(!KeysToConsume.Num() && !FoundChords.Num() && !EventIndices.Num())
+			check(!KeysToConsume.Num() && !FoundChords.Num())
 
 			for (int32 ActionIndex=0; ActionIndex<IC->GetNumActionBindings(); ++ActionIndex)
 			{
@@ -1074,6 +1054,7 @@ void UPlayerInput::ProcessInputStack(const TArray<UInputComponent*>& InputCompon
 			{
 				FInputTouchBinding& TB = IC->TouchBindings[TouchBindingIndex];
 
+				TArray<uint32> EventIndices;
 				for (ETouchIndex::Type TouchIndex = ETouchIndex::Touch1; TouchIndex <= ETouchIndex::Touch10; TouchIndex = ETouchIndex::Type(TouchIndex + 1))
 				{
 					const FKey& TouchKey = EKeys::TouchKeys[TouchIndex];
@@ -1099,13 +1080,13 @@ void UPlayerInput::ProcessInputStack(const TArray<UInputComponent*>& InputCompon
 						}
 					}
 				}
-
-				EventIndices.Reset();
 			}
 
 			// look for any gestures that happened
 			for (FInputGestureBinding& GB : IC->GestureBindings)
 			{
+				TArray<uint32> EventIndices;
+
 				// treat gestures as fire-and-forget, so by convention we assume if they happen, it was a "pressed" event
 				if (!IsKeyConsumed(GB.GestureKey) && KeyEventOccurred(GB.GestureKey, IE_Pressed, EventIndices))
 				{
@@ -1122,8 +1103,6 @@ void UPlayerInput::ProcessInputStack(const TArray<UInputComponent*>& InputCompon
 						}
 					}
 				}
-
-				EventIndices.Reset();
 			}
 
 			// Run though game axis bindings and accumulate axis values
@@ -1279,8 +1258,9 @@ void UPlayerInput::FinishProcessingPlayerInput()
 		if (KeyState)
 		{
 			KeyState->bDownPrevious = KeyState->bDown;
-			KeyState->bConsumed = false;
 		}
+
+		KeyState->bConsumed = false;
 	}
 }
 
@@ -1301,13 +1281,9 @@ void UPlayerInput::ClearSmoothing()
 
 float UPlayerInput::SmoothMouse(float aMouse, float DeltaTime, uint8& SampleCount, int32 Index)
 {
-	check(Index >= 0);
-	check(Index < ARRAY_COUNT(ZeroTime));
-
 	UWorld* World = GetWorld();
 	if (World)
 	{
-		check(World->GetWorldSettings());
 		const float EffectiveTimeDilation = World->GetWorldSettings()->GetEffectiveTimeDilation();
 		if (EffectiveTimeDilation != LastTimeDilation)
 		{
@@ -1316,13 +1292,15 @@ float UPlayerInput::SmoothMouse(float aMouse, float DeltaTime, uint8& SampleCoun
 		}
 	}
 
+	const float DetectedMouseSampleHz = MouseSamples / MouseSamplingTotal;
+
+	// actual num samples should be either this or this+1
+	const int32 ExpectedNumSamplesThisFrame = FMath::TruncToInt(DeltaTime * DetectedMouseSampleHz);
+
 	if (DeltaTime < 0.25f)
 	{
-		check(MouseSamples > 0);
-
 		// this is seconds/sample
 		const float MouseSamplingTime = MouseSamplingTotal/MouseSamples;
-		check(MouseSamplingTime > 0.0f);
 
 		if ( aMouse == 0 )
 		{
@@ -1346,8 +1324,6 @@ float UPlayerInput::SmoothMouse(float aMouse, float DeltaTime, uint8& SampleCoun
 				// this isn't the first tick with non-zero mouse movement
 				if ( DeltaTime < MouseSamplingTime * (SampleCount + 1) )
 				{
-					check(SampleCount > 0);
-
 					// smooth mouse movement so samples/tick is constant
 					aMouse = aMouse * DeltaTime/(MouseSamplingTime * SampleCount);
 				}
@@ -1358,8 +1334,6 @@ float UPlayerInput::SmoothMouse(float aMouse, float DeltaTime, uint8& SampleCoun
 					SampleCount = DeltaTime/MouseSamplingTime;
 				}
 			}
-
-			check(SampleCount > 0);
 			SmoothedMouse[Index] = aMouse/SampleCount;
 		}
 	}
@@ -1450,50 +1424,19 @@ void UPlayerInput::DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo& 
 
 bool UPlayerInput::WasJustPressed( FKey InKey ) const
 {
-	if (InKey == EKeys::AnyKey)
-	{
-		// Is there any key that has just been pressed
-		for (const TPair<FKey, FKeyState>& KeyStatePair : KeyStateMap)
-		{
-			if (!KeyStatePair.Key.IsFloatAxis() && !KeyStatePair.Key.IsVectorAxis() && KeyStatePair.Value.EventCounts[IE_Pressed].Num() > 0)
-			{
-				return true;
-			}
-		}
-	}
-	else if (FKeyState const* const KeyState = KeyStateMap.Find(InKey))
-	{
-		return (KeyState->EventCounts[IE_Pressed].Num() > 0);
-	}
-
-	return false;
+	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
+	return KeyState ? (KeyState->EventCounts[IE_Pressed].Num() > 0) : false;
 }
 
 
 bool UPlayerInput::WasJustReleased( FKey InKey ) const
 {
-	if (InKey == EKeys::AnyKey)
-	{
-		// Is there any key that has just been released
-		for (const TPair<FKey, FKeyState>& KeyStatePair : KeyStateMap)
-		{
-			if (!KeyStatePair.Key.IsFloatAxis() && !KeyStatePair.Key.IsVectorAxis() && KeyStatePair.Value.EventCounts[IE_Released].Num() > 0)
-			{
-				return true;
-			}
-		}
-	}
-	else if (FKeyState const* const KeyState = KeyStateMap.Find(InKey))
-	{
-		return (KeyState->EventCounts[IE_Released].Num() > 0);
-	}
-
-	return false;
+	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
+	return KeyState ? (KeyState->EventCounts[IE_Released].Num() > 0) : false;
 }
 
 float UPlayerInput::GetTimeDown( FKey InKey ) const
 {
-	UE_CLOG(InKey == EKeys::AnyKey, LogInput, Warning, TEXT("GetTimeDown cannot return a meaningful result for AnyKey"));
 	UWorld* World = GetWorld();	
 	float DownTime = 0.f;
 	if( World )
@@ -1510,65 +1453,32 @@ float UPlayerInput::GetTimeDown( FKey InKey ) const
 
 bool UPlayerInput::IsKeyConsumed( FKey InKey ) const
 {
-	if (InKey == EKeys::AnyKey)
-	{
-		// Is there any key that is consumed
-		for (const TPair<FKey, FKeyState>& KeyStatePair : KeyStateMap)
-		{
-			if (KeyStatePair.Value.bConsumed)
-			{
-				return true;
-			}
-		}
-	}
-	else if (FKeyState const* const KeyState = KeyStateMap.Find(InKey))
-	{
-		return KeyState->bConsumed;
-	}
-
-	return false;
+	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
+	return KeyState ? KeyState->bConsumed : false;
 }
 
 float UPlayerInput::GetKeyValue( FKey InKey ) const
 {
-	UE_CLOG(InKey == EKeys::AnyKey, LogInput, Warning, TEXT("GetKeyValue cannot return a meaningful result for AnyKey"));
 	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
 	return KeyState ? KeyState->Value.X : 0.f;
 }
 
 float UPlayerInput::GetRawKeyValue( FKey InKey ) const
 {
-	UE_CLOG(InKey == EKeys::AnyKey, LogInput, Warning, TEXT("GetRawKeyValue cannot return a meaningful result for AnyKey"));
 	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
 	return KeyState ? KeyState->RawValue.X : 0.f;
 }
 
 FVector UPlayerInput::GetVectorKeyValue( FKey InKey ) const
 {
-	UE_CLOG(InKey == EKeys::AnyKey, LogInput, Warning, TEXT("GetVectorKeyValue cannot return a meaningful result for AnyKey"));
 	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
 	return KeyState ? KeyState->RawValue : FVector(0,0,0);
 }
 
 bool UPlayerInput::IsPressed( FKey InKey ) const
 {
-	if (InKey == EKeys::AnyKey)
-	{
-		// Is there any key that is down
-		for (const TPair<FKey, FKeyState>& KeyStatePair : KeyStateMap)
-		{
-			if (!KeyStatePair.Key.IsFloatAxis() && !KeyStatePair.Key.IsVectorAxis() && KeyStatePair.Value.bDown)
-			{
-				return true;
-			}
-		}
-	}
-	else if (FKeyState const* const KeyState = KeyStateMap.Find(InKey))
-	{
-		return KeyState->bDown;
-	}
-
-	return false;
+	FKeyState const* const KeyState = KeyStateMap.Find(InKey);
+	return KeyState ? KeyState->bDown : false;
 }
 
 
@@ -1642,6 +1552,8 @@ float UPlayerInput::MassageAxisInput(FKey Key, float RawValue, float DeltaTime)
 			}
 		}
 
+		NewVal = AccelMouse(Key, NewVal, DeltaTime);
+
 		// debug
 		if (Key == EKeys::MouseX)
 		{
@@ -1654,6 +1566,11 @@ float UPlayerInput::MassageAxisInput(FKey Key, float RawValue, float DeltaTime)
 	}
 
 	return NewVal;
+}
+
+float UPlayerInput::AccelMouse(FKey Key, float RawValue, float DeltaTime)
+{
+	return RawValue;
 }
 
 void UPlayerInput::Tick(float DeltaTime)
@@ -1671,12 +1588,12 @@ void UPlayerInput::ConsumeKey(FKey Key)
 	}
 }
 
-bool UPlayerInput::KeyEventOccurred(FKey Key, EInputEvent Event, TArray<uint32>& InEventIndices) const
+bool UPlayerInput::KeyEventOccurred(FKey Key, EInputEvent Event, TArray<uint32>& EventIndices) const
 {
 	FKeyState const* const KeyState = KeyStateMap.Find(Key);
 	if (KeyState && KeyState->EventCounts[Event].Num() > 0)
 	{
-		InEventIndices = KeyState->EventCounts[Event];
+		EventIndices = KeyState->EventCounts[Event];
 		return true;
 	}
 
@@ -1856,7 +1773,7 @@ FString UPlayerInput::GetBind(FKey Key)
 		for ( int32 BindIndex = DebugExecBindings.Num() - 1; BindIndex >= 0; BindIndex-- )
 		{
 			const FKeyBind&	Bind = DebugExecBindings[BindIndex];
-			if ( Bind.Key == Key && !Bind.bDisabled )
+			if ( Bind.Key == Key )
 			{
 				// if the modifier key pressed [or this key-bind doesn't require that key], and the key-bind isn't
 				// configured to ignore they modifier key, we've found a match.

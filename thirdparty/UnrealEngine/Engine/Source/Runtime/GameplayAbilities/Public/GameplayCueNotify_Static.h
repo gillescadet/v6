@@ -8,7 +8,15 @@
 
 
 /**
- *	A non instantiated UObject that acts as a handler for a GameplayCue. These are useful for one-off "burst" effects.
+ *	A self contained handler of a GameplayCue. These are similiar to AnimNotifies in implementation.
+ *	Instanced GameplayCueNotify which runs arbitrary blueprint code. (TODO: This should be the NON-instanced version!)
+ *	
+ *	
+ *	TODO/Fixme:
+ *		-Unsure: Leave K2_HandleGameplayCue in as generic function?
+ *		-OnExecute/Active/Remove are more clear, easy to use. Make it harder to share info between events.
+ *	
+ *	
  */
 
 UCLASS(Blueprintable, meta = (ShowWorldContextPin), hidecategories = (Replication))
@@ -25,7 +33,7 @@ class GAMEPLAYABILITIES_API UGameplayCueNotify_Static : public UObject
 
 	virtual void Serialize(FArchive& Ar) override;
 
-	virtual void HandleGameplayCue(AActor* MyTarget, EGameplayCueEvent::Type EventType, const FGameplayCueParameters& Parameters);
+	virtual void HandleGameplayCue(AActor* MyTarget, EGameplayCueEvent::Type EventType, FGameplayCueParameters Parameters);
 
 	UWorld* GetWorld() const override;
 
@@ -35,19 +43,19 @@ class GAMEPLAYABILITIES_API UGameplayCueNotify_Static : public UObject
 
 	/** Generic Event Graph event that will get called for every event type */
 	UFUNCTION(BlueprintImplementableEvent, Category = "GameplayCueNotify", DisplayName = "HandleGameplayCue")
-	void K2_HandleGameplayCue(AActor* MyTarget, EGameplayCueEvent::Type EventType, const FGameplayCueParameters& Parameters) const;
+	void K2_HandleGameplayCue(AActor* MyTarget, EGameplayCueEvent::Type EventType, FGameplayCueParameters Parameters) const;
 
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "GameplayCueNotify")
-	bool OnExecute(AActor* MyTarget, const FGameplayCueParameters& Parameters) const;
+	bool OnExecute(AActor* MyTarget, FGameplayCueParameters Parameters) const;
 
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "GameplayCueNotify")
-	bool OnActive(AActor* MyTarget, const FGameplayCueParameters& Parameters) const;
+	bool OnActive(AActor* MyTarget, FGameplayCueParameters Parameters) const;
 
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "GameplayCueNotify")
-	bool WhileActive(AActor* MyTarget, const FGameplayCueParameters& Parameters) const;
+	bool WhileActive(AActor* MyTarget, FGameplayCueParameters Parameters) const;
 
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "GameplayCueNotify")
-	bool OnRemove(AActor* MyTarget, const FGameplayCueParameters& Parameters) const;
+	bool OnRemove(AActor* MyTarget, FGameplayCueParameters Parameters) const;
 
 	UPROPERTY(EditDefaultsOnly, Category = GameplayCue, meta=(Categories="GameplayCue"))
 	FGameplayTag	GameplayCueTag;

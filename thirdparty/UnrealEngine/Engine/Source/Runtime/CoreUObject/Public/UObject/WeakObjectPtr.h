@@ -78,7 +78,7 @@ public:
 	{
 		return 
 			(ObjectIndex == Other.ObjectIndex && ObjectSerialNumber == Other.ObjectSerialNumber) ||
-			(!IsValid() && !Other.IsValid());
+			(Get() == Other.Get());
 	}
 
 	/**  
@@ -89,13 +89,9 @@ public:
 	{
 		return 
 			(ObjectIndex != Other.ObjectIndex || ObjectSerialNumber != Other.ObjectSerialNumber) &&
-			(IsValid() || Other.IsValid());
+			(Get() != Other.Get());
 	}
 
-	FORCEINLINE bool HasSameIndexAndSerialNumber(const FWeakObjectPtr& Other) const
-	{
-		return ObjectIndex == Other.ObjectIndex && ObjectSerialNumber == Other.ObjectSerialNumber;
-	}
 
 	/**  
 	 * Dereference the weak pointer.
@@ -120,13 +116,7 @@ public:
 	 *							UObject is gone forever (@return false) or if it is still there (@return true, no object flags checked).
 	 * @return true if Get() would return a valid non-null pointer, if bThreadsafeTest == true then @see @param bThreadsafeTest
 	**/
-	COREUOBJECT_API bool IsValid(bool bEvenIfPendingKill, bool bThreadsafeTest = false) const;
-
-	/**
-	 * Test if this points to a live UObject. This is an optimized version implying bEvenIfPendingKill=false, bThreadsafeTest=false.
-	 * @return true if Get() would return a valid non-null pointer.
-	 */
-	COREUOBJECT_API bool IsValid(/*bool bEvenIfPendingKill = false, bool bThreadsafeTest = false*/) const;
+	COREUOBJECT_API bool IsValid(bool bEvenIfPendingKill = false, bool bThreadsafeTest = false) const;
 
 	/**  
 	 * Slightly different than !IsValid(), returns true if this used to point to a UObject, but doesn't any more and has not been assigned or reset in the mean time.

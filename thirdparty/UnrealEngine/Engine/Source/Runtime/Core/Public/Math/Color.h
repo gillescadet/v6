@@ -11,7 +11,6 @@ struct FColor;
 struct FVector;
 class FFloat16Color;
 
-
 /**
  * Enum for the different kinds of gamma spaces we expect to need to convert from/to.
  */
@@ -292,6 +291,7 @@ struct FLinearColor
 	 * @param	From		The color and alpha to interpolate from as linear RGBA
 	 * @param	To			The color and alpha to interpolate to as linear RGBA
 	 * @param	Progress	Scalar interpolation amount (usually between 0.0 and 1.0 inclusive)
+	 * 
 	 * @return	The interpolated color in linear RGB space along with the interpolated alpha value
 	 */
 	static CORE_API FLinearColor LerpUsingHSV( const FLinearColor& From, const FLinearColor& To, const float Progress );
@@ -316,7 +316,7 @@ struct FLinearColor
 	/**
 	 * Returns the maximum value in this color structure
 	 *
-	 * @return The maximum color channel value
+	 * @return	The maximum color channel value
 	 */
 	FORCEINLINE float GetMax() const
 	{
@@ -332,7 +332,7 @@ struct FLinearColor
 	/**
 	 * Returns the minimum value in this color structure
 	 *
-	 * @return The minimum color channel value
+	 * @return	The minimum color channel value
 	 */
 	FORCEINLINE float GetMin() const
 	{
@@ -353,7 +353,8 @@ struct FLinearColor
 	 * Initialize this Color based on an FString. The String is expected to contain R=, G=, B=, A=.
 	 * The FLinearColor will be bogus when InitFromString returns false.
 	 *
-	 * @param InSourceString FString containing the color values.
+	 * @param	InSourceString	FString containing the color values.
+	 *
 	 * @return true if the R,G,B values were read successfully; false otherwise.
 	 */
 	bool InitFromString( const FString& InSourceString )
@@ -471,7 +472,9 @@ public:
 	 * Supported formats are: RGB, RRGGBB, RRGGBBAA, #RGB, #RRGGBB, #RRGGBBAA
 	 *
 	 * @param HexString - The hexadecimal string.
+	 *
 	 * @return The corresponding color value.
+	 *
 	 * @see ToHex
 	 */
 	static CORE_API FColor FromHex( const FString& HexString );
@@ -515,8 +518,10 @@ public:
 	 *
 	 * The format of the string is RRGGBBAA.
 	 *
-	 * @return Hexadecimal string.
-	 * @see FromHex, ToString
+	 * @result Hexadecimal string.
+	 *
+	 * @see FromHex
+	 * @see ToString
 	 */
 	FORCEINLINE FString ToHex() const
 	{
@@ -526,7 +531,8 @@ public:
 	/**
 	 * Converts this color value to a string.
 	 *
-	 * @return The string representation.
+	 * @result The string representation.
+	 *
 	 * @see ToHex
 	 */
 	FORCEINLINE FString ToString() const
@@ -539,6 +545,7 @@ public:
 	 * The FColor will be bogus when InitFromString returns false.
 	 *
 	 * @param	InSourceString	FString containing the color values.
+	 *
 	 * @return true if the R,G,B values were read successfully; false otherwise.
 	 */
 	bool InitFromString( const FString& InSourceString )
@@ -614,12 +621,10 @@ private:
 	explicit FColor(const FLinearColor& LinearColor);
 };
 
-
 FORCEINLINE uint32 GetTypeHash( const FColor& Color )
 {
 	return Color.DWColor();
 }
-
 
 FORCEINLINE uint32 GetTypeHash( const FLinearColor& LinearColor )
 {
@@ -643,14 +648,11 @@ struct FDXTColor565
 {
 	/** Blue component, 5 bit. */
 	uint16 B:5;
-
 	/** Green component, 6 bit. */
 	uint16 G:6;
-
 	/** Red component, 5 bit */
 	uint16 R:5;
 };
-
 
 /**
  * Helper struct for a 16 bit 565 color of a DXT1/3/5 block.
@@ -665,7 +667,6 @@ struct FDXTColor16
 		uint16 Value;
 	};
 };
-
 
 /**
  * Structure encompassing single DXT1 block.
@@ -682,7 +683,6 @@ struct FDXT1
 	uint32 Indices;
 };
 
-
 /**
  * Structure encompassing single DXT5 block
  */
@@ -694,9 +694,9 @@ struct FDXT5
 	FDXT1	DXT1;
 };
 
-
 // Make DXT helpers act like PODs
 template <> struct TIsPODType<FDXT1> { enum { Value = true }; };
 template <> struct TIsPODType<FDXT5> { enum { Value = true }; };
 template <> struct TIsPODType<FDXTColor16> { enum { Value = true }; };
 template <> struct TIsPODType<FDXTColor565> { enum { Value = true }; };
+

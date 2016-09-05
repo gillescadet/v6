@@ -23,15 +23,6 @@ UAbilityTask_WaitAbilityActivate* UAbilityTask_WaitAbilityActivate::WaitForAbili
 	return MyObj;
 }
 
-UAbilityTask_WaitAbilityActivate* UAbilityTask_WaitAbilityActivate::WaitForAbilityActivateWithTagRequirements(UObject* WorldContextObject, FGameplayTagRequirements TagRequirements, bool InIncludeTriggeredAbilities, bool InTriggerOnce)
-{
-	auto MyObj = NewAbilityTask<UAbilityTask_WaitAbilityActivate>(WorldContextObject);
-	MyObj->TagRequirements = TagRequirements;
-	MyObj->IncludeTriggeredAbilities = InIncludeTriggeredAbilities;
-	MyObj->TriggerOnce = InTriggerOnce;
-	return MyObj;
-}
-
 void UAbilityTask_WaitAbilityActivate::Activate()
 {
 	if (AbilitySystemComponent)
@@ -47,22 +38,11 @@ void UAbilityTask_WaitAbilityActivate::OnAbilityActivate(UGameplayAbility* Activ
 		return;
 	}
 
-	if (TagRequirements.IsEmpty())
+	if ((WithTag.IsValid() && !ActivatedAbility->AbilityTags.HasTag(WithTag, EGameplayTagMatchType::IncludeParentTags, EGameplayTagMatchType::Explicit)) ||
+		(WithoutTag.IsValid() && ActivatedAbility->AbilityTags.HasTag(WithoutTag, EGameplayTagMatchType::IncludeParentTags, EGameplayTagMatchType::Explicit)))
 	{
-		if ((WithTag.IsValid() && !ActivatedAbility->AbilityTags.HasTag(WithTag, EGameplayTagMatchType::IncludeParentTags, EGameplayTagMatchType::Explicit)) ||
-			(WithoutTag.IsValid() && ActivatedAbility->AbilityTags.HasTag(WithoutTag, EGameplayTagMatchType::IncludeParentTags, EGameplayTagMatchType::Explicit)))
-		{
-			// Failed tag check
-			return;
-		}
-	}
-	else
-	{
-		if (!TagRequirements.RequirementsMet(ActivatedAbility->AbilityTags))
-		{
-			// Failed tag check
-			return;
-		}
+		// Failed tag check
+		return;
 	}
 
 	OnActivate.Broadcast(ActivatedAbility);

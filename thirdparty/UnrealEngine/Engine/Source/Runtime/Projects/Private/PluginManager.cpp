@@ -67,7 +67,6 @@ FPlugin::FPlugin(const FString& InFileName, const FPluginDescriptor& InDescripto
 	, LoadedFrom(InLoadedFrom)
 	, bEnabled(false)
 {
-
 }
 
 FPlugin::~FPlugin()
@@ -218,14 +217,9 @@ void FPluginManager::ReadPluginsInDirectory(const FString& PluginsDirectory, con
 		{
 			FPluginDescriptor Descriptor;
 			FText FailureReason;
-			if ( Descriptor.Load(FileName, FailureReason) )
+			if(Descriptor.Load(FileName, FailureReason))
 			{
-				TSharedRef<FPlugin> Plugin = MakeShareable(new FPlugin(FileName, Descriptor, LoadedFrom));
-				
-				FString FullPath = FPaths::ConvertRelativePathToFull(FileName);
-				UE_LOG(LogPluginManager, Log, TEXT("Loaded Plugin %s, From %s"), *Plugin->GetName(), *FullPath);
-
-				Plugins.Add(Plugin);
+				Plugins.Add(MakeShareable(new FPlugin(FileName, Descriptor, LoadedFrom)));
 			}
 			else
 			{
@@ -368,15 +362,11 @@ bool FPluginManager::ConfigureEnabledPlugins()
 		{
 			if (AllEnabledPlugins.Contains(Plugin->Name))
 			{
-#if IS_PROGRAM
-				Plugin->bEnabled = !bHasProjectFile || IsPluginSupportedByCurrentTarget(Plugin);
+				Plugin->bEnabled = (!IS_PROGRAM || !bHasProjectFile) || IsPluginSupportedByCurrentTarget(Plugin);
 				if (!Plugin->bEnabled)
 				{
 					AllEnabledPlugins.Remove(Plugin->Name);
 				}
-#else
-				Plugin->bEnabled = true;
-#endif
 			}
 		}
 
@@ -386,19 +376,9 @@ bool FPluginManager::ConfigureEnabledPlugins()
 			TArray<FPluginReferenceDescriptor> PluginsCopy = Project->Plugins;
 			for(const FPluginReferenceDescriptor& Plugin: PluginsCopy)
 			{
-				bool bShouldBeEnabled = Plugin.bEnabled && Plugin.IsEnabledForPlatform(FPlatformMisc::GetUBTPlatform()) && Plugin.IsEnabledForTarget(FPlatformMisc::GetUBTTarget());
-				if (bShouldBeEnabled && !FindPluginInstance(Plugin.Name).IsValid() && !Plugin.bOptional
-#if IS_PROGRAM
-					 && AllEnabledPlugins.Contains(Plugin.Name) // skip if this is a program and the plugin is not enabled
-#endif
-					)
+				if ((Plugin.bEnabled && !FindPluginInstance(Plugin.Name).IsValid()) &&
+					 (!IS_PROGRAM || AllEnabledPlugins.Contains(Plugin.Name))) // skip if this is a program and the plugin is not enabled
 				{
-					if (FApp::IsUnattended())
-					{
-						UE_LOG(LogPluginManager, Error, TEXT("This project requires the '%s' plugin. Install it and try again, or remove it from the project's required plugin list."), *Plugin.Name);
-						return false;
-					}
-
 					FText Caption(LOCTEXT("PluginMissingCaption", "Plugin missing"));
 					if(Plugin.MarketplaceURL.Len() > 0)
 					{
@@ -468,9 +448,9 @@ bool FPluginManager::ConfigureEnabledPlugins()
 			// Build the list of content folders
 				if (Plugin->Descriptor.bCanContainContent)
 				{
-					if (FConfigFile* EngineConfigFile = GConfig->Find(GEngineIni, false))
+					if (auto EngineConfigFile = GConfig->Find(GEngineIni, false))
 					{
-						if (FConfigSection* CoreSystemSection = EngineConfigFile->Find(TEXT("Core.System")))
+						if (auto CoreSystemSection = EngineConfigFile->Find(TEXT("Core.System")))
 						{
 							CoreSystemSection->AddUnique("Paths", Plugin->GetContentDir());
 						}
@@ -508,11 +488,11 @@ bool FPluginManager::ConfigureEnabledPlugins()
 				{
 					FoundPaks.Reset();
 					PlatformFile.IterateDirectoryRecursively(*(ContentDir / TEXT("Paks") / FPlatformProperties::PlatformName()), PakVisitor);
-					for (const FString& PakPath : FoundPaks)
+					for (const auto& PakPath : FoundPaks)
 					{
 						if (FCoreDelegates::OnMountPak.IsBound())
 						{
-							FCoreDelegates::OnMountPak.Execute(PakPath, 0, nullptr);
+							FCoreDelegates::OnMountPak.Execute(PakPath, 0);
 						}
 					}
 				}
@@ -559,8 +539,8 @@ bool FPluginManager::LoadModulesForEnabledPlugins( const ELoadingPhase::Type Loa
 			FText FailureMessage;
 			for( auto FailureIt( ModuleLoadFailures.CreateConstIterator() ); FailureIt; ++FailureIt )
 			{
-				const FName ModuleNameThatFailedToLoad = FailureIt.Key();
-				const EModuleLoadResult FailureReason = FailureIt.Value();
+				const auto ModuleNameThatFailedToLoad = FailureIt.Key();
+				const auto FailureReason = FailureIt.Value();
 
 				if( FailureReason != EModuleLoadResult::Success )
 				{

@@ -174,8 +174,7 @@ void DrawRectangle(
 	FIntPoint TargetSize,
 	FIntPoint TextureSize,
 	FShader* VertexShader,
-	EDrawRectangleFlags Flags,
-	uint32 InstanceCount
+	EDrawRectangleFlags Flags
 	)
 {
 	float ClipSpaceQuadZ = 0.0f;
@@ -215,7 +214,7 @@ void DrawRectangle(
 			/*NumVertices=*/ GTesselatedScreenRectangleIndexBuffer.NumVertices(),
 			/*StartIndex=*/ 0,
 			/*NumPrimitives=*/ GTesselatedScreenRectangleIndexBuffer.NumPrimitives(),
-			/*NumInstances=*/ InstanceCount
+			/*NumInstances=*/ 1
 			);
 	}
 	else
@@ -236,7 +235,7 @@ void DrawRectangle(
 				/*NumVertices=*/ 3,
 				/*StartIndex=*/ 6,
 				/*NumPrimitives=*/ 1,
-				/*NumInstances=*/ InstanceCount
+				/*NumInstances=*/ 1
 				);
 		}
 		else
@@ -251,7 +250,7 @@ void DrawRectangle(
 				/*NumVertices=*/ 4,
 				/*StartIndex=*/ 0,
 				/*NumPrimitives=*/ 2,
-				/*NumInstances=*/ InstanceCount
+				/*NumInstances=*/ 1
 				);
 		}
 	}

@@ -16,9 +16,10 @@ enum EDepthDrawingMode
 	DDM_AllOccluders	= 2,
 	//
 	DDM_AllOpaque		= 3,
-};
 
-extern const TCHAR* GetDepthDrawingModeString(EDepthDrawingMode Mode);
+	// Note: Values used in MaterialShared.cpp to set USE_STENCIL_LOD_DITHER_DEFAULT.
+	//		 Please keep in sync if changed to avoid compile environment mismatch.
+};
 
 template<bool>
 class TDepthOnlyVS;
@@ -32,14 +33,6 @@ class FDepthDrawingPolicy : public FMeshDrawingPolicy
 {
 public:
 
-	struct ContextDataType : public FMeshDrawingPolicy::ContextDataType
-	{
-		explicit ContextDataType(const bool InbIsInstancedStereo) : FMeshDrawingPolicy::ContextDataType(InbIsInstancedStereo), bIsInstancedStereoEmulated(false) {};
-		ContextDataType(const bool InbIsInstancedStereo, const bool InbIsInstancedStereoEmulated) : FMeshDrawingPolicy::ContextDataType(InbIsInstancedStereo), bIsInstancedStereoEmulated(InbIsInstancedStereoEmulated) {};
-		ContextDataType() : bIsInstancedStereoEmulated(false) {};
-		bool bIsInstancedStereoEmulated;
-	};
-
 	FDepthDrawingPolicy(
 		const FVertexFactory* InVertexFactory,
 		const FMaterialRenderProxy* InMaterialRenderProxy,
@@ -49,19 +42,17 @@ public:
 		);
 
 	// FMeshDrawingPolicy interface.
-	FDrawingPolicyMatchResult Matches(const FDepthDrawingPolicy& Other) const
+	bool Matches(const FDepthDrawingPolicy& Other) const
 	{
-		DRAWING_POLICY_MATCH_BEGIN
-		 	DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
-			DRAWING_POLICY_MATCH(bNeedsPixelShader == Other.bNeedsPixelShader) &&
-			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-			DRAWING_POLICY_MATCH(PixelShader == Other.PixelShader);
-		DRAWING_POLICY_MATCH_END
+		return FMeshDrawingPolicy::Matches(Other) 
+			&& bNeedsPixelShader == Other.bNeedsPixelShader
+			&& VertexShader == Other.VertexShader
+			&& PixelShader == Other.PixelShader;
 	}
 
 	void SetInstancedEyeIndex(FRHICommandList& RHICmdList, const uint32 EyeIndex) const;
 
-	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const FDepthDrawingPolicy::ContextDataType PolicyContext) const;
+	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const ContextDataType PolicyContext) const;
 
 	/** 
 	* Create bound shader state using the vertex decl from the mesh draw policy
@@ -103,14 +94,6 @@ class FPositionOnlyDepthDrawingPolicy : public FMeshDrawingPolicy
 {
 public:
 
-	struct ContextDataType : public FMeshDrawingPolicy::ContextDataType
-	{
-		explicit ContextDataType(const bool InbIsInstancedStereo) : FMeshDrawingPolicy::ContextDataType(InbIsInstancedStereo), bIsInstancedStereoEmulated(false) {};
-		ContextDataType(const bool InbIsInstancedStereo, const bool InbIsInstancedStereoEmulated) : FMeshDrawingPolicy::ContextDataType(InbIsInstancedStereo), bIsInstancedStereoEmulated(InbIsInstancedStereoEmulated) {};
-		ContextDataType() : bIsInstancedStereoEmulated(false) {};
-		bool bIsInstancedStereoEmulated;
-	};
-
 	FPositionOnlyDepthDrawingPolicy(
 		const FVertexFactory* InVertexFactory,
 		const FMaterialRenderProxy* InMaterialRenderProxy,
@@ -120,15 +103,12 @@ public:
 		);
 
 	// FMeshDrawingPolicy interface.
-	FDrawingPolicyMatchResult Matches(const FPositionOnlyDepthDrawingPolicy& Other) const
+	bool Matches(const FPositionOnlyDepthDrawingPolicy& Other) const
 	{
-		DRAWING_POLICY_MATCH_BEGIN
-			DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) && 
-			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader);
-		DRAWING_POLICY_MATCH_END
+		return FMeshDrawingPolicy::Matches(Other) && VertexShader == Other.VertexShader;
 	}
 
-	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const FPositionOnlyDepthDrawingPolicy::ContextDataType PolicyContext) const;
+	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const ContextDataType PolicyContext) const;
 
 	/** 
 	* Create bound shader state using the vertex decl from the mesh draw policy
@@ -170,27 +150,23 @@ public:
 	{
 		EDepthDrawingMode DepthDrawingMode;
 
-		/** Uses of FDepthDrawingPolicyFactory that are not the depth pre-pass will not want the bUseAsOccluder flag to interfere. */
-		bool bRespectUseAsOccluderFlag;
-
-		ContextType(EDepthDrawingMode InDepthDrawingMode, bool bInRespectUseAsOccluderFlag) :
-			DepthDrawingMode(InDepthDrawingMode),
-			bRespectUseAsOccluderFlag(bInRespectUseAsOccluderFlag)
+		ContextType(EDepthDrawingMode InDepthDrawingMode) :
+			DepthDrawingMode(InDepthDrawingMode)
 		{}
 	};
 
 	static void AddStaticMesh(FScene* Scene,FStaticMesh* StaticMesh);
 	static bool DrawDynamicMesh(
-		FRHICommandList& RHICmdList,
+		FRHICommandList& RHICmdList, 
 		const FViewInfo& View,
 		ContextType DrawingContext,
 		const FMeshBatch& Mesh,
 		bool bBackFace,
 		bool bPreFog,
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
-		FHitProxyId HitProxyId,
-		const bool bIsInstancedStereo = false,
-		const bool bIsInstancedStereoEmulated = false
+		FHitProxyId HitProxyId, 
+		const bool bIsInstancedStereo = false, 
+		const bool bNeedsInstancedStereoBias = false
 		);
 
 	static bool DrawStaticMesh(
@@ -203,8 +179,7 @@ public:
 		const FMeshDrawingRenderState& DrawRenderState,
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
 		FHitProxyId HitProxyId, 
-		const bool bIsInstancedStereo = false,
-		const bool bIsInstancedStereoEmulated = false
+		const bool bNeedsInstancedStereoBias = false
 		);
 
 private:
@@ -224,6 +199,6 @@ private:
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
 		FHitProxyId HitProxyId, 
 		const bool bIsInstancedStereo = false, 
-		const bool bIsInstancedStereoEmulated = false
+		const bool bNeedsInstancedStereoBias = false
 		);
 };

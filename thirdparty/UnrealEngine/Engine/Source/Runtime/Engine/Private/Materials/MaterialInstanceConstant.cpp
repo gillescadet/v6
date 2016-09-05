@@ -15,13 +15,6 @@ UMaterialInstanceConstant::UMaterialInstanceConstant(const FObjectInitializer& O
 }
 
 #if WITH_EDITOR
-void UMaterialInstanceConstant::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
-{
-	Super::PostEditChangeProperty(PropertyChangedEvent);
-
-	ParameterStateId = FGuid::NewGuid();
-}
-
 void UMaterialInstanceConstant::SetParentEditorOnly(UMaterialInterface* NewParent)
 {
 	check(GIsEditor);

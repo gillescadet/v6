@@ -7,15 +7,13 @@
 
 #include "Landscape.h"
 #include "LandscapeSplineRaster.h"
-#include "LandscapeStreamingProxy.h"
+#include "LandscapeProxy.h"
 #include "LandscapeDataAccess.h"
 #include "LandscapeEdit.h"
 #include "LandscapeHeightfieldCollisionComponent.h"
 #include "LandscapeSplinesComponent.h"
 #include "LandscapeSplineControlPoint.h"
 #include "LandscapeSplineSegment.h"
-#include "LandscapeLayerInfoObject.h"
-#include "LandscapeComponent.h"
 #if WITH_EDITOR
 #include "AI/Navigation/NavigationSystem.h"
 #include "ScopedTransaction.h"
@@ -426,8 +424,9 @@ bool ULandscapeInfo::ApplySplines(bool bOnlySelected)
 
 	bResult |= ApplySplinesInternal(bOnlySelected, Landscape);
 
-	for (ALandscapeProxy* LandscapeProxy : Proxies)
+	for (auto It = Proxies.CreateIterator(); It; ++It)
 	{
+		ALandscapeProxy* LandscapeProxy = (*It);
 		bResult |= ApplySplinesInternal(bOnlySelected, LandscapeProxy);
 	}
 

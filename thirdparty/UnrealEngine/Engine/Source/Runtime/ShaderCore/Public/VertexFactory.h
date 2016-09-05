@@ -174,7 +174,7 @@ public:
 	{
 		// Set up the mapping from VertexFactory.usf to the vertex factory type's source code.
 		FString VertexFactoryIncludeString = FString::Printf( TEXT("#include \"%s.usf\""), GetShaderFilename() );
-		OutEnvironment.IncludeFileNameToContentsMap.Add(TEXT("VertexFactory.usf"), StringToArray<ANSICHAR>(*VertexFactoryIncludeString, VertexFactoryIncludeString.Len() + 1));
+		OutEnvironment.IncludeFileNameToContentsMap.Add(TEXT("VertexFactory.usf"), VertexFactoryIncludeString);
 
 		OutEnvironment.SetDefine(TEXT("HAS_PRIMITIVE_UNIFORM_BUFFER"), 1);
 
@@ -335,15 +335,29 @@ public:
 class SHADERCORE_API FVertexFactory : public FRenderResource
 {
 public:
-	FVertexFactory() 
-	{
-	}
 
+	struct DataType
+	{
+		/** Initialization constructor. */
+		DataType() {}
+	};
+
+	/**
+	 * Default constructor 
+	 */
+	FVertexFactory() {}
+
+	/**
+	* Constructor specifiying feature level
+	*/
 	FVertexFactory(ERHIFeatureLevel::Type InFeatureLevel) 
 		: FRenderResource(InFeatureLevel)
 	{
 	}
 
+	/**
+	 * @return The vertex factory's type.
+	 */
 	virtual FVertexFactoryType* GetType() const { return NULL; }
 
 	/**
@@ -407,15 +421,8 @@ public:
 
 	/**
 	 * Get a bitmask representing the visibility of each FMeshBatch element.
-	 * FMeshBatch.bRequiresPerElementVisibility must be set for this to be called.
 	 */
-	virtual uint64 GetStaticBatchElementVisibility(const class FSceneView& View, const struct FMeshBatch* Batch) const { return 1; }
-
-	/**
-	  * Get a bitmask representing the visibility of each FMeshBatch element for the shadow depths of a given light.
-	  * FMeshBatch.bRequiresPerElementVisibility must be set for this to be called.
-	  */
-	virtual uint64 GetStaticBatchElementShadowVisibility(const class FSceneView& View, const class FLightSceneProxy* LightSceneProxy, const struct FMeshBatch* Batch) const { return GetStaticBatchElementVisibility(View, Batch); }
+	virtual uint64 GetStaticBatchElementVisibility( const class FSceneView& View, const struct FMeshBatch* Batch ) const { return 1; }
 
 protected:
 
@@ -440,7 +447,9 @@ protected:
 	 * Initializes the vertex declaration.
 	 * @param Elements - The elements of the vertex declaration.
 	 */
-	void InitDeclaration(FVertexDeclarationElementList& Elements);
+	void InitDeclaration(
+		FVertexDeclarationElementList& Elements, 
+		const DataType& Data);
 
 	/**
 	 * Initializes the position-only vertex declaration.
@@ -487,6 +496,9 @@ private:
 
 	/** The RHI vertex declaration used to render the factory during depth only passes. */
 	FVertexDeclarationRHIRef PositionDeclaration;
+
+	/** The vertex factory's data. */
+	DataType Data;
 };
 
 /**

@@ -124,11 +124,6 @@ bool FProjectDescriptor::Read(const FJsonObject& Object, FText& OutFailReason)
 
 	// Get the sample name hash
 	Object.TryGetNumberField(TEXT("EpicSampleNameHash"), EpicSampleNameHash);
-
-	// Read the custom build steps
-	PreBuildSteps.Read(Object, TEXT("PreBuildSteps"));
-	PostBuildSteps.Read(Object, TEXT("PostBuildSteps"));
-
 	return true;
 }
 
@@ -169,7 +164,7 @@ void FProjectDescriptor::Write(TJsonWriter<>& Writer) const
 	FPluginReferenceDescriptor::WriteArray(Writer, TEXT("Plugins"), Plugins);
 
 	// Write the target platforms
-	if(TargetPlatforms.Num() > 0)
+	if ( TargetPlatforms.Num() > 0 )
 	{
 		Writer.WriteArrayStart(TEXT("TargetPlatforms"));
 		for(int Idx = 0; Idx < TargetPlatforms.Num(); Idx++)
@@ -183,16 +178,6 @@ void FProjectDescriptor::Write(TJsonWriter<>& Writer) const
 	if(EpicSampleNameHash != 0)
 	{
 		Writer.WriteValue(TEXT("EpicSampleNameHash"), FString::Printf(TEXT("%u"), EpicSampleNameHash));
-	}
-
-	// Write the custom build steps
-	if(!PreBuildSteps.IsEmpty())
-	{
-		PreBuildSteps.Write(Writer, TEXT("PreBuildSteps"));
-	}
-	if(!PostBuildSteps.IsEmpty())
-	{
-		PostBuildSteps.Write(Writer, TEXT("PostBuildSteps"));
 	}
 
 	Writer.WriteObjectEnd();

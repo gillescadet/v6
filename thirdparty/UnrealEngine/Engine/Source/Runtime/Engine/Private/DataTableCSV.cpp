@@ -5,11 +5,12 @@
 #include "CsvParser.h"
 #include "Engine/DataTable.h"
 #include "Engine/UserDefinedStruct.h"
+#include "DataTableUtils.h"
 
 #if WITH_EDITOR
 
-FDataTableExporterCSV::FDataTableExporterCSV(const EDataTableExportFlags InDTExportFlags, FString& OutExportText)
-	: DTExportFlags(InDTExportFlags)
+FDataTableExporterCSV::FDataTableExporterCSV(const UDataTable& InDataTable, FString& OutExportText)
+	: DataTable(&InDataTable)
 	, ExportedText(OutExportText)
 {
 }
@@ -18,33 +19,33 @@ FDataTableExporterCSV::~FDataTableExporterCSV()
 {
 }
 
-bool FDataTableExporterCSV::WriteTable(const UDataTable& InDataTable)
+bool FDataTableExporterCSV::WriteTable()
 {
-	if (!InDataTable.RowStruct)
+	if (!DataTable->RowStruct)
 	{
 		return false;
 	}
 
 	// Write the header (column titles)
 	ExportedText += TEXT("---");
-	for (TFieldIterator<UProperty> It(InDataTable.RowStruct); It; ++It)
+	for (TFieldIterator<UProperty> It(DataTable->RowStruct); It; ++It)
 	{
 		UProperty* BaseProp = *It;
 		check(BaseProp);
 
 		ExportedText += TEXT(",");
-		ExportedText += DataTableUtils::GetPropertyExportName(BaseProp, DTExportFlags);
+		ExportedText += BaseProp->GetName();
 	}
 	ExportedText += TEXT("\n");
 
 	// Write each row
-	for (auto RowIt = InDataTable.RowMap.CreateConstIterator(); RowIt; ++RowIt)
+	for (auto RowIt = DataTable->RowMap.CreateConstIterator(); RowIt; ++RowIt)
 	{
 		FName RowName = RowIt.Key();
 		ExportedText += RowName.ToString();
 
 		uint8* RowData = RowIt.Value();
-		WriteRow(InDataTable.RowStruct, RowData);
+		WriteRow(RowData);
 
 		ExportedText += TEXT("\n");
 	}
@@ -52,14 +53,14 @@ bool FDataTableExporterCSV::WriteTable(const UDataTable& InDataTable)
 	return true;
 }
 
-bool FDataTableExporterCSV::WriteRow(const UScriptStruct* InRowStruct, const void* InRowData)
+bool FDataTableExporterCSV::WriteRow(const void* InRowData)
 {
-	if (!InRowStruct)
+	if (!DataTable->RowStruct)
 	{
 		return false;
 	}
 
-	for (TFieldIterator<UProperty> It(InRowStruct); It; ++It)
+	for (TFieldIterator<UProperty> It(DataTable->RowStruct); It; ++It)
 	{
 		UProperty* BaseProp = *It;
 		check(BaseProp);
@@ -75,7 +76,7 @@ bool FDataTableExporterCSV::WriteStructEntry(const void* InRowData, UProperty* I
 {
 	ExportedText += TEXT(",");
 
-	const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData, DTExportFlags);
+	const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData);
 	ExportedText += TEXT("\"");
 	ExportedText += PropertyValue.Replace(TEXT("\""), TEXT("\"\""));
 	ExportedText += TEXT("\"");

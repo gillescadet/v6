@@ -229,12 +229,12 @@ public:
 	}
 	virtual bool ShouldBeUsed(IPlatformFile* Inner, const TCHAR* CmdLine) const override
 	{
-		// Default to false on platforms that already do platform file level caching
-		bool bResult = !PLATFORM_PS4 && !PLATFORM_WINDOWS && !PLATFORM_IOS && !PLATFORM_ANDROID && FPlatformProperties::RequiresCookedData();
+		// default to false on Windows since FAsyncBufferedFileReaderWindows already buffers the data
+		bool bResult = !PLATFORM_WINDOWS && FPlatformProperties::RequiresCookedData();
 
 		// Allow a choice between shorter load times or less memory on desktop platforms.
 		// Note: this cannot be in config since they aren't read at that point.
-#if (PLATFORM_DESKTOP || PLATFORM_PS4)
+		if (PLATFORM_DESKTOP)
 		{
 			if (FParse::Param(CmdLine, TEXT("NoCachedReadFile")))
 			{
@@ -247,7 +247,7 @@ public:
 
 			UE_LOG(LogPlatformFile, Log, TEXT("%s cached read wrapper"), bResult ? TEXT("Using") : TEXT("Not using"));
 		}
-#endif
+
 		return bResult;
 	}
 	IPlatformFile* GetLowerLevel() override
@@ -377,10 +377,4 @@ public:
 	{
 		return LowerLevel->SendMessageToServer(Message, Handler);
 	}
-#if USE_NEW_ASYNC_IO
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override
-	{
-		return LowerLevel->OpenAsyncRead(Filename);
-	}
-#endif // USE_NEW_ASYNC_IO
 };

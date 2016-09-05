@@ -2,7 +2,6 @@
 
 #pragma once
 #include "Animation/AnimNodeBase.h"
-#include "Animation/AnimInstance.h"
 #include "AnimNode_Slot.generated.h"
 
 // An animation slot node normally acts as a passthru, but a montage or PlaySlotAnimation call from

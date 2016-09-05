@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "MovieSceneNameableTrack.h"
+#include "MovieSceneTrack.h"
 #include "MovieSceneParameterSection.h"
 #include "MovieSceneParticleParameterTrack.generated.h"
 
@@ -12,7 +12,7 @@
  */
 UCLASS( MinimalAPI )
 class UMovieSceneParticleParameterTrack
-	: public UMovieSceneNameableTrack
+	: public UMovieSceneTrack
 {
 	GENERATED_UCLASS_BODY()
 
@@ -31,7 +31,7 @@ public:
 	virtual const TArray<UMovieSceneSection*>& GetAllSections() const override;
 
 #if WITH_EDITORONLY_DATA
-	virtual FText GetDefaultDisplayName() const override;
+	virtual FText GetDisplayName() const override;
 #endif
 
 

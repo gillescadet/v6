@@ -2,15 +2,13 @@
 
 #include "MovieSceneTracksPrivatePCH.h"
 #include "MovieSceneSkeletalAnimationSection.h"
-#include "Animation/AnimSequence.h"
 
 FName UMovieSceneSkeletalAnimationSection::DefaultSlotName( "DefaultSlot" );
 
 UMovieSceneSkeletalAnimationSection::UMovieSceneSkeletalAnimationSection( const FObjectInitializer& ObjectInitializer )
 	: Super( ObjectInitializer )
 {
-	AnimSequence_DEPRECATED = nullptr;
-	Animation = nullptr;
+	AnimSequence = nullptr;
 	StartOffset = 0.f;
 	EndOffset = 0.f;
 	PlayRate = 1.f;
@@ -21,15 +19,6 @@ UMovieSceneSkeletalAnimationSection::UMovieSceneSkeletalAnimationSection( const 
 	SlotName = DefaultSlotName;
 }
 
-void UMovieSceneSkeletalAnimationSection::PostLoad()
-{
-	if (AnimSequence_DEPRECATED)
-	{
-		Animation = AnimSequence_DEPRECATED;
-	}
-
-	Super::PostLoad();
-}
 
 void UMovieSceneSkeletalAnimationSection::MoveSection( float DeltaTime, TSet<FKeyHandle>& KeyHandles )
 {
@@ -63,7 +52,7 @@ UMovieSceneSection* UMovieSceneSkeletalAnimationSection::SplitSection(float Spli
 }
 
 
-void UMovieSceneSkeletalAnimationSection::GetKeyHandles(TSet<FKeyHandle>& KeyHandles, TRange<float> TimeRange) const
+void UMovieSceneSkeletalAnimationSection::GetKeyHandles(TSet<FKeyHandle>& KeyHandles) const
 {
 	// do nothing
 }

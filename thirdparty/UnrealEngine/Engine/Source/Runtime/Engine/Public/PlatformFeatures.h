@@ -4,7 +4,6 @@
 
 #include "SaveGameSystem.h"
 #include "DVRStreaming.h"
-#include "VideoRecordingSystem.h"
 
 /**
  * Interface for platform feature modules
@@ -38,9 +37,5 @@ public:
 
 	ENGINE_API virtual class ISaveGameSystem* GetSaveGameSystem();
 
-	ENGINE_API virtual class IDVRStreamingSystem* GetStreamingSystem();
-
-	ENGINE_API virtual TSharedPtr<const class FJsonObject> GetTitleSettings();
-
-	ENGINE_API virtual IVideoRecordingSystem* GetVideoRecordingSystem();
+	ENGINE_API virtual class IDVRStreamingSystem *GetStreamingSystem();
 };

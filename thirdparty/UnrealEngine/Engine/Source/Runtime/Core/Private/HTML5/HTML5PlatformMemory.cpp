@@ -5,7 +5,7 @@
 =============================================================================*/
 
 #include "CorePrivatePCH.h"
-#include "MallocBinned.h"
+#include "MallocBinned2.h"
 #include "MallocAnsi.h"
 
 void FHTML5PlatformMemory::Init()
@@ -51,7 +51,7 @@ FMalloc* FHTML5PlatformMemory::BaseAllocator()
 #if !PLATFORM_HTML5_WIN32 
 	return new FMallocAnsi();
 #else 
-	return new FMallocBinned(32 * 1024, 1 << 30 );
+	return new FMallocBinned2(32 * 1024, 1 << 30 );
 #endif 
 }
 
@@ -64,7 +64,7 @@ void* FHTML5PlatformMemory::BinnedAllocFromOS( SIZE_T Size )
 #endif 
 }
 
-void FHTML5PlatformMemory::BinnedFreeToOS( void* Ptr, SIZE_T Size )
+void FHTML5PlatformMemory::BinnedFreeToOS( void* Ptr )
 {
 #if PLATFORM_HTML5_WIN32 
 	_aligned_free ( Ptr );

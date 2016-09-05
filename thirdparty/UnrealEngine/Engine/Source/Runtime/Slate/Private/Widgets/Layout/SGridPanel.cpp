@@ -130,6 +130,7 @@ void CalculateStretchedCellSizes(TArray<float>& OutSizes, float AllotedSize, con
 			// Compute the denominator for dividing up the stretchy column space
 			CoefficientTotal += Coefficient;
 		}
+
 	}
 
 	for(int32 Index=0; Index < InDesiredSizes.Num(); ++Index)
@@ -272,12 +273,6 @@ void SGridPanel::SetRowFill( int32 RowId, const TAttribute<float>& Coefficient )
 		RowFillCoefficients.Emplace(0);
 	}
 	RowFillCoefficients[RowId] = Coefficient;
-}
-
-void SGridPanel::ClearFill()
-{
-	ColFillCoefficients.Reset();
-	RowFillCoefficients.Reset();
 }
 
 void SGridPanel::ComputePartialSums( TArray<float>& TurnMeIntoPartialSums )

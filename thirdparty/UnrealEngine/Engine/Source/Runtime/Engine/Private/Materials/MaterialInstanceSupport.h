@@ -91,7 +91,11 @@ public:
 	virtual bool GetScalarValue(const FName ParameterName,float* OutValue, const FMaterialRenderContext& Context) const override;
 	virtual bool GetTextureValue(const FName ParameterName,const UTexture** OutValue, const FMaterialRenderContext& Context) const override;
 
-	void GameThread_SetParent(UMaterialInterface* ParentMaterialInterface);
+	/** Sets the material instance's parent. */
+	void GameThread_SetParent(UMaterialInterface* InParent);
+
+	/** Called from the game thread to update the overridable base properties in the proxy. */
+	void GameThread_UpdateOverridableBaseProperties(const UMaterialInterface* MaterialInterface);
 
 	/**
 	 * Clears all parameters set on this material instance.
@@ -146,7 +150,13 @@ public:
 		}
 		return NULL;
 	}
-	
+
+	float GetOpacityMaskClipValue()const{ return OpacityMaskClipValue; }
+	EBlendMode GetBlendMode()const{ return BlendMode; }
+	EMaterialShadingModel GetShadingModel()const{ return ShadingModel; }
+	bool IsTwoSided()const{ return TwoSided; }
+	bool IsDitheredLODTransition()const{ return DitheredLODTransition; }
+
 private:
 	/**
 	 * Retrieves the array of values for a given type.
@@ -162,13 +172,23 @@ private:
 
 	/** The game thread accessible parent of the material instance. */
 	UMaterialInterface* GameThreadParent;
-	
+
 	/** Vector parameters for this material instance. */
 	TArray<TNamedParameter<FLinearColor> > VectorParameterArray;
 	/** Scalar parameters for this material instance. */
 	TArray<TNamedParameter<float> > ScalarParameterArray;
 	/** Texture parameters for this material instance. */
 	TArray<TNamedParameter<const UTexture*> > TextureParameterArray;
+
+	/** 
+		Potentially overridden properties of the base material. 
+		Cached here from the game thread so that the render thread doesn't have to traverse up the parent chain.
+	*/
+	float OpacityMaskClipValue;
+	EBlendMode BlendMode;
+	EMaterialShadingModel ShadingModel;
+	bool TwoSided;
+	bool DitheredLODTransition;
 };
 
 template <> FORCEINLINE TArray<FMaterialInstanceResource::TNamedParameter<float> >& FMaterialInstanceResource::GetValueArray() { return ScalarParameterArray; }
@@ -204,42 +224,4 @@ const ParameterType* GameThread_FindParameterByName(const TArray<ParameterType>&
 		}
 	}
 	return NULL;
-}
-
-template <typename ParameterType>
-int32 GameThread_FindParameterIndexByName(const TArray<ParameterType>& Parameters, const FName& Name)
-{
-	for (int32 ParameterIndex = 0; ParameterIndex < Parameters.Num(); ++ParameterIndex)
-	{
-		const ParameterType* Parameter = &Parameters[ParameterIndex];
-		if (Parameter->ParameterName == Name)
-		{
-			return ParameterIndex;
-		}
-	}
-
-	return INDEX_NONE;
-}
-
-/** Finds a parameter by index from the game thread. */
-template <typename ParameterType>
-ParameterType* GameThread_FindParameterByIndex(TArray<ParameterType>& Parameters, int32 Index)
-{
-	if (!Parameters.IsValidIndex(Index))
-	{
-		return nullptr;
-	}
-
-	return &Parameters[Index];
-}
-
-template <typename ParameterType>
-const ParameterType* GameThread_FindParameterByIndex(const TArray<ParameterType>& Parameters, int32 Index)
-{
-	if (!Parameters.IsValidIndex(Index))
-	{
-		return nullptr;
-	}
-
-	return &Parameters[Index];
 }

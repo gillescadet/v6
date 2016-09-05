@@ -174,6 +174,22 @@ bool UWorld::OverlapAnyTestByChannel(const FVector& Pos, const FQuat& Rot, EColl
 
 }
 
+bool UWorld::OverlapSingle(struct FOverlapResult& OutOverlap, const FVector& Pos, const FQuat& Rot, ECollisionChannel TraceChannel, const struct FCollisionShape& CollisionShape, const struct FCollisionQueryParams& Params, const struct FCollisionResponseParams& ResponseParam) const
+{
+	bool bBlocking = false;
+#if UE_WITH_PHYSICS
+	TArray<FOverlapResult> Overlaps;
+	return GeomOverlapMulti(this, CollisionShape, Pos, Rot, Overlaps, TraceChannel, Params, ResponseParam, FCollisionObjectQueryParams::DefaultObjectQueryParam);
+	if (Overlaps.Num())
+	{
+		OutOverlap = Overlaps[0];
+		bBlocking = Overlaps[0].bBlockingHit;
+	}
+#endif
+
+	return bBlocking;
+}
+
 bool UWorld::OverlapMultiByChannel(TArray<struct FOverlapResult>& OutOverlaps, const FVector& Pos, const FQuat& Rot, ECollisionChannel TraceChannel, const FCollisionShape& CollisionShape, const FCollisionQueryParams& Params /* = FCollisionQueryParams::DefaultQueryParam */, const FCollisionResponseParams& ResponseParam /* = FCollisionResponseParams::DefaultResponseParam */) const
 {
 #if UE_WITH_PHYSICS
@@ -294,6 +310,24 @@ bool UWorld::OverlapAnyTestByObjectType(const FVector& Pos, const FQuat& Rot, co
 	return bBlocking;
 }
 
+
+bool UWorld::OverlapSingle(struct FOverlapResult& OutOverlap, const FVector& Pos, const FQuat& Rot, const struct FCollisionShape& CollisionShape, const struct FCollisionQueryParams& Params, const struct FCollisionObjectQueryParams& ObjectQueryParams) const
+{
+	bool bBlocking = false;
+#if UE_WITH_PHYSICS
+	TArray<FOverlapResult> Overlaps;
+	GeomOverlapMulti(this, CollisionShape, Pos, Rot, Overlaps, DefaultCollisionChannel, Params, FCollisionResponseParams::DefaultResponseParam, ObjectQueryParams);
+	if (Overlaps.Num() > 0)
+	{
+		OutOverlap = Overlaps[0];
+		bBlocking = true;
+	}
+#endif
+
+	return bBlocking;
+}
+
+
 // profile interfaces
 static void GetCollisionProfileChannelAndResponseParams(FName ProfileName, ECollisionChannel &CollisionChannel, FCollisionResponseParams &ResponseParams)
 {
@@ -379,6 +413,21 @@ bool UWorld::OverlapAnyTestByProfile(const FVector& Pos, const FQuat& Rot, FName
 	GetCollisionProfileChannelAndResponseParams(ProfileName, TraceChannel, ResponseParam);
 
 	return OverlapAnyTestByChannel(Pos, Rot, TraceChannel, CollisionShape, Params, ResponseParam);
+}
+
+bool UWorld::OverlapSingleByProfile(struct FOverlapResult& OutOverlap, const FVector& Pos, const FQuat& Rot, FName ProfileName, const struct FCollisionShape& CollisionShape, const struct FCollisionQueryParams& Params) const
+{
+	TArray<FOverlapResult> Overlaps;
+	OverlapMultiByProfile(Overlaps, Pos, Rot, ProfileName, CollisionShape, Params);
+
+	bool bBlocking = false;
+	if (Overlaps.Num())
+	{
+		bBlocking = Overlaps[0].bBlockingHit;
+		OutOverlap = Overlaps[0];
+	}
+
+	return bBlocking;
 }
 
 bool UWorld::OverlapMultiByProfile(TArray<struct FOverlapResult>& OutOverlaps, const FVector& Pos, const FQuat& Rot, FName ProfileName, const struct FCollisionShape& CollisionShape, const struct FCollisionQueryParams& Params) const
@@ -468,8 +517,9 @@ bool UWorld::ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrim
 	ExecuteOnPxRigidActorReadOnly(BodyInstance, [&] (const PxRigidActor* PRigidActor)
 	{
 		// Get all the shapes from the actor
-		FInlinePxShapeArray PShapes;
-		const int32 NumShapes = FillInlinePxShapeArray(PShapes, *PRigidActor);
+		TArray<PxShape*, TInlineAllocator<16>> PShapes;
+		PShapes.AddUninitialized(PRigidActor->getNbShapes());
+		PRigidActor->getShapes(PShapes.GetData(), PShapes.Num());
 
 		// calculate the test global pose of the actor
 		const PxQuat PGeomRot = U2PQuat(Quat);
@@ -477,7 +527,7 @@ bool UWorld::ComponentSweepMulti(TArray<struct FHitResult>& OutHits, class UPrim
 		const PxTransform PGlobalEndPose = PxTransform(U2PVector(End), PGeomRot);
 
 		// Iterate over each shape
-		for(int32 ShapeIdx=0; ShapeIdx<NumShapes; ShapeIdx++)
+		for(int32 ShapeIdx=0; ShapeIdx<PShapes.Num(); ShapeIdx++)
 		{
 			PxShape* PShape = PShapes[ShapeIdx];
 			check(PShape);

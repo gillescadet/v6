@@ -76,6 +76,11 @@ void UScrollBar::PostLoad()
 
 #if WITH_EDITOR
 
+const FSlateBrush* UScrollBar::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.ScrollBar");
+}
+
 const FText UScrollBar::GetPaletteCategory()
 {
 	return LOCTEXT("Primitive", "Primitive");

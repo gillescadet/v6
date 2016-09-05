@@ -10,27 +10,28 @@ public class Voice : ModuleRules
 
 		PrivateIncludePaths.AddRange(
 			new string[] {
-				"Runtime/Online/Voice/Private",
+				"Runtime/Online/Voice/Private"
 			}
 			);
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[] { 
-				"Core"
+				"Core",
+                "Engine",
 			}
 			);
 
 		if (Target.Platform == UnrealTargetPlatform.Win32 ||
 			Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			AddEngineThirdPartyPrivateStaticDependencies(Target, "DirectSound");
+			AddThirdPartyPrivateStaticDependencies(Target, "DirectSound");
 		}
 		else if(Target.Platform == UnrealTargetPlatform.Mac)
 		{
 			PublicFrameworks.AddRange(new string[] { "CoreAudio", "AudioUnit", "AudioToolbox" });
 		}
 
-		AddEngineThirdPartyPrivateStaticDependencies(Target, "libOpus");
+		AddThirdPartyPrivateStaticDependencies(Target, "libOpus");
     }
 }
 

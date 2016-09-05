@@ -39,7 +39,6 @@ void SInlineEditableTextBlock::Construct( const FArguments& InArgs )
 		]
 	];
 
-#if WITH_FANCY_TEXT
 	if( bIsMultiLine )
 	{
 		SAssignNew(MultiLineTextBox, SMultiLineEditableTextBox)
@@ -55,7 +54,6 @@ void SInlineEditableTextBlock::Construct( const FArguments& InArgs )
 			.ModiferKeyForNewLine(InArgs._ModiferKeyForNewLine);
 	}
 	else
-#endif //WITH_FANCY_TEXT
 	{
 		SAssignNew(TextBox, SEditableTextBox)
 			.Text(InArgs._Text)
@@ -300,13 +298,11 @@ void SInlineEditableTextBlock::OnTextBoxCommitted(const FText& InText, ETextComm
 
 TSharedPtr<SWidget> SInlineEditableTextBlock::GetEditableTextWidget() const
 {
-#if WITH_FANCY_TEXT
 	if( bIsMultiLine )
 	{
 		return MultiLineTextBox;
 	}
 	else
-#endif //WITH_FANCY_TEXT
 	{
 		return TextBox;
 	}
@@ -314,16 +310,12 @@ TSharedPtr<SWidget> SInlineEditableTextBlock::GetEditableTextWidget() const
 
 void SInlineEditableTextBlock::SetEditableText( const TAttribute< FText >& InNewText )
 {
-#if WITH_FANCY_TEXT
 	bIsMultiLine ? MultiLineTextBox->SetText( Text ) :
-#endif //WITH_FANCY_TEXT
 				 TextBox->SetText( Text );
 }
 
 void SInlineEditableTextBlock::SetTextBoxError( const FText& ErrorText )
 {
-#if WITH_FANCY_TEXT
 	bIsMultiLine ? MultiLineTextBox->SetError( ErrorText ) :
-#endif //WITH_FANCY_TEXT
 				 TextBox->SetError( ErrorText );
 }

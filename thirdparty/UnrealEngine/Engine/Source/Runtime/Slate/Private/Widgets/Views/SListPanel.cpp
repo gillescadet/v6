@@ -138,7 +138,7 @@ void SListPanel::Tick( const FGeometry& AllottedGeometry, const double InCurrent
 		const float ItemPadding = GetItemPadding(AllottedGeometry, ListItemAlignment);
 		const float LocalItemWidth = GetItemWidth(AllottedGeometry, ListItemAlignment);
 		const float TotalItemSize = LocalItemWidth + ItemPadding;
-		const int32 NumChildren = NumDesiredItems.Get();
+		const int32 NumChildren = Children.Num();
 
 		if (TotalItemSize > 0.0f && NumChildren > 0)
 		{

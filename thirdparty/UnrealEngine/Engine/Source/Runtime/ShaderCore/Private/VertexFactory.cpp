@@ -291,8 +291,13 @@ FVertexElement FVertexFactory::AccessPositionStreamComponent(const FVertexStream
 	return FVertexElement(PositionStream.AddUnique(VertexStream),Component.Offset,Component.Type,AttributeIndex,VertexStream.Stride,Component.bUseInstanceIndex);
 }
 
-void FVertexFactory::InitDeclaration(FVertexDeclarationElementList& Elements)
+void FVertexFactory::InitDeclaration(
+	FVertexDeclarationElementList& Elements, 
+	const DataType& InData)
 {
+	// Make a copy of the vertex factory data.
+	Data = InData;
+
 	// Create the vertex declaration for rendering the factory normally.
 	Declaration = RHICreateVertexDeclaration(Elements);
 }

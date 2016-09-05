@@ -9,48 +9,37 @@ FMovieSceneMaterialTrackInstance::FMovieSceneMaterialTrackInstance( UMovieSceneM
 	MaterialTrack = &InMaterialTrack;
 }
 
-void FMovieSceneMaterialTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneMaterialTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (RuntimeObjectToOriginalMaterialMap.Find(FObjectKey(Object)) == nullptr)
 		{
 			UMaterialInterface* CurrentMaterial = GetMaterialForObject(Object);
-			if ( CurrentMaterial != nullptr )
+			if ( CurrentMaterial->IsA( UMaterialInstanceDynamic::StaticClass() ) )
 			{
-				UMaterialInterface* OriginalMaterial = nullptr;
-				if ( CurrentMaterial->IsA( UMaterialInstanceDynamic::StaticClass() ) )
+				TWeakObjectPtr<UMaterialInterface>* OriginalMaterial = DynamicMaterialToOriginalMaterialMap.Find( FObjectKey( CurrentMaterial ) );
+				if ( OriginalMaterial != nullptr )
 				{
-					// If the current material is a dynamic material see if we can find the original material.
-					TWeakObjectPtr<UMaterialInterface>* OriginalMaterialPtr = DynamicMaterialToOriginalMaterialMap.Find( FObjectKey( CurrentMaterial ) );
-					if ( OriginalMaterialPtr != nullptr )
-					{
-						OriginalMaterial = OriginalMaterialPtr->Get();
-					}
+					CurrentMaterial = OriginalMaterial->Get();
 				}
 				else
 				{
-					// If the material isn't dynamic than the original material is the current material.
-					OriginalMaterial = CurrentMaterial;
+					CurrentMaterial = nullptr;
 				}
-
-				if ( OriginalMaterial != nullptr )
-				{
-					RuntimeObjectToOriginalMaterialMap.Add( FObjectKey( Object ), OriginalMaterial );
-				}
+			}
+			if (CurrentMaterial != nullptr)
+			{
+				RuntimeObjectToOriginalMaterialMap.Add( FObjectKey(Object), CurrentMaterial );
 			}
 		}
 	}
 }
 
-void FMovieSceneMaterialTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneMaterialTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (!IsValid(Object))
 		{
 			continue;
@@ -64,11 +53,11 @@ void FMovieSceneMaterialTrackInstance::RestoreState(const TArray<TWeakObjectPtr<
 	}
 }
 
-void FMovieSceneMaterialTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance ) 
+void FMovieSceneMaterialTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
 	TArray<FScalarParameterNameAndValue> ScalarValues;
 	TArray<FColorParameterNameAndValue> VectorValues;
-	MaterialTrack->Eval( UpdateData.Position, ScalarValues, VectorValues );
+	MaterialTrack->Eval( Position, ScalarValues, VectorValues );
 
 	// Iterate from back to front to allow for fast remove of invalid weak pointers.
 	for ( int32 i = DynamicMaterialInstances.Num() - 1; i >= 0; i--)
@@ -92,28 +81,20 @@ void FMovieSceneMaterialTrackInstance::Update(EMovieSceneUpdateData& UpdateData,
 	}
 }
 
-void FMovieSceneMaterialTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieSceneMaterialTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	DynamicMaterialInstances.Empty();
-
-	for (auto ObjectPtr : RuntimeObjects)
+	for ( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
 		UMaterialInterface* Material = GetMaterialForObject( Object );
-
-		if ( Material != nullptr)
+		UMaterialInstanceDynamic* DynamicMaterialInstance = Cast<UMaterialInstanceDynamic>(Material);
+		if ( DynamicMaterialInstance == nullptr )
 		{
-			UMaterialInstanceDynamic* DynamicMaterialInstance = Cast<UMaterialInstanceDynamic>( Material );
-
-			if ( DynamicMaterialInstance == nullptr )
-			{
-				DynamicMaterialInstance = UMaterialInstanceDynamic::Create( Material, Object, FName( *( Material->GetName() + "_Animated" ) ) );
-				SetMaterialForObject( Object, DynamicMaterialInstance );
-				DynamicMaterialToOriginalMaterialMap.Add( FObjectKey( DynamicMaterialInstance ), Material );
-			}
-
-			DynamicMaterialInstances.Add( DynamicMaterialInstance );
+			DynamicMaterialInstance = UMaterialInstanceDynamic::Create(Material, Object);
+			SetMaterialForObject( Object, DynamicMaterialInstance );
+			DynamicMaterialToOriginalMaterialMap.Add( FObjectKey( DynamicMaterialInstance ), Material );
 		}
+		DynamicMaterialInstances.Add( DynamicMaterialInstance );
 	}
 }
 

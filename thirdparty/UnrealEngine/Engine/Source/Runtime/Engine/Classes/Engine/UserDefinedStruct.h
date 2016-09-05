@@ -51,9 +51,7 @@ public:
 	virtual void PostLoad() override;
 	// End of UObject interface.
 
-	// UScriptStruct interface.
-	virtual void InitializeDefaultValue(uint8* StructData) const override;
-	// End of UScriptStruct interface.
+	void InitializeDefaultValue(uint8* StructData) const;
 
 	void ValidateGuid();
 #endif	// WITH_EDITOR

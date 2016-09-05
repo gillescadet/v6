@@ -34,6 +34,8 @@ FPreviewScene::FPreviewScene(FPreviewScene::ConstructionValues CVS)
 										.SetTransactional(CVS.bTransactional));
 	PreviewWorld->InitializeActorsForPlay(FURL());
 
+	GetScene()->UpdateDynamicSkyLight(FLinearColor::White * CVS.SkyBrightness, FLinearColor::Black);
+
 	DirectionalLight = NewObject<UDirectionalLightComponent>(GetTransientPackage());
 	DirectionalLight->Intensity = CVS.LightBrightness;
 	DirectionalLight->LightColor = FColor::White;
@@ -123,7 +125,10 @@ void FPreviewScene::RemoveComponent(UActorComponent* Component)
 
 void FPreviewScene::AddReferencedObjects( FReferenceCollector& Collector )
 {
-	Collector.AddReferencedObjects( Components );
+	for( int32 Index = 0; Index < Components.Num(); Index++ )
+	{
+		Collector.AddReferencedObject( Components[ Index ] );
+	}
 	Collector.AddReferencedObject( DirectionalLight );
 	Collector.AddReferencedObject( PreviewWorld );
 }
@@ -179,6 +184,7 @@ void FPreviewScene::SetLightColor(const FColor& LightColor)
 
 void FPreviewScene::SetSkyBrightness(float SkyBrightness)
 {
+	GetScene()->UpdateDynamicSkyLight(FLinearColor::White * SkyBrightness, FLinearColor::Black);
 }
 
 void FPreviewScene::LoadSettings(const TCHAR* Section)

@@ -16,7 +16,7 @@ class UMaterialExpressionTime : public UMaterialExpression
 	uint32 bIgnorePause:1;
 
 	/** Enables or disables the Period value. */
-	UPROPERTY(EditAnywhere, Category = MaterialExpressionTime, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_Period:1;
 
 	/** Time will loop around once it gets to Period. */
@@ -24,11 +24,9 @@ class UMaterialExpressionTime : public UMaterialExpression
 	float Period;
 
 	//~ Begin UMaterialExpression Interface
-#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
 	virtual bool NeedsRealtimePreview() override { return true; }
-#endif
 	//~ End UMaterialExpression Interface
 
 };

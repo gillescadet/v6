@@ -26,8 +26,6 @@ void UAbilityTask_WaitCancel::OnCancelCallback()
 
 void UAbilityTask_WaitCancel::OnLocalCancelCallback()
 {
-	FScopedPredictionWindow ScopedPrediction(AbilitySystemComponent, IsPredictingClient());
-
 	if (AbilitySystemComponent && IsPredictingClient())
 	{
 		AbilitySystemComponent->ServerSetReplicatedEvent(EAbilityGenericReplicatedEvent::GenericCancel, GetAbilitySpecHandle(), GetActivationPredictionKey() ,AbilitySystemComponent->ScopedPredictionKey);

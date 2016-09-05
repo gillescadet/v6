@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include "IStereoLayers.h"
-
 class IStereoRendering
 {
 public:
@@ -59,6 +57,11 @@ public:
 	 */
 	virtual void GetEyeRenderParams_RenderThread(const struct FRenderingCompositePassContext& Context, FVector2D& EyeToSrcUVScaleValue, FVector2D& EyeToSrcUVOffsetValue) const {}
 
+	/**
+	 * Returns timewarp matrices, used from PostProcessHMD, RenderThread.
+	 */
+	virtual void GetTimewarpMatrices_RenderThread(const struct FRenderingCompositePassContext& Context, FMatrix& EyeRotationStart, FMatrix& EyeRotationEnd) const {}
+
 	// Optional methods to support rendering into a texture.
 	/**
 	 * Updates viewport for direct rendering of distortion. Should be called on a game thread.
@@ -82,6 +85,11 @@ public:
 	// Renders texture into a backbuffer. Could be empty if no rendertarget texture is used, or if direct-rendering 
 	// through RHI bridge is implemented. 
 	virtual void RenderTexture_RenderThread(class FRHICommandListImmediate& RHICmdList, class FRHITexture2D* BackBuffer, class FRHITexture2D* SrcTexture) const {}
+
+	/**
+	 * Called after Present is called.
+	 */
+	virtual void FinishRenderingFrame_RenderThread(class FRHICommandListImmediate& RHICmdList) {}
 
 	/**
 	 * Returns orthographic projection , used from Canvas::DrawItem.
@@ -124,11 +132,6 @@ public:
 	 * Returns number of required buffered frames.
 	 */
 	virtual uint32 GetNumberOfBufferedFrames() const { return 1;  }
-
-	/**
-	* Returns an IStereoLayers implementation, if one is present
-	*/
-	virtual IStereoLayers* GetStereoLayers () { return nullptr; }
 
 	/**
 	 * Allocates a render target texture. 

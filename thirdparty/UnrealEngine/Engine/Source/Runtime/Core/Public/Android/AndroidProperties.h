@@ -60,7 +60,7 @@ struct FAndroidPlatformProperties
 
 	static FORCEINLINE bool SupportsHighQualityLightmaps()
 	{
-#if PLATFORM_ANDROIDESDEFERRED
+#if PLATFORM_ANDROIDES31 || PLATFORM_ANDROIDGL4
 		return true;
 #else
 		return false;
@@ -69,7 +69,7 @@ struct FAndroidPlatformProperties
 
 	static FORCEINLINE bool SupportsLowQualityLightmaps()
 	{
-#if PLATFORM_ANDROIDESDEFERRED
+#if PLATFORM_ANDROIDGL4
 		return false;
 #else
 		return true;
@@ -84,6 +84,15 @@ struct FAndroidPlatformProperties
 	static FORCEINLINE bool SupportsTextureStreaming()
 	{
 		return false;
+	}
+
+	static FORCEINLINE bool SupportsVertexShaderTextureSampling()
+	{
+#if PLATFORM_ANDROIDES31 || PLATFORM_ANDROIDGL4
+		return true;
+#else
+		return false;
+#endif
 	}
 
 	static FORCEINLINE bool SupportsMinimize()
@@ -157,6 +166,22 @@ struct FAndroid_ASTCPlatformProperties : public FAndroidPlatformProperties
 	static FORCEINLINE const char* PlatformName()
 	{
 		return "Android_ASTC";
+	}
+};
+
+struct FAndroid_GL4PlatformProperties : public FAndroidPlatformProperties
+{
+	static FORCEINLINE const char* PlatformName()
+	{
+		return "Android_GL4";
+	}
+};
+
+struct FAndroid_ES31PlatformProperties : public FAndroidPlatformProperties
+{
+	static FORCEINLINE const char* PlatformName()
+	{
+		return "Android_ES31";
 	}
 };
 

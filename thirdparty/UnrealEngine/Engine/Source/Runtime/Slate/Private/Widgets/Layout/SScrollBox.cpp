@@ -393,13 +393,11 @@ bool SScrollBox::ScrollDescendantIntoView(const FGeometry& MyGeometry, const TSh
 	FindChildGeometries( MyGeometry, WidgetsToFind, Result );
 
 	FArrangedWidget* WidgetGeometry = Result.Find( WidgetToFind.ToSharedRef() );
-	if (!WidgetGeometry)
+	if ( ensureMsgf( WidgetGeometry, TEXT("Unable to scroll to descendant as it's not a child of the scrollbox") ) )
 	{
-		UE_LOG(LogSlate, Warning, TEXT("Unable to scroll to descendant as it's not a child of the scrollbox"));
-	}
+		// @todo: This is a workaround because DesiredScrollOffset can exceed the ScrollMax when mouse dragging on the scroll bar and we need it clamped here or the offset is wrong
+		ScrollBy(MyGeometry, 0, EAllowOverscroll::No, false);
 
-	if ( WidgetGeometry )
-	{
 		float ScrollOffset = 0.0f;
 		if ( InDestination == EDescendantScrollDestination::TopOrLeft )
 		{
@@ -565,7 +563,7 @@ void SScrollBox::Tick( const FGeometry& AllottedGeometry, const double InCurrent
 
 	if ( bScrollToEnd )
 	{
-		DesiredScrollOffset = FMath::Max(ContentSize - GetScrollComponentFromVector(ScrollPanelGeometry.Size), 0.0f);
+		DesiredScrollOffset = ContentSize;
 		bScrollToEnd = false;
 	}
 
@@ -765,7 +763,7 @@ bool SScrollBox::ScrollBy(const FGeometry& AllottedGeometry, float ScrollAmount,
 		}
 		else
 		{
-			DesiredScrollOffset = FMath::Clamp(ScrollPanel->PhysicalOffset + ScrollAmount, ScrollMin, ScrollMax);
+			DesiredScrollOffset = FMath::Clamp(DesiredScrollOffset + ScrollAmount, ScrollMin, ScrollMax);
 		}
 	}
 
@@ -936,11 +934,7 @@ int32 SScrollBox::OnPaint( const FPaintArgs& Args, const FGeometry& AllottedGeom
 
 void SScrollBox::ScrollBar_OnUserScrolled( float InScrollOffsetFraction )
 {
-	const float ContentSize = GetScrollComponentFromVector(ScrollPanel->GetDesiredSize());
-	const FGeometry ScrollPanelGeometry = FindChildGeometry(CachedGeometry, ScrollPanel.ToSharedRef());
-
-	// Clamp to max scroll offset
-	DesiredScrollOffset = FMath::Min(InScrollOffsetFraction * ContentSize, ContentSize - GetScrollComponentFromVector(ScrollPanelGeometry.Size));
+	DesiredScrollOffset = InScrollOffsetFraction * GetScrollComponentFromVector(ScrollPanel->GetDesiredSize());
 	OnUserScrolled.ExecuteIfBound(DesiredScrollOffset);
 }
 

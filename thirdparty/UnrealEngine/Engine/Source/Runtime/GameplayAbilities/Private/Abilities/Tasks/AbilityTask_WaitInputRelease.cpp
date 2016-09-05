@@ -22,8 +22,6 @@ void UAbilityTask_WaitInputRelease::OnReleaseCallback()
 
 	AbilitySystemComponent->AbilityReplicatedEventDelegate(EAbilityGenericReplicatedEvent::InputReleased, GetAbilitySpecHandle(), GetActivationPredictionKey()).Remove(DelegateHandle);
 
-	FScopedPredictionWindow ScopedPrediction(AbilitySystemComponent, IsPredictingClient());
-
 	if (IsPredictingClient())
 	{
 		// Tell the server about this

@@ -82,7 +82,7 @@ IPlatformFile* FPlatformFileManager::GetPlatformFile(const TCHAR* Name)
 		static TScopedPointer<IPlatformFile> AutoDestroySingleton(new FCachedReadPlatformFile());
 		PlatformFile = AutoDestroySingleton.GetOwnedPointer();
 	}
-	else if (FModuleManager::Get().ModuleExists(Name))
+	else
 	{
 		// Try to load a module containing the platform file.
 		class IPlatformFileModule* PlatformFileModule = FModuleManager::LoadModulePtr<IPlatformFileModule>(Name);

@@ -712,16 +712,13 @@ void FSlateElementBatcher::AddTextElement(const FSlateDrawElement& DrawElement)
 		{
 			const FCharacterEntry& Entry = CharacterList.GetCharacter(CurrentChar, InPayload.FontInfo.FontFallback);
 
-			if( Entry.Valid && (FontAtlasTexture == nullptr || Entry.TextureIndex != FontTextureIndex) )
+			if( FontAtlasTexture == nullptr || Entry.TextureIndex != FontTextureIndex )
 			{
 				// Font has a new texture for this glyph. Refresh the batch we use and the index we are currently using
 				FontTextureIndex = Entry.TextureIndex;
 
 				FontAtlasTexture = FontCache.GetSlateTextureResource( FontTextureIndex );
-				check(FontAtlasTexture);
-
 				FontShaderResource = ResourceManager.GetFontShaderResource( FontTextureIndex, FontAtlasTexture, InPayload.FontInfo.FontMaterial );
-				check(FontShaderResource);
 
 				ElementBatch = &FindBatchForElement( Layer, FShaderParams(), FontShaderResource, ESlateDrawPrimitive::TriangleList, ESlateShader::Font, InDrawEffects, ESlateBatchDrawFlag::None, DrawElement.GetScissorRect() );
 
@@ -735,9 +732,9 @@ void FSlateElementBatcher::AddTextElement(const FSlateDrawElement& DrawElement)
 				InvTextureSizeY = 1.0f/FontAtlasTexture->GetHeight();
 			}
 
-			const bool bIsWhitespace = !Entry.Valid || FText::IsWhitespace(CurrentChar);
+			const bool bIsWhitespace = FText::IsWhitespace(CurrentChar);
 
-			if( !bIsWhitespace && PreviousCharEntry.Valid )
+			if( !bIsWhitespace && PreviousCharEntry.IsCached() )
 			{
 				Kerning = CharacterList.GetKerning( PreviousCharEntry, Entry );
 			}
@@ -897,88 +894,82 @@ void FSlateElementBatcher::AddShapedTextElement( const FSlateDrawElement& DrawEl
 		{
 			const FShapedGlyphFontAtlasData GlyphAtlasData = FontCache.GetShapedGlyphFontAtlasData(GlyphToRender);
 
-			if (GlyphAtlasData.Valid)
+			if (FontAtlasTexture == nullptr || GlyphAtlasData.TextureIndex != FontTextureIndex)
 			{
-				if (FontAtlasTexture == nullptr || GlyphAtlasData.TextureIndex != FontTextureIndex)
-				{
-					// Font has a new texture for this glyph. Refresh the batch we use and the index we are currently using
-					FontTextureIndex = GlyphAtlasData.TextureIndex;
+				// Font has a new texture for this glyph. Refresh the batch we use and the index we are currently using
+				FontTextureIndex = GlyphAtlasData.TextureIndex;
 
-					FontAtlasTexture = FontCache.GetSlateTextureResource(FontTextureIndex);
-					check(FontAtlasTexture);
+				FontAtlasTexture = FontCache.GetSlateTextureResource(FontTextureIndex);
+				FontShaderResource = ResourceManager.GetFontShaderResource(FontTextureIndex, FontAtlasTexture, FontMaterial);
 
-					FontShaderResource = ResourceManager.GetFontShaderResource(FontTextureIndex, FontAtlasTexture, FontMaterial);
-					check(FontShaderResource);
+				ElementBatch = &FindBatchForElement(Layer, FShaderParams(), FontShaderResource, ESlateDrawPrimitive::TriangleList, ESlateShader::Font, InDrawEffects, ESlateBatchDrawFlag::None, DrawElement.GetScissorRect());
 
-					ElementBatch = &FindBatchForElement(Layer, FShaderParams(), FontShaderResource, ESlateDrawPrimitive::TriangleList, ESlateShader::Font, InDrawEffects, ESlateBatchDrawFlag::None, DrawElement.GetScissorRect());
+				BatchVertices = &BatchData->GetBatchVertexList(*ElementBatch);
+				BatchIndices = &BatchData->GetBatchIndexList(*ElementBatch);
 
-					BatchVertices = &BatchData->GetBatchVertexList(*ElementBatch);
-					BatchIndices = &BatchData->GetBatchIndexList(*ElementBatch);
-
-					VertexOffset = BatchVertices->Num();
-					IndexOffset = BatchIndices->Num();
+				VertexOffset = BatchVertices->Num();
+				IndexOffset = BatchIndices->Num();
 				
-					InvTextureSizeX = 1.0f/FontAtlasTexture->GetWidth();
-					InvTextureSizeY = 1.0f/FontAtlasTexture->GetHeight();
-				}
+				InvTextureSizeX = 1.0f/FontAtlasTexture->GetWidth();
+				InvTextureSizeY = 1.0f/FontAtlasTexture->GetHeight();
+			}
 
-				const float X = LineX + GlyphAtlasData.HorizontalOffset + GlyphToRender.XOffset;
-				// Note PosX,PosY is the upper left corner of the bounding box representing the string.  This computes the Y position of the baseline where text will sit
+			const float X = LineX + GlyphAtlasData.HorizontalOffset + GlyphToRender.XOffset;
+			// Note PosX,PosY is the upper left corner of the bounding box representing the string.  This computes the Y position of the baseline where text will sit
 
-				const float Y = LineY - GlyphAtlasData.VerticalOffset + GlyphToRender.YOffset + MaxHeight + TextBaseline;
-				const float U = GlyphAtlasData.StartU * InvTextureSizeX;
-				const float V = GlyphAtlasData.StartV * InvTextureSizeY;
-				const float SizeX = GlyphAtlasData.USize;
-				const float SizeY = GlyphAtlasData.VSize;
-				const float SizeU = GlyphAtlasData.USize * InvTextureSizeX;
-				const float SizeV = GlyphAtlasData.VSize * InvTextureSizeY;
+			const float Y = LineY - GlyphAtlasData.VerticalOffset + GlyphToRender.YOffset + MaxHeight + TextBaseline;
+			const float U = GlyphAtlasData.StartU * InvTextureSizeX;
+			const float V = GlyphAtlasData.StartV * InvTextureSizeY;
+			const float SizeX = GlyphAtlasData.USize;
+			const float SizeY = GlyphAtlasData.VSize;
+			const float SizeU = GlyphAtlasData.USize * InvTextureSizeX;
+			const float SizeV = GlyphAtlasData.VSize * InvTextureSizeY;
 
-				const FSlateRect CharRect(X, Y, X + SizeX, Y + SizeY);
-				if (FSlateRect::DoRectanglesIntersect(LocalClipRect, CharRect))
+			const FSlateRect CharRect(X, Y, X + SizeX, Y + SizeY);
+			if (FSlateRect::DoRectanglesIntersect(LocalClipRect, CharRect))
+			{
+				TArray<FSlateVertex>& BatchVerticesRef = *BatchVertices;
+				TArray<SlateIndex>& BatchIndicesRef = *BatchIndices;
+
+				const FVector2D UpperLeft = CharRect.GetTopLeft();
+				const FVector2D UpperRight = CharRect.GetTopRight();
+				const FVector2D LowerLeft = CharRect.GetBottomLeft();
+				const FVector2D LowerRight = CharRect.GetBottomRight();
+
+				// Add four vertices for this quad
+				BatchVerticesRef.AddUninitialized(4);
+				// Add six indices for this quad
+				BatchIndicesRef.AddUninitialized(6);
+
+				// The start index of these vertices in the index buffer
+				uint32 IndexStart = VertexOffset;
+
+				float Ut = 0.0f, Vt = 0.0f, UtMax = 0.0f, VtMax = 0.0f;
+				if (bIsFontMaterial)
 				{
-					TArray<FSlateVertex>& BatchVerticesRef = *BatchVertices;
-					TArray<SlateIndex>& BatchIndicesRef = *BatchIndices;
+					float DistAlpha = (float)GlyphIndex/NumGlyphs;
+					float DistAlphaNext = (float)(GlyphIndex+1)/NumGlyphs;
 
-					const FVector2D UpperLeft = CharRect.GetTopLeft();
-					const FVector2D UpperRight = CharRect.GetTopRight();
-					const FVector2D LowerLeft = CharRect.GetBottomLeft();
-					const FVector2D LowerRight = CharRect.GetBottomRight();
+					// This creates a set of UV's that goes from 0-1, from left to right of the string in U and 0-1 baseline to baseline top to bottom in V
+					Ut = FMath::Lerp(0.0f, 1.0f, DistAlpha);
+					Vt = FMath::Lerp(0.0f, 1.0f, UpperLeft.Y/MaxHeight);
 
-					// Add four vertices for this quad
-					BatchVerticesRef.AddUninitialized(4);
-					// Add six indices for this quad
-					BatchIndicesRef.AddUninitialized(6);
-
-					// The start index of these vertices in the index buffer
-					uint32 IndexStart = VertexOffset;
-
-					float Ut = 0.0f, Vt = 0.0f, UtMax = 0.0f, VtMax = 0.0f;
-					if (bIsFontMaterial)
-					{
-						float DistAlpha = (float)GlyphIndex/NumGlyphs;
-						float DistAlphaNext = (float)(GlyphIndex+1)/NumGlyphs;
-
-						// This creates a set of UV's that goes from 0-1, from left to right of the string in U and 0-1 baseline to baseline top to bottom in V
-						Ut = FMath::Lerp(0.0f, 1.0f, DistAlpha);
-						Vt = FMath::Lerp(0.0f, 1.0f, UpperLeft.Y/MaxHeight);
-
-						UtMax = FMath::Lerp(0.0f, 1.0f, DistAlphaNext);
-						VtMax = FMath::Lerp(0.0f, 1.0f, LowerLeft.Y/MaxHeight);
-					}
-
-					// Add four vertices to the list of verts to be added to the vertex buffer
-					BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, UpperLeft,								FVector4(U,V,				Ut,Vt),			FVector2D(0.0f,0.0f), Tint, RenderClipRect);
-					BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, FVector2D(LowerRight.X,UpperLeft.Y),	FVector4(U+SizeU, V,		UtMax,Vt),		FVector2D(1.0f,0.0f), Tint, RenderClipRect);
-					BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, FVector2D(UpperLeft.X,LowerRight.Y),	FVector4(U, V+SizeV,		Ut,VtMax),		FVector2D(0.0f,1.0f), Tint, RenderClipRect);
-					BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, LowerRight,							FVector4(U+SizeU, V+SizeV,	UtMax,VtMax),	FVector2D(1.0f,1.0f), Tint, RenderClipRect);
-
-					BatchIndicesRef[IndexOffset++] = IndexStart + 0;
-					BatchIndicesRef[IndexOffset++] = IndexStart + 1;
-					BatchIndicesRef[IndexOffset++] = IndexStart + 2;
-					BatchIndicesRef[IndexOffset++] = IndexStart + 1;
-					BatchIndicesRef[IndexOffset++] = IndexStart + 3;
-					BatchIndicesRef[IndexOffset++] = IndexStart + 2;
+					UtMax = FMath::Lerp(0.0f, 1.0f, DistAlphaNext);
+					VtMax = FMath::Lerp(0.0f, 1.0f, LowerLeft.Y/MaxHeight);
 				}
+
+				// Add four vertices to the list of verts to be added to the vertex buffer
+				BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, UpperLeft,								FVector4(U,V,				Ut,Vt),			FVector2D(0.0f,0.0f), Tint, RenderClipRect);
+				BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, FVector2D(LowerRight.X,UpperLeft.Y),	FVector4(U+SizeU, V,		UtMax,Vt),		FVector2D(1.0f,0.0f), Tint, RenderClipRect);
+				BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, FVector2D(UpperLeft.X,LowerRight.Y),	FVector4(U, V+SizeV,		Ut,VtMax),		FVector2D(0.0f,1.0f), Tint, RenderClipRect);
+				BatchVerticesRef[VertexOffset++] = FSlateVertex(RenderTransform, LowerRight,							FVector4(U+SizeU, V+SizeV,	UtMax,VtMax),	FVector2D(1.0f,1.0f), Tint, RenderClipRect);
+
+				BatchIndicesRef[IndexOffset++] = IndexStart + 0;
+				BatchIndicesRef[IndexOffset++] = IndexStart + 1;
+				BatchIndicesRef[IndexOffset++] = IndexStart + 2;
+				BatchIndicesRef[IndexOffset++] = IndexStart + 1;
+				BatchIndicesRef[IndexOffset++] = IndexStart + 3;
+				BatchIndicesRef[IndexOffset++] = IndexStart + 2;
 			}
 		}
 
@@ -1144,15 +1135,6 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 	const float DirectLength = (InPayload.EndPt - InPayload.StartPt).Size();
 	const float HandleLength = ((InPayload.EndPt - InPayload.EndDir) - (InPayload.StartPt + InPayload.StartDir)).Size();
 	float NumSteps = FMath::Clamp<float>(FMath::CeilToInt(FMath::Max(DirectLength,HandleLength)/15.0f), 1, 256);
-	float GradientSubSteps = 0.f;
-	// Is this spline using a color gradient?
-	const bool bColorGradient = InPayload.GradientStops.Num() > 0;
-	if (bColorGradient)
-	{
-		const float GradientSteps = InPayload.GradientStops.Num() - 1.f;
-		GradientSubSteps = FMath::CeilToInt(NumSteps/GradientSteps);
-		NumSteps = GradientSteps * GradientSubSteps;
-	}
 
 	// 1 is the minimum thickness we support
 	// Thickness is given in screenspace, so convert it to local space before proceeding.
@@ -1188,10 +1170,10 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 	FVector2D StartPos = StartPt;
 	FVector2D EndPos = FVector2D( FMath::CubicInterp( StartPt, StartDir, EndPt, EndDir, Alpha ) );
 
-	FColor VertexCol = bColorGradient ? PackVertexColor(InPayload.GradientStops[0].Color) : PackVertexColor(InPayload.Tint);
+	FColor FinalColor = PackVertexColor(InPayload.Tint);
 
-	BatchVertices.Add( FSlateVertex( RenderTransform, StartPos + Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), VertexCol, RenderClipRect ) );
-	BatchVertices.Add( FSlateVertex( RenderTransform, StartPos - Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), VertexCol, RenderClipRect ) );
+	BatchVertices.Add( FSlateVertex( RenderTransform, StartPos + Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), FinalColor, RenderClipRect ) );
+	BatchVertices.Add( FSlateVertex( RenderTransform, StartPos - Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), FinalColor, RenderClipRect ) );
 
 	// Generate the rest of the segments
 	for( int32 Step = 0; Step < NumSteps; ++Step )
@@ -1202,13 +1184,6 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 			const float StepAlpha = (Step+1.0f)/NumSteps;
 			EndPos = FVector2D( FMath::CubicInterp( StartPt, StartDir, EndPt, EndDir, StepAlpha ) );
 		}
-		if (bColorGradient)
-		{
-			const float InterpVal = FMath::Min<float>(InPayload.GradientStops.Num()-1, (Step+1.f)/GradientSubSteps);
-			const int32 ColorIdx = FMath::CeilToInt(InterpVal);
-			const float ColorAlpha = InterpVal - (ColorIdx-1);
-			VertexCol = PackVertexColor(FLinearColor::LerpUsingHSV(InPayload.GradientStops[ColorIdx-1].Color, InPayload.GradientStops[ColorIdx].Color, ColorAlpha));
-		}
 
 		int32 IndexStart = BatchVertices.Num();
 
@@ -1218,8 +1193,8 @@ void FSlateElementBatcher::AddSplineElement( const FSlateDrawElement& DrawElemen
 		// Create the new vertices for the thick line segment
 		Up = SegmentNormal * HalfThickness;
 
-		BatchVertices.Add( FSlateVertex( RenderTransform, EndPos + Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), VertexCol, RenderClipRect ) );
-		BatchVertices.Add( FSlateVertex( RenderTransform, EndPos - Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), VertexCol, RenderClipRect ) );
+		BatchVertices.Add( FSlateVertex( RenderTransform, EndPos + Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), FinalColor, RenderClipRect ) );
+		BatchVertices.Add( FSlateVertex( RenderTransform, EndPos - Up, TransformPoint(RenderTransform, StartPos), TransformPoint(RenderTransform, EndPos), FinalColor, RenderClipRect ) );
 
 		BatchIndices.Add( IndexStart - 2 );
 		BatchIndices.Add( IndexStart - 1 );
@@ -1305,9 +1280,9 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 		// The radius to use when checking the distance of pixels to the actual line.  Arbitrary value based on what looks the best
 		const float Radius = 1.5f;
 
-		// Thickness is given in screen space, so convert it to local space before proceeding.
-		float RequestedThickness = 1;// InPayload.Thickness;
-		
+		// Thickness is given in screenspace, so convert it to local space before proceeding.
+		float RequestedThickness = FMath::Max( 1.0f, InverseLayoutTransform.GetScale() * InPayload.Thickness );
+
 		// Compute the actual size of the line we need based on thickness.  Need to ensure pixels that are at least Thickness/2 + Sample radius are generated so that we have enough pixels to blend.
 		// The idea for the anti-aliasing technique is based on the fast prefiltered lines technique published in GPU Gems 2 
 		const float LineThickness = FMath::CeilToInt( (2.0f * Radius + RequestedThickness ) * FMath::Sqrt(2.0f) );
@@ -1338,7 +1313,7 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 			EndPos = Points[Point];
 			// Determine if we should check the intersection point with the next line segment.
 			// We will adjust were this line ends to the intersection
-			bool bCheckIntersection = Points.IsValidIndex(Point + 1);
+			bool bCheckIntersection = Points.IsValidIndex( Point+1 ) ;
 			uint32 IndexStart = BatchVertices.Num();
 
 			// Compute the normal to the line
@@ -1369,7 +1344,8 @@ void FSlateElementBatcher::AddLineElement( const FSlateDrawElement& DrawElement 
 					IntersectUpper = IntersectionPoint;
 
 					// visualizes the intersection
-					//AddQuadElement( IntersectUpper-FVector2D(1,1), FVector2D(2,2), 1, InClippingRect, Layer+1, FColor::Orange);
+					//AddQuadElement( IntersectUpper-FVector2D(1,1), FVector2D(2,2), 1, InClippingRect, Layer+1, FColor::Red);
+
 				}
 
 				if( LineIntersect( StartPos - Up, EndPos - Up, EndPos - NextUp, NextEndPos - NextUp, IntersectionPoint ) )

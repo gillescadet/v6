@@ -51,8 +51,8 @@ struct ENGINE_API FAnimNode_TransitionPoseEvaluator : public FAnimNode_Base
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Pose, meta=(NeverAsPin, ClampMin="1", UIMin="1"))
 	int32 FramesToCachePose;
 
-	FCompactHeapPose CachedPose;
-	FBlendedHeapCurve CachedCurve;
+	FCompactPose CachedPose;
+	FBlendedCurve CachedCurve;
 
 	UPROPERTY(transient)
 	int32 CacheFramesRemaining;

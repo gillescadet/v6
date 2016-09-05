@@ -133,12 +133,11 @@ void FLinkerManager::DissociateImportsAndForcedExports()
 	int32& ImportCount = FUObjectThreadContext::Get().ImportCount;
 	if (ImportCount != 0)
 	{
-		// In cooked builds linkers don't stick around long enough to make this worthwhile
 		TSet<FLinkerLoad*> LocalLoadersWithNewImports;
 		GetLoadersWithNewImportsAndEmpty(LocalLoadersWithNewImports);
 		if (LocalLoadersWithNewImports.Num())
 		{
-			for (FLinkerLoad* Linker : LocalLoadersWithNewImports)
+			for (auto Linker : LocalLoadersWithNewImports)
 			{
 				for (int32 ImportIndex = 0; ImportIndex < Linker->ImportMap.Num(); ImportIndex++)
 				{
@@ -162,7 +161,7 @@ void FLinkerManager::DissociateImportsAndForcedExports()
 	{		
 		TSet<FLinkerLoad*> LocalLoaders;
 		GetLoaders(LocalLoaders);
-		for (FLinkerLoad* Linker : LocalLoaders)
+		for (auto Linker : LocalLoaders)
 		{
 			//@todo optimization: only dissociate exports for loaders that had forced exports created
 			//@todo optimization: since the last time this function was called.

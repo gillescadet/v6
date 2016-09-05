@@ -170,17 +170,6 @@ public:
 		Thickness = InThickness;
 	}
 
-	void SetGradientSplinePayloadProperties( const FVector2D& InStart, const FVector2D& InStartDir, const FVector2D& InEnd, const FVector2D& InEndDir, float InThickness, const TArray<FSlateGradientStop>& InGradientStops )
-	{
-		StartPt = InStart;
-		StartDir = InStartDir;
-		EndPt = InEnd;
-		EndDir = InEndDir;
-		BrushResource = nullptr;
-		Thickness = InThickness;
-		GradientStops = InGradientStops;
-	}
-
 	void SetLinesPayloadProperties( const TArray<FVector2D>& InPoints, const FLinearColor& InTint, bool bInAntialias, ESlateLineJoinType::Type InJoinType, float InThickness )
 	{
 		Tint = InTint;
@@ -389,9 +378,6 @@ public:
 	/** Just like MakeSpline but in draw-space coordinates. This is useful for connecting already-transformed widgets together. */
 	SLATECORE_API static void MakeDrawSpaceSpline(FSlateWindowElementList& ElementList, uint32 InLayer, const FVector2D& InStart, const FVector2D& InStartDir, const FVector2D& InEnd, const FVector2D& InEndDir, const FSlateRect InClippingRect, float InThickness = 0.0f, ESlateDrawEffect::Type InDrawEffects = ESlateDrawEffect::None, const FLinearColor& InTint=FLinearColor::White);
 
-	/** Just like MakeSpline but in draw-space coordinates. This is useful for connecting already-transformed widgets together. */
-	SLATECORE_API static void MakeDrawSpaceGradientSpline( FSlateWindowElementList& ElementList, uint32 InLayer, const FVector2D& InStart, const FVector2D& InStartDir, const FVector2D& InEnd, const FVector2D& InEndDir, const FSlateRect InClippingRect, const TArray<FSlateGradientStop>& InGradientStops, float InThickness = 0.0f, ESlateDrawEffect::Type InDrawEffects = ESlateDrawEffect::None );
-
 	/**
 	 * Creates a line defined by the provided points
 	 *
@@ -442,7 +428,7 @@ public:
 	FORCEINLINE uint32 GetLayer() const { return Layer; }
 	FORCEINLINE const FSlateRenderTransform& GetRenderTransform() const { return RenderTransform; }
 	FORCEINLINE const FVector2D& GetPosition() const { return Position; }
-	FORCEINLINE void SetPosition(const FVector2D& InPosition) { Position = InPosition; }
+	FORCEINLINE void SetPosition(const FVector2D& InPosition) { Position = Position; }
 	FORCEINLINE const FVector2D& GetLocalSize() const { return LocalSize; }
 	FORCEINLINE float GetScale() const { return Scale; }
 	FORCEINLINE const FSlateRect& GetClippingRect() const { return ClippingRect; }
@@ -514,6 +500,7 @@ public:
 
 	virtual ~FSlateRenderDataHandle();
 	
+
 	void Disconnect();
 
 	const ILayoutCache* GetCacher() const { return Cacher; }
@@ -1038,15 +1025,19 @@ public:
 	 */
 	explicit FSlateWindowElementList( TSharedPtr<SWindow> InWindow = TSharedPtr<SWindow>() )
 		: TopLevelWindow( InWindow )
-		, bNeedsDeferredResolve( false )
-		, ResolveToDeferredIndex()
 		, MemManager(0)
 	{
 		DrawStack.Push(&RootDrawLayer);
 	}
 	
 	/** @return Get the window that we will be painting */
-	FORCEINLINE TSharedPtr<SWindow> GetWindow() const
+	FORCEINLINE const TSharedPtr<SWindow> GetWindow() const
+	{
+		return TopLevelWindow.Pin();
+	}
+	
+	/** @return Get the window that we will be painting */
+	FORCEINLINE TSharedPtr<SWindow> GetWindow()
 	{
 		return TopLevelWindow.Pin();
 	}
@@ -1120,19 +1111,14 @@ public:
 	 * Some widgets may want to paint their children after after another, loosely-related widget finished painting.
 	 * Or they may want to paint "after everyone".
 	 */
-	struct SLATECORE_API FDeferredPaint
+	struct FDeferredPaint
 	{
 	public:
-		FDeferredPaint( const TSharedRef<const SWidget>& InWidgetToPaint, const FPaintArgs& InArgs, const FGeometry InAllottedGeometry, const FSlateRect InMyClippingRect, const FWidgetStyle& InWidgetStyle, bool InParentEnabled );
+		SLATECORE_API FDeferredPaint( const TSharedRef<const SWidget>& InWidgetToPaint, const FPaintArgs& InArgs, const FGeometry InAllottedGeometry, const FSlateRect InMyClippingRect, const FWidgetStyle& InWidgetStyle, bool InParentEnabled );
 
 		int32 ExecutePaint( int32 LayerId, FSlateWindowElementList& OutDrawElements ) const;
 
-		FDeferredPaint Copy(const FPaintArgs& InArgs);
-
 	private:
-		// Used for making copies.
-		FDeferredPaint(const FDeferredPaint& Copy, const FPaintArgs& InArgs);
-
 		const TWeakPtr<const SWidget> WidgetToPaintPtr;
 		const FPaintArgs Args;
 		const FGeometry AllottedGeometry;
@@ -1144,13 +1130,6 @@ public:
 	SLATECORE_API void QueueDeferredPainting( const FDeferredPaint& InDeferredPaint );
 
 	int32 PaintDeferred(int32 LayerId);
-
-	bool ShouldResolveDeferred() const { return bNeedsDeferredResolve; }
-
-	SLATECORE_API void BeginDeferredGroup();
-	SLATECORE_API void EndDeferredGroup();
-
-	TArray< TSharedPtr<FDeferredPaint> > GetDeferredPaintList() const { return DeferredPaintList; }
 
 	struct FVolatilePaint
 	{
@@ -1271,9 +1250,6 @@ private:
 	 * We accomplish this by deferring their painting.
 	 */
 	TArray< TSharedPtr<FDeferredPaint> > DeferredPaintList;
-
-	bool bNeedsDeferredResolve;
-	TArray<int32> ResolveToDeferredIndex;
 
 	/** The widgets be cached for a later paint pass when the invalidation host paints. */
 	TArray< TSharedPtr<FVolatilePaint> > VolatilePaintList;

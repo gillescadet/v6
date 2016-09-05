@@ -10,7 +10,7 @@ class UAISense_Sight;
 UCLASS(meta = (DisplayName = "AI Sight config"))
 class AIMODULE_API UAISenseConfig_Sight : public UAISenseConfig
 {
-	GENERATED_UCLASS_BODY()
+	GENERATED_BODY()
 
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Sense", NoClear, config)
@@ -37,8 +37,10 @@ public:
 	float AutoSuccessRangeFromLastSeenLocation;
 		
 	virtual TSubclassOf<UAISense> GetSenseImplementation() const override;
-
-#if WITH_GAMEPLAY_DEBUGGER
-	virtual void DescribeSelfToGameplayDebugger(const UAIPerceptionComponent* PerceptionComponent, FGameplayDebuggerCategory* DebuggerCategory) const;
-#endif // WITH_GAMEPLAY_DEBUGGER
+#if !UE_BUILD_SHIPPING
+	//----------------------------------------------------------------------//
+	// DEBUG
+	//----------------------------------------------------------------------//
+	virtual void GetDebugData(TArray<FString>& OnScreenStrings, TArray<FGameplayDebuggerShapeElement>& DebugShapes, const UAIPerceptionComponent& PerceptionComponent) const override;
+#endif // !UE_BUILD_SHIPPING
 };

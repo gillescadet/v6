@@ -41,7 +41,7 @@ class FRCPassPostProcessTonemap : public TRenderingCompositePassBase<4, 1>
 {
 public:
 	// constructor
-	FRCPassPostProcessTonemap(const FViewInfo& InView, bool bInDoGammaOnly, bool bDoEyeAdaptation, bool bHDROutput);
+	FRCPassPostProcessTonemap(const FViewInfo& View, bool bInDoGammaOnly, bool bDoScreenPercentageInTonemapper, bool bDoEyeAdaptation);
 
 	// interface FRenderingCompositePass ---------
 
@@ -49,14 +49,17 @@ public:
 	virtual void Release() override { delete this; }
 	virtual FPooledRenderTargetDesc ComputeOutputDesc(EPassOutputId InPassOutputId) const override;
 
-	bool bDoGammaOnly;
-	bool bDoScreenPercentageInTonemapper;
 private:
+	// set in constructor
+	bool bDoGammaOnly;
 	bool bDoEyeAdaptation;
-	bool bHDROutput;
 	uint32 ConfigIndexPC;
 
-	const FViewInfo& View;
+	// used if ShouldDoScreenPercentageInTonemapper() is true, otherwise (0,0)
+	FIntPoint RenderTargetExtend;
+
+	// @return true: we did the upscale in this pass and don't need to run another one after it
+	bool ShouldDoScreenPercentageInTonemapper() const { return RenderTargetExtend != FIntPoint::ZeroValue; }
 
 	void SetShader(const FRenderingCompositePassContext& Context);
 };
@@ -141,15 +144,7 @@ public:
 		PostprocessParameter.SetVS(ShaderRHI, Context, TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI());
 
 		FVector GrainRandomFullValue;
-		{
-			uint8 FrameIndexMod8 = 0;
-			if (Context.View.State)
-			{
-				FrameIndexMod8 = Context.View.State->GetFrameIndexMod8();
-			}
-			GrainRandomFromFrame(&GrainRandomFullValue, FrameIndexMod8);
-		}
-
+		GrainRandomFromFrame(&GrainRandomFullValue, Context.View.Family->FrameNumber);
 		SetShaderValue(Context.RHICmdList, ShaderRHI, GrainRandomFull, GrainRandomFullValue);
 
 		

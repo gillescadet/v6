@@ -4,8 +4,8 @@
 	GPUSkinPublicDefs.h: Public definitions for GPU skinning.
 =============================================================================*/
 
-#pragma once
-
+#ifndef __GPUSKINPUBLICDEFS_H__
+#define __GPUSKINPUBLICDEFS_H__
 
 /** Max number of bone influences that a single skinned vert can have. */
 #define MAX_TOTAL_INFLUENCES		8
@@ -15,8 +15,8 @@
 
 /** max number of clothing vertices for uniform buffer which is up to 64kb */
 #define MAX_APEXCLOTH_VERTICES_FOR_UB 2048 
-/** but maximum number will be 65536 when using vertex buffer */
-#define MAX_APEXCLOTH_VERTICES_FOR_VB 65536
+/** but maxinumber will be 16,384 when using vertex buffer */
+#define MAX_APEXCLOTH_VERTICES_FOR_VB 16384
 
 namespace SkinningTools
 {
@@ -36,5 +36,5 @@ namespace SkinningTools
 	}
 }
 
-// Number of frames buffered
-#define GPUSKINCACHE_FRAMES 3
+
+#endif // __GPUSKINPUBLICDEFS_H__

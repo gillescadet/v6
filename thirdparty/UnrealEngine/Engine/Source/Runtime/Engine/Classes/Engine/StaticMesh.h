@@ -3,7 +3,6 @@
 #pragma once
 #include "Interfaces/Interface_CollisionDataProvider.h"
 #include "Interfaces/Interface_AssetUserData.h"
-#include "MeshMerging.h"
 #include "StaticMesh.generated.h"
 
 /** The maximum number of static mesh LODs allowed. */
@@ -348,14 +347,6 @@ class UStaticMesh : public UObject, public IInterface_CollisionDataProvider, pub
 	UPROPERTY(EditAnywhere, transient, duplicatetransient, Instanced, Category = StaticMesh)
 	class UBodySetup* BodySetup;
 
-	/** 
-	 *	Specifies which mesh LOD to use for complex (per-poly) collision. 
-	 *	Sometimes it can be desirable to use a lower poly representation for collision to reduce memory usage, improve performance and behaviour.
-	 *	Collision representation does not change based on distance to camera.
-	 */
-	UPROPERTY(EditAnywhere, Category = StaticMesh, meta=(DisplayName="LOD For Collision"))
-	int32 LODForCollision;
-
 	/** True if mesh should use a less-conservative method of mip LOD texture factor computation.
 		requires mesh to be resaved to take effect as algorithm is applied on save. */
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category=StaticMesh, meta=(ToolTip="If true, use a less-conservative method of mip LOD texture factor computation.  Requires mesh to be resaved to take effect as algorithm is applied on save"))
@@ -382,13 +373,6 @@ class UStaticMesh : public UObject, public IInterface_CollisionDataProvider, pub
 	/** Bias multiplier for Light Propagation Volume lighting */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=StaticMesh, meta=(UIMin = "0.0", UIMax = "3.0"))
 	float LpvBiasMultiplier;
-
-	/** 
-	 *	If true, will keep geometry data CPU-accessible in cooked builds, rather than uploading to GPU memory and releasing it from CPU memory.
-	 *	This is required if you wish to access StaticMesh geometry data on the CPU at runtime in cooked builds (e.g. to convert StaticMesh to ProceduralMeshComponent)
-	 */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Category = StaticMesh)
-	bool bAllowCPUAccess;
 
 	/** A fence which is used to keep track of the rendering thread releasing the static mesh resources. */
 	FRenderCommandFence ReleaseResourcesFence;
@@ -488,6 +472,7 @@ public:
 	ENGINE_API virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const override;
 	ENGINE_API virtual FString GetDesc() override;
 	ENGINE_API virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	//~ End UObject Interface.
 
 	/**
@@ -507,25 +492,12 @@ public:
 	ENGINE_API virtual void ReleaseResources();
 
 	/**
-	 * Returns the scale dependent texture factor used by the texture streaming code.
+	 * Returns the scale dependent texture factor used by the texture streaLODg code.
 	 *
 	 * @param RequestedUVIndex UVIndex to look at
 	 * @return scale dependent texture factor
 	 */
-	float GetStreamingTextureFactor( int32 RequestedUVIndex ) const;
-
-	/**
-	 * Returns the scale dependent texture factor and bound used by the texture streaming code.
-	 *
-	 * @param OutTexelFactor		The requested texel factor
-	 * @param OutTexelFactor		The requested bound for this texel factor
-	 * @param CoordinateIndex		UV Index to look at
-	 * @param LODIndex				LOD index to look at
-	 * @param ElementIndex			Element index to look at
-	 * @param TransformMatrix		Matrix to be applied to the position before computing the bounds
-	 * @return false if some parameters are invalid
-	 */
-	bool GetStreamingTextureFactor( float& OutTexelFactor, FBoxSphereBounds& OutBounds, int32 CoordinateIndex, int32 LODIndex, int32 ElementIndex, const FTransform& Transform ) const;
+	float GetStreamingTextureFactor( int32 RequestedUVIndex );
 
 	/**
 	 * Returns the number of vertices for the specified LOD.
@@ -535,7 +507,6 @@ public:
 	/**
 	 * Returns the number of LODs used by the mesh.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "StaticMesh")
 	ENGINE_API int32 GetNumLODs() const;
 
 	/**
@@ -545,19 +516,12 @@ public:
 
 	/**
 	 * Returns the number of bounds of the mesh.
-	 *
-	 * @return	The bounding box represented as box origin with extents and also a sphere that encapsulates that box
 	 */
-	UFUNCTION( BlueprintPure, Category="StaticMesh" )
 	ENGINE_API FBoxSphereBounds GetBounds() const;
 
 	/** Returns the bounding box, in local space including bounds extension(s), of the StaticMesh asset */
 	UFUNCTION(BlueprintCallable, Category="StaticMesh")
 	ENGINE_API FBox GetBoundingBox() const;
-
-	/** Returns number of Sections that this StaticMesh has, in the supplied LOD (LOD 0 is the highest) */
-	UFUNCTION(BlueprintCallable, Category = "StaticMesh")
-	ENGINE_API int32 GetNumSections(int32 InLOD) const;
 
 	/**
 	 * Gets a Material given a Material Index and an LOD number
@@ -592,9 +556,6 @@ public:
 	}
 	ENGINE_API virtual void GetMeshId(FString& OutMeshId) override;
 	//~ End Interface_CollisionDataProvider Interface
-
-	/** Return the number of sections of the StaticMesh with collision enabled */
-	int32 GetNumSectionsWithCollision() const;
 
 	//~ Begin IInterface_AssetUserData Interface
 	virtual void AddAssetUserData(UAssetUserData* InUserData) override;
@@ -655,9 +616,6 @@ public:
 
 	void EnforceLightmapRestrictions();
 
-	/** Calculates the extended bounds */
-	ENGINE_API void CalculateExtendedBounds();
-
 #if WITH_EDITOR
 
 	/**
@@ -699,6 +657,8 @@ private:
 	 */
 	void CacheDerivedData();
 
+	/** Calculates the extended bounds */
+	void CalculateExtendedBounds();
 
 	FOnPreMeshBuild PreMeshBuild;
 	FOnPostMeshBuild PostMeshBuild;

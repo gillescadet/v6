@@ -15,8 +15,6 @@
 #include "AIController.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "GameplayTasksComponent.h"
-#include "GameplayTaskResource.h"
-#include "Tasks/GameplayTask_ClaimResource.h"
 
 // mz@todo these need to be removed, legacy code
 #define CLOSEPROXIMITY					500.f
@@ -40,9 +38,8 @@ DEFINE_LOG_CATEGORY(LogAINavigation);
 AAIController::AAIController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	bSetControlRotationFromPawnOrientation = true;
 	PathFollowingComponent = CreateDefaultSubobject<UPathFollowingComponent>(TEXT("PathFollowingComponent"));
-	PathFollowingComponent->OnRequestFinished.AddUObject(this, &AAIController::OnMoveCompleted);
+	PathFollowingComponent->OnMoveFinished.AddUObject(this, &AAIController::OnMoveCompleted);
 
 	ActionsComp = CreateDefaultSubobject<UPawnActionsComponent>("ActionsComp");
 
@@ -97,7 +94,7 @@ void AAIController::Reset()
 
 	if (PathFollowingComponent)
 	{
-		PathFollowingComponent->AbortMove(*this, FPathFollowingResultFlags::OwnerFinished | FPathFollowingResultFlags::ForcedScript);
+		PathFollowingComponent->AbortMove(TEXT("controller reset"));
 	}
 }
 
@@ -167,16 +164,13 @@ void AAIController::GrabDebugSnapshot(FVisualLogEntry* Snapshot) const
 
 void AAIController::SetFocalPoint(FVector NewFocus, EAIFocusPriority::Type InPriority)
 {
-	// clear out existing
-	ClearFocus(InPriority);
-
-	// now set new focus
 	if (InPriority >= FocusInformation.Priorities.Num())
 	{
 		FocusInformation.Priorities.SetNum(InPriority + 1);
 	}
-	
 	FFocusKnowledge::FFocusItem& FocusItem = FocusInformation.Priorities[InPriority];
+
+	FocusItem.Actor = nullptr;
 	FocusItem.Position = NewFocus;
 }
 
@@ -268,10 +262,6 @@ void AAIController::K2_ClearFocus()
 
 void AAIController::SetFocus(AActor* NewFocus, EAIFocusPriority::Type InPriority)
 {
-	// clear out existing
-	ClearFocus(InPriority);
-
-	// now set new
 	if (NewFocus)
 	{
 		if (InPriority >= FocusInformation.Priorities.Num())
@@ -279,6 +269,10 @@ void AAIController::SetFocus(AActor* NewFocus, EAIFocusPriority::Type InPriority
 			FocusInformation.Priorities.SetNum(InPriority + 1);
 		}
 		FocusInformation.Priorities[InPriority].Actor = NewFocus;
+	}
+	else
+	{
+		ClearFocus(InPriority);
 	}
 }
 
@@ -420,36 +414,28 @@ DEFINE_LOG_CATEGORY_STATIC(LogTestAI, All, All);
 
 void AAIController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 {
-	APawn* const MyPawn = GetPawn();
-	if (MyPawn)
-	{
-		const FRotator InitialControlRotation = GetControlRotation();		
-		FRotator NewControlRotation = InitialControlRotation;
+	// Look toward focus
+	FVector FocalPoint = GetFocalPoint();
+	APawn* const Pawn = GetPawn();
 
-		// Look toward focus
-		const FVector FocalPoint = GetFocalPoint();
-		if (FAISystem::IsValidLocation(FocalPoint))
-		{
-			NewControlRotation = (FocalPoint - MyPawn->GetPawnViewLocation()).Rotation();
-		}
-		else if (bSetControlRotationFromPawnOrientation)
-		{
-			NewControlRotation = MyPawn->GetActorRotation();
-		}
+	if (Pawn)
+	{
+		FVector Direction = FAISystem::IsValidLocation(FocalPoint) ? (FocalPoint - Pawn->GetPawnViewLocation()) : Pawn->GetActorForwardVector();
+		FRotator NewControlRotation = Direction.Rotation();
 
 		// Don't pitch view unless looking at another pawn
-		if (NewControlRotation.Pitch != 0 && Cast<APawn>(GetFocusActor()) == nullptr)
+		if (Cast<APawn>(GetFocusActor()) == nullptr)
 		{
 			NewControlRotation.Pitch = 0.f;
 		}
 
-		if (InitialControlRotation.Equals(NewControlRotation, 1e-3f) == false)
+		if (GetControlRotation().Equals(NewControlRotation, 1e-3f) == false)
 		{
 			SetControlRotation(NewControlRotation);
 
 			if (bUpdatePawn)
 			{
-				MyPawn->FaceRotation(NewControlRotation, DeltaTime);
+				Pawn->FaceRotation(NewControlRotation, DeltaTime);
 			}
 		}
 	}
@@ -513,7 +499,7 @@ void AAIController::Possess(APawn* InPawn)
 
 void AAIController::UnPossess()
 {
-	APawn* CurrentPawn = GetPawn();
+	APawn* OldPawn = GetPawn();
 
 	Super::UnPossess();
 
@@ -530,13 +516,13 @@ void AAIController::UnPossess()
 		}
 	}
 
-	if (CachedGameplayTasksComponent && (CachedGameplayTasksComponent->GetOwner() == CurrentPawn))
+	if (CachedGameplayTasksComponent)
 	{
 		CachedGameplayTasksComponent->OnClaimedResourcesChange.RemoveDynamic(this, &AAIController::OnGameplayTaskResourcesClaimed);
 		CachedGameplayTasksComponent = nullptr;
 	}
 
-	OnUnpossess(CurrentPawn);
+	OnUnpossess(OldPawn);
 }
 
 void AAIController::SetPawn(APawn* InPawn)
@@ -564,18 +550,12 @@ void AAIController::InitNavigationControl(UPathFollowingComponent*& PathFollowin
 
 EPathFollowingRequestResult::Type AAIController::MoveToActor(AActor* Goal, float AcceptanceRadius, bool bStopOnOverlap, bool bUsePathfinding, bool bCanStrafe, TSubclassOf<UNavigationQueryFilter> FilterClass, bool bAllowPartialPaths)
 {
-	// abort active movement to keep only one request running
-	if (PathFollowingComponent && PathFollowingComponent->GetStatus() != EPathFollowingStatus::Idle)
-	{
-		PathFollowingComponent->AbortMove(*this, FPathFollowingResultFlags::ForcedScript | FPathFollowingResultFlags::NewRequest);
-	}
-
 	FAIMoveRequest MoveReq(Goal);
 	MoveReq.SetUsePathfinding(bUsePathfinding);
 	MoveReq.SetAllowPartialPath(bAllowPartialPaths);
-	MoveReq.SetNavigationFilter(*FilterClass ? FilterClass : DefaultNavigationFilterClass);
+	MoveReq.SetNavigationFilter(FilterClass);
 	MoveReq.SetAcceptanceRadius(AcceptanceRadius);
-	MoveReq.SetReachTestIncludesAgentRadius(bStopOnOverlap);
+	MoveReq.SetStopOnOverlap(bStopOnOverlap);
 	MoveReq.SetCanStrafe(bCanStrafe);
 
 	return MoveTo(MoveReq);
@@ -583,52 +563,33 @@ EPathFollowingRequestResult::Type AAIController::MoveToActor(AActor* Goal, float
 
 EPathFollowingRequestResult::Type AAIController::MoveToLocation(const FVector& Dest, float AcceptanceRadius, bool bStopOnOverlap, bool bUsePathfinding, bool bProjectDestinationToNavigation, bool bCanStrafe, TSubclassOf<UNavigationQueryFilter> FilterClass, bool bAllowPartialPaths)
 {
-	// abort active movement to keep only one request running
-	if (PathFollowingComponent && PathFollowingComponent->GetStatus() != EPathFollowingStatus::Idle)
-	{
-		PathFollowingComponent->AbortMove(*this, FPathFollowingResultFlags::ForcedScript | FPathFollowingResultFlags::NewRequest);
-	}
-
 	FAIMoveRequest MoveReq(Dest);
 	MoveReq.SetUsePathfinding(bUsePathfinding);
 	MoveReq.SetAllowPartialPath(bAllowPartialPaths);
 	MoveReq.SetProjectGoalLocation(bProjectDestinationToNavigation);
-	MoveReq.SetNavigationFilter(*FilterClass ? FilterClass : DefaultNavigationFilterClass);
+	MoveReq.SetNavigationFilter(FilterClass);
 	MoveReq.SetAcceptanceRadius(AcceptanceRadius);
-	MoveReq.SetReachTestIncludesAgentRadius(bStopOnOverlap);
+	MoveReq.SetStopOnOverlap(bStopOnOverlap);
 	MoveReq.SetCanStrafe(bCanStrafe);
 
 	return MoveTo(MoveReq);
 }
 
-FPathFollowingRequestResult AAIController::MoveTo(const FAIMoveRequest& MoveRequest, FNavPathSharedPtr* OutPath)
+EPathFollowingRequestResult::Type AAIController::MoveTo(const FAIMoveRequest& MoveRequest)
 {
-	// both MoveToActor and MoveToLocation can be called from blueprints/script and should keep only single movement request at the same time.
-	// this function is entry point of all movement mechanics - do NOT abort in here, since movement may be handled by AITasks, which support stacking 
-
 	SCOPE_CYCLE_COUNTER(STAT_MoveTo);
 	UE_VLOG(this, LogAINavigation, Log, TEXT("MoveTo: %s"), *MoveRequest.ToString());
-
-	FPathFollowingRequestResult ResultData;
-	ResultData.Code = EPathFollowingRequestResult::Failed;
 
 	if (MoveRequest.IsValid() == false)
 	{
 		UE_VLOG(this, LogAINavigation, Error, TEXT("MoveTo request failed due MoveRequest not being valid. Most probably desireg Goal Actor not longer exists"), *MoveRequest.ToString());
-		return ResultData;
+		return EPathFollowingRequestResult::Failed;
 	}
 
-	if (PathFollowingComponent == nullptr)
-	{
-		UE_VLOG(this, LogAINavigation, Error, TEXT("MoveTo request failed due missing PathFollowingComponent"));
-		return ResultData;
-	}
-
-	ensure(MoveRequest.GetNavigationFilter() || !DefaultNavigationFilterClass);
-
+	EPathFollowingRequestResult::Type Result = EPathFollowingRequestResult::Failed;
 	bool bCanRequestMove = true;
 	bool bAlreadyAtGoal = false;
-	
+
 	if (!MoveRequest.IsMoveToActorRequest())
 	{
 		if (MoveRequest.GetGoalLocation().ContainsNaN() || FAISystem::IsValidLocation(MoveRequest.GetGoalLocation()) == false)
@@ -653,50 +614,54 @@ FPathFollowingRequestResult AAIController::MoveTo(const FAIMoveRequest& MoveRequ
 			MoveRequest.UpdateGoalLocation(ProjectedLocation.Location);
 		}
 
-		bAlreadyAtGoal = bCanRequestMove && PathFollowingComponent->HasReached(MoveRequest);
+		bAlreadyAtGoal = bCanRequestMove && PathFollowingComponent &&
+			PathFollowingComponent->HasReached(MoveRequest.GetGoalLocation(), MoveRequest.GetAcceptanceRadius(), !MoveRequest.CanStopOnOverlap());
 	}
 	else 
 	{
-		bAlreadyAtGoal = bCanRequestMove && PathFollowingComponent->HasReached(MoveRequest);
+		bAlreadyAtGoal = bCanRequestMove && PathFollowingComponent &&
+			PathFollowingComponent->HasReached(*MoveRequest.GetGoalActor(), MoveRequest.GetAcceptanceRadius(), !MoveRequest.CanStopOnOverlap());
 	}
 
 	if (bAlreadyAtGoal)
 	{
-		UE_VLOG(this, LogAINavigation, Log, TEXT("MoveTo: already at goal!"));
-		ResultData.MoveId = PathFollowingComponent->RequestMoveWithImmediateFinish(EPathFollowingResult::Success);
-		ResultData.Code = EPathFollowingRequestResult::AlreadyAtGoal;
+		UE_VLOG(this, LogAINavigation, Log, TEXT("MoveToActor: already at goal!"));
+
+		if (PathFollowingComponent)
+		{
+			// make sure previous move request gets aborted
+			PathFollowingComponent->AbortMove(TEXT("Aborting move due to new move request finishing with AlreadyAtGoal"), FAIRequestID::AnyRequest);
+
+			PathFollowingComponent->SetLastMoveAtGoal(true);
+		}
+
+		OnMoveCompleted(FAIRequestID::CurrentRequest, EPathFollowingResult::Success);
+		Result = EPathFollowingRequestResult::AlreadyAtGoal;
 	}
 	else if (bCanRequestMove)
 	{
-		FPathFindingQuery PFQuery;
+		FPathFindingQuery Query;
+		const bool bValidQuery = PreparePathfinding(MoveRequest, Query);
+		const FAIRequestID RequestID = bValidQuery ? RequestPathAndMove(MoveRequest, Query) : FAIRequestID::InvalidRequest;
 
-		const bool bValidQuery = BuildPathfindingQuery(MoveRequest, PFQuery);
-		if (bValidQuery)
+		if (RequestID.IsValid())
 		{
-			FNavPathSharedPtr Path;
-			FindPathForMoveRequest(MoveRequest, PFQuery, Path);
-
-			const FAIRequestID RequestID = Path.IsValid() ? RequestMove(MoveRequest, Path) : FAIRequestID::InvalidRequest;
-			if (RequestID.IsValid())
-			{
-				bAllowStrafe = MoveRequest.CanStrafe();
-				ResultData.MoveId = RequestID;
-				ResultData.Code = EPathFollowingRequestResult::RequestSuccessful;
-
-				if (OutPath)
-				{
-					*OutPath = Path;
-				}
-			}
+			bAllowStrafe = MoveRequest.CanStrafe();
+			Result = EPathFollowingRequestResult::RequestSuccessful;
 		}
 	}
 
-	if (ResultData.Code == EPathFollowingRequestResult::Failed)
+	if (Result == EPathFollowingRequestResult::Failed)
 	{
-		ResultData.MoveId = PathFollowingComponent->RequestMoveWithImmediateFinish(EPathFollowingResult::Invalid);
+		if (PathFollowingComponent)
+		{
+			PathFollowingComponent->SetLastMoveAtGoal(false);
+		}
+
+		OnMoveCompleted(FAIRequestID::InvalidRequest, EPathFollowingResult::Invalid);
 	}
 
-	return ResultData;
+	return Result;
 }
 
 FAIRequestID AAIController::RequestMove(const FAIMoveRequest& MoveRequest, FNavPathSharedPtr Path)
@@ -704,17 +669,28 @@ FAIRequestID AAIController::RequestMove(const FAIMoveRequest& MoveRequest, FNavP
 	uint32 RequestID = FAIRequestID::InvalidRequest;
 	if (PathFollowingComponent)
 	{
-		RequestID = PathFollowingComponent->RequestMove(MoveRequest, Path);
+		RequestID = PathFollowingComponent->RequestMove(Path, MoveRequest.GetGoalActor(), MoveRequest.GetAcceptanceRadius(), MoveRequest.CanStopOnOverlap(), MoveRequest.GetUserData());
 	}
 
 	return RequestID;
+}
+
+// deprecated
+FAIRequestID AAIController::RequestMove(FNavPathSharedPtr Path, AActor* Goal, float AcceptanceRadius, bool bStopOnOverlap, FCustomMoveSharedPtr CustomData)
+{
+	FAIMoveRequest MoveReq(Goal);
+	MoveReq.SetAcceptanceRadius(AcceptanceRadius);
+	MoveReq.SetStopOnOverlap(bStopOnOverlap);
+	MoveReq.SetUserData(CustomData);
+
+	return RequestMove(MoveReq, Path);
 }
 
 bool AAIController::PauseMove(FAIRequestID RequestToPause)
 {
 	if (PathFollowingComponent != NULL && RequestToPause.IsEquivalent(PathFollowingComponent->GetCurrentRequestId()))
 	{
-		PathFollowingComponent->PauseMove(RequestToPause, EPathFollowingVelocityMode::Reset);
+		PathFollowingComponent->PauseMove(RequestToPause);
 		return true;
 	}
 	return false;
@@ -732,64 +708,79 @@ bool AAIController::ResumeMove(FAIRequestID RequestToResume)
 
 void AAIController::StopMovement()
 {
-	// @note FPathFollowingResultFlags::ForcedScript added to make AITask_MoveTo instances 
-	// not ignore OnRequestFinished notify that's going to be sent out due to this call
-	PathFollowingComponent->AbortMove(*this, FPathFollowingResultFlags::MovementStop | FPathFollowingResultFlags::ForcedScript);
+	UE_VLOG(this, LogAINavigation, Log, TEXT("AAIController::StopMovement: %s STOP MOVEMENT"), *GetNameSafe(GetPawn()));
+	PathFollowingComponent->AbortMove(TEXT("StopMovement"));
 }
 
-bool AAIController::ShouldPostponePathUpdates() const
+bool AAIController::PreparePathfinding(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query)
 {
-	return GetPathFollowingComponent()->HasStartedNavLinkMove() || Super::ShouldPostponePathUpdates();
-}
-
-bool AAIController::BuildPathfindingQuery(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query) const
-{
-	bool bResult = false;
-
 	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
-	const ANavigationData* NavData = (NavSys == nullptr) ? nullptr :
-		MoveRequest.IsUsingPathfinding() ? NavSys->GetNavDataForProps(GetNavAgentPropertiesRef()) :
-		NavSys->GetAbstractNavData();
-
-	if (NavData)
+	if (NavSys)
 	{
-		FVector GoalLocation = MoveRequest.GetGoalLocation();
-		if (MoveRequest.IsMoveToActorRequest())
+		ANavigationData* NavData = MoveRequest.IsUsingPathfinding() ?
+			NavSys->GetNavDataForProps(GetNavAgentPropertiesRef()) :
+			NavSys->GetAbstractNavData();
+
+		if (NavData)
 		{
-			const INavAgentInterface* NavGoal = Cast<const INavAgentInterface>(MoveRequest.GetGoalActor());
-			if (NavGoal)
+			FVector GoalLocation = MoveRequest.GetGoalLocation();
+			if (MoveRequest.IsMoveToActorRequest())
 			{
-				const FVector Offset = NavGoal->GetMoveGoalOffset(this);
-				GoalLocation = FQuatRotationTranslationMatrix(MoveRequest.GetGoalActor()->GetActorQuat(), NavGoal->GetNavAgentLocation()).TransformPosition(Offset);
+				const INavAgentInterface* NavGoal = Cast<const INavAgentInterface>(MoveRequest.GetGoalActor());
+				if (NavGoal)
+				{
+					const FVector Offset = NavGoal->GetMoveGoalOffset(this);
+					GoalLocation = FQuatRotationTranslationMatrix(MoveRequest.GetGoalActor()->GetActorQuat(), NavGoal->GetNavAgentLocation()).TransformPosition(Offset);
+				}
+				else
+				{
+					GoalLocation = MoveRequest.GetGoalActor()->GetActorLocation();
+				}
 			}
-			else
+
+			Query = FPathFindingQuery(*this, *NavData, GetNavAgentLocation(), GoalLocation, UNavigationQueryFilter::GetQueryFilter(*NavData, MoveRequest.GetNavigationFilter()));
+			Query.SetAllowPartialPaths(MoveRequest.IsUsingPartialPaths());
+
+			if (PathFollowingComponent)
 			{
-				GoalLocation = MoveRequest.GetGoalActor()->GetActorLocation();
+				PathFollowingComponent->OnPathfindingQuery(Query);
 			}
+
+			return true;
 		}
-
-		FSharedConstNavQueryFilter NavFilter = UNavigationQueryFilter::GetQueryFilter(*NavData, this, MoveRequest.GetNavigationFilter());
-		Query = FPathFindingQuery(*this, *NavData, GetNavAgentLocation(), GoalLocation, NavFilter);
-		Query.SetAllowPartialPaths(MoveRequest.IsUsingPartialPaths());
-
-		if (PathFollowingComponent)
+		else
 		{
-			PathFollowingComponent->OnPathfindingQuery(Query);
+			UE_VLOG(this, LogAINavigation, Warning, TEXT("Unable to find NavigationData instance while calling AAIController::PreparePathfinding"));
 		}
-
-		bResult = true;
-	}
-	else
-	{
-		UE_VLOG(this, LogAINavigation, Warning, TEXT("Unable to find NavigationData instance while calling AAIController::BuildPathfindingQuery"));
 	}
 
-	return bResult;
+	return false;
 }
 
-void AAIController::FindPathForMoveRequest(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query, FNavPathSharedPtr& OutPath) const
+// deprecated
+bool AAIController::PreparePathfinding(FPathFindingQuery& Query, const FVector& Dest, AActor* Goal, bool bUsePathfinding, TSubclassOf<class UNavigationQueryFilter> FilterClass)
+{
+	if (Goal)
+	{
+		FAIMoveRequest MoveReq(Goal);
+		MoveReq.SetUsePathfinding(bUsePathfinding);
+		MoveReq.SetNavigationFilter(FilterClass);
+
+		return PreparePathfinding(MoveReq, Query);
+	}
+
+	FAIMoveRequest MoveReq(Dest);
+	MoveReq.SetUsePathfinding(bUsePathfinding);
+	MoveReq.SetNavigationFilter(FilterClass);
+
+	return PreparePathfinding(MoveReq, Query);
+}
+
+FAIRequestID AAIController::RequestPathAndMove(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query)
 {
 	SCOPE_CYCLE_COUNTER(STAT_AI_Overall);
+
+	FAIRequestID RequestID;
 
 	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(GetWorld());
 	if (NavSys)
@@ -805,7 +796,8 @@ void AAIController::FindPathForMoveRequest(const FAIMoveRequest& MoveRequest, FP
 				}
 
 				PathResult.Path->EnableRecalculationOnInvalidation(true);
-				OutPath = PathResult.Path;
+
+				RequestID = RequestMove(MoveRequest, PathResult.Path);
 			}
 		}
 		else
@@ -816,28 +808,19 @@ void AAIController::FindPathForMoveRequest(const FAIMoveRequest& MoveRequest, FP
 				, MoveRequest.GetGoalLocation(), FColor::Red, TEXT("Failed move to %s"), *GetNameSafe(MoveRequest.GetGoalActor()));
 		}
 	}
+
+	return RequestID;
 }
 
-// DEPRECATED FUNCTION SUPPORT
-bool AAIController::PreparePathfinding(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query)
+// deprecated
+FAIRequestID AAIController::RequestPathAndMove(FPathFindingQuery& Query, AActor* Goal, float AcceptanceRadius, bool bStopOnOverlap, FCustomMoveSharedPtr CustomData)
 {
-	return BuildPathfindingQuery(MoveRequest, Query);
-}
+	FAIMoveRequest MoveReq(Goal);
+	MoveReq.SetAcceptanceRadius(AcceptanceRadius);
+	MoveReq.SetStopOnOverlap(bStopOnOverlap);
+	MoveReq.SetUserData(CustomData);
 
-// DEPRECATED FUNCTION SUPPORT
-FAIRequestID AAIController::RequestPathAndMove(const FAIMoveRequest& MoveRequest, FPathFindingQuery& Query)
-{
-	FAIRequestID MoveId = FAIRequestID::InvalidRequest;
-
-	FNavPathSharedPtr FoundPath;
-	FindPathForMoveRequest(MoveRequest, Query, FoundPath);
-
-	if (FoundPath.IsValid())
-	{
-		MoveId = RequestMove(MoveRequest, FoundPath);
-	}
-
-	return MoveId;
+	return RequestPathAndMove(MoveReq, Query);
 }
 
 EPathFollowingStatus::Type AAIController::GetMoveStatus() const
@@ -868,15 +851,9 @@ void AAIController::SetMoveBlockDetection(bool bEnable)
 	}
 }
 
-void AAIController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
-{
-	ReceiveMoveCompleted.Broadcast(RequestID, Result.Code);
-	OnMoveCompleted(RequestID, Result.Code);
-}
-
 void AAIController::OnMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result)
 {
-	// deprecated
+	ReceiveMoveCompleted.Broadcast(RequestID, Result);
 }
 
 bool AAIController::RunBehaviorTree(UBehaviorTree* BTAsset)
@@ -896,8 +873,8 @@ bool AAIController::RunBehaviorTree(UBehaviorTree* BTAsset)
 	bool bShouldInitializeBlackboard = false;
 
 	// see if need a blackboard component at all
-	UBlackboardComponent* BlackboardComp = Blackboard;
-	if (BTAsset->BlackboardAsset && (Blackboard == nullptr || Blackboard->IsCompatibleWith(BTAsset->BlackboardAsset) == false))
+	UBlackboardComponent* BlackboardComp = NULL;
+	if (BTAsset->BlackboardAsset)
 	{
 		bSuccess = UseBlackboard(BTAsset->BlackboardAsset, BlackboardComp);
 	}
@@ -921,49 +898,6 @@ bool AAIController::RunBehaviorTree(UBehaviorTree* BTAsset)
 	}
 
 	return bSuccess;
-}
-
-void AAIController::ClaimTaskResource(TSubclassOf<UGameplayTaskResource> ResourceClass)
-{
-	if (CachedGameplayTasksComponent)
-	{
-		const uint8 ResourceID = UGameplayTaskResource::GetResourceID(ResourceClass);
-		if (ScriptClaimedResources.HasID(ResourceID) == false)
-		{
-			ScriptClaimedResources.AddID(ResourceID);
-
-			UE_VLOG(this, LogGameplayTasks, Log, TEXT("ClaimTaskResource %s"), *GetNameSafe(*ResourceClass));
-			
-			IGameplayTaskOwnerInterface& AsTaskOwner = *this;
-			UGameplayTask_ClaimResource* ResourceTask = UGameplayTask_ClaimResource::ClaimResource(AsTaskOwner, ResourceClass, uint8(EAITaskPriority::High), ResourceClass->GetFName());
-			if (ResourceTask)
-			{
-				CachedGameplayTasksComponent->AddTaskReadyForActivation(*ResourceTask);
-			}
-			UE_CVLOG(ResourceTask == nullptr, this, LogGameplayTasks, Warning, TEXT("ClaimTaskResource failed to create UGameplayTask_ClaimResource instance"));
-		}
-	}
-}
-
-void AAIController::UnclaimTaskResource(TSubclassOf<UGameplayTaskResource> ResourceClass)
-{
-	if (CachedGameplayTasksComponent)
-	{
-		const uint8 ResourceID = UGameplayTaskResource::GetResourceID(ResourceClass);
-		if (ScriptClaimedResources.HasID(ResourceID) == true)
-		{
-			ScriptClaimedResources.RemoveID(ResourceID);
-			
-			UE_VLOG(this, LogGameplayTasks, Log, TEXT("UnclaimTaskResource %s"), *GetNameSafe(*ResourceClass));
-
-			UGameplayTask* ResourceTask = CachedGameplayTasksComponent->FindResourceConsumingTaskByName(ResourceClass->GetFName());
-			if (ResourceTask)
-			{
-				ResourceTask->EndTask();
-			}
-			UE_CVLOG(ResourceTask == nullptr, this, LogGameplayTasks, Warning, TEXT("UnclaimTaskResource failed to find UGameplayTask_ClaimResource instance"));
-		}
-	}
 }
 
 bool AAIController::InitializeBlackboard(UBlackboardComponent& BlackboardComp, UBlackboardData& BlackboardAsset)
@@ -1032,9 +966,9 @@ bool AAIController::SuggestTossVelocity(FVector& OutTossVelocity, FVector Start,
 
 	return UGameplayStatics::SuggestProjectileVelocity(this, OutTossVelocity, Start, End, TossSpeed, bPreferHighArc, CollisionRadius, GravityOverride, TraceOption);
 }
-bool AAIController::PerformAction(UPawnAction& Action, EAIRequestPriority::Type Priority, UObject* const InInstigator /*= NULL*/)
+bool AAIController::PerformAction(UPawnAction& Action, EAIRequestPriority::Type Priority, UObject* const Instigator /*= NULL*/)
 {
-	return ActionsComp != NULL && ActionsComp->PushAction(Action, Priority, InInstigator);
+	return ActionsComp != NULL && ActionsComp->PushAction(Action, Priority, Instigator);
 }
 
 FString AAIController::GetDebugIcon() const

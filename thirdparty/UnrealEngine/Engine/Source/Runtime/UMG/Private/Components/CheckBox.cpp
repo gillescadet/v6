@@ -19,9 +19,6 @@ UCheckBox::UCheckBox(const FObjectInitializer& ObjectInitializer)
 	Padding_DEPRECATED = SlateDefaults._Padding.Get();
 
 	BorderBackgroundColor_DEPRECATED = FLinearColor::White;
-
-	IsFocusable = true;
-
 }
 
 void UCheckBox::ReleaseSlateResources(bool bReleaseChildren)
@@ -37,7 +34,6 @@ TSharedRef<SWidget> UCheckBox::RebuildWidget()
 		.OnCheckStateChanged( BIND_UOBJECT_DELEGATE(FOnCheckStateChanged, SlateOnCheckStateChangedCallback) )
 		.Style(&WidgetStyle)
 		.HAlign( HorizontalAlignment )
-		.IsFocusable(IsFocusable)
 		;
 
 	if ( GetChildrenCount() > 0 )
@@ -56,16 +52,16 @@ void UCheckBox::SynchronizeProperties()
 	MyCheckbox->SetIsChecked( OPTIONAL_BINDING(ECheckBoxState, CheckedState) );
 }
 
-void UCheckBox::OnSlotAdded(UPanelSlot* InSlot)
+void UCheckBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live slot if it already exists
 	if ( MyCheckbox.IsValid() )
 	{
-		MyCheckbox->SetContent(InSlot->Content ? InSlot->Content->TakeWidget() : SNullWidget::NullWidget);
+		MyCheckbox->SetContent(Slot->Content ? Slot->Content->TakeWidget() : SNullWidget::NullWidget);
 	}
 }
 
-void UCheckBox::OnSlotRemoved(UPanelSlot* InSlot)
+void UCheckBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyCheckbox.IsValid() )
@@ -217,6 +213,11 @@ void UCheckBox::PostLoad()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UCheckBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.CheckBox");
+}
 
 const FText UCheckBox::GetPaletteCategory()
 {

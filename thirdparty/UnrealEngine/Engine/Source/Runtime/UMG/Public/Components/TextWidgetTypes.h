@@ -24,11 +24,11 @@ struct UMG_API FShapedTextOptions
 	}
 
 	/**  */
-	UPROPERTY(EditAnywhere, Category=Localization, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_TextShapingMethod : 1;
 
 	/**  */
-	UPROPERTY(EditAnywhere, Category=Localization, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_TextFlowDirection : 1;
 
 	/** Which text shaping method should the text within this widget use? (unset to use the default returned by GetDefaultTextShapingMethod) */
@@ -60,7 +60,6 @@ protected:
 		InWidget.SetJustification(Justification);
 		InWidget.SetAutoWrapText(AutoWrapText);
 		InWidget.SetWrapTextAt(WrapTextAt != 0 ? WrapTextAt : TAttribute<float>());
-		InWidget.SetWrappingPolicy(WrappingPolicy);
 		InWidget.SetMargin(Margin);
 		InWidget.SetLineHeightPercentage(LineHeightPercentage);
 	}
@@ -74,16 +73,12 @@ protected:
 	TEnumAsByte<ETextJustify::Type> Justification;
 
 	/** True if we're wrapping text automatically based on the computed horizontal space for this widget. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Wrapping)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance)
 	bool AutoWrapText;
 
 	/** Whether text wraps onto a new line when it's length exceeds this width; if this value is zero or negative, no wrapping occurs. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Wrapping)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance, AdvancedDisplay)
 	float WrapTextAt;
-
-	/** The wrapping policy to use. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Wrapping, AdvancedDisplay)
-	ETextWrappingPolicy WrappingPolicy;
 
 	/** The amount of blank space left around the edges of text area. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance, AdvancedDisplay)

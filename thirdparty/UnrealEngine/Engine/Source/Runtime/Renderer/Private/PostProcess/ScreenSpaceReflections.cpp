@@ -48,9 +48,7 @@ static TAutoConsoleVariable<int32> CVarSSRCone(
 	TEXT(" 0 is off (default), 1 is on"),
 	ECVF_RenderThreadSafe);
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("ScreenSpace Reflections"), Stat_GPU_ScreenSpaceReflections, STATGROUP_GPU);
-
-bool ShouldRenderScreenSpaceReflections(const FViewInfo& View)
+bool DoScreenSpaceReflections(const FViewInfo& View)
 {
 	if(!View.Family->EngineShowFlags.ScreenSpaceReflections)
 	{
@@ -78,20 +76,6 @@ bool ShouldRenderScreenSpaceReflections(const FViewInfo& View)
 	return true;
 }
 
-bool IsSSRTemporalPassRequired(const FViewInfo& View, bool bCheckSSREnabled)
-{
-	if (bCheckSSREnabled && !ShouldRenderScreenSpaceReflections(View))
-	{
-		return false;
-	}
-	if (!View.State)
-	{
-		return false;
-	}
-	return View.FinalPostProcessSettings.AntiAliasingMethod != AAM_TemporalAA || CVarSSRTemporal.GetValueOnRenderThread() != 0;
-}
-
-
 static float ComputeRoughnessMaskScale(const FRenderingCompositePassContext& Context, uint32 SSRQuality)
 {
 	float MaxRoughness = FMath::Clamp(Context.View.FinalPostProcessSettings.ScreenSpaceReflectionMaxRoughness, 0.01f, 1.0f);
@@ -102,35 +86,6 @@ static float ComputeRoughnessMaskScale(const FRenderingCompositePassContext& Con
 
 	float RoughnessMaskScale = -2.0f / MaxRoughness;
 	return RoughnessMaskScale * (SSRQuality < 3 ? 2.0f : 1.0f);
-}
-
-FLinearColor ComputeSSRParams(const FRenderingCompositePassContext& Context, uint32 SSRQuality, bool bEnableDiscard)
-{
-	float RoughnessMaskScale = ComputeRoughnessMaskScale(Context, SSRQuality);
-
-	float FrameRandom = 0;
-
-	if(Context.ViewState)
-	{
-		bool bTemporalAAIsOn = Context.View.FinalPostProcessSettings.AntiAliasingMethod == AAM_TemporalAA;
-
-		if(bTemporalAAIsOn)
-		{
-			// usually this number is in the 0..7 range but it depends on the TemporalAA quality
-			FrameRandom = Context.ViewState->GetCurrentTemporalAASampleIndex() * 1551;
-		}
-		else
-		{
-			// 8 aligns with the temporal smoothing, larger number will do more flickering (power of two for best performance)
-			FrameRandom = Context.ViewState->GetFrameIndexMod8() * 1551;
-		}
-	}
-
-	return FLinearColor(
-		FMath::Clamp(Context.View.FinalPostProcessSettings.ScreenSpaceReflectionIntensity * 0.01f, 0.0f, 1.0f), 
-		RoughnessMaskScale,
-		(float)bEnableDiscard,	// TODO 
-		FrameRandom);
 }
 
 /**
@@ -180,7 +135,13 @@ public:
 		DeferredParameters.Set(Context.RHICmdList, ShaderRHI, Context.View);
 
 		{
-			FLinearColor Value = ComputeSSRParams(Context, SSRQuality, EnableDiscard);
+			float RoughnessMaskScale = ComputeRoughnessMaskScale(Context, SSRQuality);
+
+			FLinearColor Value(
+				FMath::Clamp(Context.View.FinalPostProcessSettings.ScreenSpaceReflectionIntensity * 0.01f, 0.0f, 1.0f), 
+				RoughnessMaskScale,
+				float(EnableDiscard), //TODO
+				0);
 
 			SetShaderValue(Context.RHICmdList, ShaderRHI, SSRParams, Value);
 		}
@@ -250,7 +211,13 @@ public:
 		DeferredParameters.Set(Context.RHICmdList, ShaderRHI, Context.View);
 
 		{
-			FLinearColor Value = ComputeSSRParams(Context, SSRQuality, false);
+			float RoughnessMaskScale = ComputeRoughnessMaskScale(Context, SSRQuality);
+
+			FLinearColor Value(
+				FMath::Clamp(Context.View.FinalPostProcessSettings.ScreenSpaceReflectionIntensity * 0.01f, 0.0f, 1.0f), 
+				RoughnessMaskScale,
+				0, 
+				0);
 
 			SetShaderValue(Context.RHICmdList, ShaderRHI, SSRParams, Value);
 		}
@@ -351,8 +318,6 @@ void FRCPassPostProcessScreenSpaceReflections::Process(FRenderingCompositePassCo
 	}
 	
 	const FSceneRenderTargetItem& DestRenderTarget = PassOutputs[0].RequestSurface(Context);
-
-	SCOPED_GPU_STAT(RHICmdList, Stat_GPU_ScreenSpaceReflections);
 	
 	if (SSRStencilPrePass)
 	{ // ScreenSpaceReflectionsStencil draw event
@@ -474,7 +439,7 @@ FPooledRenderTargetDesc FRCPassPostProcessScreenSpaceReflections::ComputeOutputD
 	return Ret;
 }
 
-void RenderScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& SSROutput, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
+void ScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& SSROutput)
 {
 	FRenderingCompositePassContext CompositeContext(RHICmdList, View);	
 	FPostprocessContext Context(RHICmdList, CompositeContext.Graph, View );
@@ -507,7 +472,7 @@ void RenderScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInf
 		Context.FinalOutput = FRenderingCompositeOutputRef( TracePass );
 	}
 
-	const bool bTemporalFilter = IsSSRTemporalPassRequired(View, false);
+	const bool bTemporalFilter = View.FinalPostProcessSettings.AntiAliasingMethod != AAM_TemporalAA || CVarSSRTemporal.GetValueOnRenderThread() != 0;
 
 	if( ViewState && bTemporalFilter )
 	{
@@ -523,23 +488,10 @@ void RenderScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInf
 				HistoryInput = Context.Graph.RegisterPass(new FRCPassPostProcessInput(GSystemTextures.BlackDummy));
 			}
 
-			FRenderingCompositeOutputRef VelocityInput;
-			if ( VelocityRT )
-			{
-				VelocityInput = Context.Graph.RegisterPass(new FRCPassPostProcessInput(VelocityRT));
-			}
-			else
-			{
-				// No velocity, use black
-				VelocityInput = Context.Graph.RegisterPass(new FRCPassPostProcessInput(GSystemTextures.BlackDummy));
-			}
-
-
 			FRenderingCompositePass* TemporalAAPass = Context.Graph.RegisterPass( new FRCPassPostProcessSSRTemporalAA );
 			TemporalAAPass->SetInput( ePId_Input0, Context.FinalOutput );
 			TemporalAAPass->SetInput( ePId_Input1, HistoryInput );
-			TemporalAAPass->SetInput( ePId_Input2, HistoryInput );
-			TemporalAAPass->SetInput( ePId_Input3, VelocityInput );
+			//TemporalAAPass->SetInput( ePId_Input2, VelocityInput );
 
 			Context.FinalOutput = FRenderingCompositeOutputRef( TemporalAAPass );
 		}

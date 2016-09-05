@@ -89,15 +89,13 @@ public:
 	* Updates the ReferenceToLocal matrices using the new dynamic data.
 	* @param	InSkelMeshComponent - parent skel mesh component
 	* @param	InLODIndex - each lod has its own bone map 
-	* @param	InActiveMorphTargets - Active Morph Targets to blend with during skinning
-	* @param	InMorphTargetWeights - All Morph Target weights to blend with during skinning
+	* @param	ActiveVertexAnims - vertex anims to blend with during skinning
 	*/
 	FDynamicSkelMeshObjectDataCPUSkin(
 		USkinnedMeshComponent* InMeshComponent,
 		FSkeletalMeshResource* InSkeletalMeshResource,
 		int32 InLODIndex,
-		const TArray<FActiveMorphTarget>& InActiveMorphTargets,
-		const TArray<float>& InMorphTargetWeights
+		const TArray<FActiveVertexAnim>& InActiveVertexAnims
 		);
 
 	virtual ~FDynamicSkelMeshObjectDataCPUSkin()
@@ -112,14 +110,12 @@ public:
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) 
 	/** component space bone transforms*/
-	TArray<FTransform> MeshComponentSpaceTransforms;
+	TArray<FTransform> MeshSpaceBases;
 #endif
 	/** currently LOD for bones being updated */
 	int32 LODIndex;
-	/** Morphs to blend when skinning verts */
-	TArray<FActiveMorphTarget> ActiveMorphTargets;
-	/** Morph Weights to blend when skinning verts */
-	TArray<float> MorphTargetWeights;
+	/** vertex anims to blend when skinning verts */
+	TArray<FActiveVertexAnim> ActiveVertexAnims;
 
 	/**
 	* Returns the size of memory allocated by render data
@@ -129,7 +125,7 @@ public:
 		SIZE_T ResourceSize = sizeof(*this);
  		
  		ResourceSize += ReferenceToLocal.GetAllocatedSize();
- 		ResourceSize += ActiveMorphTargets.GetAllocatedSize();
+ 		ResourceSize += ActiveVertexAnims.GetAllocatedSize();
  		
 		return ResourceSize;
  	}
@@ -149,15 +145,13 @@ public:
 	//~ Begin FSkeletalMeshObject Interface
 	virtual void InitResources() override;
 	virtual void ReleaseResources() override;
-	virtual void Update(int32 LODIndex,USkinnedMeshComponent* InMeshComponent,const TArray<FActiveMorphTarget>& ActiveMorphTargets, const TArray<float>& MorphTargetsWeights) override;
-	void UpdateDynamicData_RenderThread(FRHICommandListImmediate& RHICmdList, FDynamicSkelMeshObjectDataCPUSkin* InDynamicData, uint32 FrameNumberToPrepare);
-	virtual void UpdateRecomputeTangent(int32 MaterialIndex, bool bRecomputeTangent) override;
+	virtual void Update(int32 LODIndex,USkinnedMeshComponent* InMeshComponent,const TArray<FActiveVertexAnim>& ActiveVertexAnims) override;
+	void UpdateDynamicData_RenderThread(FRHICommandListImmediate& RHICmdList, FDynamicSkelMeshObjectDataCPUSkin* InDynamicData, uint32 FrameNumber);
 	virtual void EnableBlendWeightRendering(bool bEnabled, const TArray<int32>& InBonesOfInterest) override;
 	virtual void CacheVertices(int32 LODIndex, bool bForce) const override;
 	virtual bool IsCPUSkinned() const override { return true; }
-	virtual const FVertexFactory* GetSkinVertexFactory(const FSceneView* View, int32 LODIndex, int32 ChunkIdx) const override;
-	virtual TArray<FTransform>* GetComponentSpaceTransforms() const override;
-	virtual const TArray<FMatrix>& GetReferenceToLocalMatrices() const override;
+	virtual const FVertexFactory* GetVertexFactory(int32 LODIndex,int32 ChunkIdx) const override;
+	virtual TArray<FTransform>* GetSpaceBases() const override;
 	virtual int32 GetLOD() const override
 	{
 		if(DynamicData)

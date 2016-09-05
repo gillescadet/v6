@@ -16,7 +16,7 @@ ALightmassPortal::ALightmassPortal(const FObjectInitializer& ObjectInitializer)
 	PortalComponent->RelativeScale3D = FVector(10, 100, 100);
 	RootComponent = PortalComponent;
 	UBoxComponent* DrawInfluenceBox = CreateDefaultSubobject<UBoxComponent>(TEXT("DrawBox0"));
-	DrawInfluenceBox->SetupAttachment(GetPortalComponent());
+	DrawInfluenceBox->AttachParent = GetPortalComponent();
 	DrawInfluenceBox->bUseEditorCompositing = true;
 	DrawInfluenceBox->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 	DrawInfluenceBox->InitBoxExtent(FVector(1, 1, 1));
@@ -43,7 +43,7 @@ ALightmassPortal::ALightmassPortal(const FObjectInitializer& ObjectInitializer)
 		SpriteComponent->bAbsoluteScale = true;
 		SpriteComponent->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 		SpriteComponent->bIsScreenSizeScaled = true;
-		SpriteComponent->SetupAttachment(PortalComponent);
+		SpriteComponent->AttachParent = PortalComponent;
 	}
 #endif // WITH_EDITORONLY_DATA
 }

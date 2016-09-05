@@ -49,8 +49,6 @@ public:
 	*/
 	void SetChannelValues( const int32 ControllerId, const FForceFeedbackValues& Values );
 
-	bool IsGamepadAttached() const { return bIsGamepadAttached; }
-
 private:
 
 	XInputInterface( const TSharedRef< FGenericApplicationMessageHandler >& MessageHandler );
@@ -94,8 +92,6 @@ private:
 
 	/** If we've been notified by the system that the controller state may have changed */
 	bool bNeedsControllerStateUpdate;
-
-	bool bIsGamepadAttached;
 
 	/** In the engine, all controllers map to xbox controllers for consistency */
 	uint8	X360ToXboxControllerMapping[MAX_NUM_CONTROLLER_BUTTONS];

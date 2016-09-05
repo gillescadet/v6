@@ -2,8 +2,6 @@
 
 #pragma once
 
-#include "DataTableUtils.h"
-
 class UDataTable;
 class FJsonValue;
 class FJsonObject;
@@ -19,24 +17,22 @@ class TJsonWriter;
 class FDataTableExporterJSON
 {
 public:
-	FDataTableExporterJSON(const EDataTableExportFlags InDTExportFlags, FString& OutExportText);
+	FDataTableExporterJSON(const UDataTable& InDataTable, FString& OutExportText);
 
-	FDataTableExporterJSON(const EDataTableExportFlags InDTExportFlags, TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > InJsonWriter);
+	FDataTableExporterJSON(const UDataTable& InDataTable, TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > InJsonWriter);
 
 	~FDataTableExporterJSON();
 
-	bool WriteTable(const UDataTable& InDataTable);
+	bool WriteTable();
 
-	bool WriteRow(const UScriptStruct* InRowStruct, const void* InRowData);
-
-	bool WriteStruct(const UScriptStruct* InStruct, const void* InStructData);
+	bool WriteRow(const void* InRowData);
 
 private:
 	bool WriteStructEntry(const void* InRowData, const UProperty* InProperty, const void* InPropertyData);
 
 	bool WriteArrayEntry(const UProperty* InProperty, const void* InPropertyData);
 
-	EDataTableExportFlags DTExportFlags;
+	const UDataTable* DataTable;
 	TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > JsonWriter;
 	bool bJsonWriterNeedsClose;
 };
@@ -51,13 +47,11 @@ public:
 	bool ReadTable();
 
 private:
-	bool ReadRow(const TSharedRef<FJsonObject>& InParsedTableRowObject, const int32 InRowIdx);
+	bool ReadRow(const TSharedRef<FJsonObject>& ParsedTableRowObject, const int32 RowIdx);
 
-	bool ReadStruct(const TSharedRef<FJsonObject>& InParsedObject, UScriptStruct* InStruct, const FName InRowName, void* InStructData);
+	bool ReadStructEntry(const TSharedRef<FJsonValue>& ParsedPropertyValue, const FName InRowName, const void* InRowData, UProperty* InProperty, void* InPropertyData);
 
-	bool ReadStructEntry(const TSharedRef<FJsonValue>& InParsedPropertyValue, const FName InRowName, const FString& InColumnName, const void* InRowData, UProperty* InProperty, void* InPropertyData);
-
-	bool ReadArrayEntry(const TSharedRef<FJsonValue>& InParsedPropertyValue, const FName InRowName, const FString& InColumnName, const int32 InArrayEntryIndex, UProperty* InProperty, void* InPropertyData);
+	bool ReadArrayEntry(const TSharedRef<FJsonValue>& ParsedPropertyValue, const FName InRowName, const FString& InColumnName, const int32 InArrayEntryIndex, UProperty* InProperty, void* InPropertyData);
 
 	UDataTable* DataTable;
 	const FString& JSONData;

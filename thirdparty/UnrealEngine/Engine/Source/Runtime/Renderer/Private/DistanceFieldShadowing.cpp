@@ -45,7 +45,7 @@ FAutoConsoleVariableRef CVarShadowWorldTileSize(
 	TEXT("r.DFShadowWorldTileSize"),
 	GShadowWorldTileSize,
 	TEXT("World space size of a tile used for culling for directional lights."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GTwoSidedMeshDistanceBias = 4;
@@ -53,7 +53,7 @@ FAutoConsoleVariableRef CVarTwoSidedMeshDistanceBias(
 	TEXT("r.DFTwoSidedMeshDistanceBias"),
 	GTwoSidedMeshDistanceBias,
 	TEXT("World space amount to expand distance field representations of two sided meshes.  This is useful to get tree shadows to match up with standard shadow mapping."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GetDFShadowDownsampleFactor()
@@ -477,8 +477,8 @@ public:
 	{
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZEX"), GDistanceFieldAOTileSizeX);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZEY"), GDistanceFieldAOTileSizeY);
-		OutEnvironment.SetDefine(TEXT("SCATTER_TILE_CULLING"), ShadowingType == DFS_DirectionalLightScatterTileCulling);
-		OutEnvironment.SetDefine(TEXT("POINT_LIGHT"), ShadowingType == DFS_PointLightTiledCulling);
+		OutEnvironment.SetDefine(TEXT("SCATTER_TILE_CULLING"), ShadowingType == DFS_DirectionalLightScatterTileCulling ? TEXT("1") : TEXT("0"));
+		OutEnvironment.SetDefine(TEXT("POINT_LIGHT"), ShadowingType == DFS_PointLightTiledCulling ? TEXT("1") : TEXT("0"));
 	}
 
 	/** Default constructor. */
@@ -636,7 +636,7 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		OutEnvironment.SetDefine(TEXT("DOWNSAMPLE_FACTOR"), GAODownsampleFactor);
-		OutEnvironment.SetDefine(TEXT("UPSAMPLE_REQUIRED"), bUpsampleRequired);
+		OutEnvironment.SetDefine(TEXT("UPSAMPLE_REQUIRED"), bUpsampleRequired ? TEXT("1") : TEXT("0"));
 	}
 
 	/** Default constructor. */
@@ -851,7 +851,7 @@ bool FDeferredShadingSceneRenderer::ShouldPrepareForDistanceFieldShadows() const
 			{
 				const FProjectedShadowInfo* ProjectedShadowInfo = VisibleLightInfo.AllProjectedShadows[ShadowIndex];
 
-				if (ProjectedShadowInfo->bRayTracedDistanceField)
+				if (ProjectedShadowInfo->CascadeSettings.bRayTracedDistanceField)
 				{
 					bSceneHasRayTracedDFShadows = true;
 					break;
@@ -865,7 +865,7 @@ bool FDeferredShadingSceneRenderer::ShouldPrepareForDistanceFieldShadows() const
 		&& SupportsDistanceFieldShadows(Scene->GetFeatureLevel(), Scene->GetShaderPlatform());
 }
 
-void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, bool bProjectingForForwardShading) const
+void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandListImmediate& RHICmdList, const FViewInfo& View) const
 {
 	if (SupportsDistanceFieldShadows(View.GetFeatureLevel(), View.GetShaderPlatform()))
 	{
@@ -890,7 +890,7 @@ void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandLis
 				NumPlanes = CascadeSettings.ShadowBoundsAccurate.Planes.Num();
 				PlaneData = CascadeSettings.ShadowBoundsAccurate.Planes.GetData();
 			}
-			else if (bOnePassPointLightShadow)
+			else if (CascadeSettings.bOnePassPointLightShadow)
 			{
 				ShadowBoundingSphereValue = FVector4(ShadowBounds.Center.X, ShadowBounds.Center.Y, ShadowBounds.Center.Z, ShadowBounds.W);
 			}
@@ -980,7 +980,18 @@ void FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection(FRHICommandLis
 				RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Solid, CM_None>::GetRHI());
 				RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_Always>::GetRHI());
 				
-				SetBlendStateForProjection(RHICmdList, bProjectingForForwardShading, false);
+				if (bDirectionalLight)
+				{
+					// use R and G in Light Attenuation for directional lights
+					// CO_Min is needed to combine with far shadows which overlap the same depth range
+					RHICmdList.SetBlendState(TStaticBlendState<CW_RG, BO_Min, BF_One, BF_One>::GetRHI());
+				}
+				else
+				{
+					// use B and A in Light Attenuation
+					// CO_Min is needed to combine multiple shadow passes
+					RHICmdList.SetBlendState(TStaticBlendState<CW_BA, BO_Min, BF_One, BF_One, BO_Min, BF_One, BF_One>::GetRHI());
+				}
 
 				TShaderMapRef<FPostProcessVS> VertexShader(View.ShaderMap);
 

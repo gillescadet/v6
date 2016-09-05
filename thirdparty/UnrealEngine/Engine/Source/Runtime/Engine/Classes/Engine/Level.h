@@ -1,16 +1,13 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
-#include "MaterialMerging.h"
+#include "Engine/World.h"
 #include "Level.generated.h"
 
 class ALevelBounds;
-class ABrush;
 class UTexture2D;
 class UNavigationDataChunk;
 class AInstancedFoliageActor;
-class AWorldSettings;
-class UWorld;
 
 /**
  * Structure containing all information needed for determining the screen space
@@ -22,7 +19,7 @@ struct ENGINE_API FStreamableTextureInstance
 	GENERATED_USTRUCT_BODY()
 
 	/** Bounding sphere/ box of object */
-	FBoxSphereBounds  Bounds;
+	FSphere BoundingSphere;
 
 	/** Min distance from view where this instance is usable */
 	float MinDistance;
@@ -260,7 +257,7 @@ struct ENGINE_API FLevelSimplificationDetails
 	UPROPERTY(Category = Landscape, EditAnywhere)
 	FMaterialProxySettings StaticMeshMaterialSettings;
 
-	UPROPERTY(Category = Landscape, EditAnywhere, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	bool bOverrideLandscapeExportLOD;
 
 	/** Landscape LOD to use for static mesh generation, when not specified 'Max LODLevel' from landscape actor will be used */
@@ -339,7 +336,7 @@ public:
 	FURL					URL;
 
 	/** Array of all actors in this level, used by FActorIteratorBase and derived classes */
-	TArray<AActor*> Actors;
+	TTransArray<AActor*> Actors;
 
 	/** Set before calling LoadPackage for a streaming level to ensure that OwningWorld is correct on the Level */
 	ENGINE_API static TMap<FName, TWeakObjectPtr<UWorld> > StreamedLevelsOwningWorld;
@@ -395,15 +392,20 @@ public:
 	UPROPERTY()
 	TArray<FVector> StaticNavigableGeometry;
 
-	/** The Guid of each texture refered by FStreamingTextureBuildInfo::TextureLevelIndex	*/
-	UPROPERTY()
-	TArray<FGuid> StreamingTextureGuids;
+	/** Static information used by texture streaming code, generated during PreSave									*/
+	TMap<UTexture2D*,TArray<FStreamableTextureInstance> >	TextureToInstancesMap;
+
+	/** Information about textures on dynamic primitives. Used by texture streaming code, generated during PreSave.		*/
+	TMap<TWeakObjectPtr<UPrimitiveComponent>,TArray<FDynamicTextureInstance> >	DynamicTextureInstances;
+
+	/** Set of textures used by PrimitiveComponents that have bForceMipStreaming checked. */
+	TMap<UTexture2D*,bool>									ForceStreamTextures;
 
 	/** Index into Actors array pointing to first net relevant actor. Used as an optimization for FActorIterator	*/
-	int32										iFirstNetRelevantActor;
+	int32											iFirstNetRelevantActor;
 
 	/** Data structures for holding the tick functions **/
-	class FTickTaskLevel*						TickTaskLevel;
+	class FTickTaskLevel*		TickTaskLevel;
 
 	/** 
 	* The precomputed light information for this level.  
@@ -421,56 +423,56 @@ public:
 	FRenderCommandFence							RemoveFromSceneFence;
 
 	/** Whether components are currently registered or not. */
-	uint8										bAreComponentsCurrentlyRegistered:1;
+	uint32										bAreComponentsCurrentlyRegistered:1;
 
 	/** Whether the geometry needs to be rebuilt for correct lighting */
-	uint8										bGeometryDirtyForLighting:1;
+	uint32										bGeometryDirtyForLighting:1;
 
-	/** Whether a level transform rotation was applied since the texture streaming builds. Invalidates the precomputed streaming bounds. */
-	UPROPERTY()
-	uint8 										bTextureStreamingRotationChanged : 1;
+	/** Has texture streaming been built */
+	uint32										bTextureStreamingBuilt:1;
 
 	/** Whether the level is currently visible/ associated with the world */
 	UPROPERTY(transient)
-	uint8										bIsVisible:1;
-
+	uint32										bIsVisible:1;
+	
 	/** Whether this level is locked; that is, its actors are read-only 
 	 *	Used by WorldBrowser to lock a level when corresponding ULevelStreaming does not exist
 	 */
 	UPROPERTY()
-	uint8 										bLocked:1;
+	uint32 										bLocked:1;
 	
 	/** The below variables are used temporarily while making a level visible.				*/
 
 	/** Whether we already moved actors.													*/
-	uint8										bAlreadyMovedActors:1;
+	uint32										bAlreadyMovedActors:1;
 	/** Whether we already shift actors positions according to world composition.			*/
-	uint8										bAlreadyShiftedActors:1;
+	uint32										bAlreadyShiftedActors:1;
 	/** Whether we already updated components.												*/
-	uint8										bAlreadyUpdatedComponents:1;
+	uint32										bAlreadyUpdatedComponents:1;
 	/** Whether we already associated streamable resources.									*/
-	uint8										bAlreadyAssociatedStreamableResources:1;
+	uint32										bAlreadyAssociatedStreamableResources:1;
 	/** Whether we already initialized network actors.											*/
-	uint8										bAlreadyInitializedNetworkActors:1;
+	uint32										bAlreadyInitializedNetworkActors:1;
 	/** Whether we already routed initialize on actors.										*/
-	uint8										bAlreadyRoutedActorInitialize:1;
+	uint32										bAlreadyRoutedActorInitialize:1;
 	/** Whether we already sorted the actor list.											*/
-	uint8										bAlreadySortedActorList:1;
+	uint32										bAlreadySortedActorList:1;
 	/** Whether this level is in the process of being associated with its world				*/
-	uint8										bIsAssociatingLevel:1;
+	uint32										bIsAssociatingLevel:1;
 	/** Whether this level should be fully added to the world before rendering his components	*/
-	uint8										bRequireFullVisibilityToRender:1;
+	uint32										bRequireFullVisibilityToRender:1;
 	/** Whether this level is specific to client, visibility state will not be replicated to server	*/
-	uint8										bClientOnlyVisible:1;
+	uint32										bClientOnlyVisible:1;
 	/** Whether this level was duplicated for PIE	*/
-	uint8										bWasDuplicatedForPIE:1;
-	/** Whether the level is currently being removed from the world */
-	uint8										bIsBeingRemoved:1;
+	uint32										bWasDuplicatedForPIE:1;
 	/** Current index into actors array for updating components.							*/
 	int32										CurrentActorIndexForUpdateComponents;
 
 	/** Whether the level is currently pending being made visible.							*/
-	bool HasVisibilityRequestPending() const;
+	bool HasVisibilityRequestPending() const
+	{
+		return (OwningWorld && this == OwningWorld->CurrentLevelPendingVisibility);
+	}
 
 	// Event on level transform changes
 	DECLARE_MULTICAST_DELEGATE_OneParam(FLevelTransformEvent, const FTransform&);
@@ -487,9 +489,6 @@ public:
 	 */
 	UPROPERTY()
 	FLinearColor LevelColor;
-
-	float FixupOverrideVertexColorsTime;
-	int32 FixupOverrideVertexColorsCount;
 #endif //WITH_EDITORONLY_DATA
 
 	/** Actor which defines level logical bounding box				*/
@@ -510,9 +509,6 @@ public:
 private:
 	FLevelBoundsActorUpdatedEvent LevelBoundsActorUpdatedEvent; 
 
-	UPROPERTY()
-	AWorldSettings* WorldSettings;
-
 protected:
 
 	/** Array of user data stored with the asset */
@@ -523,10 +519,10 @@ private:
 	// Actors awaiting input to be enabled once the appropriate PlayerController has been created
 	TArray<FPendingAutoReceiveInputActor> PendingAutoReceiveInputActors;
 
-public:
 	// Used internally to determine which actors should go on the world's NetworkActor list
 	static bool IsNetActor(const AActor* Actor);
 
+public:
 	/** Called when a level package has been dirtied. */
 	ENGINE_API static FSimpleMulticastDelegate LevelDirtiedEvent;
 
@@ -538,7 +534,7 @@ public:
 	/** DO NOT USE. This constructor is for internal usage only for hot-reload purposes. */
 	ULevel(FVTableHelper& Helper)
 		: Super(Helper)
-		, Actors()
+		, Actors(this)
 	{}
 #endif // WITH_HOT_RELOAD_CTORS
 
@@ -554,10 +550,9 @@ public:
 #if	WITH_EDITOR
 	virtual void PreEditUndo() override;
 	virtual void PostEditUndo() override;	
-	virtual void BeginCacheForCookedPlatformData(const ITargetPlatform *TargetPlatform) override;
 #endif // WITH_EDITOR
 	virtual void PostLoad() override;
-	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+	virtual void PreSave() override;
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	//~ End UObject Interface.
@@ -642,6 +637,8 @@ public:
 	 */
 	void RouteActorInitialize();
 
+
+
 	/**
 	 * Rebuilds static streaming data for all levels in the specified UWorld.
 	 *
@@ -650,6 +647,22 @@ public:
 	 * @param TargetTexture		[opt] Specifies a single texture to process. If NULL, all textures will be processed.
 	 */
 	ENGINE_API static void BuildStreamingData(UWorld* World, ULevel* TargetLevel=NULL, UTexture2D* TargetTexture=NULL);
+
+	/**
+	 * Rebuilds static streaming data for this level.
+	 *
+	 * @param TargetTexture			[opt] Specifies a single texture to process. If NULL, all textures will be processed.
+	 */
+	void BuildStreamingData(UTexture2D* TargetTexture=NULL);
+
+	/**
+	 * Clamp lightmap and shadowmap texelfactors to 20-80% range.
+	 * This is to prevent very low-res or high-res charts to dominate otherwise decent streaming.
+	 */
+	void NormalizeLightmapTexelFactor();
+
+	/** Retrieves the array of streamable texture isntances. */
+	ENGINE_API TArray<FStreamableTextureInstance>* GetStreamableTextureInstances(UTexture2D*& TargetTexture);
 
 	/**
 	* Deprecated. Returns the default brush for this level.
@@ -664,16 +677,15 @@ public:
 	 *
 	 * @return		The default brush for this level.
 	 */
-	ENGINE_API ABrush* GetDefaultBrush() const;
+	ENGINE_API class ABrush* GetDefaultBrush() const;
 
 	/**
 	 * Returns the world info for this level.
 	 *
 	 * @return		The AWorldSettings for this level.
 	 */
-	ENGINE_API AWorldSettings* GetWorldSettings(bool bChecked = true) const;
-
-	ENGINE_API void SetWorldSettings(AWorldSettings* NewWorldSettings);
+	ENGINE_API 
+	class AWorldSettings* GetWorldSettings() const;
 
 	/**
 	 * Returns the level scripting actor associated with this level

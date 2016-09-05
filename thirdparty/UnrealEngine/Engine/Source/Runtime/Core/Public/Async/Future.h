@@ -54,7 +54,7 @@ public:
 	 * Blocks the calling thread until the future result is available.
 	 *
 	 * @param Duration The maximum time span to wait for the future result.
-	 * @return true if the result is available, false otherwise.
+	 * @result true if the result is available, false otherwise.
 	 * @see IsComplete
 	 */
 	bool WaitFor(const FTimespan& Duration) const
@@ -73,12 +73,13 @@ protected:
 	void MarkComplete()
 	{
 		Complete = true;
-		CompletionEvent->Trigger();
 
 		if (CompletionCallback)
 		{
 			CompletionCallback();
 		}
+
+		CompletionEvent->Trigger();
 	}
 
 private:
@@ -186,7 +187,7 @@ public:
 	 */
 	bool IsReady() const
 	{
-		return State.IsValid() ? State->IsComplete() : false;
+		return State->IsComplete();
 	}
 
 	/**
@@ -217,19 +218,19 @@ public:
 	 * Blocks the calling thread until the future result is available or the specified duration is exceeded.
 	 *
 	 * @param Duration The maximum time span to wait for the future result.
-	 * @return true if the result is available, false otherwise.
+	 * @result true if the result is available, false otherwise.
 	 * @see Wait, WaitUntil
 	 */
 	bool WaitFor(const FTimespan& Duration) const
 	{
-		return State.IsValid() ? State->WaitFor(Duration) : false;
+		return State->WaitFor(Duration);
 	}
 
 	/**
 	 * Blocks the calling thread until the future result is available or the specified time is hit.
 	 *
 	 * @param Time The time until to wait for the future result (in UTC).
-	 * @return true if the result is available, false otherwise.
+	 * @result true if the result is available, false otherwise.
 	 * @see Wait, WaitUntil
 	 */
 	bool WaitUntil(const FDateTime& Time) const

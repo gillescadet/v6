@@ -301,11 +301,9 @@ void UBlendSpaceBase::TickAssetPlayer(FAnimTickRecord& Instance, struct FAnimNot
 				{
 					for (FBlendSampleData& CurrentBlendSampleItem : SampleDataList)
 					{
-						// it only can have one animation in the sample, make sure to copy Time
-						if (PrevBlendSampleItem.Animation && PrevBlendSampleItem.Animation == CurrentBlendSampleItem.Animation)
+						if (PrevBlendSampleItem.SampleDataIndex == CurrentBlendSampleItem.SampleDataIndex)
 						{
 							CurrentBlendSampleItem.Time = PrevBlendSampleItem.Time;
-							CurrentBlendSampleItem.PreviousTime = PrevBlendSampleItem.PreviousTime;
 							CurrentBlendSampleItem.MarkerTickRecord = PrevBlendSampleItem.MarkerTickRecord;
 						}
 					}
@@ -392,7 +390,6 @@ void UBlendSpaceBase::TickAssetPlayer(FAnimTickRecord& Instance, struct FAnimNot
 				{
 					bCanDoMarkerSync = false;
 				}
-
 				if (bCanDoMarkerSync)
 				{
 					const int32 HighestWeightIndex = GetHighestWeightSample(SampleDataList);
@@ -510,31 +507,12 @@ bool UBlendSpaceBase::GetSamplesFromBlendInput(const FVector &BlendInput, TArray
 		float GridWeight = GridSample.BlendWeight;
 		FEditorElement& GridElement = GridSample.GridElement;
 
-		for(int32 Ind = 0; Ind < GridElement.MAX_VERTICES; ++Ind)
+		for(int Ind = 0; Ind < GridElement.MAX_VERTICES; ++Ind)
 		{
-			const int32 SampleDataIndex = GridElement.Indices[Ind];		
-			if(SampleDataIndex != INDEX_NONE)
+			if(GridElement.Indices[Ind] != INDEX_NONE)
 			{
-				int32 Index = OutSampleDataList.AddUnique(SampleDataIndex);
+				int32 Index = OutSampleDataList.AddUnique(GridElement.Indices[Ind]);
 				OutSampleDataList[Index].AddWeight(GridElement.Weights[Ind]*GridWeight);
-				OutSampleDataList[Index].Animation = SampleData[SampleDataIndex].Animation;
-			}
-		}
-	}
-
-	// go through merge down to first sample 
-	for (int32 Index1 = 0; Index1 < OutSampleDataList.Num(); ++Index1)
-	{
-		for (int32 Index2 = Index1 + 1; Index2 < OutSampleDataList.Num(); ++Index2)
-		{
-			// if they have sample sample, remove the Index2, and get out
-			if (OutSampleDataList[Index1].Animation == OutSampleDataList[Index2].Animation)
-			{
-				// add weight
-				OutSampleDataList[Index1].AddWeight(OutSampleDataList[Index2].GetWeight());
-				// as for time or previous time will be the master one(Index1)
-				OutSampleDataList.RemoveAtSwap(Index2, 1, false);
-				--Index2;
 			}
 		}
 	}
@@ -542,9 +520,9 @@ bool UBlendSpaceBase::GetSamplesFromBlendInput(const FVector &BlendInput, TArray
 	/** Used to sort by  Weight. */
 	struct FCompareFBlendSampleData
 	{
-		FORCEINLINE bool operator()(const FBlendSampleData& A, const FBlendSampleData& B) const { return B.TotalWeight < A.TotalWeight; }
+		FORCEINLINE bool operator()( const FBlendSampleData& A, const FBlendSampleData& B ) const { return B.TotalWeight < A.TotalWeight; }
 	};
-	OutSampleDataList.Sort(FCompareFBlendSampleData());
+	OutSampleDataList.Sort( FCompareFBlendSampleData() );
 
 	// remove noisy ones
 	int32 TotalSample = OutSampleDataList.Num();
@@ -1274,7 +1252,7 @@ void UBlendSpaceBase::GetAnimationPose(TArray<FBlendSampleData>& BlendSampleData
 		}
 	}
 
-	TArrayView<FCompactPose> ChildrenPosesView(ChildrenPoses);
+	TFixedSizeArrayView<FCompactPose> ChildrenPosesView(ChildrenPoses);
 
 	if (PerBoneBlend.Num() > 0)
 	{
@@ -1304,27 +1282,23 @@ void UBlendSpaceBase::GetAnimationPose(TArray<FBlendSampleData>& BlendSampleData
 }
 
 #if WITH_EDITOR
-bool UBlendSpaceBase::GetAllAnimationSequencesReferred(TArray<UAnimationAsset*>& AnimationAssets)
+bool UBlendSpaceBase::GetAllAnimationSequencesReferred(TArray<UAnimSequence*>& AnimationSequences)
 {
 	for (auto Iter = SampleData.CreateConstIterator(); Iter; ++Iter)
 	{
 		// saves all samples in the AnimSequences
-		UAnimSequence* Sequence = (*Iter).Animation;
-		if (Sequence)
-		{
-			Sequence->HandleAnimReferenceCollection(AnimationAssets);
-		}
+		AnimationSequences.AddUnique((*Iter).Animation);
 	}
 
 	if (PreviewBasePose)
 	{
-		PreviewBasePose->HandleAnimReferenceCollection(AnimationAssets);
+		AnimationSequences.AddUnique(PreviewBasePose);
 	}
  
-	return (AnimationAssets.Num() > 0);
+	return (AnimationSequences.Num() > 0);
 }
 
-void UBlendSpaceBase::ReplaceReferredAnimations(const TMap<UAnimationAsset*, UAnimationAsset*>& ReplacementMap)
+void UBlendSpaceBase::ReplaceReferredAnimations(const TMap<UAnimSequence*, UAnimSequence*>& ReplacementMap)
 {
 	TArray<FBlendSample> NewSamples;
 	for (auto Iter = SampleData.CreateIterator(); Iter; ++Iter)
@@ -1338,7 +1312,6 @@ void UBlendSpaceBase::ReplaceReferredAnimations(const TMap<UAnimationAsset*, UAn
 			if(ReplacementAsset)
 			{
 				Sample.Animation = *ReplacementAsset;
-				Sample.Animation->ReplaceReferredAnimations(ReplacementMap);
 				NewSamples.Add(Sample);
 			}
 		}
@@ -1350,7 +1323,6 @@ void UBlendSpaceBase::ReplaceReferredAnimations(const TMap<UAnimationAsset*, UAn
 		if(ReplacementAsset)
 		{
 			PreviewBasePose = *ReplacementAsset;
-			PreviewBasePose->ReplaceReferredAnimations(ReplacementMap);
 		}
 	}
 	

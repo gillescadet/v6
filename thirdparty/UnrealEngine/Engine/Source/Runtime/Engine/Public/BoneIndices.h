@@ -2,9 +2,6 @@
 
 #pragma once
 
-typedef uint16 FBoneIndexType;
-
-
 struct FBoneIndexBase
 {
 	FBoneIndexBase() : BoneIndex(INDEX_NONE) {}
@@ -22,7 +19,7 @@ FORCEINLINE int32 GetIntFromComp(const int32& InComp)
 	return InComp;
 }
 
-FORCEINLINE int32 GetIntFromComp(const FBoneIndexBase& InComp)
+FORCEINLINE FBoneIndexType GetIntFromComp(const FBoneIndexBase& InComp)
 {
 	return InComp.GetInt();
 }

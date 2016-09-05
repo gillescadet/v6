@@ -152,7 +152,6 @@ UPrimitiveComponent* FOverlapResult::GetComponent() const
 FCollisionQueryParams::FCollisionQueryParams(FName InTraceTag, bool bInTraceComplex, const AActor* InIgnoreActor)
 {
 	bTraceComplex = bInTraceComplex;
-	MobilityType = EQueryMobilityType::Any;
 	TraceTag = InTraceTag;
 	bTraceAsyncScene = false;
 	bFindInitialOverlaps = true;
@@ -184,12 +183,7 @@ static FORCEINLINE_DEBUGGABLE bool CheckForCollision(const AActor* Actor)
 	// tell phsx that we still require queries( See FBodyInstance::UpdatePhysicsFilterData).  Doing so allows us to perform editor only traces against objects with collision disabled.  Due to this, we cannot assume that the collision enabled flag here
 	// setting is correct compared to physx and so we still ignore specified components regardless of their collision setting
 #if WITH_EDITOR
-	bool bCheckForCollision = false;
-	if (Actor)
-	{
-		const UWorld* World = Actor->GetWorld();
-		bCheckForCollision = World && World->IsGameWorld();
-	}
+	const bool bCheckForCollision = Actor && Actor->GetWorld() && Actor->GetWorld()->IsGameWorld();
 #else
 	const bool bCheckForCollision = true;
 #endif
@@ -203,12 +197,7 @@ static FORCEINLINE_DEBUGGABLE bool CheckForCollision(const UPrimitiveComponent* 
 	// tell phsx that we still require queries( See FBodyInstance::UpdatePhysicsFilterData).  Doing so allows us to perform editor only traces against objects with collision disabled.  Due to this, we cannot assume that the collision enabled flag here
 	// setting is correct compared to physx and so we still ignore specified components regardless of their collision setting
 #if WITH_EDITOR
-	bool bCheckForCollision = false;
-	if (PrimComponent)
-	{
-		const UWorld* World = PrimComponent->GetWorld();
-		bCheckForCollision = World && World->IsGameWorld();
-	}
+	bool bCheckForCollision = PrimComponent && PrimComponent->GetWorld() && PrimComponent->GetWorld()->IsGameWorld();
 #else
 	const bool bCheckForCollision = true;
 #endif
@@ -220,13 +209,23 @@ void FCollisionQueryParams::AddIgnoredActor(const AActor* InIgnoreActor)
 {
 	if (InIgnoreActor)
 	{	
-		IgnoreActors.Add(InIgnoreActor->GetUniqueID());
-	}
-}
+		const bool bCheckForCollision = CheckForCollision(InIgnoreActor);
+		const int32 InitialCount = IgnoreComponents.Num();
+		for (const UActorComponent* ActorComponent : InIgnoreActor->GetComponents())
+		{
+			const UPrimitiveComponent* PrimComponent = Cast<const UPrimitiveComponent>(ActorComponent);
+			if (PrimComponent && (!bCheckForCollision || IsQueryCollisionEnabled(PrimComponent)) )
+			{
+				IgnoreComponents.Add(PrimComponent->GetUniqueID());
+			}
+		}
 
-void FCollisionQueryParams::AddIgnoredActor(const uint32 InIgnoreActorID)
-{
-	IgnoreActors.Add(InIgnoreActorID);
+		// If we added entries to a non-empty array, we aren't sure if the list is unique. Assumes GetComponents() above contains no duplicates.
+		if ((InitialCount != 0) && (IgnoreComponents.Num() - InitialCount > 0))
+		{
+			bComponentListUnique = false;
+		}
+	}
 }
 
 void FCollisionQueryParams::AddIgnoredActors(const TArray<AActor*>& InIgnoreActors)
@@ -519,7 +518,7 @@ bool FSeparatingAxisPointCheck::FindSeparatingAxisGeneric()
 
 
 
-#if !UE_BUILD_SHIPPING
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCollisionCommands, Log, All);
 DEFINE_LOG_CATEGORY(LogCollisionCommands);
@@ -953,7 +952,7 @@ namespace CollisionResponseConsoleCommands
 
 }
 
-#endif //!UE_BUILD_SHIPPING
+#endif //!(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 
 

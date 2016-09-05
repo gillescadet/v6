@@ -6,7 +6,6 @@
 =============================================================================*/
 
 #include "BuildPatchServicesPrivatePCH.h"
-#include "AnalyticsEventAttribute.h"
 
 /* FBuildPatchHTTP implementation
  *****************************************************************************/

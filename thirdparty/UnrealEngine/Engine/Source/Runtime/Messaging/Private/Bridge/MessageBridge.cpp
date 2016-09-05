@@ -179,12 +179,12 @@ void FMessageBridge::HandleTransportMessageReceived(const IMessageContextRef& Co
 }
 
 
-void FMessageBridge::HandleTransportNodeLost(const FGuid& NodeId)
+void FMessageBridge::HandleTransportNodeLost(const FGuid& LostNodeId)
 {
 	TArray<FMessageAddress> RemovedAddresses;
 
 	// update address book
-	AddressBook.RemoveNode(NodeId, RemovedAddresses);
+	AddressBook.RemoveNode(LostNodeId, RemovedAddresses);
 
 	// unregister endpoints
 	if (Bus.IsValid())

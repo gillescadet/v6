@@ -135,10 +135,6 @@ void ADebugCameraController::OnFingerMove(ETouchIndex::Type FingerIndex, FVector
 	}
 }
 
-AActor* ADebugCameraController::GetSelectedActor() const
-{
-	return SelectedActor;
-}
 
 void ADebugCameraController::Select( FHitResult const& Hit )
 {
@@ -173,9 +169,6 @@ void ADebugCameraController::Select( FHitResult const& Hit )
 			}
 		}
 	}
-	
-	//BP Event
-	ReceiveOnActorSelected(SelectedActor, Hit.ImpactPoint, Hit.ImpactNormal, Hit);
 }
 
 
@@ -323,9 +316,6 @@ void ADebugCameraController::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
-	GDebugSelectedLightmap = nullptr;
-	GDebugSelectedActor = nullptr; 
-	
 	// if hud is existing, delete it and create new hud for debug camera
 	if ( MyHUD != NULL )
 	{
@@ -384,9 +374,6 @@ void ADebugCameraController::OnActivate( APlayerController* OriginalPC )
 	}
 
 	GetWorld()->AddController(this);
-	
-	//BP Event
-	ReceiveOnActivate(OriginalPC);
 }
 
 
@@ -421,9 +408,6 @@ void ADebugCameraController::OnDeactivate( APlayerController* RestoredPC )
 
 	ChangeState(NAME_Inactive);
 	GetWorld()->RemoveController(this);
-	
-	//BP Event
-	ReceiveOnDeactivate(RestoredPC);
 }
 
 

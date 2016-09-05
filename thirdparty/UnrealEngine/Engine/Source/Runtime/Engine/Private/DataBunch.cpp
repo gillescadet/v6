@@ -31,30 +31,40 @@ FInBunch::FInBunch( UNetConnection* InConnection, uint8* Src, int64 CountBits )
 ,	bReliable ( 0 )
 ,	bPartial ( 0 )
 ,	bPartialInitial ( 0 )
-,	bPartialFinal ( 0 )
-,	bHasPackageMapExports ( 0 )
+,	bPartialFinal	( 0 )
+,	bHasGUIDs( 0 )
 {
 	check(Connection);
 	// Match the byte swapping settings of the connection
 	SetByteSwapping(Connection->bNeedsByteSwapping);
-
-	// Copy network version info
-	ArEngineNetVer = InConnection->EngineNetworkProtocolVersion;
-	ArGameNetVer = InConnection->GameNetworkProtocolVersion;
-
 	// Crash protection: the max string size serializable on this archive 
 	ArMaxSerializeSize = MAX_STRING_SERIALIZE_SIZE;
 }
+FInBunch::FInBunch( UPackageMap *InPackageMap, uint8* Src, int64 CountBits )
+:	FNetBitReader	(InPackageMap, Src, CountBits)
+,	PacketId	( 0 )
+,	Next		( NULL )
+,	Connection  ( NULL )
+,	ChIndex ( 0 )
+,	ChType ( 0 )
+,	ChSequence ( 0 )
+,	bOpen ( 0 )
+,	bClose ( 0 )
+,	bDormant ( 0 )
+,	bReliable ( 0 )
+,	bPartial	( 0 )
+,	bPartialInitial ( 0 )
+,	bPartialFinal	( 0 )
+,	bHasGUIDs ( 0 )
+{
+	ArMaxSerializeSize = MAX_STRING_SERIALIZE_SIZE;
+}
 
-/** Copy constructor but with optional parameter to not copy buffer */
+/** Copy constructor but with optinoal parameter to not copy buffer */
 FInBunch::FInBunch( FInBunch &InBunch, bool CopyBuffer )
 {
 	// Copy fields
 	FMemory::Memcpy(&PacketId,&InBunch.PacketId,sizeof(FInBunch) - sizeof(FNetBitReader));
-
-	// Copy network version info
-	ArEngineNetVer = InBunch.ArEngineNetVer;
-	ArGameNetVer = InBunch.ArGameNetVer;
 
 	PackageMap = InBunch.PackageMap;
 	
@@ -78,7 +88,7 @@ FOutBunch::FOutBunch()
 : FNetBitWriter( 0 )
 {}
 FOutBunch::FOutBunch( UChannel* InChannel, bool bInClose )
-:	FNetBitWriter	( InChannel->Connection->PackageMap, InChannel->Connection->GetMaxSingleBunchSizeBits())
+:	FNetBitWriter	( InChannel->Connection->PackageMap, InChannel->Connection->MaxPacket*8-MAX_BUNCH_HEADER_BITS-MAX_PACKET_TRAILER_BITS-MAX_PACKET_HEADER_BITS )
 ,	Next		( NULL )
 ,	Channel		( InChannel )
 ,	Time		( 0 )
@@ -90,12 +100,11 @@ FOutBunch::FOutBunch( UChannel* InChannel, bool bInClose )
 ,	bOpen		( 0 )
 ,	bClose		( bInClose )
 ,	bDormant	( 0 )
-,	bIsReplicationPaused	( 0 )
 ,	bReliable	( 0 )
 ,	bPartial	( 0 )
 ,	bPartialInitial			( 0 )
 ,	bPartialFinal			( 0 )
-,	bHasPackageMapExports	( 0 )
+,	bHasGUIDs				( 0 )
 ,	bHasMustBeMappedGUIDs	( 0 )
 {
 	checkSlow(!Channel->Closing);
@@ -107,7 +116,7 @@ FOutBunch::FOutBunch( UChannel* InChannel, bool bInClose )
 	// Reserve channel and set bunch info.
 	if( Channel->NumOutRec >= RELIABLE_BUFFER-1+bClose )
 	{
-		SetOverflowed(-1);
+		SetOverflowed();
 		return;
 	}
 }
@@ -124,12 +133,11 @@ FOutBunch::FOutBunch( UPackageMap *InPackageMap, int64 MaxBits )
 ,	bOpen		( 0 )
 ,	bClose		( 0 )
 ,	bDormant	( 0 )
-,   bIsReplicationPaused	( 0 )
 ,	bReliable	( 0 )
 ,	bPartial	( 0 )
 ,	bPartialInitial ( 0 )
 ,	bPartialFinal	( 0 )
-,	bHasPackageMapExports	( 0 )
+,	bHasGUIDs				( 0 )
 ,	bHasMustBeMappedGUIDs	( 0 )
 {
 }

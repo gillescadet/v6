@@ -3,9 +3,9 @@
 #include "CorePrivatePCH.h"
 #include "AutomationTest.h"
 
+
 FString FPaths::GameProjectFilePath;
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPathTests, "System.Core.Misc.Paths", EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
 
@@ -86,6 +86,3 @@ bool FPathTests::RunTest( const FString& Parameters )
 
 	return true;
 }
-
-
-#endif //WITH_DEV_AUTOMATION_TESTS

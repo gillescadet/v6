@@ -42,7 +42,7 @@ void* FWindowsPlatformProcess::GetDllHandle( const TCHAR* Filename )
 {
 	check(Filename);
 
-	// In order to load the DLL and resolve its imports correctly, we update the PATH environment variable before the load, and restore it when we're done. 
+	// In order to load the DLL and resolve its imports correctly, we update the PATH environment variable before the load, and restore it when we're done.
 	TArray<TCHAR> InitialPathVariable;
 	InitialPathVariable.AddUninitialized(::GetEnvironmentVariable(TEXT("PATH"), NULL, 0));
 	if (::GetEnvironmentVariable(TEXT("PATH"), InitialPathVariable.GetData(), InitialPathVariable.Num()) == 0)
@@ -80,7 +80,7 @@ void FWindowsPlatformProcess::FreeDllHandle( void* DllHandle )
 FString FWindowsPlatformProcess::GenerateApplicationPath( const FString& AppName, EBuildConfigurations::Type BuildConfiguration)
 {
 	FString PlatformName = GetBinariesSubdirectory();
-	FString ExecutablePath = FString::Printf(TEXT("..\\..\\..\\Engine\\Binaries\\%s\\%s"), *PlatformName, *AppName);
+	FString ExecutablePath = FString::Printf(TEXT("..\\%s\\%s"), *PlatformName, *AppName);
 
 	if (BuildConfiguration != EBuildConfigurations::Development && BuildConfiguration != EBuildConfigurations::DebugGame)
 	{
@@ -718,46 +718,28 @@ const TCHAR* FWindowsPlatformProcess::BaseDir()
 	static TCHAR Result[512]=TEXT("");
 	if( !Result[0] )
 	{
-		// Normally the BaseDir is determined from the path of the running process module, 
-		// but for debugging, particularly client or server, it can be useful to point the
-		// code at an existing cooked directory. If using -BaseFromWorkingDir set the
-		// workingdir in your debugger to the <path>/Project/Binaries/Win64 of your cooked
-		// data
-		// Too early to use the FCommand line interface
-		if (FCString::Stristr(::GetCommandLine(), TEXT("-BaseFromWorkingDir")))
+		// Get directory this executable was launched from.
+		GetModuleFileName( hInstance, Result, ARRAY_COUNT(Result) );
+		FString TempResult(Result);
+		TempResult = TempResult.Replace(TEXT("\\"), TEXT("/"));
+		FCString::Strcpy(Result, *TempResult);
+		int32 StringLength = FCString::Strlen(Result);
+		if(StringLength > 0)
 		{
-			::GetCurrentDirectory(512, Result);
-
-			FString TempResult(Result);
-			TempResult = TempResult.Replace(TEXT("\\"), TEXT("/"));
-			TempResult += TEXT('/');
-			FCString::Strcpy(Result, *TempResult);
-		}
-		else
-		{
-			// Get directory this executable was launched from.
-			GetModuleFileName(hInstance, Result, ARRAY_COUNT(Result));
-			FString TempResult(Result);
-			TempResult = TempResult.Replace(TEXT("\\"), TEXT("/"));
-			FCString::Strcpy(Result, *TempResult);
-			int32 StringLength = FCString::Strlen(Result);
-			if (StringLength > 0)
+			--StringLength;
+			for(; StringLength > 0; StringLength-- )
 			{
-				--StringLength;
-				for (; StringLength > 0; StringLength--)
+				if( Result[StringLength - 1] == TEXT('/') || Result[StringLength - 1] == TEXT('\\') )
 				{
-					if (Result[StringLength - 1] == TEXT('/') || Result[StringLength - 1] == TEXT('\\'))
-					{
-						break;
-					}
+					break;
 				}
 			}
-			Result[StringLength] = 0;
-
-			FString CollapseResult(Result);
-			FPaths::CollapseRelativeDirectories(CollapseResult);
-			FCString::Strcpy(Result, *CollapseResult);
 		}
+		Result[StringLength] = 0;
+
+		FString CollapseResult(Result);
+		FPaths::CollapseRelativeDirectories(CollapseResult);
+		FCString::Strcpy(Result, *CollapseResult);
 	}
 	return Result;
 }
@@ -1018,12 +1000,7 @@ void FWindowsPlatformProcess::Sleep( float Seconds )
 
 void FWindowsPlatformProcess::SleepNoStats(float Seconds)
 {
-	uint32 Milliseconds = (uint32)(Seconds * 1000.0);
-	if (Milliseconds == 0)
-	{
-		::SwitchToThread();
-	}
-	::Sleep(Milliseconds);
+	::Sleep((uint32)(Seconds * 1000.0));
 }
 
 void FWindowsPlatformProcess::SleepInfinite()

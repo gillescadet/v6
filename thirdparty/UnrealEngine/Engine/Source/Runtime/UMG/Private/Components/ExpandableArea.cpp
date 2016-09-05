@@ -141,6 +141,11 @@ void UExpandableArea::SlateExpansionChanged(bool NewState)
 
 #if WITH_EDITOR
 
+const FSlateBrush* UExpandableArea::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.Spacer");
+}
+
 const FText UExpandableArea::GetPaletteCategory()
 {
 	return LOCTEXT("Extra", "Extra");

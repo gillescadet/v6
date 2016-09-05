@@ -25,7 +25,7 @@ namespace UnitConversion
 	CORE_API double TimeUnificationFactor(EUnit From);
 
 	/** Attempt to parse an expression into a numeric unit */
-	CORE_API TValueOrError<FNumericUnit<double>, FText> TryParseExpression(const TCHAR* InExpression, EUnit DefaultUnit, const FNumericUnit<double>& InExistingValue);
+	CORE_API TValueOrError<FNumericUnit<double>, FText> TryParseExpression(const TCHAR* InExpression, EUnit DefaultUnit);
 
 	/** Structure used to define the factor required to get from one unit type to the next. */
 	struct FQuantizationInfo
@@ -253,9 +253,9 @@ FNumericUnit<NumericType> FNumericUnit<NumericType>::QuantizeUnitsToBestFit() co
 }
 
 template<typename NumericType>
-TValueOrError<FNumericUnit<NumericType>, FText> FNumericUnit<NumericType>::TryParseExpression(const TCHAR* InExpression, EUnit InDefaultUnit, const FNumericUnit<NumericType>& InExistingValue)
+TValueOrError<FNumericUnit<NumericType>, FText> FNumericUnit<NumericType>::TryParseExpression(const TCHAR* InExpression, EUnit InDefaultUnit)
 {
-	TValueOrError<FNumericUnit<double>, FText> Result = UnitConversion::TryParseExpression(InExpression, InDefaultUnit, InExistingValue);
+	TValueOrError<FNumericUnit<double>, FText> Result = UnitConversion::TryParseExpression(InExpression, InDefaultUnit);
 	if (Result.IsValid())
 	{
 		const auto& Value = Result.GetValue();

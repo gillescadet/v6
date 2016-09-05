@@ -29,18 +29,9 @@ public:
 #endif // WITH_EDITOR
 	//~ End UObject Interface
 
-	/** Render the scene to the texture the next time the main view is rendered. */
-	ENGINE_API void CaptureSceneDeferred();
-
-	/** 
-	 * Render the scene to the texture target immediately.  
-	 * This should not be used if bCaptureEveryFrame is enabled, or the scene capture will render redundantly. 
-	 */
+	/** Render the scene to the texture */
 	UFUNCTION(BlueprintCallable,Category = "Rendering|SceneCapture")
-	ENGINE_API void CaptureScene();
-
-	// For backwards compatibility
-	void UpdateContent() { CaptureSceneDeferred(); }
+	ENGINE_API void UpdateContent();
 
 	ENGINE_API static void UpdateDeferredCaptures(FSceneInterface* Scene);
 };

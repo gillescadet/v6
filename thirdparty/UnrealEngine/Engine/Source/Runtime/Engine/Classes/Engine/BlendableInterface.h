@@ -33,7 +33,7 @@ enum EBlendableLocation
 
 /** Dummy class needed to support Cast<IBlendableInterface>(Object). */
 UINTERFACE()
-class ENGINE_API UBlendableInterface : public UInterface
+class UBlendableInterface : public UInterface
 {
 	GENERATED_UINTERFACE_BODY()
 };

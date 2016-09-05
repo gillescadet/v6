@@ -6,7 +6,6 @@
 #include "TextureResource.h"
 #include "MaterialShared.h"
 #include "RenderResource.h"
-#include "Interfaces/Interface_AssetUserData.h"
 #include "Texture.generated.h"
 
 // This needs to be mirrored in EditorFactories.cpp.
@@ -337,11 +336,10 @@ struct FTexturePlatformData
 	bool AreDerivedMipsAvailable() const;
 #endif
 
-	int32 GetNumNonStreamingMips() const;
 };
 
 UCLASS(abstract, MinimalAPI, BlueprintType)
-class UTexture : public UObject, public IInterface_AssetUserData
+class UTexture : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
@@ -352,7 +350,6 @@ class UTexture : public UObject, public IInterface_AssetUserData
 #if WITH_EDITORONLY_DATA
 	UPROPERTY()
 	FTextureSource Source;
-#endif
 
 private:
 	/** Unique ID for this material, used for caching during distributed lighting */
@@ -360,7 +357,7 @@ private:
 	FGuid LightingGuid;
 
 public:
-#if WITH_EDITORONLY_DATA
+	
 	UPROPERTY()
 	FString SourceFilePath_DEPRECATED;
 
@@ -419,10 +416,6 @@ public:
 	/** When true, the alpha channel of mip-maps and the base image are dithered for smooth LOD transitions. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Texture, AdvancedDisplay)
 	uint32 bDitherMipMapAlpha:1;
-
-	/** Alpha values per channel to compare to when preserving alpha coverage. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Texture, meta=(ClampMin = "0", ClampMax = "1"), AdvancedDisplay)
-	FVector4 AlphaCoverageThresholds;
 
 	/** When true the texture's border will be preserved during mipmap generation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=LevelOfDetail, AdvancedDisplay)
@@ -515,11 +508,6 @@ public:
 	/** Whether to use the extra cinematic quality mip-levels, when we're forcing mip-levels to be resident. */
 	UPROPERTY(transient)
 	uint32 bUseCinematicMipLevels:1;
-
-protected:
-	/** Array of user data stored with the asset */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Instanced, Category = Texture)
-	TArray<UAssetUserData*> AssetUserData;
 
 private:
 	/** Cached combined group and texture LOD bias to use.	*/
@@ -623,13 +611,6 @@ public:
 	 */
 	ENGINE_API void SerializeCookedPlatformData(class FArchive& Ar);
 
-	//~ Begin IInterface_AssetUserData Interface
-	ENGINE_API virtual void AddAssetUserData(UAssetUserData* InUserData) override;
-	ENGINE_API virtual void RemoveUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass) override;
-	ENGINE_API virtual UAssetUserData* GetAssetUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass) override;
-	ENGINE_API virtual const TArray<UAssetUserData*>* GetAssetUserDataArray() const override;
-	//~ End IInterface_AssetUserData Interface
-
 #if WITH_EDITOR
 	/**
 	 * Caches platform data for the texture.
@@ -711,7 +692,7 @@ public:
 	ENGINE_API virtual void Serialize(FArchive& Ar) override;
 	ENGINE_API virtual void PostInitProperties() override;
 	ENGINE_API virtual void PostLoad() override;
-	ENGINE_API virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+	ENGINE_API virtual void PreSave() override;
 	ENGINE_API virtual void BeginDestroy() override;
 	ENGINE_API virtual bool IsReadyForFinishDestroy() override;
 	ENGINE_API virtual void FinishDestroy() override;
@@ -778,23 +759,22 @@ public:
 		return 0;
 	}
 
-	/** Returns a unique identifier for this texture. Used by the lighting build and texture streamer. */
+	// @todo document
 	const FGuid& GetLightingGuid() const
 	{
+#if WITH_EDITORONLY_DATA
 		return LightingGuid;
+#else
+		static const FGuid NullGuid( 0, 0, 0, 0 );
+		return NullGuid; 
+#endif // WITH_EDITORONLY_DATA
 	}
 
-	/** 
-	 * Assigns a new GUID to a texture. This will be called whenever a texture is created or changes. 
-	 * In game, the GUIDs are only used by the texture streamer to link build data to actual textures,
-	 * that means new textures don't actually need GUIDs (see FStreamingTextureLevelContext)
-	 */
+	// @todo document
 	void SetLightingGuid()
 	{
 #if WITH_EDITORONLY_DATA
 		LightingGuid = FGuid::NewGuid();
-#else
-		LightingGuid = FGuid(0, 0, 0, 0);
 #endif // WITH_EDITORONLY_DATA
 	}
 

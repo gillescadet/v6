@@ -114,6 +114,10 @@ class UInterpCurveEdSetup : public UObject
 	{
 		return false;
 	}
+	virtual bool NeedsLoadForServer() const override
+	{
+		return false;
+	}
 	//~ End UObject Interface
 	
 	//~ Begin InterpCurveEdSetup Interface

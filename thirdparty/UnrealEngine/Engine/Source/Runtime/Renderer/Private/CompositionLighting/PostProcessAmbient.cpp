@@ -12,9 +12,10 @@
 #include "SceneUtils.h"
 
 /** Encapsulates the post processing ambient pixel shader. */
-class FPostProcessAmbientPS : public FGlobalShader
+template<bool bUseClearCoat>
+class TPostProcessAmbientPS : public FGlobalShader
 {
-	DECLARE_SHADER_TYPE(FPostProcessAmbientPS, Global);
+	DECLARE_SHADER_TYPE(TPostProcessAmbientPS, Global);
 
 	static bool ShouldCache(EShaderPlatform Platform)
 	{
@@ -24,10 +25,11 @@ class FPostProcessAmbientPS : public FGlobalShader
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("USE_CLEARCOAT"), (uint32)bUseClearCoat);
 	}	
 
 	/** Default constructor. */
-	FPostProcessAmbientPS() {}
+	TPostProcessAmbientPS() {}
 
 public:
 	FPostProcessPassParameters PostprocessParameter;
@@ -37,7 +39,7 @@ public:
 	FShaderResourceParameter PreIntegratedGFSampler;
 
 	/** Initialization constructor. */
-	FPostProcessAmbientPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
+	TPostProcessAmbientPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
 		: FGlobalShader(Initializer)
 	{
 		PostprocessParameter.Bind(Initializer.ParameterMap);
@@ -67,13 +69,14 @@ public:
 	}
 };
 
-IMPLEMENT_SHADER_TYPE(, FPostProcessAmbientPS, TEXT("PostProcessAmbient"), TEXT("MainPS"), SF_Pixel);
+IMPLEMENT_SHADER_TYPE(template<>, TPostProcessAmbientPS<false>, TEXT("PostProcessAmbient"), TEXT("MainPS"), SF_Pixel);
+IMPLEMENT_SHADER_TYPE(template<>, TPostProcessAmbientPS<true>, TEXT("PostProcessAmbient"), TEXT("MainPS"), SF_Pixel);
 
 template<bool bUseClearCoat>
 void FRCPassPostProcessAmbient::Render(FRenderingCompositePassContext& Context)
 {
+	TShaderMapRef<TPostProcessAmbientPS<bUseClearCoat>> PixelShader(Context.GetShaderMap());
 	TShaderMapRef<FPostProcessVS> VertexShader(Context.GetShaderMap());
-	TShaderMapRef<FPostProcessAmbientPS> PixelShader(Context.GetShaderMap());
 	const FSceneView& View = Context.View;
 
 	static FGlobalBoundShaderState BoundShaderState;

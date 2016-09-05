@@ -82,77 +82,6 @@ bool FBlueprintSupport::IsDeferredCDOInitializationDisabled()
 #endif
 }
 
-bool FBlueprintSupport::IsDeferredDependencyPlaceholder(UObject* LoadedObj)
-{
-	return LoadedObj && ( LoadedObj->IsA<ULinkerPlaceholderClass>() ||
-		LoadedObj->IsA<ULinkerPlaceholderFunction>() ||
-		LoadedObj->IsA<ULinkerPlaceholderExportObject>() );
-}
-
-bool FBlueprintSupport::IsInBlueprintPackage(UObject* LoadedObj)
-{
-	UPackage* Pkg = LoadedObj->GetOutermost();
-	if (Pkg && !Pkg->HasAnyPackageFlags(PKG_CompiledIn))
-	{
-		TArray<UObject*> PkgObjects;
-		GetObjectsWithOuter(Pkg, PkgObjects, /*bIncludeNestedObjects =*/false);
-		
-		UObject* PkgCDO   = nullptr;
-		UClass*  PkgClass = nullptr;
-
-		for (UObject* PkgObj : PkgObjects)
-		{
-			if (PkgObj->HasAnyFlags(RF_ClassDefaultObject))
-			{
-				PkgCDO = PkgObj;
-			}
-			else if (UClass* AsClass = Cast<UClass>(PkgObj))
-			{
-				PkgClass = AsClass;
-			}
-		}
-		const bool bHasBlueprintClass = PkgClass && PkgClass->HasAnyClassFlags(CLASS_CompiledFromBlueprint);
-
-		return bHasBlueprintClass
-			//&& (PkgCDO && PkgCDO->GetClass() == PkgClass)
-#if WITH_EDITORONLY_DATA
-			//&& (PkgClass->ClassGeneratedBy != nullptr) && (PkgClass->ClassGeneratedBy->GetOuter() == Pkg)
-#endif
-			;
-	}
-	return false;
-}
-
-static TArray<FBlueprintWarningDeclaration> BlueprintWarnings;
-static TSet<FName> BlueprintWarningsToTreatAsError;
-static TSet<FName> BlueprintWarningsToSuppress;
-
-void FBlueprintSupport::RegisterBlueprintWarning(const FBlueprintWarningDeclaration& Warning)
-{
-	BlueprintWarnings.Add(Warning);
-}
-
-const TArray<FBlueprintWarningDeclaration>& FBlueprintSupport::GetBlueprintWarnings()
-{
-	return BlueprintWarnings;
-}
-
-void FBlueprintSupport::UpdateWarningBehavior(const TArray<FName>& WarningIdentifiersToTreatAsError, const TArray<FName>& WarningIdentifiersToSuppress)
-{
-	BlueprintWarningsToTreatAsError = TSet<FName>(WarningIdentifiersToTreatAsError);
-	BlueprintWarningsToSuppress = TSet<FName>(WarningIdentifiersToSuppress);
-}
-
-bool FBlueprintSupport::ShouldTreatWarningAsError(FName WarningIdentifier)
-{
-	return BlueprintWarningsToTreatAsError.Find(WarningIdentifier) != nullptr;
-}
-
-bool FBlueprintSupport::ShouldSuppressWarning(FName WarningIdentifier)
-{
-	return BlueprintWarningsToSuppress.Find(WarningIdentifier) != nullptr;
-}
-
 /*******************************************************************************
  * FScopedClassDependencyGather
  ******************************************************************************/
@@ -400,50 +329,11 @@ bool FLinkerLoad::RegenerateBlueprintClass(UClass* LoadClass, UObject* ExportObj
 	return bSuccessfulRegeneration;
 }
 
-/** 
- * Frivolous helper functions, to provide unique identifying names for our different placeholder types.
- */
+/** Helper utility function to convert UObject pointers to FLinkerPlaceholderBase* */
 template<class PlaceholderType>
-static FString GetPlaceholderPrefix()                      { return TEXT("PLACEHOLDER_"); }
-template<>
-FString GetPlaceholderPrefix<ULinkerPlaceholderFunction>() { return TEXT("PLACEHOLDER-FUNCTION_"); }
-template<>
-FString GetPlaceholderPrefix<ULinkerPlaceholderClass>()    { return TEXT("PLACEHOLDER-CLASS_"); }
-
-/** Internal utility function for spawning various type of placeholder objects. */
-template<class PlaceholderType>
-static PlaceholderType* MakeImportPlaceholder(UObject* Outer, const TCHAR* TargetObjName, int32 ImportIndex = INDEX_NONE)
+static FLinkerPlaceholderBase* PlaceholderCast(UObject* PlaceholderObj)
 {
-	PlaceholderType* PlaceholderObj = nullptr;
-
-#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-	FName PlaceholderName(*FString::Printf(TEXT("%s_%s"), *GetPlaceholderPrefix<PlaceholderType>(), TargetObjName));
-	PlaceholderName = MakeUniqueObjectName(Outer, PlaceholderType::StaticClass(), PlaceholderName);
-
-	PlaceholderObj = NewObject<PlaceholderType>(Outer, PlaceholderType::StaticClass(), PlaceholderName, RF_Public | RF_Transient);
-
-	if (ImportIndex != INDEX_NONE)
-	{
-		PlaceholderObj->PackageIndex = FPackageIndex::FromImport(ImportIndex);
-	}
-	// else, this is probably coming from something like an ImportText() call, 
-	// and isn't referenced by the ImportMap... instead, this should be stored 
-	// in the FLinkerLoad's ImportPlaceholders map
-
-	// make sure the class is fully formed (has its 
-	// ClassAddReferencedObjects/ClassConstructor members set)
-	PlaceholderObj->Bind();
-	PlaceholderObj->StaticLink(/*bRelinkExistingProperties =*/true);
-
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-	if (ULinkerPlaceholderClass* OuterAsPlaceholder = dynamic_cast<ULinkerPlaceholderClass*>(Outer))
-	{
-		OuterAsPlaceholder->AddChildObject(PlaceholderObj);
-	}
-#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-#endif //USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-
-	return PlaceholderObj;
+	return CastChecked<PlaceholderType>(PlaceholderObj, ECastCheckedType::NullAllowed);
 }
 
 bool FLinkerLoad::DeferPotentialCircularImport(const int32 Index)
@@ -471,23 +361,78 @@ bool FLinkerLoad::DeferPotentialCircularImport(const int32 Index)
 		{
 			if (const UClass* ImportClass = FindObject<UClass>(ClassPackage, *Import.ClassName.ToString()))
 			{
-				if (ImportClass->IsChildOf<UClass>())
+				UObject* PlaceholderOuter = LinkerRoot;
+				FString  PlaceholderNamePrefix = TEXT("PLACEHOLDER_");
+				UClass*  PlaceholderType = nullptr;
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+				ULinkerPlaceholderClass* Outer = nullptr;
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+				FLinkerPlaceholderBase* (*PlaceholderCastFunc)(UObject* RawUObject) = nullptr;
+
+				bool const bIsBlueprintClass = ImportClass->IsChildOf<UClass>();
+				// @TODO: if we could see if the related package is created 
+				//        (without loading it further), AND it already has this 
+				//        import loaded, then we can probably return that rather 
+				//        than allocating a placeholder
+				if (bIsBlueprintClass)
 				{
-					Import.XObject = MakeImportPlaceholder<ULinkerPlaceholderClass>(LinkerRoot, *Import.ObjectName.ToString(), Index);
+					PlaceholderNamePrefix = TEXT("PLACEHOLDER-CLASS_");
+					PlaceholderType = ULinkerPlaceholderClass::StaticClass();
+					PlaceholderCastFunc = &PlaceholderCast<ULinkerPlaceholderClass>;
 				}
 				else if (ImportClass->IsChildOf<UFunction>())
-				{
-					const int32 OuterImportIndex = Import.OuterIndex.ToImport();
-					// @TODO: if the sole reason why we have ULinkerPlaceholderFunction 
-					//        is that it's outer is a placeholder, then we 
-					//        could instead log it (with the placeholder) as 
-					//        a referencer, and then move the function later
-					if (DeferPotentialCircularImport(OuterImportIndex))
+				{		
+					if (Import.OuterIndex.IsImport())
 					{
-						UObject* FuncOuter = ImportMap[OuterImportIndex].XObject;
-						Import.XObject = MakeImportPlaceholder<ULinkerPlaceholderFunction>(FuncOuter, *Import.ObjectName.ToString(), Index);
-						DEFERRED_DEPENDENCY_CHECK(dynamic_cast<ULinkerPlaceholderClass*>(FuncOuter) != nullptr);
+						const int32 OuterImportIndex = Import.OuterIndex.ToImport();
+						// @TODO: if the sole reason why we have ULinkerPlaceholderFunction 
+						//        is that it's outer is a placeholder, then we 
+						//        could instead log it (with the placeholder) as 
+						//        a referencer, and then move the function later
+						if (DeferPotentialCircularImport(OuterImportIndex))
+						{
+							PlaceholderNamePrefix = TEXT("PLACEHOLDER-FUNCTION_");
+							PlaceholderOuter = ImportMap[OuterImportIndex].XObject;
+							PlaceholderType  = ULinkerPlaceholderFunction::StaticClass();
+							PlaceholderCastFunc = &PlaceholderCast<ULinkerPlaceholderFunction>;
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+							Outer = dynamic_cast<ULinkerPlaceholderClass*>(PlaceholderOuter);
+							check(Outer);
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+						}
 					}
+				}
+
+				if (PlaceholderType != nullptr)
+				{
+					FName PlaceholderName(*FString::Printf(TEXT("%s_%s"), *PlaceholderNamePrefix, *Import.ObjectName.ToString()));
+					PlaceholderName = MakeUniqueObjectName(PlaceholderOuter, PlaceholderType, PlaceholderName);
+
+					UStruct* PlaceholderObj = NewObject<UStruct>(PlaceholderOuter, PlaceholderType, PlaceholderName, RF_Public | RF_Transient);
+					// store the import index in the placeholder, so we can 
+					// easily look it up in the import map, given the 
+					// placeholder (needed, to find the corresponding import for 
+					// ResolvingDeferredPlaceholder)
+					DEFERRED_DEPENDENCY_CHECK(PlaceholderCastFunc != nullptr);
+					if (PlaceholderCastFunc != nullptr)
+					{
+						if (FLinkerPlaceholderBase* AsPlaceholder = PlaceholderCastFunc(PlaceholderObj))
+						{
+							AsPlaceholder->PackageIndex = FPackageIndex::FromImport(Index);
+						}
+					}				
+					// make sure the class is fully formed (has its 
+					// ClassAddReferencedObjects/ClassConstructor members set)
+					PlaceholderObj->Bind();
+					PlaceholderObj->StaticLink(/*bRelinkExistingProperties =*/true);
+#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+					if (Outer)
+					{
+						Outer->AddChildObject(PlaceholderObj);
+					}
+#endif //USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
+
+					Import.XObject = PlaceholderObj;
 				}
 			}
 		}
@@ -847,132 +792,69 @@ void FLinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 	// placeholder classes, all member struct's placholders, and its parent's
 	{
 		FUnresolvedStructTracker ScopedResolveTracker(LoadStruct);
-		
-		UClass* const LoadClass = Cast<UClass>(LoadStruct);
 
-		bool bImportMapResolved = false;
 		// this function (for this linker) could be reentrant (see where we 
 		// recursively call ResolveDeferredDependencies() for super-classes below);  
 		// if that's the case, then we want to finish resolving the pending class 
 		// before we continue on
 		if (ResolvingDeferredPlaceholder != nullptr)
 		{
-			FName ReplacementPkgPath = NAME_None;
-			// if this placeholder is not an ImportMap placeholder, then we need
-			// additional info to resolve it (namely the true object's package
-			// path)... if we don't have that, then this resolve will fail
-			if (ResolvingDeferredPlaceholder->PackageIndex.IsNull())
-			{
-				const FName* ImportObjectPath = ImportPlaceholders.FindKey(ResolvingDeferredPlaceholder);
-				DEFERRED_DEPENDENCY_CHECK(ImportObjectPath != nullptr);
-
-				if (ImportObjectPath != nullptr)
-				{
-					ReplacementPkgPath = *ImportObjectPath;
-					// save us from looping through the ImportMap again; if 
-					// we're already resolving an entry from ImportPlaceholders,  
-					// then we've already been through this function and are in  
-					// the ImportPlaceholders loop somewhere up the stack
-					bImportMapResolved = true;
-				}
-			}
-
-			int32 ResolvedRefCount = ResolveDependencyPlaceholder(ResolvingDeferredPlaceholder, LoadClass, ReplacementPkgPath);
+			int32 ResolvedRefCount = ResolveDependencyPlaceholder(ResolvingDeferredPlaceholder, Cast<UClass>(LoadStruct));
 			// @TODO: can we reliably count on this resolving some dependencies?... 
 			//        if so, check verify that!
 			ResolvingDeferredPlaceholder = nullptr;
-			ImportPlaceholders.Remove(ReplacementPkgPath);
 		}
 
-		if (!bImportMapResolved)
+		// because this loop could recurse (and end up finishing all of this for
+		// us), we check HasUnresolvedDependencies() so we can early out  
+		// from this loop in that situation (the loop has been finished elsewhere)
+		for (int32 ImportIndex = 0; ImportIndex < ImportMap.Num() && HasUnresolvedDependencies(); ++ImportIndex)
 		{
-			// because this loop could recurse (and end up finishing all of this for
-			// us), we check HasUnresolvedDependencies() so we can early out  
-			// from this loop in that situation (the loop has been finished elsewhere)
-			for (int32 ImportIndex = 0; ImportIndex < ImportMap.Num() && HasUnresolvedDependencies(); ++ImportIndex)
+			FObjectImport& Import = ImportMap[ImportIndex];
+
+			const FLinkerLoad* SourceLinker = (Import.SourceLinker != nullptr) ? Import.SourceLinker :
+				(Import.XObject != nullptr) ? Import.XObject->GetLinker() : nullptr;
+
+			const UPackage* SourcePackage = (SourceLinker != nullptr) ? SourceLinker->LinkerRoot : nullptr;
+			// this package may not have introduced any (possible) cyclic 
+			// dependencies, but it still could have been deferred (kept from
+			// fully loading... we need to make sure metadata gets loaded, etc.)
+			if ((SourcePackage != nullptr) && !SourcePackage->HasAnyFlags(RF_WasLoaded))
 			{
-				FObjectImport& Import = ImportMap[ImportIndex];
+				uint32 InternalLoadFlags = LoadFlags & (LOAD_NoVerify | LOAD_NoWarn | LOAD_Quiet);
+				// make sure LoadAllObjects() is called for this package
+				LoadPackageInternal(/*Outer =*/nullptr, *SourceLinker->Filename, InternalLoadFlags, this);
+			}
 
-				FLinkerLoad* SourceLinker = Import.SourceLinker;
-				// we cannot rely on Import.SourceLinker being set, if you look 
-				// at FLinkerLoad::CreateImport(), you'll see in game builds 
-				// that we try to circumvent the normal Import loading with a
-				// FindImportFast() call... if this is successful (the import 
-				// has already been somewhat loaded), then we don't fill out the 
-				// SourceLinker field
-				if (SourceLinker == nullptr)
+			if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(Import.XObject))
+			{
+				DEFERRED_DEPENDENCY_CHECK(PlaceholderClass->PackageIndex.ToImport() == ImportIndex);
+
+				// NOTE: we don't check that this resolve successfully replaced any
+				//       references (by the return value), because this resolve 
+				//       could have been re-entered and completed by a nested call
+				//       to the same function (for the same placeholder)
+				ResolveDependencyPlaceholder(PlaceholderClass, Cast<UClass>(LoadStruct));
+			}
+			else if (ULinkerPlaceholderFunction* PlaceholderFunction = Cast<ULinkerPlaceholderFunction>(Import.XObject))
+			{
+				if (ULinkerPlaceholderClass* PlaceholderOwner = Cast<ULinkerPlaceholderClass>(PlaceholderFunction->GetOwnerClass()))
 				{
-					if (Import.XObject != nullptr)
-					{
-						SourceLinker = Import.XObject->GetLinker();
-						//if (SourceLinker == nullptr)
-						//{
-						//	UPackage* ImportPkg = Import.XObject->GetOutermost();
-						//	// we use this package as placeholder for our 
-						//	// placeholders, so make sure to skip those (all other
-						//	// imports should belong to another package)
-						//	if (ImportPkg && ImportPkg != LinkerRoot)
-						//	{
-						//		SourceLinker = FindExistingLinkerForPackage(ImportPkg);
-						//	}
-						//}
-					}					
+					ResolveDependencyPlaceholder(PlaceholderOwner, Cast<UClass>(LoadStruct));
 				}
 
-				const UPackage* SourcePackage = (SourceLinker != nullptr) ? SourceLinker->LinkerRoot : nullptr;
-				// this package may not have introduced any (possible) cyclic 
-				// dependencies, but it still could have been deferred (kept from
-				// fully loading... we need to make sure metadata gets loaded, etc.)
-				if ((SourcePackage != nullptr) && !SourcePackage->HasAnyFlags(RF_WasLoaded))
+				DEFERRED_DEPENDENCY_CHECK(PlaceholderFunction->PackageIndex.ToImport() == ImportIndex);
+				ResolveDependencyPlaceholder(PlaceholderFunction, Cast<UClass>(LoadStruct)); 
+			}
+			else if (UScriptStruct* StructObj = Cast<UScriptStruct>(Import.XObject))
+			{
+				// in case this is a user defined struct, we have to resolve any 
+				// deferred dependencies in the struct 
+				if (Import.SourceLinker != nullptr)
 				{
-					uint32 InternalLoadFlags = LoadFlags & (LOAD_NoVerify | LOAD_NoWarn | LOAD_Quiet);
-					// make sure LoadAllObjects() is called for this package
-					LoadPackageInternal(/*Outer =*/nullptr, *SourceLinker->Filename, InternalLoadFlags, this);
-				}
-
-				if (ULinkerPlaceholderClass* PlaceholderClass = Cast<ULinkerPlaceholderClass>(Import.XObject))
-				{
-					DEFERRED_DEPENDENCY_CHECK(PlaceholderClass->PackageIndex.ToImport() == ImportIndex);
-
-					// NOTE: we don't check that this resolve successfully replaced any
-					//       references (by the return value), because this resolve 
-					//       could have been re-entered and completed by a nested call
-					//       to the same function (for the same placeholder)
-					ResolveDependencyPlaceholder(PlaceholderClass, LoadClass);
-				}
-				else if (ULinkerPlaceholderFunction* PlaceholderFunction = Cast<ULinkerPlaceholderFunction>(Import.XObject))
-				{
-					if (ULinkerPlaceholderClass* PlaceholderOwner = Cast<ULinkerPlaceholderClass>(PlaceholderFunction->GetOwnerClass()))
-					{
-						ResolveDependencyPlaceholder(PlaceholderOwner, LoadClass);
-					}
-
-					DEFERRED_DEPENDENCY_CHECK(PlaceholderFunction->PackageIndex.ToImport() == ImportIndex);
-					ResolveDependencyPlaceholder(PlaceholderFunction, LoadClass);
-				}
-				else if (UScriptStruct* StructObj = Cast<UScriptStruct>(Import.XObject))
-				{
-					// in case this is a user defined struct, we have to resolve any 
-					// deferred dependencies in the struct 
-					if (SourceLinker != nullptr)
-					{
-						SourceLinker->ResolveDeferredDependencies(StructObj);
-					}
+					Import.SourceLinker->ResolveDeferredDependencies(StructObj);
 				}
 			}
-		} // if (!bImportMapResolved)
-
-		// resolve any placeholders that were imported through methods like 
-		// ImportText() (meaning the ImportMap wouldn't reference them)
-		while (ImportPlaceholders.Num() > 0)
-		{
-			auto PlaceholderIt = ImportPlaceholders.CreateIterator();
-
-			// store off the key before we resolve, in case this has been recursively removed
-			const FName PlaceholderKey = PlaceholderIt.Key();
-			ResolveDependencyPlaceholder(PlaceholderIt.Value(), LoadClass, PlaceholderKey);
-
-			ImportPlaceholders.Remove(PlaceholderKey);
 		}
 
 		if (UStruct* SuperStruct = LoadStruct->GetSuperStruct())
@@ -1015,7 +897,6 @@ void FLinkerLoad::ResolveDeferredDependencies(UStruct* LoadStruct)
 			DEFERRED_DEPENDENCY_CHECK(!PlaceholderClass->HasKnownReferences());
 		}
 	}
-	DEFERRED_DEPENDENCY_CHECK(ImportPlaceholders.Num() == 0);
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 }
@@ -1039,7 +920,7 @@ bool FLinkerLoad::HasUnresolvedDependencies() const
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 }
 
-int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* PlaceholderIn, UClass* ReferencingClass, const FName ObjectPath)
+int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* PlaceholderIn, UClass* ReferencingClass)
 {
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 	TGuardValue<uint32>  LoadFlagsGuard(LoadFlags, (LoadFlags & ~LOAD_DeferDependencyLoads));
@@ -1048,38 +929,27 @@ int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* Placehol
 	UObject* PlaceholderObj = PlaceholderIn->GetPlaceholderAsUObject();
 	DEFERRED_DEPENDENCY_CHECK(PlaceholderObj != nullptr);
 	DEFERRED_DEPENDENCY_CHECK(PlaceholderObj->GetOutermost() == LinkerRoot);
+	DEFERRED_DEPENDENCY_CHECK(PlaceholderIn->PackageIndex.IsImport());
+	
+	int32 const ImportIndex = PlaceholderIn->PackageIndex.ToImport();
+	FObjectImport& Import = ImportMap[ImportIndex];
 	
 	UObject* RealImportObj = nullptr;
-
-	if (PlaceholderIn->PackageIndex.IsNull())
+	if ((Import.XObject != nullptr) && (Import.XObject != PlaceholderObj))
 	{
-		DEFERRED_DEPENDENCY_CHECK(ObjectPath.IsValid() && !ObjectPath.IsNone());
-		// emulating the StaticLoadObject() call in UObjectPropertyBase::FindImportedObject(),
-		// since this was most likely a placeholder 
-		RealImportObj = StaticLoadObject(UObject::StaticClass(), /*Outer =*/nullptr, *ObjectPath.ToString(), /*Filename =*/nullptr, (LOAD_NoWarn | LOAD_FindIfFail));
+		DEFERRED_DEPENDENCY_CHECK(ResolvingDeferredPlaceholder == PlaceholderIn);
+		RealImportObj = Import.XObject;
 	}
-	else
+	else 
 	{
-		DEFERRED_DEPENDENCY_CHECK(PlaceholderIn->PackageIndex.IsImport());
-		int32 const ImportIndex = PlaceholderIn->PackageIndex.ToImport();
-		FObjectImport& Import = ImportMap[ImportIndex];
-
-		if ((Import.XObject != nullptr) && (Import.XObject != PlaceholderObj))
-		{
-			DEFERRED_DEPENDENCY_CHECK(ResolvingDeferredPlaceholder == PlaceholderIn);
-			RealImportObj = Import.XObject;
-		}
-		else
-		{
-			// clear the placeholder from the import, so that a call to CreateImport()
-			// properly fills it in
-			Import.XObject = nullptr;
-			// NOTE: this is a possible point of recursion... CreateImport() could 
-			//       continue to load a package already started up the stack and you 
-			//       could end up in another ResolveDependencyPlaceholder() for some  
-			//       other placeholder before this one has completely finished resolving
-			RealImportObj = CreateImport(ImportIndex);
-		}
+		// clear the placeholder from the import, so that a call to CreateImport()
+		// properly fills it in
+		Import.XObject = nullptr;
+		// NOTE: this is a possible point of recursion... CreateImport() could 
+		//       continue to load a package already started up the stack and you 
+		//       could end up in another ResolveDependencyPlaceholder() for some  
+		//       other placeholder before this one has completely finished resolving
+		RealImportObj = CreateImport(ImportIndex);
 	}
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
@@ -1100,10 +970,10 @@ int32 FLinkerLoad::ResolveDependencyPlaceholder(FLinkerPlaceholderBase* Placehol
 	// if we can't rely on the Import object's RF_LoadCompleted flag, then its
 	// owner class should at least have it
 	DEFERRED_DEPENDENCY_CHECK( (RealImportObj == nullptr) || bExpectsLoadCompleteFlag ||
-		(FunctionOwner && FunctionOwner->HasAnyFlags(RF_LoadCompleted | RF_Dynamic)) );
+		(FunctionOwner && FunctionOwner->HasAnyFlags(RF_LoadCompleted)) );
 
 	DEFERRED_DEPENDENCY_CHECK(RealImportObj != PlaceholderObj);
-	DEFERRED_DEPENDENCY_CHECK(!bExpectsLoadCompleteFlag || RealImportObj->HasAnyFlags(RF_LoadCompleted | RF_Dynamic));
+	DEFERRED_DEPENDENCY_CHECK(!bExpectsLoadCompleteFlag || RealImportObj->HasAnyFlags(RF_LoadCompleted));
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 	int32 ReplacementCount = 0;
@@ -1265,31 +1135,6 @@ void FLinkerLoad::FinalizeBlueprint(UClass* LoadClass)
 	// we need it ran for any super-classes before we regen
 	ResolveAllImports();
 
-	// interfaces can invalidate classes which implement them (when the  
-	// interface is regenerated), they essentially define the makeup of the  
-	// implementing class; so here, like we do with the parent class above, we  
-	// ensure that all implemented interfaces are finalized first - this helps  
-	// avoid cyclic issues where an interface ends up invalidating a dependent  
-	// class by being regenerated after the class (see UE-28846)
-	for (const FImplementedInterface& InterfaceDesc : LoadClass->Interfaces)
-	{
-		FLinkerLoad* InterfaceLinker = (InterfaceDesc.Class) ? InterfaceDesc.Class->GetLinker() : nullptr;
-		if ((InterfaceLinker != nullptr) && InterfaceLinker->IsBlueprintFinalizationPending())
-		{
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			// the interface import should have been properly resolved above, in 
-			// ResolveAllImports()
-			if (!ensure(!InterfaceLinker->HasUnresolvedDependencies()))
-#else 
-			if (InterfaceLinker->HasUnresolvedDependencies())
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			{
-				InterfaceLinker->ResolveDeferredDependencies(InterfaceDesc.Class);
-			}
-			InterfaceLinker->FinalizeBlueprint(InterfaceDesc.Class);
-		}
-	}
-
 	// replace any export placeholders that were created, and serialize in the 
 	// class's CDO
 	ResolveDeferredExports(LoadClass);
@@ -1339,7 +1184,6 @@ void FLinkerLoad::FinalizeBlueprint(UClass* LoadClass)
 		// is where script code is regenerated)
 		FStructScriptLoader::ResolveDeferredScriptLoads(this);
 
-		DEFERRED_DEPENDENCY_CHECK(ImportPlaceholders.Num() == 0);
 		DEFERRED_DEPENDENCY_CHECK(LoadClass->GetOutermost() != GetTransientPackage());
 		// just in case we choose to enable the deferred dependency loading for 
 		// cooked builds... we want to keep from regenerating in that scenario
@@ -1380,18 +1224,9 @@ void FLinkerLoad::ResolveDeferredExports(UClass* LoadClass)
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 		auto IsPlaceholderReferenced = [](ULinkerPlaceholderExportObject* ExportPlaceholder)->bool
 		{
-			UObject* PlaceholderObj = ExportPlaceholder;
-
 			FReferencerInformationList UnresolvedReferences;
-			bool bIsReferenced = IsReferenced(PlaceholderObj, GARBAGE_COLLECTION_KEEPFLAGS, EInternalObjectFlags::GarbageCollectionKeepFlags, /*bCheckSubObjects =*/false, &UnresolvedReferences);
-
-			if (bIsReferenced && IsAsyncLoading())
-			{
-				// if we're async loading, then we assume a single external 
-				// reference belongs to FAsyncObjectsReferencer, which is allowable 
-				bIsReferenced = (UnresolvedReferences.ExternalReferences.Num() != 1) || (UnresolvedReferences.InternalReferences.Num() > 0);
-			}
-			return bIsReferenced;
+			UObject* PlaceholderObj = ExportPlaceholder;
+			return IsReferenced(PlaceholderObj, GARBAGE_COLLECTION_KEEPFLAGS, EInternalObjectFlags::GarbageCollectionKeepFlags, /*bCheckSubObjects =*/false, &UnresolvedReferences);
 		};
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
@@ -1612,20 +1447,6 @@ bool FLinkerLoad::IsExportBeingResolved(int32 ExportIndex)
 	return bIsExportClassBeingForceRegened;
 }
 
-void FLinkerLoad::ResetDeferredLoadingState()
-{
-#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-	DeferredCDOIndex = INDEX_NONE;
-	bForceBlueprintFinalization = false;
-	ResolvingDeferredPlaceholder = nullptr;
-	ImportPlaceholders.Empty();
-	LoadFlags &= ~(LOAD_DeferDependencyLoads);
-
-	FResolvingExportTracker::Get().Reset(this);
-	FUnresolvedStructTracker::Reset(this);
-#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-}
-
 bool FLinkerLoad::HasPerformedFullExportResolvePass()
 {
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
@@ -1636,39 +1457,16 @@ bool FLinkerLoad::HasPerformedFullExportResolvePass()
 	
 }
 
-UObject* FLinkerLoad::RequestPlaceholderValue(UClass* ObjectType, const TCHAR* ObjectPath)
+void FLinkerLoad::ResetDeferredLoadingState()
 {
-#if !USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-	return nullptr;
-#else
-	FLinkerPlaceholderBase* Placeholder = nullptr;
+#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
+	DeferredCDOIndex = INDEX_NONE;
+	bForceBlueprintFinalization = false;
+	ResolvingDeferredPlaceholder = nullptr;
+	LoadFlags &= ~(LOAD_DeferDependencyLoads);
 
-	if (FBlueprintSupport::UseDeferredDependencyLoading() && (LoadFlags & LOAD_DeferDependencyLoads))
-	{
-		const FName ObjId(ObjectPath);
-		if (FLinkerPlaceholderBase** PlaceholderPtr = ImportPlaceholders.Find(ObjId))
-		{
-			Placeholder = *PlaceholderPtr;
-		}
-		// right now we only support external parties requesting CLASS placeholders;
-		// if there is a scenario where they're, through a different ObjectType, 
-		// loading another Blueprint package when they shouldn't, then we need to 
-		// handle that here as well
-		else if (ObjectType->IsChildOf<UClass>())
-		{
-			const FString ObjectPathStr(ObjectPath);
-			// we don't need placeholders for native object references (the 
-			// calling code should properly handle null return values)
-			if (!FPackageName::IsScriptPackage(ObjectPathStr))
-			{
-				const FString ObjectName = FPackageName::ObjectPathToObjectName(ObjectPathStr);
-				Placeholder = MakeImportPlaceholder<ULinkerPlaceholderClass>(LinkerRoot, *ObjectName);
-				ImportPlaceholders.Add(ObjId, Placeholder);
-			}
-		}
-	}
-
-	return Placeholder ? Placeholder->GetPlaceholderAsUObject() : nullptr;
+	FResolvingExportTracker::Get().Reset(this);
+	FUnresolvedStructTracker::Reset(this);
 #endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 }
 
@@ -1826,21 +1624,9 @@ bool FObjectInitializer::InitNonNativeProperty(UProperty* Property, UObject* Dat
 FObjectInitializer* FDeferredObjInitializerTracker::Add(const FObjectInitializer& DeferringInitializer)
 {
 	UObject* InitingObj = DeferringInitializer.GetObj();
-	DEFERRED_DEPENDENCY_CHECK(InitingObj != nullptr);
-	const bool bIsSubObjTemplate = InitingObj && InitingObj->HasAnyFlags(RF_InheritableComponentTemplate);
+	DEFERRED_DEPENDENCY_CHECK((InitingObj != nullptr) && InitingObj->HasAnyFlags(RF_ClassDefaultObject));
 
-	UClass* LoadClass = nullptr;
-	if (bIsSubObjTemplate)
-	{
-		LoadClass = Cast<UClass>(InitingObj->GetOuter());
-	}
-	else if (InitingObj != nullptr)
-	{
-		DEFERRED_DEPENDENCY_CHECK(InitingObj->HasAnyFlags(RF_ClassDefaultObject));
-		LoadClass = InitingObj->GetClass();
-	}
-	
-	FObjectInitializer* DeferredCopy = nullptr;
+	UClass* LoadClass = (InitingObj != nullptr) ? InitingObj->GetClass() : nullptr;
 	if (LoadClass != nullptr)
 	{
 		FDeferredObjInitializerTracker& ThreadInst = FDeferredObjInitializerTracker::Get();
@@ -1852,35 +1638,18 @@ FObjectInitializer* FDeferredObjInitializerTracker::Add(const FObjectInitializer
 		UObject* SuperCDO = SuperClass->GetDefaultObject(/*bCreateIfNeeded =*/false);
 		DEFERRED_DEPENDENCY_CHECK( SuperCDO && (SuperCDO->HasAnyFlags(RF_NeedLoad) ||
 			(SuperClass->GetLinker() && SuperClass->GetLinker()->IsBlueprintFinalizationPending()) || IsCdoDeferred(SuperClass)) );
-
-		FLinkerLoad* ClassLinker = LoadClass->GetLinker();
-		DEFERRED_DEPENDENCY_CHECK((bIsSubObjTemplate && ClassLinker->IsBlueprintFinalizationPending()) || 
-			(ClassLinker->LoadFlags & LOAD_DeferDependencyLoads) != 0);
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 		
-		if (bIsSubObjTemplate)
-		{
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			TArray<FObjectInitializer*> DeferredSubObjInitializers;
-			ThreadInst.DeferredSubObjInitializers.MultiFindPointer(LoadClass, DeferredSubObjInitializers);
-			// check to make sure that we haven't already added this one for deferral
-			for (FObjectInitializer* SubObjInitializer : DeferredSubObjInitializers)
-			{
-				DEFERRED_DEPENDENCY_CHECK(SubObjInitializer->GetObj() != DeferringInitializer.GetObj());
-			}
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			DeferredCopy = &ThreadInst.DeferredSubObjInitializers.Add(LoadClass, DeferringInitializer);
-		}
-		else
-		{
-			auto& InitializersCache = ThreadInst.DeferredInitializers;
-			DEFERRED_DEPENDENCY_CHECK(InitializersCache.Find(LoadClass) == nullptr); // did we try to init the CDO twice?
+		auto& InitializersCache = ThreadInst.DeferredInitializers;
+		DEFERRED_DEPENDENCY_CHECK(InitializersCache.Find(LoadClass) == nullptr); // did we try to init the CDO twice?
+		DEFERRED_DEPENDENCY_CHECK(LoadClass->GetLinker()->LoadFlags & LOAD_DeferDependencyLoads);
 
-			// NOTE: we copy the FObjectInitializer, because it is most likely being destroyed
-			DeferredCopy = &InitializersCache.Add(LoadClass, DeferringInitializer);
-		}
+		// NOTE: we copy the FObjectInitializer, because it is most likely being destroyed
+		FObjectInitializer& DeferredCopy = InitializersCache.Add(LoadClass, DeferringInitializer);
+
+		return &DeferredCopy;
 	}
-	return DeferredCopy;
+	return nullptr;
 }
 
 FObjectInitializer* FDeferredObjInitializerTracker::Find(UClass* LoadClass)
@@ -1896,67 +1665,29 @@ bool FDeferredObjInitializerTracker::IsCdoDeferred(UClass* LoadClass)
 
 bool FDeferredObjInitializerTracker::DeferSubObjectPreload(UObject* SubObject)
 {
-	bool bDeferralNeeded = false;
-	// if this is an "InheritableComponentTemplate" we expect it's outer to be
-	// the class it belongs to, and know that this overrides a inherited 
-	// component (belonging to the owner's super)
-	const bool bIsComponentOverride = SubObject->HasAnyFlags(RF_InheritableComponentTemplate);
+	DEFERRED_DEPENDENCY_CHECK(SubObject->HasAnyFlags(RF_DefaultSubObject));
 
-	UClass* OwningClass = nullptr;
-	if (bIsComponentOverride)
-	{
-		OwningClass = Cast<UClass>(SubObject->GetOuter());
-		DEFERRED_DEPENDENCY_CHECK(OwningClass != nullptr);
-	}
-	else
-	{
-		DEFERRED_DEPENDENCY_CHECK(SubObject->HasAnyFlags(RF_DefaultSubObject));
+	UObject* CdoOuter = SubObject->GetOuter();
+	UClass* OuterClass = CdoOuter->GetClass();
 
-		UObject* SubObjOuter = SubObject->GetOuter();
-		OwningClass = SubObjOuter->GetClass();
-		// NOTE: the outer of a DSO may not be a CDO like we want, it could 
-		//       be something like a component template; right now we ignore 
-		//       those cases (IsCdoDeferred() below will reject this), but if 
-		//       this case proves to be a problem, then we may need to look up 
-		//       the outer chain, or see if the outer sub-obj is deferred itself
-	}
-
-	FDeferredObjInitializerTracker& ThreadInst = FDeferredObjInitializerTracker::Get();	
-	if (IsCdoDeferred(OwningClass) && (OwningClass != ThreadInst.ResolvingClass))
+	FDeferredObjInitializerTracker& ThreadInst = FDeferredObjInitializerTracker::Get();
+	if (IsCdoDeferred(OuterClass) && (OuterClass != ThreadInst.ResolvingClass))
 	{
-		// no need to check the archetype, we know that this is overriding a
-		// super component - we need to defer Preload()
-		if (bIsComponentOverride)
+		DEFERRED_DEPENDENCY_CHECK(CdoOuter->HasAnyFlags(RF_ClassDefaultObject));
+
+		UObject* SubObjTemplate = SubObject->GetArchetype();
+		// check that this is an inherited sub-object (that it is defined on the 
+		// parent class)... we only need to defer Preload() for inherited 
+		// components because they're what gets filled out in the CDO's InitSubobjectProperties()
+		if (SubObjTemplate && (SubObjTemplate->GetOuter() != CdoOuter))
 		{
-			ThreadInst.DeferredSubObjects.AddUnique(OwningClass, SubObject);
-			bDeferralNeeded = true;
+			
+			ThreadInst.DeferredSubObjects.AddUnique(OuterClass, SubObject);
+
+			return true;
 		}
-		else
-		{
-			DEFERRED_DEPENDENCY_CHECK(SubObject->GetOuter()->HasAnyFlags(RF_ClassDefaultObject));
-
-			UObject* SubObjTemplate = SubObject->GetArchetype();
-			// check that this is an inherited sub-object (that it is defined on the 
-			// parent class)... we only need to defer Preload() for inherited 
-			// components because they're what gets filled out in the CDO's InitSubobjectProperties()
-			if (SubObjTemplate && (SubObjTemplate->GetOuter() != SubObject->GetOuter()))
-			{
-				ThreadInst.DeferredSubObjects.AddUnique(OwningClass, SubObject);
-				bDeferralNeeded = true;
-			}
-		}		
 	}
-
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-	TArray<FObjectInitializer*> DeferredSubObjInitializers;
-	ThreadInst.DeferredSubObjInitializers.MultiFindPointer(OwningClass, DeferredSubObjInitializers);
-	// check to make sure that we haven't already added this one for deferral
-	for (FObjectInitializer* SubObjInitializer : DeferredSubObjInitializers)
-	{
-		DEFERRED_DEPENDENCY_CHECK(bDeferralNeeded || SubObjInitializer->GetObj() != SubObject);
-	}
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-	return bDeferralNeeded;
+	return false;
 }
 
 void FDeferredObjInitializerTracker::Remove(UClass* LoadClass)
@@ -1965,7 +1696,6 @@ void FDeferredObjInitializerTracker::Remove(UClass* LoadClass)
 	ThreadInst.DeferredInitializers.Remove(LoadClass);
 	ThreadInst.DeferredSubObjects.Remove(LoadClass);
 	ThreadInst.SuperClassMap.RemoveSingle(LoadClass->GetSuperClass(), LoadClass);
-	ThreadInst.DeferredSubObjInitializers.Remove(LoadClass);
 }
 
 bool FDeferredObjInitializerTracker::ResolveDeferredInitialization(UClass* LoadClass)
@@ -1985,12 +1715,6 @@ bool FDeferredObjInitializerTracker::ResolveDeferredInitialization(UClass* LoadC
 
 		return true;
 	}
-	else
-	{
-		// make sure we're not missing sub-obj initializers that would have been 
-		// ran in the above if case
-		DEFERRED_DEPENDENCY_CHECK(FDeferredObjInitializerTracker::Get().DeferredSubObjInitializers.Find(LoadClass) == nullptr);
-	}
 	return false;
 }
 
@@ -2000,20 +1724,11 @@ void FDeferredObjInitializerTracker::ResolveDeferredSubObjects(UObject* CDO)
 	UClass* LoadClass = CDO->GetClass();
 
 	FDeferredObjInitializerTracker& ThreadInst = FDeferredObjInitializerTracker::Get();
-	// guard to keep sub-object preloads from ending up back in DeferSubObjectPreload()
-	TGuardValue<UClass*> ResolvingGuard(ThreadInst.ResolvingClass, LoadClass);
-	
-	TArray<FObjectInitializer*> DeferredSubObjInitializers;
-	ThreadInst.DeferredSubObjInitializers.MultiFindPointer(LoadClass, DeferredSubObjInitializers);
-
-	for (FObjectInitializer* DeferredInitializer : DeferredSubObjInitializers)
-	{
-		FScriptIntegrationObjectHelper::PostConstructInitObject(*DeferredInitializer);
-	}
-	ThreadInst.DeferredSubObjInitializers.Remove(LoadClass);
-	
 	TArray<UObject*> DeferredSubObjects;
 	ThreadInst.DeferredSubObjects.MultiFind(LoadClass, DeferredSubObjects);
+
+	// guard to keep sub-object preloads from ending up back in DeferSubObjectPreload()
+	TGuardValue<UClass*> ResolvingGuard(ThreadInst.ResolvingClass, LoadClass);
 
 	FLinkerLoad* ClassLinker = LoadClass->GetLinker();
 	DEFERRED_DEPENDENCY_CHECK(ClassLinker != nullptr);
@@ -2026,9 +1741,24 @@ void FDeferredObjInitializerTracker::ResolveDeferredSubObjects(UObject* CDO)
 		// skipped on account of the deferred CDO initialization
 		for (UObject* SubObj : DeferredSubObjects)
 		{
-			DEFERRED_DEPENDENCY_CHECK( (SubObj->GetOuter() == CDO && SubObj->HasAnyFlags(RF_DefaultSubObject)) || 
-				(SubObj->GetOuter() == LoadClass && SubObj->HasAnyFlags(RF_InheritableComponentTemplate)) );
-			
+			// no longer need to handle this case, because we're no longer 
+			// attempting to recreate the CDO object in 
+			// FLinkerLoad::ResolveDeferredExports() (when the super class has
+			// been regenerated)
+// 			if (SubObj->GetOuter() != CDO)
+// 			{
+// 				// we may have had to recreate the CDO (because its super has had 
+// 				// its layout altered through regeneration); see 
+// 				// FLinkerLoad::ResolveDeferredExports() for more context
+// 				//
+// 				// @TODO: Are we sure that DeferredSubObjects would have all the
+// 				//        sub-objects that we need to over?
+// 				// 
+// 				// @TODO: Are we sure these are the right rename clags to use?
+// 				const ERenameFlags RenameFlags = (REN_DontCreateRedirectors | REN_ForceNoResetLoaders | REN_NonTransactional | REN_DoNotDirty);
+// 				SubObj->Rename(nullptr, CDO, RenameFlags);
+// 			}
+			DEFERRED_DEPENDENCY_CHECK(SubObj->GetOuter() == CDO);
 			ClassLinker->Preload(SubObj);
 		}
 	}
@@ -2050,14 +1780,6 @@ void FDeferredObjInitializerTracker::ResolveDeferredSubClassObjects(UClass* Supe
 
 // don't want other files ending up with this internal define
 #undef DEFERRED_DEPENDENCY_CHECK
-
-FBlueprintDependencyData::FBlueprintDependencyData(const TCHAR* InPackageName
-	, const TCHAR* InObjectName, const TCHAR* InClassPackageName, const TCHAR* InClassName) 
-	: PackageName(InPackageName)
-	, ObjectName(InObjectName)
-	, ClassPackageName(InClassPackageName)
-	, ClassName(InClassName)
-{}
 
 FConvertedBlueprintsDependencies& FConvertedBlueprintsDependencies::Get()
 {
@@ -2083,38 +1805,126 @@ void FConvertedBlueprintsDependencies::GetAssets(FName PackageName, TArray<FBlue
 	}
 }
 
-void FConvertedBlueprintsDependencies::FillUsedAssetsInDynamicClass(UDynamicClass* DynamicClass, GetDependenciesNamesFunc GetUsedAssets)
-{
-	check(DynamicClass && GetUsedAssets);
-	ensure(DynamicClass->UsedAssets.Num() == 0);
-
-	TArray<FBlueprintDependencyData> UsedAssetdData;
-	GetUsedAssets(UsedAssetdData);
-
-	for (FBlueprintDependencyData& ItData : UsedAssetdData)
-	{
-		const FString PathToObj = FString::Printf(TEXT("%s.%s"), *ItData.PackageName.ToString(), *ItData.ObjectName.ToString());
-		UObject* TheAsset = LoadObject<UObject>(nullptr, *PathToObj);
-		DynamicClass->UsedAssets.Add(TheAsset);
-	}
-}
-
-
+/*******************************************************************************
+ * FScriptCookReplacementCoordinator
+ ******************************************************************************/
 #if WITH_EDITOR
 
-/*******************************************************************************
-* IBlueprintNativeCodeGenCore
-******************************************************************************/
-static const IBlueprintNativeCodeGenCore* CoordinatorInstance = nullptr;
+FScriptCookReplacementCoordinator* FScriptCookReplacementCoordinator::CoordinatorInstance = nullptr;
 
-const IBlueprintNativeCodeGenCore* IBlueprintNativeCodeGenCore::Get()
+FScriptCookReplacementCoordinator* FScriptCookReplacementCoordinator::Get()
 {
 	return CoordinatorInstance;
 }
 
-void IBlueprintNativeCodeGenCore::Register(const IBlueprintNativeCodeGenCore* Coordinator)
+void FScriptCookReplacementCoordinator::Create(bool bEnabled, const TArray<FString>& ExcludedAssetTypes, const TArray<FString>& ExcludedBlueprintTypes, const TMap<UObject*, UClass*>& ReplacementMap)
 {
-	CoordinatorInstance = Coordinator;
+	CoordinatorInstance = new FScriptCookReplacementCoordinator(bEnabled, ExcludedAssetTypes, ExcludedBlueprintTypes, ReplacementMap);
+}
+
+FScriptCookReplacementCoordinator::FScriptCookReplacementCoordinator(bool bInEnabled, const TArray<FString>& InExcludedAssetTypes, const TArray<FString>& InExcludedBlueprintTypes, const TMap<UObject*, UClass*>& InReplacementMap)
+	: bEnabled(bInEnabled)
+	, ExcludedAssetTypes(InExcludedAssetTypes)
+	, ExcludedBlueprintTypes(InExcludedBlueprintTypes)
+	, ReplacementMap(InReplacementMap)
+{
+}
+
+bool FScriptCookReplacementCoordinator::Initialize()
+{
+	return true;
+}
+
+DEFINE_LOG_CATEGORY_STATIC(LogDan, Log, All);
+
+UClass* FScriptCookReplacementCoordinator::FindReplacedClass(const UObject* Obj) const
+{
+	if (!bEnabled)
+	{
+		return nullptr;
+	}
+
+	// we're only looking to replace class types:
+	const UClass* AsClass = Obj->GetClass();
+	while (AsClass)
+	{
+		if (UClass* const* ReplacementPtr = ReplacementMap.Find(AsClass))
+		{
+			return *ReplacementPtr;
+		}
+
+		AsClass = AsClass->GetSuperClass();
+	}
+
+	return nullptr;
+}
+
+EReplacementResult FScriptCookReplacementCoordinator::IsTargetedForReplacement(const UPackage* Package) const
+{
+	if (!bEnabled)
+	{
+		return EReplacementResult::DontReplace;
+	}
+
+	// non-native packages with enums and structs should be converted, unless they are blacklisted:
+	UStruct* Struct = nullptr;
+	UEnum* Enum = nullptr;
+	TArray<UObject*> Objects;
+	GetObjectsWithOuter(Package, Objects, false);
+	for (auto Entry : Objects)
+	{
+		Struct = Cast<UStruct>(Entry);
+		Enum = Cast<UEnum>(Entry);
+		if (Struct || Enum)
+		{
+			break;
+		}
+	}
+
+	UObject* Target = Struct;
+	if (Target == nullptr)
+	{
+		Target = Enum;
+	}
+	return IsTargetedForReplacement(Target);
+}
+
+EReplacementResult FScriptCookReplacementCoordinator::IsTargetedForReplacement(const UObject* Object) const
+{
+	const UStruct* Struct = Cast<UStruct>(Object);
+	const UEnum* Enum = Cast<UEnum>(Object);
+
+	if (Struct == nullptr && Enum == nullptr)
+	{
+		return EReplacementResult::DontReplace;
+	}
+
+	// check blacklists:
+	// we can't use FindObject, because we may be converting a type while saving
+	if ((Struct && ExcludedAssetTypes.Find(Struct->GetPathName()) != INDEX_NONE) ||
+		(Enum && ExcludedAssetTypes.Find(Enum->GetPathName()) != INDEX_NONE))
+	{
+		return EReplacementResult::GenerateStub;
+	}
+
+	EReplacementResult Result = EReplacementResult::ReplaceCompletely;
+	while (Struct)
+	{
+		// This happens because the cooker incorrectly cooks editor only packages. Specifically happens for the blackjack sample
+		// project due to a FStringAssetReference in BaseEditor.ini:
+		if (Struct->RootPackageHasAnyFlags(PKG_EditorOnly))
+		{
+			return EReplacementResult::DontReplace;
+		}
+
+		if (ExcludedBlueprintTypes.Find(Struct->GetPathName()) != INDEX_NONE)
+		{
+			Result = EReplacementResult::GenerateStub;
+		}
+		Struct = Struct->GetSuperStruct();
+	}
+
+	return Result;
 }
 
 #endif // WITH_EDITOR

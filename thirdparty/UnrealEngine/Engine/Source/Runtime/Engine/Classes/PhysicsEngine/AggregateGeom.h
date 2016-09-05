@@ -19,16 +19,16 @@ struct ENGINE_API FKAggregateGeom
 {
 	GENERATED_USTRUCT_BODY()
 
-	UPROPERTY(EditAnywhere, editfixedsize, Category = "Aggregate Geometry", meta = (DisplayName = "Spheres"))
+	UPROPERTY(EditAnywhere, editfixedsize, Category = KAggregateGeom)
 	TArray<FKSphereElem> SphereElems;
 
-	UPROPERTY(EditAnywhere, editfixedsize, Category = "Aggregate Geometry", meta = (DisplayName = "Boxes"))
+	UPROPERTY(EditAnywhere, editfixedsize, Category = KAggregateGeom)
 	TArray<FKBoxElem> BoxElems;
 
-	UPROPERTY(EditAnywhere, editfixedsize, Category = "Aggregate Geometry", meta = (DisplayName = "Capsules"))
+	UPROPERTY(EditAnywhere, editfixedsize, Category = KAggregateGeom)
 	TArray<FKSphylElem> SphylElems;
 
-	UPROPERTY(EditAnywhere, editfixedsize, Category = "Aggregate Geometry", meta = (DisplayName = "Convex Elements"))
+	UPROPERTY(EditAnywhere, editfixedsize, Category = KAggregateGeom)
 	TArray<FKConvexElem> ConvexElems;
 
 	class FKConvexGeomRenderInfo* RenderInfo;

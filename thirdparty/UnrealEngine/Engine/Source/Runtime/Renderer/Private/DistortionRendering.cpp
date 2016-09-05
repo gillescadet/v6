@@ -13,8 +13,6 @@
 #include "SceneFilterRendering.h"
 #include "SceneUtils.h"
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Distortion"), Stat_GPU_Distortion, STATGROUP_GPU);
-
 /**
 * A pixel shader for rendering the full screen refraction pass
 */
@@ -330,7 +328,7 @@ public:
 		const FMaterialRenderProxy* InMaterialRenderProxy,
 		const FMaterial& MaterialResouce,
 		bool bInitializeOffsets,
-		EDebugViewShaderMode InDebugViewShaderMode,
+		bool bInOverrideWithShaderComplexity,
 		ERHIFeatureLevel::Type InFeatureLevel
 		);
 
@@ -341,7 +339,7 @@ public:
 	* @param Other - draw policy to compare
 	* @return true if the draw policies are a match
 	*/
-	FDrawingPolicyMatchResult Matches(const TDistortionMeshDrawingPolicy& Other) const;
+	bool Matches(const TDistortionMeshDrawingPolicy& Other) const;
 
 	/**
 	* Executes the draw commands which can be shared between any meshes using this drawer.
@@ -402,10 +400,10 @@ TDistortionMeshDrawingPolicy<DistortMeshPolicy>::TDistortionMeshDrawingPolicy(
 	const FMaterialRenderProxy* InMaterialRenderProxy,
 	const FMaterial& InMaterialResource,
 	bool bInInitializeOffsets,
-	EDebugViewShaderMode InDebugViewShaderMode,
+	bool bInOverrideWithShaderComplexity,
 	ERHIFeatureLevel::Type InFeatureLevel
 	)
-:	FMeshDrawingPolicy(InVertexFactory,InMaterialRenderProxy,InMaterialResource,InDebugViewShaderMode)
+:	FMeshDrawingPolicy(InVertexFactory,InMaterialRenderProxy,InMaterialResource,bInOverrideWithShaderComplexity)
 ,	bInitializeOffsets(bInInitializeOffsets)
 {
 	HullShader = NULL;
@@ -440,19 +438,17 @@ TDistortionMeshDrawingPolicy<DistortMeshPolicy>::TDistortionMeshDrawingPolicy(
 * @return true if the draw policies are a match
 */
 template<class DistortMeshPolicy>
-FDrawingPolicyMatchResult TDistortionMeshDrawingPolicy<DistortMeshPolicy>::Matches(
+bool TDistortionMeshDrawingPolicy<DistortMeshPolicy>::Matches(
 	const TDistortionMeshDrawingPolicy& Other
 	) const
 {
-	DRAWING_POLICY_MATCH_BEGIN
-		DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
-		DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-		DRAWING_POLICY_MATCH(HullShader == Other.HullShader) &&
-		DRAWING_POLICY_MATCH(DomainShader == Other.DomainShader) &&
-		DRAWING_POLICY_MATCH(bInitializeOffsets == Other.bInitializeOffsets) &&
-		DRAWING_POLICY_MATCH(DistortPixelShader == Other.DistortPixelShader); //&&
+	return FMeshDrawingPolicy::Matches(Other) &&
+		VertexShader == Other.VertexShader &&
+		HullShader == Other.HullShader &&
+		DomainShader == Other.DomainShader &&
+		bInitializeOffsets == Other.bInitializeOffsets &&
+		DistortPixelShader == Other.DistortPixelShader; //&&
 	//later	InitializePixelShader == Other.InitializePixelShader;
-	DRAWING_POLICY_MATCH_END
 }
 
 /**
@@ -479,7 +475,7 @@ void TDistortionMeshDrawingPolicy<DistortMeshPolicy>::SetSharedState(
 		DomainShader->SetParameters(RHICmdList, MaterialRenderProxy,*View);
 	}
 
-	if (UseDebugViewPS())
+	if (bOverrideWithShaderComplexity)
 	{
 		check(!bInitializeOffsets);
 //later		TShaderMapRef<FShaderComplexityAccumulatePixelShader> ShaderComplexityPixelShader(GetGlobalShaderMap(View->ShaderMap));
@@ -506,7 +502,7 @@ FBoundShaderStateInput TDistortionMeshDrawingPolicy<DistortMeshPolicy>::GetBound
 {
 	FPixelShaderRHIParamRef PixelShaderRHIRef = NULL;
 
-	if (UseDebugViewPS())
+	if (bOverrideWithShaderComplexity)
 	{
 		check(!bInitializeOffsets);
 //later		TShaderMapRef<FShaderComplexityAccumulatePixelShader> ShaderComplexityAccumulatePixelShader(GetGlobalShaderMap(InFeatureLevel));
@@ -564,10 +560,15 @@ void TDistortionMeshDrawingPolicy<DistortMeshPolicy>::SetMeshRenderState(
 	}
 	
 
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	// Don't set pixel shader constants if we are overriding with the shader complexity pixel shader
-	if (!bInitializeOffsets && !UseDebugViewPS())
+	if (!bOverrideWithShaderComplexity)
+#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	{
-		DistortPixelShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DrawRenderState);
+		if (!bInitializeOffsets)
+		{
+			DistortPixelShader->SetMesh(RHICmdList, VertexFactory,View,PrimitiveSceneProxy,BatchElement,DrawRenderState);
+		}
 	}
 	
 	// Set rasterizer state.
@@ -649,7 +650,7 @@ bool TDistortionMeshDrawingPolicyFactory<DistortMeshPolicy>::DrawDynamicMesh(
 			Mesh.MaterialRenderProxy,
 			*Mesh.MaterialRenderProxy->GetMaterial(FeatureLevel),
 			bInitializeOffsets,
-			View.Family->GetDebugViewShaderMode(),
+			View.Family->EngineShowFlags.ShaderComplexity,
 			FeatureLevel
 			);
 		RHICmdList.BuildAndSetLocalBoundShaderState(DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
@@ -699,7 +700,7 @@ bool TDistortionMeshDrawingPolicyFactory<DistortMeshPolicy>::DrawStaticMesh(
 			StaticMesh.MaterialRenderProxy,
 			*StaticMesh.MaterialRenderProxy->GetMaterial(FeatureLevel),
 			bInitializeOffsets,
-			View->Family->GetDebugViewShaderMode(),
+			View->Family->EngineShowFlags.ShaderComplexity,
 			FeatureLevel
 			);
 		RHICmdList.BuildAndSetLocalBoundShaderState(DrawingPolicy.GetBoundShaderStateInput(View->GetFeatureLevel()));
@@ -738,47 +739,33 @@ bool TDistortionMeshDrawingPolicyFactory<DistortMeshPolicy>::DrawStaticMesh(
 
 bool FDistortionPrimSet::DrawAccumulatedOffsets(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, bool bInitializeOffsets)
 {
-	bool bDirty = false;
+	bool bDirty=false;
 
-	QUICK_SCOPE_CYCLE_COUNTER(STAT_FDistortionPrimSet_DrawAccumulatedOffsets);
-
-	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDistortionPrimSet_DrawAccumulatedOffsets_View);
-		// Draw the view's elements with the distortion drawing policy.
-		bDirty |= DrawViewElements<TDistortionMeshDrawingPolicyFactory<FDistortMeshAccumulatePolicy> >(
-			RHICmdList,
-			View,
-			bInitializeOffsets,
-			0,	// DPG Index?
-			false // Distortion is rendered post fog.
-			);
-	}
+	// Draw the view's elements with the translucent drawing policy.
+	bDirty |= DrawViewElements<TDistortionMeshDrawingPolicyFactory<FDistortMeshAccumulatePolicy> >(
+		RHICmdList,
+		View,
+		bInitializeOffsets,
+		0,	// DPG Index?
+		false // Distortion is rendered post fog.
+		);
 
 	if( Prims.Num() )
 	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FDistortionPrimSet_DrawAccumulatedOffsets_Prims);
-		
-		// Draw scene prims
-		for( int32 PrimIdx = 0; PrimIdx < Prims.Num(); PrimIdx++ )
+		// Draw sorted scene prims
+		for( int32 PrimIdx=0; PrimIdx < Prims.Num(); PrimIdx++ )
 		{
 			FPrimitiveSceneProxy* PrimitiveSceneProxy = Prims[PrimIdx];
 			const FPrimitiveViewRelevance& ViewRelevance = View.PrimitiveViewRelevanceMap[PrimitiveSceneProxy->GetPrimitiveSceneInfo()->GetIndex()];
-			FPrimitiveSceneInfo* PrimitiveSceneInfo = PrimitiveSceneProxy->GetPrimitiveSceneInfo();
 
 			TDistortionMeshDrawingPolicyFactory<FDistortMeshAccumulatePolicy>::ContextType Context(bInitializeOffsets);
 
-			// Note: As for distortion rendering the order doesn't matter we actually could iterate View.DynamicMeshElements without this indirection
+			for (int32 MeshBatchIndex = 0; MeshBatchIndex < View.DynamicMeshElements.Num(); MeshBatchIndex++)
 			{
+				const FMeshBatchAndRelevance& MeshBatchAndRelevance = View.DynamicMeshElements[MeshBatchIndex];
 
-				// range in View.DynamicMeshElements[]
-				FInt32Range range = View.GetDynamicMeshElementRange(PrimitiveSceneInfo->GetIndex());
-
-				for (int32 MeshBatchIndex = range.GetLowerBoundValue(); MeshBatchIndex < range.GetUpperBoundValue(); MeshBatchIndex++)
+				if (MeshBatchAndRelevance.PrimitiveSceneProxy == PrimitiveSceneProxy)
 				{
-					const FMeshBatchAndRelevance& MeshBatchAndRelevance = View.DynamicMeshElements[MeshBatchIndex];
-
-					checkSlow(MeshBatchAndRelevance.PrimitiveSceneProxy == PrimitiveSceneProxy);
-
 					const FMeshBatch& MeshBatch = *MeshBatchAndRelevance.Mesh;
 					bDirty |= TDistortionMeshDrawingPolicyFactory<FDistortMeshAccumulatePolicy>::DrawDynamicMesh(RHICmdList, View, Context, MeshBatch, false, false, MeshBatchAndRelevance.PrimitiveSceneProxy, MeshBatch.BatchHitProxyId);
 				}
@@ -788,9 +775,9 @@ bool FDistortionPrimSet::DrawAccumulatedOffsets(FRHICommandListImmediate& RHICmd
 			if( ViewRelevance.bStaticRelevance )
 			{
 				// Render static meshes from static scene prim
-				for( int32 StaticMeshIdx = 0; StaticMeshIdx < PrimitiveSceneInfo->StaticMeshes.Num(); StaticMeshIdx++ )
+				for( int32 StaticMeshIdx=0; StaticMeshIdx < PrimitiveSceneProxy->GetPrimitiveSceneInfo()->StaticMeshes.Num(); StaticMeshIdx++ )
 				{
-					FStaticMesh& StaticMesh = PrimitiveSceneInfo->StaticMeshes[StaticMeshIdx];
+					FStaticMesh& StaticMesh = PrimitiveSceneProxy->GetPrimitiveSceneInfo()->StaticMeshes[StaticMeshIdx];
 					if( View.StaticMeshVisibilityMap[StaticMesh.Id]
 						// Only render static mesh elements using translucent materials
 						&& StaticMesh.IsTranslucent(View.GetFeatureLevel()) )
@@ -800,7 +787,7 @@ bool FDistortionPrimSet::DrawAccumulatedOffsets(FRHICommandListImmediate& RHICmd
 							&View,
 							bInitializeOffsets,
 							StaticMesh,
-							StaticMesh.bRequiresPerElementVisibility ? View.StaticMeshBatchVisibility[StaticMesh.Id] : ((1ull << StaticMesh.Elements.Num()) - 1),
+							StaticMesh.Elements.Num() == 1 ? 1 : View.StaticMeshBatchVisibility[StaticMesh.Id],
 							false,
 							PrimitiveSceneProxy,
 							StaticMesh.BatchHitProxyId
@@ -832,9 +819,7 @@ int32 FSceneRenderer::GetRefractionQuality(const FSceneViewFamily& ViewFamily)
  */
 void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 {
-	QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderer_RenderDistortion);
 	SCOPED_DRAW_EVENT(RHICmdList, Distortion);
-	SCOPED_GPU_STAT(RHICmdList, Stat_GPU_Distortion);
 
 	// do we need to render the distortion pass?
 	bool bRender=false;
@@ -861,12 +846,11 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 	// Render accumulated distortion offsets
 	if( bRender)
 	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderer_RenderDistortion_Render);
 		SCOPED_DRAW_EVENT(RHICmdList, DistortionAccum);
 
 		// Create a texture to store the resolved light attenuation values, and a render-targetable surface to hold the unresolved light attenuation values.
 		{
-			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(SceneContext.GetBufferSizeXY(), PF_B8G8R8A8, FClearValueBinding::Transparent, TexCreate_None, TexCreate_RenderTargetable, false));
+			FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::Create2DDesc(SceneContext.GetBufferSizeXY(), PF_B8G8R8A8, FClearValueBinding::None, TexCreate_None, TexCreate_RenderTargetable, false));
 			Desc.Flags |= TexCreate_FastVRAM;
 			GRenderTargetPool.FindFreeElement(RHICmdList, Desc, DistortionRT, TEXT("Distortion"));
 
@@ -880,11 +864,7 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 		// DistortionRT==0 should never happen but better we don't crash
 		if(DistortionRT)
 		{
-			FRHIRenderTargetView ColorView( DistortionRT->GetRenderTargetItem().TargetableTexture, 0, -1, ERenderTargetLoadAction::EClear, ERenderTargetStoreAction::EStore );
-			FRHIDepthRenderTargetView DepthView( SceneContext.GetSceneDepthSurface(), ERenderTargetLoadAction::ELoad, ERenderTargetStoreAction::ENoAction, FExclusiveDepthStencil::DepthRead_StencilWrite );
-			FRHISetRenderTargetsInfo Info( 1, &ColorView, DepthView );		
-
-			RHICmdList.SetRenderTargetsAndClear(Info);
+			SetRenderTarget(RHICmdList, DistortionRT->GetRenderTargetItem().TargetableTexture, SceneContext.GetSceneDepthSurface(), ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite);
 
 			for(int32 ViewIndex = 0;ViewIndex < Views.Num();ViewIndex++)
 			{
@@ -893,6 +873,9 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 				FViewInfo& View = Views[ViewIndex];
 				// viewport to match view size
 				RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
+
+				// clear offsets to 0
+				RHICmdList.Clear(true, FLinearColor(0, 0, 0, 0), false, (float)ERHIZBuffer::FarPlane, false, 0, FIntRect());
 
 				// test against depth and write stencil mask
 				RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_DepthNearOrEqual, true, CF_Always, SO_Keep, SO_Keep, SO_Replace, false, CF_Always, SO_Keep, SO_Keep, SO_Keep, StencilMaskBit, StencilMaskBit>::GetRHI(), StencilMaskBit);
@@ -906,8 +889,8 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 
 			if (bDirty)
 			{
-				// Ideally we skip the EliminateFastClear since we don't need pixels with no stencil set to be cleared
-				RHICmdList.TransitionResource( EResourceTransitionAccess::EReadable, DistortionRT->GetRenderTargetItem().TargetableTexture );
+				// resolve using the current ResolveParams 
+				RHICmdList.CopyToResolveTarget(DistortionRT->GetRenderTargetItem().TargetableTexture, DistortionRT->GetRenderTargetItem().ShaderResourceTexture, false, FResolveParams());
 				// to be able to observe results with VisualizeTexture
 				GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, DistortionRT);
 			}
@@ -916,7 +899,6 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 
 	if(bDirty)
 	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderer_RenderDistortion_Post);
 		SCOPED_DRAW_EVENT(RHICmdList, DistortionApply);
 
 		SceneContext.ResolveSceneColor(RHICmdList, FResolveRect(0, 0, ViewFamily.FamilySizeX, ViewFamily.FamilySizeY));
@@ -933,7 +915,6 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 
 		for(int32 ViewIndex = 0, Num = Views.Num(); ViewIndex < Num; ++ViewIndex)
 		{
-			QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderer_RenderDistortion_PostView1);
 			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 
 			FViewInfo& View = Views[ViewIndex];
@@ -978,7 +959,6 @@ void FSceneRenderer::RenderDistortion(FRHICommandListImmediate& RHICmdList)
 
 		for(int32 ViewIndex = 0, Num = Views.Num(); ViewIndex < Num; ++ViewIndex)
 		{
-			QUICK_SCOPE_CYCLE_COUNTER(STAT_FSceneRenderer_RenderDistortion_PostView2);
 			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 
 			FViewInfo& View = Views[ViewIndex];

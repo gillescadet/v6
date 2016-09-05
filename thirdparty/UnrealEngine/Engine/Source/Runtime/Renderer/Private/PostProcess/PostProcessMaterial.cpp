@@ -13,29 +13,6 @@
 #include "../../../Engine/Public/TileRendering.h"
 #include "SceneUtils.h"
 
-enum class EPostProcessMaterialTarget
-{
-	HighEnd,
-	Mobile
-};
-
-static bool ShouldCachePostProcessMaterial(EPostProcessMaterialTarget MaterialTarget, EShaderPlatform Platform, const FMaterial* Material)
-{
-	if (Material->GetMaterialDomain() == MD_PostProcess)
-	{
-		switch (MaterialTarget)
-		{
-		case EPostProcessMaterialTarget::HighEnd:
-			return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
-		case EPostProcessMaterialTarget::Mobile:
-			return IsMobilePlatform(Platform) && IsMobileHDR();
-		}
-	}
-
-	return false;
-}
-
-template<EPostProcessMaterialTarget MaterialTarget>
 class FPostProcessMaterialVS : public FMaterialShader
 {
 	DECLARE_SHADER_TYPE(FPostProcessMaterialVS, Material);
@@ -46,7 +23,7 @@ public:
 	  */
 	static bool ShouldCache(EShaderPlatform Platform, const FMaterial* Material)
 	{
-		return ShouldCachePostProcessMaterial(MaterialTarget, Platform, Material);
+		return (Material->GetMaterialDomain() == MD_PostProcess) && IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
 	}
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const class FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
@@ -54,13 +31,9 @@ public:
 		FMaterialShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
 
 		OutEnvironment.SetDefine(TEXT("POST_PROCESS_MATERIAL"), 1);
-
-		if (MaterialTarget == EPostProcessMaterialTarget::Mobile)
-		{
-			OutEnvironment.SetDefine(TEXT("POST_PROCESS_MATERIAL_BEFORE_TONEMAP"), (Material->GetBlendableLocation() != BL_AfterTonemapping) ? 1 : 0);
-		}
 	}
-	
+
+
 	FPostProcessMaterialVS( )	{ }
 	FPostProcessMaterialVS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
 		: FMaterialShader(Initializer)
@@ -87,16 +60,11 @@ private:
 	FPostProcessPassParameters PostprocessParameter;
 };
 
-typedef FPostProcessMaterialVS<EPostProcessMaterialTarget::HighEnd> FPostProcessMaterialVS_HighEnd;
-typedef FPostProcessMaterialVS<EPostProcessMaterialTarget::Mobile> FPostProcessMaterialVS_Mobile;
-
-IMPLEMENT_MATERIAL_SHADER_TYPE(template<>,FPostProcessMaterialVS_HighEnd,TEXT("PostProcessMaterialShaders"),TEXT("MainVS"),SF_Vertex);
-IMPLEMENT_MATERIAL_SHADER_TYPE(template<>,FPostProcessMaterialVS_Mobile,TEXT("PostProcessMaterialShaders"),TEXT("MainVS_ES2"),SF_Vertex);
+IMPLEMENT_MATERIAL_SHADER_TYPE(,FPostProcessMaterialVS,TEXT("PostProcessMaterialShaders"),TEXT("MainVS"),SF_Vertex);
 
 /**
  * A pixel shader for rendering a post process material
  */
-template<EPostProcessMaterialTarget MaterialTarget>
 class FPostProcessMaterialPS : public FMaterialShader
 {
 	DECLARE_SHADER_TYPE(FPostProcessMaterialPS,Material);
@@ -107,7 +75,7 @@ public:
 	  */
 	static bool ShouldCache(EShaderPlatform Platform, const FMaterial* Material)
 	{
-		return ShouldCachePostProcessMaterial(MaterialTarget, Platform, Material);
+		return (Material->GetMaterialDomain() == MD_PostProcess) && IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4);
 	}
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const class FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
@@ -115,11 +83,6 @@ public:
 		FMaterialShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
 
 		OutEnvironment.SetDefine(TEXT("POST_PROCESS_MATERIAL"), 1);
-		
-		if (MaterialTarget == EPostProcessMaterialTarget::Mobile)
-		{
-			OutEnvironment.SetDefine(TEXT("POST_PROCESS_MATERIAL_BEFORE_TONEMAP"), (Material->GetBlendableLocation() != BL_AfterTonemapping) ? 1 : 0);
-		}
 	}
 
 	FPostProcessMaterialPS() {}
@@ -148,11 +111,7 @@ private:
 	FPostProcessPassParameters PostprocessParameter;
 };
 
-typedef FPostProcessMaterialPS<EPostProcessMaterialTarget::HighEnd> FFPostProcessMaterialPS_HighEnd;
-typedef FPostProcessMaterialPS<EPostProcessMaterialTarget::Mobile> FPostProcessMaterialPS_Mobile;
-
-IMPLEMENT_MATERIAL_SHADER_TYPE(template<>,FFPostProcessMaterialPS_HighEnd,TEXT("PostProcessMaterialShaders"),TEXT("MainPS"),SF_Pixel);
-IMPLEMENT_MATERIAL_SHADER_TYPE(template<>,FPostProcessMaterialPS_Mobile,TEXT("PostProcessMaterialShaders"),TEXT("MainPS_ES2"),SF_Pixel);
+IMPLEMENT_MATERIAL_SHADER_TYPE(,FPostProcessMaterialPS,TEXT("PostProcessMaterialShaders"),TEXT("MainPS"),SF_Pixel);
 
 FRCPassPostProcessMaterial::FRCPassPostProcessMaterial(UMaterialInterface* InMaterialInterface, ERHIFeatureLevel::Type InFeatureLevel, EPixelFormat OutputFormatIN)
 : MaterialInterface(InMaterialInterface), OutputFormat(OutputFormatIN)
@@ -198,9 +157,7 @@ void FRCPassPostProcessMaterial::Process(FRenderingCompositePassContext& Context
 
 	check(Proxy);
 
-	ERHIFeatureLevel::Type FeatureLevel = Context.View.GetFeatureLevel();
-	
-	const FMaterial* Material = Proxy->GetMaterial(FeatureLevel);
+	const FMaterial* Material = Proxy->GetMaterial(Context.View.GetFeatureLevel());
 	
 	check(Material);
 
@@ -244,25 +201,13 @@ void FRCPassPostProcessMaterial::Process(FRenderingCompositePassContext& Context
 	Context.RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_Always>::GetRHI());
 
 	const FMaterialShaderMap* MaterialShaderMap = Material->GetRenderingThreadShaderMap();
-	FShader* VertexShader = nullptr;
-	if (FeatureLevel <= ERHIFeatureLevel::ES3_1)
-	{
-		FPostProcessMaterialPS_Mobile* PixelShader_Mobile = MaterialShaderMap->GetShader<FPostProcessMaterialPS_Mobile>();
-		FPostProcessMaterialVS_Mobile* VertexShader_Mobile = MaterialShaderMap->GetShader<FPostProcessMaterialVS_Mobile>();
-		Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GFilterVertexDeclaration.VertexDeclarationRHI, VertexShader_Mobile->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), PixelShader_Mobile->GetPixelShader(), FGeometryShaderRHIRef()));
-		VertexShader_Mobile->SetParameters(Context.RHICmdList, Context);
-		PixelShader_Mobile->SetParameters(Context.RHICmdList, Context, MaterialInterface->GetRenderProxy(false));
-		VertexShader = VertexShader_Mobile;
-	}
-	else
-	{
-		FFPostProcessMaterialPS_HighEnd* PixelShader_HighEnd = MaterialShaderMap->GetShader<FFPostProcessMaterialPS_HighEnd>();
-		FPostProcessMaterialVS_HighEnd* VertexShader_HighEnd = MaterialShaderMap->GetShader<FPostProcessMaterialVS_HighEnd>();
-		Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GPostProcessMaterialVertexDeclaration.VertexDeclarationRHI, VertexShader_HighEnd->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), PixelShader_HighEnd->GetPixelShader(), FGeometryShaderRHIRef()));
-		VertexShader_HighEnd->SetParameters(Context.RHICmdList, Context);
-		PixelShader_HighEnd->SetParameters(Context.RHICmdList, Context, MaterialInterface->GetRenderProxy(false));
-		VertexShader = VertexShader_HighEnd;
-	}
+	FPostProcessMaterialPS* PixelShader = MaterialShaderMap->GetShader<FPostProcessMaterialPS>();
+	FPostProcessMaterialVS* VertexShader = MaterialShaderMap->GetShader<FPostProcessMaterialVS>();
+
+	Context.RHICmdList.SetLocalBoundShaderState(Context.RHICmdList.BuildLocalBoundShaderState(GPostProcessMaterialVertexDeclaration.VertexDeclarationRHI, VertexShader->GetVertexShader(), FHullShaderRHIRef(), FDomainShaderRHIRef(), PixelShader->GetPixelShader(), FGeometryShaderRHIRef()));
+
+	VertexShader->SetParameters(Context.RHICmdList, Context);
+	PixelShader->SetParameters(Context.RHICmdList, Context, MaterialInterface->GetRenderProxy(false));
 
 	DrawPostProcessPass(
 		Context.RHICmdList,

@@ -4,12 +4,12 @@
 
 #include "AnimBlueprint.h"
 #include "AnimBlueprintGeneratedClass.h"
+#include "AnimInstance.h"
 #include "AnimationRuntime.h"
 #include "BonePose.h"
 #include "AnimNodeBase.generated.h"
 
 struct FAnimInstanceProxy;
-class UAnimInstance;
 
 /** Base class for update/evaluate contexts */
 struct FAnimationBaseContext
@@ -88,15 +88,12 @@ struct FAnimationUpdateContext : public FAnimationBaseContext
 {
 private:
 	float CurrentWeight;
-	float RootMotionWeightModifier;
-
 	float DeltaTime;
 public:
 	DEPRECATED(4.11, "Please use constructor that uses an FAnimInstanceProxy*")
 	FAnimationUpdateContext(UAnimInstance* InAnimInstance, float InDeltaTime)
 		: FAnimationBaseContext(InAnimInstance)
 		, CurrentWeight(1.0f)
-		, RootMotionWeightModifier(1.f)
 		, DeltaTime(InDeltaTime)
 	{
 	}
@@ -104,7 +101,6 @@ public:
 	FAnimationUpdateContext(FAnimInstanceProxy* InAnimInstanceProxy, float InDeltaTime)
 		: FAnimationBaseContext(InAnimInstanceProxy)
 		, CurrentWeight(1.0f)
-		, RootMotionWeightModifier(1.f)
 		, DeltaTime(InDeltaTime)
 	{
 	}
@@ -113,16 +109,6 @@ public:
 	{
 		FAnimationUpdateContext Result(AnimInstanceProxy, DeltaTime);
 		Result.CurrentWeight = CurrentWeight * Multiplier;
-		Result.RootMotionWeightModifier = RootMotionWeightModifier;
-		return Result;
-	}
-
-	FAnimationUpdateContext FractionalWeightAndRootMotion(float WeightMultiplier, float RootMotionMultiplier) const
-	{
-		FAnimationUpdateContext Result(AnimInstanceProxy, DeltaTime);
-		Result.CurrentWeight = CurrentWeight * WeightMultiplier;
-		Result.RootMotionWeightModifier = RootMotionMultiplier * RootMotionMultiplier;
-
 		return Result;
 	}
 
@@ -130,24 +116,11 @@ public:
 	{
 		FAnimationUpdateContext Result(AnimInstanceProxy, DeltaTime * TimeMultiplier);
 		Result.CurrentWeight = CurrentWeight * WeightMultiplier;
-		Result.RootMotionWeightModifier = RootMotionWeightModifier;
-		return Result;
-	}
-
-	FAnimationUpdateContext FractionalWeightTimeAndRootMotion(float WeightMultiplier, float TimeMultiplier, float RootMotionMultiplier) const
-	{
-		FAnimationUpdateContext Result(AnimInstanceProxy, DeltaTime * TimeMultiplier);
-		Result.CurrentWeight = CurrentWeight * WeightMultiplier;
-		Result.RootMotionWeightModifier = RootMotionMultiplier * RootMotionMultiplier;
-
 		return Result;
 	}
 
 	// Returns the final blend weight contribution for this stage
 	float GetFinalBlendWeight() const { return CurrentWeight; }
-
-	// Returns the weight modifier for root motion (as root motion weight wont always match blend weight)
-	float GetRootMotionWeightModifier() const { return RootMotionWeightModifier; }
 
 	// Returns the delta time for this update, in seconds
 	float GetDeltaTime() const { return DeltaTime; }
@@ -158,7 +131,6 @@ public:
 struct FPoseContext : public FAnimationBaseContext
 {
 public:
-	/* These Pose/Curve is stack allocator. You should not use it outside of stack. */
 	FCompactPose	Pose;
 	FBlendedCurve	Curve;
 
@@ -191,9 +163,9 @@ public:
 		Pose.ResetToRefPose();	
 	}
 
-	void ResetToAdditiveIdentity()
+	void ResetToIdentity()
 	{
-		Pose.ResetToAdditiveIdentity();
+		Pose.ResetToIdentity();
 	}
 
 	bool ContainsNaN() const
@@ -254,21 +226,13 @@ public:
 	ENGINE_API bool IsNormalized() const;
 };
 
-/**
- * We pass array items by reference, which is scary as TArray can move items around in memory.
- * So we make sure to allocate enough here so it doesn't happen and crash on us.
- */
-#define ANIM_NODE_DEBUG_MAX_CHAIN 50
-#define ANIM_NODE_DEBUG_MAX_CHILDREN 12
-#define ANIM_NODE_DEBUG_MAX_CACHEPOSE 20
-
 struct ENGINE_API FNodeDebugData
 {
 private:
 	struct DebugItem
 	{
 		DebugItem(FString Data, bool bInPoseSource) : DebugData(Data), bPoseSource(bInPoseSource) {}
-
+		
 		/** This node item's debug text to display. */
 		FString DebugData;
 
@@ -288,12 +252,6 @@ private:
 	/** Additional info provided, used in GetNodeName. States machines can provide the state names for the Root Nodes to use for example. */
 	FString NodeDescription;
 
-	/** Pointer to RootNode */
-	FNodeDebugData* RootNodePtr;
-
-	/** SaveCachePose Nodes */
-	TArray<FNodeDebugData> SaveCachePoseNodes;
-
 public:
 	struct FFlattenedDebugData
 	{
@@ -304,25 +262,19 @@ public:
 		int32 ChainID;
 		bool bPoseSource;
 
-		bool IsOnActiveBranch() { return FAnimWeight::IsRelevant(AbsoluteWeight); }
+		bool IsOnActiveBranch() { return AbsoluteWeight > ZERO_ANIMWEIGHT_THRESH; }
 	};
 
-	FNodeDebugData(const class UAnimInstance* InAnimInstance) 
-		: AbsoluteWeight(1.f), RootNodePtr(this), AnimInstance(InAnimInstance)
-	{
-		SaveCachePoseNodes.Reserve(ANIM_NODE_DEBUG_MAX_CACHEPOSE);
-	}
-	
-	FNodeDebugData(const class UAnimInstance* InAnimInstance, const float AbsWeight, FString InNodeDescription, FNodeDebugData* InRootNodePtr)
+	FNodeDebugData(const class UAnimInstance* InAnimInstance) : AbsoluteWeight(1.f), AnimInstance(InAnimInstance) {}
+	FNodeDebugData(const class UAnimInstance* InAnimInstance, const float AbsWeight) : AbsoluteWeight(AbsWeight), AnimInstance(InAnimInstance) {}
+	FNodeDebugData(const class UAnimInstance* InAnimInstance, const float AbsWeight, FString InNodeDescription) 
 		: AbsoluteWeight(AbsWeight)
 		, NodeDescription(InNodeDescription)
-		, RootNodePtr(InRootNodePtr)
 		, AnimInstance(InAnimInstance) 
 	{}
 
 	void AddDebugItem(FString DebugData, bool bPoseSource = false);
 	FNodeDebugData& BranchFlow(float BranchWeight, FString InNodeDescription = FString());
-	FNodeDebugData* GetCachePoseDebugData(float GlobalWeight);
 
 	template<class Type>
 	FString GetNodeName(Type* Node)
@@ -435,7 +387,7 @@ public:
 #if ENABLE_ANIMNODE_POSE_DEBUG
 private:
 	// forwarded pose data from the wired node which current node's skeletal control is not applied yet
-	FCompactHeapPose CurrentPose;
+	FCompactPose CurrentPose;
 #endif //#if ENABLE_ANIMNODE_POSE_DEBUG
 };
 
@@ -471,18 +423,14 @@ struct FExposedValueCopyRecord
 		, DestProperty(nullptr)
 		, DestArrayIndex(0)
 		, Size(0)
-		, bInstanceIsTarget(false)
 		, PostCopyOperation(EPostCopyOperation::None)
-		, CachedBoolSourceProperty(nullptr)
-		, CachedBoolDestProperty(nullptr)
-		, CachedSourceContainer(nullptr)
-		, CachedDestContainer(nullptr)
 		, Source(nullptr)
 		, Dest(nullptr)
 	{}
 
 	void PostSerialize(const FArchive& Ar);
 
+	// HACK for hotfix - re-used for boolean property copies
 	UPROPERTY()
 	UProperty* SourceProperty_DEPRECATED;
 
@@ -504,31 +452,13 @@ struct FExposedValueCopyRecord
 	UPROPERTY()
 	int32 Size;
 
-	// Whether or not the anim instance object is the target for the copy instead of a node.
-	UPROPERTY()
-	bool bInstanceIsTarget;
-
 	UPROPERTY()
 	EPostCopyOperation PostCopyOperation;
 
-	// cached source property for performing boolean operations
-	UPROPERTY(Transient)
-	UBoolProperty* CachedBoolSourceProperty;
-
-	// cached dest property for performing boolean operations
-	UPROPERTY(Transient)
-	UBoolProperty* CachedBoolDestProperty;
-
-	// cached source container for use with boolean operations
-	void* CachedSourceContainer;
-
-	// cached dest container for use with boolean operations
-	void* CachedDestContainer;
-
-	// Cached source copy ptr
+	// Cached source copy ptr - HACK for hotfix - also cached container ptr for bools
 	void* Source;
 
-	// Cached dest copy ptr
+	// Cached dest copy ptr - HACK for hotfix - also cached container ptr for bools
 	void* Dest;
 };
 
@@ -618,15 +548,6 @@ struct ENGINE_API FAnimNode_Base
 
 	/** Override this to perform game-thread work prior to non-game thread Update() being called */
 	virtual void PreUpdate(const UAnimInstance* InAnimInstance) {}
-
-	/**
-	 * For nodes that implement some kind of simulation, return true here so ResetDynamics() gets called
-	 * when things like teleports, time skips etc. occur that might require special handling
-	 */
-	virtual bool NeedsDynamicReset() const { return false; }
-
-	/** Override this to perform game-thread work prior to non-game thread Update() being called */
-	virtual void ResetDynamics() {}
 	// End of interface to implement
 
 	virtual ~FAnimNode_Base() {}
@@ -634,9 +555,4 @@ struct ENGINE_API FAnimNode_Base
 protected:
 	/** return true if enabled, otherwise, return false. This is utility function that can be used per node level */
 	bool IsLODEnabled(FAnimInstanceProxy* AnimInstanceProxy, int32 InLODThreshold);
-
-	/** Called once, from game thread as the parent anim instance is created */
-	virtual void RootInitialize(const FAnimInstanceProxy* InProxy) {}
-
-	friend struct FAnimInstanceProxy;
 };

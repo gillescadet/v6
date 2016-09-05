@@ -219,24 +219,6 @@ enum EConstructTextureFlags
 RENDERCORE_API FIntPoint CalcMipMapExtent( uint32 TextureSizeX, uint32 TextureSizeY, EPixelFormat Format, uint32 MipIndex );
 
 /**
- * Calculates the width of a mip, in blocks.
- *
- * @param TextureSizeX		Number of horizontal texels (for the base mip-level)
- * @param Format			Texture format
- * @param MipIndex			The index of the mip-map to compute the size of.
- */
-RENDERCORE_API SIZE_T CalcTextureMipWidthInBlocks(uint32 TextureSizeX, EPixelFormat Format, uint32 MipIndex);
-
-/**
- * Calculates the height of a mip, in blocks.
- *
- * @param TextureSizeY		Number of vertical texels (for the base mip-level)
- * @param Format			Texture format
- * @param MipIndex			The index of the mip-map to compute the size of.
- */
-RENDERCORE_API SIZE_T CalcTextureMipHeightInBlocks(uint32 TextureSizeY, EPixelFormat Format, uint32 MipIndex);
-
-/**
  * Calculates the amount of memory used for a single mip-map of a texture.
  *
  * @param TextureSizeX		Number of horizontal texels (for the base mip-level)
@@ -309,16 +291,7 @@ RENDERCORE_API FVertexDeclarationRHIRef& GetVertexDeclarationFVector4();
 
 RENDERCORE_API FVertexDeclarationRHIRef& GetVertexDeclarationFVector3();
 
-RENDERCORE_API bool PlatformSupportsSimpleForwardShading(EShaderPlatform Platform);
-
-RENDERCORE_API bool IsSimpleForwardShadingEnabled(EShaderPlatform Platform);
-
-RENDERCORE_API bool IsForwardShadingEnabled(ERHIFeatureLevel::Type FeatureLevel);
-
-inline bool IsAnyForwardShadingEnabled(EShaderPlatform Platform)
-{
-	return IsForwardShadingEnabled(GetMaxSupportedFeatureLevel(Platform)) || IsSimpleForwardShadingEnabled(Platform);
-}
+RENDERCORE_API bool IsSimpleDynamicLightingEnabled();
 
 /** Unit cube vertex buffer (VertexDeclarationFVector4) */
 RENDERCORE_API FVertexBufferRHIRef& GetUnitCubeVertexBuffer();

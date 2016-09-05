@@ -44,11 +44,6 @@ struct CORE_API FIOSPlatformMisc : public FGenericPlatformMisc
 	static void GetEnvironmentVariable(const TCHAR* VariableName, TCHAR* Result, int32 ResultLength);
 	static void* GetHardwareWindow();
 
-	static bool AllowThreadHeartBeat()
-	{
-		return false;
-	}
-
 #if !UE_BUILD_SHIPPING
 	static bool IsDebuggerPresent()
 	{
@@ -127,8 +122,6 @@ struct CORE_API FIOSPlatformMisc : public FGenericPlatformMisc
 	static bool DeleteStoredValue(const FString& InStoreId, const FString& InSectionName, const FString& InKeyName);
 	static TArray<uint8> GetSystemFontBytes();
 	static TArray<FString> GetPreferredLanguages();
-	static uint32 GetCharKeyMap(uint32* KeyCodes, FString* KeyNames, uint32 MaxMappings);
-	static uint32 GetKeyMap( uint32* KeyCodes, FString* KeyNames, uint32 MaxMappings );
 	static FString GetLocalCurrencyCode();
 	static FString GetLocalCurrencySymbol();
 	static void GetValidTargetPlatforms(class TArray<class FString>& TargetPlatformNames);
@@ -172,9 +165,6 @@ struct CORE_API FIOSPlatformMisc : public FGenericPlatformMisc
 		IOS_IPhone6SPlus,
 		IOS_IPadPro,
 		IOS_AppleTV,
-		IOS_IPhoneSE,
-		IOS_IPadPro_129,
-		IOS_IPadPro_97,
 		IOS_Unknown,
 	};
 
@@ -195,7 +185,7 @@ struct CORE_API FIOSPlatformMisc : public FGenericPlatformMisc
 			L"IPad4",
 			L"IPadMini",
 			L"IPadMini2",
-			L"IPadMini4",
+			L"IPadMini5",
 			L"IPadAir",
 			L"IPadAir2",
 			L"IPhone6",
@@ -204,9 +194,6 @@ struct CORE_API FIOSPlatformMisc : public FGenericPlatformMisc
 			L"IPhone6SPlus",
 			L"IPadPro",
 			L"AppleTV",
-			L"IPhoneSE",
-			L"IPadPro_12.9",
-			L"IPadPro_9.7",
 			L"Unknown",
 		};
 		static_assert((sizeof(IOSDeviceNames) / sizeof(IOSDeviceNames[0])) == ((int32)IOS_Unknown + 1), "Mismatched IOSDeviceNames and EIOSDevice.");

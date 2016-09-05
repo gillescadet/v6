@@ -333,7 +333,7 @@ void FRawStatStackNode::DebugPrint(TCHAR const* Filter, int32 InMaxDepth, int32 
 			UE_LOG(LogStats, Log, TEXT("%s%s"), FCString::Spc(Depth*2), *TmpDebugStr);
 		}
 
-		static int64 MinPrint = -1;
+		static int64 MinPrint = int64( .004f / FPlatformTime::ToMilliseconds( 1 ) + 0.5f );
 		if (Children.Num())
 		{
 			TArray<FRawStatStackNode*> ChildArray;
@@ -365,60 +365,6 @@ void FRawStatStackNode::DebugPrint(TCHAR const* Filter, int32 InMaxDepth, int32 
 	}
 }
 
-void FRawStatStackNode::DebugPrintLeafFilter(TCHAR const* Filter) const
-{
-	TArray<FString> Stack;
-	DebugPrintLeafFilterInner(Filter, 0, Stack);
-}
-
-void FRawStatStackNode::DebugPrintLeafFilterInner(TCHAR const* Filter, int32 Depth, TArray<FString>& Stack) const
-{
-	{
-		FString TmpDebugStr = FStatsUtils::DebugPrint(Meta);
-		Stack.Add(TmpDebugStr);
-	}
-	if (!Filter || !*Filter)
-	{
-		int32 Offset = 1 + Depth - Stack.Num();
-		check(Offset >= 0);
-		for (int32 Index = 0; Index < Stack.Num(); Index++)
-		{
-			UE_LOG(LogStats, Log, TEXT("%s%s"), FCString::Spc((Index + Offset) * 2), *Stack[Index]);
-		}
-		Stack.Reset();
-	}
-	else
-	{
-		static int64 MinPrint = -1;
-		if (Children.Num())
-		{
-			TArray<FRawStatStackNode*> ChildArray;
-			Children.GenerateValueArray(ChildArray);
-			ChildArray.Sort(FStatDurationComparer<FRawStatStackNode>());
-			for (int32 Index = 0; Index < ChildArray.Num(); Index++)
-			{
-				if (ChildArray[Index]->Meta.GetValue_Duration() < MinPrint)
-				{
-					break;
-				}
-				if (ChildArray[Index]->Meta.NameAndInfo.GetRawName().ToString().Contains(Filter))
-				{
-					ChildArray[Index]->DebugPrintLeafFilterInner(nullptr, Depth + 1, Stack);
-				}
-				else
-				{
-					ChildArray[Index]->DebugPrintLeafFilterInner(Filter, Depth + 1, Stack);
-				}
-			}
-		}
-		if (Stack.Num())
-		{
-			Stack.Pop();
-		}
-	}
-}
-
-
 void FRawStatStackNode::Encode(TArray<FStatMessage>& OutStats) const
 {
 	FStatMessage* NewStat = new (OutStats) FStatMessage(Meta);
@@ -439,9 +385,9 @@ void FRawStatStackNode::Encode(TArray<FStatMessage>& OutStats) const
 	}
 }
 
-TLockFreeFixedSizeAllocator<sizeof(FRawStatStackNode), PLATFORM_CACHE_LINE_SIZE>& GetRawStatStackNodeAllocator()
+TLockFreeFixedSizeAllocator<sizeof(FRawStatStackNode)>& GetRawStatStackNodeAllocator()
 {
-	static TLockFreeFixedSizeAllocator<sizeof(FRawStatStackNode), PLATFORM_CACHE_LINE_SIZE> TheAllocator;
+	static TLockFreeFixedSizeAllocator<sizeof(FRawStatStackNode)> TheAllocator;
 	return TheAllocator;
 }
 
@@ -460,9 +406,9 @@ void FRawStatStackNode::operator delete(void *RawMemory)
 	FComplexRawStatStackNode
 -----------------------------------------------------------------------------*/
 
-TLockFreeFixedSizeAllocator<sizeof(FComplexRawStatStackNode), PLATFORM_CACHE_LINE_SIZE>& GetRawStatStackNodeAllocatorEx()
+TLockFreeFixedSizeAllocator<sizeof(FComplexRawStatStackNode)>& GetRawStatStackNodeAllocatorEx()
 {	
-	static TLockFreeFixedSizeAllocator<sizeof(FComplexRawStatStackNode), PLATFORM_CACHE_LINE_SIZE> TheAllocatorComplex;
+	static TLockFreeFixedSizeAllocator<sizeof(FComplexRawStatStackNode)> TheAllocatorComplex;
 	return TheAllocatorComplex;
 }
 
@@ -540,6 +486,7 @@ void FComplexRawStatStackNode::CullByCycles( int64 MinCycles )
 			// Don't accumulate if we have just one child.
 			if (NumChildren > 1)
 			{	
+				// #YRX_STATS: 2015-06-09 Accumulate over complex stats
 				delete Child;
 				It.RemoveCurrent();
 			}
@@ -627,8 +574,15 @@ FStatsThreadState::FStatsThreadState(int32 InHistoryFrames)
 	, bFindMemoryExtensiveStats(false)
 	, CurrentGameFrame(1)
 	, CurrentRenderFrame(1)
+	, MaxFrameSeen(0)
+	, MinFrameSeen(-1)
+	, bWasLoaded(false)
 {
 }
+
+//FStatsThreadState::FStatsThreadState(FString const& Filename)
+//void FStatsThreadState::AddMessages(TArray<FStatMessage>& InMessages)
+//@see moved to StatsFile.cpp
 
 FStatsThreadState& FStatsThreadState::GetLocalState()
 {
@@ -638,6 +592,14 @@ FStatsThreadState& FStatsThreadState::GetLocalState()
 
 int64 FStatsThreadState::GetOldestValidFrame() const
 {
+	if (bWasLoaded)
+	{
+		if (MaxFrameSeen < 0 || MinFrameSeen < 0)
+		{
+			return -1;
+		}
+		return MinFrameSeen;
+	}
 	int64 Result = -1;
 	for (auto It = GoodFrames.CreateConstIterator(); It; ++It)
 	{
@@ -651,6 +613,18 @@ int64 FStatsThreadState::GetOldestValidFrame() const
 
 int64 FStatsThreadState::GetLatestValidFrame() const
 {
+	if (bWasLoaded)
+	{
+		if (MaxFrameSeen < 0 || MinFrameSeen < 0)
+		{
+			return -1;
+		}
+		if (MaxFrameSeen > MinFrameSeen)
+		{
+			return MaxFrameSeen - 1;
+		}
+		return MaxFrameSeen;
+	}
 	int64 Result = -1;
 	for (auto It = GoodFrames.CreateConstIterator(); It; ++It)
 	{
@@ -662,44 +636,8 @@ int64 FStatsThreadState::GetLatestValidFrame() const
 	return Result;
 }
 
-static TAutoConsoleVariable<int32> CVarSpewStatsSpam(
-	TEXT("stats.SpewSpam"),
-	0,
-	TEXT("If set to 1, periodically prints a profile of messages coming into the stats system. Messages should be minimized to cut down on overhead.")
-	);
-
-
 void FStatsThreadState::ScanForAdvance(const FStatMessagesArray& Data)
 {
-	if (CVarSpewStatsSpam.GetValueOnAnyThread())
-	{
-		static const int32 FramesPerSpew = 300;
-		static TMap<FName, int32> Profile;
-		static uint64 LastFrame = GFrameCounter;
-		for (int32 Index = 0; Index < Data.Num(); Index++)
-		{
-			FStatMessage const& Item = Data[Index];
-			FName ItemName = Item.NameAndInfo.GetRawName();
-			Profile.FindOrAdd(ItemName)++;
-		}
-		if (GFrameCounter > LastFrame + FramesPerSpew)
-		{
-			LastFrame = GFrameCounter;
-			Profile.ValueSort(TGreater<int32>());
-			UE_LOG(LogStats, Log, TEXT("---- stats spam profile -------------"));
-			for (auto Pair : Profile)
-			{
-				float PerFrame = float(Pair.Value) / float(FramesPerSpew);
-
-				if (PerFrame < 50.0f)
-				{
-					break;
-				}
-				UE_LOG(LogStats, Log, TEXT("       %6.0f    %s"), PerFrame, *Pair.Key.ToString());
-			}
-			Profile.Reset();
-		}
-	}
 	for (int32 Index = 0; Index < Data.Num(); Index++)
 	{
 		FStatMessage const& Item = Data[Index];
@@ -813,6 +751,7 @@ void FStatsThreadState::ToggleFindMemoryExtensiveStats()
 
 void FStatsThreadState::ProcessNonFrameStats(FStatMessagesArray& Data, TSet<FName>* NonFrameStatsFound)
 {
+	check(!bWasLoaded);
 	for (int32 Index = 0; Index < Data.Num() ; Index++)
 	{
 		FStatMessage& Item = Data[Index];
@@ -896,6 +835,8 @@ void FStatsThreadState::AddToHistoryAndEmpty(FStatPacketArray& NewData)
 	TArray<int64> Frames;
 	History.GenerateKeyArray(Frames);
 	Frames.Sort();
+
+	check(!bWasLoaded);
 
 	int64 LatestFinishedFrame = FMath::Min<int64>(CurrentGameFrame, CurrentRenderFrame) - 1;
 

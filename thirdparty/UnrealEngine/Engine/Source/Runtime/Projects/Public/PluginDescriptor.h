@@ -3,7 +3,6 @@
 #pragma once
 
 #include "ModuleDescriptor.h"
-#include "CustomBuildSteps.h"
 
 /**
  * Version numbers for plugin descriptors.
@@ -80,15 +79,6 @@ struct PROJECTS_API FPluginDescriptor
 	/** Signifies that the plugin was installed on top of the engine */
 	bool bInstalled;
 
-	/** For plugins that are under a platform folder (eg. /PS4/), determines whether compiling the plugin requires the build platform and/or SDK to be available */
-	bool bRequiresBuildPlatform;
-
-	/** Pre-build steps for each host platform */
-	FCustomBuildSteps PreBuildSteps;
-
-	/** Pre-build steps for each host platform */
-	FCustomBuildSteps PostBuildSteps;
-
 	/** Constructor. */
 	FPluginDescriptor();
 
@@ -115,9 +105,6 @@ struct PROJECTS_API FPluginReferenceDescriptor
 
 	/** Whether it should be enabled by default */
 	bool bEnabled;
-
-	/** Whether this plugin is optional, and the game should silently ignore it not being present */
-	bool bOptional;
 	
 	/** Description of the plugin for users that do not have it installed. */
 	FString Description;
@@ -130,21 +117,12 @@ struct PROJECTS_API FPluginReferenceDescriptor
 
 	/** If enabled, list of platforms for which the plugin should be disabled. */
 	TArray<FString> BlacklistPlatforms;
- 
-	/** If enabled, list of targets for which the plugin should be enabled (or all targets if blank). */
-	TArray<FString> WhitelistTargets;
-
-	/** If enabled, list of targets for which the plugin should be disabled. */
-	TArray<FString> BlacklistTargets;
 
 	/** Constructor */
 	FPluginReferenceDescriptor(const FString& InName = TEXT(""), bool bInEnabled = false, const FString& InMarketplaceURL = TEXT(""));
 
 	/** Determines whether the plugin is enabled for the given platform */
 	bool IsEnabledForPlatform(const FString& Platform) const;
-
-	/** Determines whether the plugin is enabled for the given target */
-	bool IsEnabledForTarget(const FString& Target) const;
 
 	/** Reads the descriptor from the given JSON object */
 	bool Read(const FJsonObject& Object, FText& OutFailReason);

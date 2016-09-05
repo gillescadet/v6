@@ -8,7 +8,6 @@
 
 #include "Engine/EngineTypes.h"
 #include "Engine/Font.h"
-#include "ShapedTextFwd.h"
 #include "SceneTypes.h"
 
 class FCanvas;
@@ -291,13 +290,24 @@ public:
 	FVector2D   CornerSize;
 };
 
-/* Base item used for drawing text */
-class ENGINE_API FCanvasTextItemBase : public FCanvasItem
+/* Text item with misc optional items such as shadow, centering etc. */
+class ENGINE_API FCanvasTextItem : public FCanvasItem
 {
 public:
-	FCanvasTextItemBase( const FVector2D& InPosition, const FLinearColor& InColor )
+	/** 	 
+	 * Text item
+	 *
+	 * @param	InPosition		Draw position
+	 * @param	InText			String to draw
+	 * @param	InFont			Font to draw with
+	 */
+	FCanvasTextItem( const FVector2D& InPosition, const FText& InText, const UFont* InFont, const FLinearColor& InColor )
 		: FCanvasItem( InPosition )
+		, Text( InText )
+		, Font( InFont )
+		, SlateFontInfo()
 		, HorizSpacingAdjust( 0.0f )
+	  	, ForcedViewportHeight( nullptr )
 		, Depth( 1.0f )
 		, ShadowColor( FLinearColor::Black )
 		, ShadowOffset( FVector2D::ZeroVector )
@@ -312,8 +322,38 @@ public:
 		SetColor( InColor );
 		Scale.Set( 1.0f, 1.0f );
 		BlendMode = SE_BLEND_Translucent;
-	}
+	};
 
+	/** 	 
+	 * Text item
+	 *
+	 * @param	InPosition		Draw position
+	 * @param	InText			String to draw
+	 * @param	InFontInfo		Font info to draw with
+	 */
+	FCanvasTextItem( const FVector2D& InPosition, const FText& InText, const FSlateFontInfo& InFontInfo, const FLinearColor& InColor )
+		: FCanvasItem( InPosition )
+		, Text( InText )
+		, Font( Cast<const UFont>(InFontInfo.FontObject) )
+		, SlateFontInfo( InFontInfo )
+		, HorizSpacingAdjust( 0.0f )
+	  	, ForcedViewportHeight( nullptr )
+		, Depth( 1.0f )
+		, ShadowColor( FLinearColor::Black )
+		, ShadowOffset( FVector2D::ZeroVector )
+		, DrawnSize( FVector2D::ZeroVector )
+		, bCentreX( false )
+		, bCentreY( false )
+		, bOutlined( false )
+		, OutlineColor( FLinearColor::Black )
+		, bDontCorrectStereoscopic( true )
+		, TileItem( InPosition, FVector2D::ZeroVector, InColor )
+	{
+		SetColor( InColor );
+		Scale.Set( 1.0f, 1.0f );
+		BlendMode = SE_BLEND_TranslucentAlphaOnly;
+	};
+		
 	/** 
 	 * Set the shadow offset and color. 
 	 *
@@ -346,8 +386,20 @@ public:
 	/* Expose the functions defined in the base class. */
 	using FCanvasItem::Draw;
 
+	/* The text to draw. */
+	FText Text;
+	
+	/* Font to draw text with. */
+	const UFont* Font;
+
+	/** Font info to draw the text with. */
+	TOptional<FSlateFontInfo> SlateFontInfo;
+
 	/* Horizontal spacing adjustment. */
 	float HorizSpacingAdjust;
+	
+	/* Override viewport height. */
+	float* ForcedViewportHeight;
 
 	/* Depth sort key. */
 	float Depth;
@@ -386,27 +438,17 @@ protected:
 	/* Background tile used to fixup 3d text issues. */
 	FCanvasTileItem	TileItem;
 
-	/**
-	 * Does this text item have valid text to draw?
-	 */
-	virtual bool HasValidText() const = 0;
-
-	/**
-	 * Get the blend mode we should use to draw this text
-	 */
-	virtual ESimpleElementBlendMode GetTextBlendMode( const bool bHasShadow ) const = 0;
-
-	/**
-	 * Get the measured size of the text to draw
-	 */
-	virtual FVector2D GetTextSize() const = 0;
+	/** Get the type of font cache the UFont is using */
+	EFontCacheType GetFontCacheType() const;
 
 	/** 
 	 * Internal string draw
 	 *
 	 * In a method to make it simpler to do effects like shadow, outline
 	 */
-	virtual void DrawStringInternal( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor ) = 0;
+	void DrawStringInternal( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor );
+	void DrawStringInternal_OfflineCache( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor );
+	void DrawStringInternal_RuntimeCache( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor );
 
 	/** 
 	 * These are used by the DrawStringInternal function. 
@@ -415,100 +457,7 @@ protected:
 	FBatchedElements* BatchedElements;
 };
 
-/* Text item with misc optional items such as shadow, centering etc. */
-class ENGINE_API FCanvasTextItem : public FCanvasTextItemBase
-{
-public:
-	/** 	 
-	 * Text item
-	 *
-	 * @param	InPosition		Draw position
-	 * @param	InText			String to draw
-	 * @param	InFont			Font to draw with
-	 */
-	FCanvasTextItem( const FVector2D& InPosition, const FText& InText, const UFont* InFont, const FLinearColor& InColor )
-		: FCanvasTextItemBase( InPosition, InColor )
-		, Text( InText )
-		, Font( InFont )
-		, SlateFontInfo()
-	{
-		BlendMode = SE_BLEND_Translucent;
-	}
-
-	/** 	 
-	 * Text item
-	 *
-	 * @param	InPosition		Draw position
-	 * @param	InText			String to draw
-	 * @param	InFontInfo		Font info to draw with
-	 */
-	FCanvasTextItem( const FVector2D& InPosition, const FText& InText, const FSlateFontInfo& InFontInfo, const FLinearColor& InColor )
-		: FCanvasTextItemBase( InPosition, InColor )
-		, Text( InText )
-		, Font( Cast<const UFont>(InFontInfo.FontObject) )
-		, SlateFontInfo( InFontInfo )
-	{
-		BlendMode = SE_BLEND_TranslucentAlphaOnly;
-	}
-	
-	/* The text to draw. */
-	FText Text;
-	
-	/* Font to draw text with. */
-	const UFont* Font;
-
-	/** Font info to draw the text with. */
-	TOptional<FSlateFontInfo> SlateFontInfo;
-
-protected:
-	/** Get the type of font cache the UFont is using */
-	EFontCacheType GetFontCacheType() const;
-
-	//~ FCanvasTextItemBase overrides
-	virtual bool HasValidText() const override;
-	virtual ESimpleElementBlendMode GetTextBlendMode( const bool bHasShadow ) const override;
-	virtual FVector2D GetTextSize() const override;
-	virtual void DrawStringInternal( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor ) override;
-
-	/** 
-	 * Internal string draw
-	 *
-	 * In a method to make it simpler to do effects like shadow, outline
-	 */
-	void DrawStringInternal_OfflineCache( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor );
-	void DrawStringInternal_RuntimeCache( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor );
-};
-
-/* Text item which can handle complex shaped text. */
-class ENGINE_API FCanvasShapedTextItem : public FCanvasTextItemBase
-{
-public:
-	/** 	 
-	 * Text item
-	 *
-	 * @param	InPosition		Draw position
-	 * @param	InText			String to draw
-	 * @param	InFontInfo		Font info to draw with
-	 */
-	FCanvasShapedTextItem( const FVector2D& InPosition, FShapedGlyphSequenceRef InShapedGlyphSequence, const FLinearColor& InColor )
-		: FCanvasTextItemBase( InPosition, InColor )
-		, ShapedGlyphSequence( InShapedGlyphSequence )
-	{
-		BlendMode = SE_BLEND_TranslucentAlphaOnly;
-	}
-
-	/** The shaped text sequence to draw */
-	FShapedGlyphSequencePtr ShapedGlyphSequence;
-
-protected:
-	//~ FCanvasTextItemBase overrides
-	virtual bool HasValidText() const override;
-	virtual ESimpleElementBlendMode GetTextBlendMode( const bool bHasShadow ) const override;
-	virtual FVector2D GetTextSize() const override;
-	virtual void DrawStringInternal( FCanvas* InCanvas, const FVector2D& DrawPos, const FLinearColor& DrawColor ) override;
-};
-
-/* Line item. Note blend mode will be disregarded for these - only SE_BLEND_Opaque is currently supported. */
+/* Line item. */
 class ENGINE_API FCanvasLineItem : public FCanvasItem
 {
 public:

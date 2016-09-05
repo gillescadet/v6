@@ -5,10 +5,6 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
 
-#if WITH_GAMEPLAY_DEBUGGER
-#include "GameplayDebuggerCategory.h"
-#endif
-
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Damage.h"
@@ -202,7 +198,7 @@ void UAIPerceptionComponent::OnUnregister()
 	Super::OnUnregister();
 }
 
-void UAIPerceptionComponent::OnOwnerEndPlay(AActor* Actor, EEndPlayReason::Type EndPlayReason)
+void UAIPerceptionComponent::OnOwnerEndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	if (EndPlayReason != EEndPlayReason::EndPlayInEditor && EndPlayReason != EEndPlayReason::Quit)
 	{
@@ -259,9 +255,9 @@ void UAIPerceptionComponent::GetHostileActors(TArray<AActor*>& OutActors) const
 	bool bDeadDataFound = false;
 
 	OutActors.Reserve(PerceptualData.Num());
-	for (FActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
+	for (TActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
 	{
-		if (DataIt->Value.bIsHostile && DataIt->Value.HasAnyKnownStimulus())
+		if (DataIt->Value.bIsHostile)
 		{
 			if (DataIt->Value.Target.IsValid())
 			{
@@ -290,7 +286,7 @@ const FActorPerceptionInfo* UAIPerceptionComponent::GetFreshestTrace(const FAISe
 
 	bool bDeadDataFound = false;
 	
-	for (FActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
+	for (TActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
 	{
 		const FActorPerceptionInfo* Info = &DataIt->Value;
 		const float Age = Info->LastSensedStimuli[Sense].GetAge();
@@ -330,7 +326,7 @@ void UAIPerceptionComponent::SetDominantSense(TSubclassOf<UAISense> InDominantSe
 		DominantSense = InDominantSense;
 		DominantSenseID = UAISense::GetSenseID(InDominantSense);
 		// update all perceptual info with this info
-		for (FActorPerceptionContainer::TIterator DataIt = GetPerceptualDataIterator(); DataIt; ++DataIt)
+		for (TActorPerceptionContainer::TIterator DataIt = GetPerceptualDataIterator(); DataIt; ++DataIt)
 		{
 			DataIt->Value.DominantSense = DominantSenseID;
 		}
@@ -431,8 +427,7 @@ void UAIPerceptionComponent::ProcessStimuli()
 		check(SourcedStimulus->Stimulus.Type.IsValid());
 
 		FAIStimulus& StimulusStore = PerceptualInfo->LastSensedStimuli[SourcedStimulus->Stimulus.Type];
-		const bool bActorInfoUpdated = SourcedStimulus->Stimulus.WantsToNotifyOnlyOnPerceptionChange() == false 
-			|| SourcedStimulus->Stimulus.WasSuccessfullySensed() != StimulusStore.WasSuccessfullySensed();
+		const bool bActorInfoUpdated = SourcedStimulus->Stimulus.WantsToNotifyOnlyOnPerceptionChange() == false || SourcedStimulus->Stimulus.WasSuccessfullySensed() != StimulusStore.WasSuccessfullySensed();
 
 		if (SourcedStimulus->Stimulus.WasSuccessfullySensed())
 		{
@@ -448,7 +443,7 @@ void UAIPerceptionComponent::ProcessStimuli()
 				StimulusStore.SetStimulusAge(0);
 			}
 		}
-		else
+		else if (StimulusStore.GetAge() != FAIStimulus::NeverHappenedAge)
 		{
 			HandleExpiredStimulus(StimulusStore);
 		}
@@ -492,13 +487,14 @@ void UAIPerceptionComponent::RefreshStimulus(FAIStimulus& StimulusStore, const F
 void UAIPerceptionComponent::HandleExpiredStimulus(FAIStimulus& StimulusStore)
 {
 	ensure(StimulusStore.IsExpired() == true);
+	StimulusStore = FAIStimulus();
 }
 
 bool UAIPerceptionComponent::AgeStimuli(const float ConstPerceptionAgingRate)
 {
 	bool bExpiredStimuli = false;
 
-	for (FActorPerceptionContainer::TIterator It(PerceptualData); It; ++It)
+	for (TActorPerceptionContainer::TIterator It(PerceptualData); It; ++It)
 	{
 		FActorPerceptionInfo& ActorPerceptionInfo = It->Value;
 
@@ -583,7 +579,17 @@ bool UAIPerceptionComponent::HasAnyActiveStimulus(const AActor& Source) const
 		return false;
 	}
 
-	return Info->HasAnyKnownStimulus();
+	for (uint32 SenseID = 0; SenseID < FAISenseID::GetSize(); ++SenseID)
+	{
+		if (Info->LastSensedStimuli[SenseID].WasSuccessfullySensed() &&
+			Info->LastSensedStimuli[SenseID].GetAge() < FAIStimulus::NeverHappenedAge &&
+			(Info->LastSensedStimuli[SenseID].GetAge() <= MaxActiveAge[SenseID] || MaxActiveAge[SenseID] == 0.f))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 bool UAIPerceptionComponent::HasActiveStimulus(const AActor& Source, FAISenseID Sense) const
@@ -598,7 +604,7 @@ bool UAIPerceptionComponent::HasActiveStimulus(const AActor& Source, FAISenseID 
 
 void UAIPerceptionComponent::RemoveDeadData()
 {
-	for (FActorPerceptionContainer::TIterator It(PerceptualData); It; ++It)
+	for (TActorPerceptionContainer::TIterator It(PerceptualData); It; ++It)
 	{
 		if (It->Value.Target.IsValid() == false)
 		{
@@ -615,33 +621,14 @@ void UAIPerceptionComponent::GetPerceivedHostileActors(TArray<AActor*>& OutActor
 	GetHostileActors(OutActors);
 }
 
-void UAIPerceptionComponent::GetCurrentlyPerceivedActors(TSubclassOf<UAISense> SenseToUse, TArray<AActor*>& OutActors) const
+void UAIPerceptionComponent::GetPerceivedActors(TSubclassOf<UAISense> SenseToUse, TArray<AActor*>& OutActors) const
 {
 	const FAISenseID SenseID = UAISense::GetSenseID(SenseToUse);
 
 	OutActors.Reserve(PerceptualData.Num());
-	for (FActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
+	for (TActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
 	{
-		const bool bCurrentlyPerceived = (SenseToUse == nullptr) ? DataIt->Value.HasAnyCurrentStimulus() : DataIt->Value.IsSenseRegistered(SenseID);
-		if (bCurrentlyPerceived)
-		{
-			if (DataIt->Value.Target.IsValid())
-			{
-				OutActors.Add(DataIt->Value.Target.Get());
-			}
-		}
-	}
-}
-
-void UAIPerceptionComponent::GetKnownPerceivedActors(TSubclassOf<UAISense> SenseToUse, TArray<AActor*>& OutActors) const
-{
-	const FAISenseID SenseID = UAISense::GetSenseID(SenseToUse);
-
-	OutActors.Reserve(PerceptualData.Num());
-	for (FActorPerceptionContainer::TConstIterator DataIt = GetPerceptualDataConstIterator(); DataIt; ++DataIt)
-	{
-		const bool bWasEverPerceived = (SenseToUse == nullptr) ? DataIt->Value.HasAnyKnownStimulus() : DataIt->Value.HasKnownStimulusOfSense(SenseID);
-		if (bWasEverPerceived)
+		if (SenseToUse == nullptr || DataIt->Value.IsSenseRegistered(SenseID))
 		{
 			if (DataIt->Value.Target.IsValid())
 			{
@@ -670,45 +657,49 @@ bool UAIPerceptionComponent::GetActorsPerception(AActor* Actor, FActorPerception
 //----------------------------------------------------------------------//
 // debug
 //----------------------------------------------------------------------//
-#if WITH_GAMEPLAY_DEBUGGER
-void UAIPerceptionComponent::DescribeSelfToGameplayDebugger(FGameplayDebuggerCategory* DebuggerCategory) const
+#if !UE_BUILD_SHIPPING
+void UAIPerceptionComponent::GrabGameplayDebuggerData(TArray<FString>& OnScreenStrings, TArray<FGameplayDebuggerShapeElement>& DebugShapes) const
 {
-	if (DebuggerCategory == nullptr)
-	{
-		return;
-	}
+#if ENABLED_GAMEPLAY_DEBUGGER
+	UAIPerceptionSystem* PerceptionSys = UAIPerceptionSystem::GetCurrent(GetWorld());
+	check(PerceptionSys);
 
-	for (UAIPerceptionComponent::FActorPerceptionContainer::TConstIterator It(GetPerceptualDataConstIterator()); It; ++It)
+	for (UAIPerceptionComponent::TActorPerceptionContainer::TConstIterator It(GetPerceptualDataConstIterator()); It; ++It)
 	{
+		if (It->Key == NULL)
+		{
+			continue;
+		}
+
 		const FActorPerceptionInfo& ActorPerceptionInfo = It->Value;
-		if (ActorPerceptionInfo.Target.IsValid() && It->Key)
+
+		if (ActorPerceptionInfo.Target.IsValid())
 		{
 			const FVector TargetLocation = ActorPerceptionInfo.Target->GetActorLocation();
-			for (const FAIStimulus& Stimulus : ActorPerceptionInfo.LastSensedStimuli)
+			for (const auto& Stimulus : ActorPerceptionInfo.LastSensedStimuli)
 			{
-				const UAISenseConfig* SenseConfig = GetSenseConfig(Stimulus.Type);
-				if (Stimulus.IsValid() && (Stimulus.IsExpired() == false) && SenseConfig)
+				if (Stimulus.Strength >= 0)
 				{
-					const FString Description = FString::Printf(TEXT("%s: %.2f age:%.2f"), *SenseConfig->GetSenseName(), Stimulus.Strength, Stimulus.GetAge());
-					const FColor DebugColor = SenseConfig->GetDebugColor();
+					const FString Description = FString::Printf(TEXT("%s: %.2f a:%.2f"), *PerceptionSys->GetSenseName(Stimulus.Type), Stimulus.Strength, Stimulus.GetAge());
+					DebugShapes.Add(UGameplayDebuggerHelper::MakeString(Description, Stimulus.StimulusLocation + FVector(0, 0, 30)));
 
-					DebuggerCategory->AddShape(FGameplayDebuggerShape::MakePoint(Stimulus.StimulusLocation + FVector(0, 0, 30), 30.0f, DebugColor, Description));
-					DebuggerCategory->AddShape(FGameplayDebuggerShape::MakeSegment(Stimulus.ReceiverLocation, Stimulus.StimulusLocation, DebugColor));
-					DebuggerCategory->AddShape(FGameplayDebuggerShape::MakeSegment(TargetLocation, Stimulus.StimulusLocation, FColor::Black));
+					const FColor DebugColor = PerceptionSys->GetSenseDebugColor(Stimulus.Type);
+					DebugShapes.Add(UGameplayDebuggerHelper::MakePoint(Stimulus.StimulusLocation, DebugColor, 30));
+					DebugShapes.Add(UGameplayDebuggerHelper::MakeLine(Stimulus.ReceiverLocation, Stimulus.StimulusLocation, DebugColor));
+					DebugShapes.Add(UGameplayDebuggerHelper::MakeLine(TargetLocation, Stimulus.StimulusLocation, FColor::Black));
 				}
 			}
 		}
 	}
 
-	for (UAISenseConfig* SenseConfig : SensesConfig)
+	for (auto Sense : SensesConfig)
 	{
-		if (SenseConfig)
-		{
-			SenseConfig->DescribeSelfToGameplayDebugger(this, DebuggerCategory);
-		}
+		Sense->GetDebugData(OnScreenStrings, DebugShapes, *this);
 	}
+#endif
 }
-#endif // WITH_GAMEPLAY_DEBUGGER
+
+#endif // !UE_BUILD_SHIPPING
 
 #if ENABLE_VISUAL_LOG
 void UAIPerceptionComponent::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const
@@ -723,9 +714,4 @@ void UAIPerceptionComponent::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) con
 void UAIPerceptionComponent::UpdatePerceptionFilter(FAISenseID Channel, bool bNewValue)
 {
 	UpdatePerceptionWhitelist(Channel, bNewValue);
-}
-
-void UAIPerceptionComponent::GetPerceivedActors(TSubclassOf<UAISense> SenseToUse, TArray<AActor*>& OutActors) const
-{
-	GetCurrentlyPerceivedActors(SenseToUse, OutActors);
 }

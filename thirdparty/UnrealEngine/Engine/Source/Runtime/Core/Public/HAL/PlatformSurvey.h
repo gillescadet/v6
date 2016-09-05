@@ -15,6 +15,8 @@
 #include "IOS/IOSPlatformSurvey.h"
 #elif PLATFORM_ANDROID
 #include "Android/AndroidSurvey.h"
+#elif PLATFORM_WINRT
+#include "WinRT/WinRTSurvey.h"
 #elif PLATFORM_HTML5
 #include "HTML5/HTML5PlatformSurvey.h"
 #elif PLATFORM_LINUX

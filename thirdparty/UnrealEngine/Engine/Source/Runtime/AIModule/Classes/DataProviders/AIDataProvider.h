@@ -54,12 +54,6 @@ public:
 	void BindData(const UObject* Owner, int32 RequestId) const;
 
 	FORCEINLINE bool IsDynamic() const { return DataBinding != nullptr; }
-
-	FAIDataProviderValue() :
-		CachedProperty(nullptr),
-		DataBinding(nullptr)
-	{
-	}
 };
 
 USTRUCT()

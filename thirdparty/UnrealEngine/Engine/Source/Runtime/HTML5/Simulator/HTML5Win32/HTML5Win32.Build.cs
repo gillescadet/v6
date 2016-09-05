@@ -7,6 +7,6 @@ public class HTML5Win32 : ModuleRules
 	public HTML5Win32(TargetInfo Target)
 	{
         // Don't depend on UE types or modules.  
-		AddEngineThirdPartyPrivateStaticDependencies(Target, "libcurl");
+		AddThirdPartyPrivateStaticDependencies(Target, "libcurl");
 	}
 }

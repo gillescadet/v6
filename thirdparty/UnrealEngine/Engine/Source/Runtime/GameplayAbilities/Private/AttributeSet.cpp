@@ -10,205 +10,52 @@
 #include "ComponentReregisterContext.h"
 #include "PropertyTag.h"
 
-#if ENABLE_VISUAL_LOG
-namespace
-{
-	int32 bDoAttributeGraphVLogging = 1;
-	FAutoConsoleVariableRef CVarDoAttributeGraphVLogging(TEXT("g.debug.vlog.AttributeGraph")
-		, bDoAttributeGraphVLogging, TEXT("Controlls whether Attribute changes are being recorded by VisLog"), ECVF_Cheat);
-}
-#endif
-
-float FGameplayAttributeData::GetCurrentValue() const
-{
-	return CurrentValue;
-}
-
-void FGameplayAttributeData::SetCurrentValue(float NewValue)
-{
-	CurrentValue = NewValue;
-}
-
-float FGameplayAttributeData::GetBaseValue() const
-{
-	return BaseValue;
-}
-
-void FGameplayAttributeData::SetBaseValue(float NewValue)
-{
-	BaseValue = NewValue;
-}
-
-
 FGameplayAttribute::FGameplayAttribute(UProperty *NewProperty)
 {
-	// we allow numeric properties and gameplay attribute data properties for now
-	// @todo deprecate numeric properties
+	// Only numeric properties are allowed right now
 	Attribute = Cast<UNumericProperty>(NewProperty);
-	AttributeOwner = nullptr;
-
-	if (!Attribute)
-	{
-		if (IsGameplayAttributeDataProperty(NewProperty))
-		{
-			Attribute = NewProperty;
-		}
-	}
-
-	if (Attribute)
-	{
- 		AttributeOwner = Attribute->GetOwnerStruct();
- 		Attribute->GetName(AttributeName);
-	}
 }
 
 void FGameplayAttribute::SetNumericValueChecked(float NewValue, class UAttributeSet* Dest) const
 {
-	UNumericProperty* NumericProperty = Cast<UNumericProperty>(Attribute);
-	float OldValue = 0.f;
-	if (NumericProperty)
-	{
-		void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Dest);
-		OldValue = *static_cast<float*>(ValuePtr);
-		Dest->PreAttributeChange(*this, NewValue);
-		NumericProperty->SetFloatingPointPropertyValue(ValuePtr, NewValue);
-	}
-	else if (IsGameplayAttributeDataProperty(Attribute))
-	{
-		UStructProperty* StructProperty = Cast<UStructProperty>(Attribute);
-		check(StructProperty);
-		FGameplayAttributeData* DataPtr = StructProperty->ContainerPtrToValuePtr<FGameplayAttributeData>(Dest);
-		check(DataPtr);
-		OldValue = DataPtr->GetCurrentValue();
-		Dest->PreAttributeChange(*this, NewValue);
-		DataPtr->SetCurrentValue(NewValue);
-	}
-	else
-	{
-		check(false);
-	}
+	UNumericProperty *NumericProperty = CastChecked<UNumericProperty>(Attribute);
+	void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Dest);
+	float OldValue = *static_cast<float*>(ValuePtr);
+	Dest->PreAttributeChange(*this, NewValue);
+	NumericProperty->SetFloatingPointPropertyValue(ValuePtr, NewValue);
 
 #if ENABLE_VISUAL_LOG
 	// draw a graph of the changes to the attribute in the visual logger
-	if (bDoAttributeGraphVLogging && FVisualLogger::IsRecording())
+	AActor* OwnerActor = Dest->GetOwningAbilitySystemComponent()->OwnerActor;
+	if (OwnerActor)
 	{
-		AActor* OwnerActor = Dest->GetOwningAbilitySystemComponent()->OwnerActor;
-		if (OwnerActor)
-		{
-			ABILITY_VLOG_ATTRIBUTE_GRAPH(OwnerActor, Log, GetName(), OldValue, NewValue);
-		}
+		ABILITY_VLOG_ATTRIBUTE_GRAPH(OwnerActor, Log, GetName(), OldValue, NewValue);
 	}
 #endif
 }
 
 float FGameplayAttribute::GetNumericValue(const UAttributeSet* Src) const
 {
-	const UNumericProperty* const NumericProperty = Cast<UNumericProperty>(Attribute);
-	if (NumericProperty)
+	const UNumericProperty* const NumericPropertyOrNull = Cast<UNumericProperty>(Attribute);
+	if (!NumericPropertyOrNull)
 	{
-		const void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Src);
-		return NumericProperty->GetFloatingPointPropertyValue(ValuePtr);
-	}
-	else if (IsGameplayAttributeDataProperty(Attribute))
-	{
-		const UStructProperty* StructProperty = Cast<UStructProperty>(Attribute);
-		check(StructProperty);
-		const FGameplayAttributeData* DataPtr = StructProperty->ContainerPtrToValuePtr<FGameplayAttributeData>(Src);
-		if (ensure(DataPtr))
-		{
-			return DataPtr->GetCurrentValue();
-		}
+		return 0.f;
 	}
 
-	return 0.f;
+	const void* ValuePtr = NumericPropertyOrNull->ContainerPtrToValuePtr<void>(Src);
+	return NumericPropertyOrNull->GetFloatingPointPropertyValue(ValuePtr);
 }
 
 float FGameplayAttribute::GetNumericValueChecked(const UAttributeSet* Src) const
 {
-	UNumericProperty* NumericProperty = Cast<UNumericProperty>(Attribute);
-	if (NumericProperty)
-	{
-		const void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Src);
-		return NumericProperty->GetFloatingPointPropertyValue(ValuePtr);
-	}
-	else if (IsGameplayAttributeDataProperty(Attribute))
-	{
-		const UStructProperty* StructProperty = Cast<UStructProperty>(Attribute);
-		check(StructProperty);
-		const FGameplayAttributeData* DataPtr = StructProperty->ContainerPtrToValuePtr<FGameplayAttributeData>(Src);
-		if (ensure(DataPtr))
-		{
-			return DataPtr->GetCurrentValue();
-		}
-	}
-
-	check(false);
-	return 0.f;
-}
-
-FGameplayAttributeData* FGameplayAttribute::GetGameplayAttributeData(UAttributeSet* Src) const
-{
-	if (IsGameplayAttributeDataProperty(Attribute))
-	{
-		UStructProperty* StructProperty = Cast<UStructProperty>(Attribute);
-		check(StructProperty);
-		return StructProperty->ContainerPtrToValuePtr<FGameplayAttributeData>(Src);
-	}
-
-	return nullptr;
-}
-
-FGameplayAttributeData* FGameplayAttribute::GetGameplayAttributeDataChecked(UAttributeSet* Src) const
-{
-	if (IsGameplayAttributeDataProperty(Attribute))
-	{
-		UStructProperty* StructProperty = Cast<UStructProperty>(Attribute);
-		check(StructProperty);
-		return StructProperty->ContainerPtrToValuePtr<FGameplayAttributeData>(Src);
-	}
-
-	check(false);
-	return nullptr;
+	UNumericProperty* NumericProperty = CastChecked<UNumericProperty>(Attribute);
+	const void* ValuePtr = NumericProperty->ContainerPtrToValuePtr<void>(Src);
+	return NumericProperty->GetFloatingPointPropertyValue(ValuePtr);
 }
 
 bool FGameplayAttribute::IsSystemAttribute() const
 {
 	return GetAttributeSetClass()->IsChildOf(UAbilitySystemComponent::StaticClass());
-}
-
-bool FGameplayAttribute::IsGameplayAttributeDataProperty(const UProperty* Property)
-{
-	const UStructProperty* StructProp = Cast<UStructProperty>(Property);
-	if (StructProp)
-	{
-		const UStruct* Struct = StructProp->Struct;
-		if (Struct && Struct->IsChildOf(FGameplayAttributeData::StaticStruct()))
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-// Fill in missing attribute information
-void FGameplayAttribute::PostSerialize(const FArchive& Ar)
-{
-	if (AttributeName.IsEmpty() || AttributeOwner == nullptr)
-	{
-		if (Attribute)
-		{
-			AttributeOwner = Attribute->GetOwnerStruct();
-			Attribute->GetName(AttributeName);
-		}
-	}
-	else
-	{
-		if (!Attribute)
-		{
-			Attribute = FindField<UProperty>(AttributeOwner, *AttributeName);
-		}
-	}
 }
 
 UAttributeSet::UAttributeSet(const FObjectInitializer& ObjectInitializer)
@@ -301,32 +148,25 @@ FAttributeMetaData::FAttributeMetaData()
 
 }
 
-float FScalableFloat::GetValueAtLevel(float Level, const FString* ContextString) const
+float FScalableFloat::GetValueAtLevel(float Level) const
 {
 	if (Curve.CurveTable != nullptr)
 	{
-		// We want to cache the FinalCurve when possible. However there are issue with this in CookOnTheFly scenerios where the backing UCurveTable
-		// will be destroyed and reallocated at the same memory adress via StaticAllocateObject. This will keep the UCurveTable* the same, but will shift
-		// the internal UCurveTable::RowMap memory, making our FinalCurve* into it invalid.
-		//
-		// Therefor: only do the caching in non editor builds. In editor builds we will also look up the FinalCurve* from our current UCurveTable*.
-		// 
-		// If this problems does happen in a mono build, we should consider caching the entire curve in the FScalableFloat, or have look into refactoring
-		// some of UCurveTable such that the actual curve data is stored in a global, more stable location.
-
-
-#if !WITH_EDITOR						// If not an editor build
-		if (FinalCurve == nullptr)		//		Only if we don't have a cached FRichCurve*, look it up
-#endif
-		
+		if (FinalCurve == nullptr)
 		{
-			static const FString DefaultContextString = TEXT("FScalableFloat::GetValueAtLevel");
-			FinalCurve = Curve.GetCurve(ContextString ? *ContextString : DefaultContextString);
+			static const FString ContextString = TEXT("FScalableFloat::GetValueAtLevel");
+			FinalCurve = Curve.GetCurve(ContextString);
+
+			RegisterOnCurveTablePostReimport();
 		}
 
 		if (FinalCurve != nullptr)
 		{
 			return Value * FinalCurve->Eval(Level);
+		}
+		else
+		{
+			ABILITY_LOG(Error, TEXT("Unable to find RowName: %s for FScalableFloat."), *Curve.RowName.ToString());
 		}
 	}
 
@@ -396,30 +236,7 @@ bool FScalableFloat::SerializeFromMismatchedTag(const FPropertyTag& Tag, FArchiv
 
 		return true;
 	}
-	else if (Tag.Type == NAME_IntProperty)
-	{
-		int32 OldValue;
-		Ar << OldValue;
-		*this = FScalableFloat((float)OldValue);
 
-		return true;
-	}
-	else if (Tag.Type == NAME_Int8Property)
-	{
-		int8 OldValue;
-		Ar << OldValue;
-		*this = FScalableFloat((float)OldValue);
-
-		return true;
-	}
-	else if (Tag.Type == NAME_Int16Property)
-	{
-		int16 OldValue;
-		Ar << OldValue;
-		*this = FScalableFloat((float)OldValue);
-
-		return true;
-	}
 	return false;
 }
 
@@ -476,14 +293,14 @@ TSubclassOf<UAttributeSet> FindBestAttributeClass(TArray<TSubclassOf<UAttributeS
 }
 
 /**
- *	Transforms CurveTable data into format more efficient to read at runtime.
+ *	Transforms CurveTable data into format more effecient to read at runtime.
  *	UCurveTable requires string parsing to map to GroupName/AttributeSet/Attribute
  *	Each curve in the table represents a *single attribute's values for all levels*.
  *	At runtime, we want *all attribute values at given level*.
  */
-void FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData(const TArray<UCurveTable*>& CurveData)
+void FAttributeSetInitter::PreloadAttributeSetData(UCurveTable* CurveData)
 {
-	if (!ensure(CurveData.Num() > 0))
+	if(!ensure(CurveData))
 	{
 		return;
 	}
@@ -506,7 +323,7 @@ void FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData(const TArray<UC
 			{
 				if (!PropIt->HasAllPropertyFlags(CPF_IsPlainOldData))
 				{
-					ABILITY_LOG(Error, TEXT("FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData Unable to Handle AttributeClass %s because it has a non POD property: %s"),
+					ABILITY_LOG(Error, TEXT("FAttributeSetInitter::PreloadAttributeSetData Unable to Handle AttributeClass %s because it has a non POD property: %s"),
 						*TestClass->GetName(), *PropIt->GetName());
 					return;
 				}
@@ -518,89 +335,91 @@ void FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData(const TArray<UC
 	/**
 	 *	Loop through CurveData table and build sets of Defaults that keyed off of Name + Level
 	 */
-	for (const UCurveTable* CurTable : CurveData)
+
+	for (auto It = CurveData->RowMap.CreateConstIterator(); It; ++It)
 	{
-		for (auto It = CurTable->RowMap.CreateConstIterator(); It; ++It)
+		FString RowName = It.Key().ToString();
+		FString ClassName;
+		FString SetName;
+		FString AttributeName;
+		FString Temp;
+
+		RowName.Split(TEXT("."), &ClassName, &Temp);
+		Temp.Split(TEXT("."), &SetName, &AttributeName);
+
+		if (!ensure(!ClassName.IsEmpty() && !SetName.IsEmpty() && !AttributeName.IsEmpty()))
 		{
-			FString RowName = It.Key().ToString();
-			FString ClassName;
-			FString SetName;
-			FString AttributeName;
-			FString Temp;
-
-			RowName.Split(TEXT("."), &ClassName, &Temp);
-			Temp.Split(TEXT("."), &SetName, &AttributeName);
-
-			if (!ensure(!ClassName.IsEmpty() && !SetName.IsEmpty() && !AttributeName.IsEmpty()))
-			{
-				ABILITY_LOG(Verbose, TEXT("FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData Unable to parse row %s in %s"), *RowName, *CurTable->GetName());
-				continue;
-			}
-
-			// Find the AttributeSet
-
-			TSubclassOf<UAttributeSet> Set = FindBestAttributeClass(ClassList, SetName);
-			if (!Set)
-			{
-				// This is ok, we may have rows in here that don't correspond directly to attributes
-				ABILITY_LOG(Verbose, TEXT("FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData Unable to match AttributeSet from %s (row: %s)"), *SetName, *RowName);
-				continue;
-			}
-
-			// Find the UProperty
-			UProperty* Property = FindField<UProperty>(*Set, *AttributeName);
-			if (!IsSupportedProperty(Property))
-			{
-				ABILITY_LOG(Verbose, TEXT("FAttributeSetInitterDiscreteLevels::PreloadAttributeSetData Unable to match Attribute from %s (row: %s)"), *AttributeName, *RowName);
-				continue;
-			}
-
-			FRichCurve* Curve = It.Value();
-			FName ClassFName = FName(*ClassName);
-			FAttributeSetDefaultsCollection& DefaultCollection = Defaults.FindOrAdd(ClassFName);
-
-			int32 LastLevel = Curve->GetLastKey().Time;
-			DefaultCollection.LevelData.SetNum(FMath::Max(LastLevel, DefaultCollection.LevelData.Num()));
-
-			//At this point we know the Name of this "class"/"group", the AttributeSet, and the Property Name. Now loop through the values on the curve to get the attribute default value at each level.
-			for (auto KeyIter = Curve->GetKeyIterator(); KeyIter; ++KeyIter)
-			{
-				const FRichCurveKey& CurveKey = *KeyIter;
-
-				int32 Level = CurveKey.Time;
-				float Value = CurveKey.Value;
-
-				FAttributeSetDefaults& SetDefaults = DefaultCollection.LevelData[Level-1];
-
-				FAttributeDefaultValueList* DefaultDataList = SetDefaults.DataMap.Find(Set);
-				if (DefaultDataList == nullptr)
-				{
-					ABILITY_LOG(Verbose, TEXT("Initializing new default set for %s[%d]. PropertySize: %d.. DefaultSize: %d"), *Set->GetName(), Level, Set->GetPropertiesSize(), UAttributeSet::StaticClass()->GetPropertiesSize());
-
-					DefaultDataList = &SetDefaults.DataMap.Add(Set);
-				}
-
-				// Import curve value into default data
-
-				check(DefaultDataList);
-				DefaultDataList->AddPair(Property, Value);
-			}
+			ABILITY_LOG(Verbose, TEXT("FAttributeSetInitter::PreloadAttributeSetData Unable to parse row %s in %s"), *RowName, *CurveData->GetName());
+			continue;
 		}
+
+		// Find the AttributeSet
+
+		TSubclassOf<UAttributeSet> Set = FindBestAttributeClass(ClassList, SetName);
+		if (!Set)
+		{
+			// This is ok, we may have rows in here that don't correspond directly to attributes
+			ABILITY_LOG(Verbose, TEXT("FAttributeSetInitter::PreloadAttributeSetData Unable to match AttributeSet from %s (row: %s)"), *SetName, *RowName);
+			continue;
+		}
+
+		// Find the UProperty
+
+		UNumericProperty* Property = FindField<UNumericProperty>(*Set, *AttributeName);
+		if (!Property)
+		{
+			ABILITY_LOG(Verbose, TEXT("FAttributeSetInitter::PreloadAttributeSetData Unable to match Attribute from %s (row: %s)"), *AttributeName, *RowName);
+			continue;
+		}
+
+		FRichCurve* Curve = It.Value();
+		FName ClassFName = FName(*ClassName);
+		FAttributeSetDefaulsCollection& DefaultCollection = Defaults.FindOrAdd(ClassFName);
+
+		int32 LastLevel = Curve->GetLastKey().Time;
+		DefaultCollection.LevelData.SetNum(FMath::Max(LastLevel, DefaultCollection.LevelData.Num()));
+
+		
+		//At this point we know the Name of this "class"/"group", the AttributeSet, and the Property Name. Now loop through the values on the curve to get the attribute default value at each level.
+		for (auto KeyIter = Curve->GetKeyIterator(); KeyIter; ++KeyIter)
+		{
+			const FRichCurveKey& CurveKey = *KeyIter;
+
+			int32 Level = CurveKey.Time;
+			float Value = CurveKey.Value;
+
+			FAttributeSetDefaults& SetDefaults = DefaultCollection.LevelData[Level-1];
+
+			FAttributeDefaultValueList* DefaultDataList = SetDefaults.DataMap.Find(Set);
+			if (DefaultDataList == nullptr)
+			{
+				ABILITY_LOG(Verbose, TEXT("Initializing new default set for %s[%d]. PropertySize: %d.. DefaultSize: %d"), *Set->GetName(), Level, Set->GetPropertiesSize(), UAttributeSet::StaticClass()->GetPropertiesSize());
+				
+				DefaultDataList = &SetDefaults.DataMap.Add(Set);
+			}
+
+			// Import curve value into default data
+
+			check(DefaultDataList);
+			DefaultDataList->AddPair(Property, Value);
+		}
+
+
 	}
 }
 
-void FAttributeSetInitterDiscreteLevels::InitAttributeSetDefaults(UAbilitySystemComponent* AbilitySystemComponent, FName GroupName, int32 Level, bool bInitialInit) const
+void FAttributeSetInitter::InitAttributeSetDefaults(UAbilitySystemComponent* AbilitySystemComponent, FName GroupName, int32 Level, bool bInitialInit) const
 {
 	SCOPE_CYCLE_COUNTER(STAT_InitAttributeSetDefaults);
 	
-	const FAttributeSetDefaultsCollection* Collection = Defaults.Find(GroupName);
+	const FAttributeSetDefaulsCollection* Collection = Defaults.Find(GroupName);
 	if (!Collection)
 	{
 		ABILITY_LOG(Warning, TEXT("Unable to find DefaultAttributeSet Group %s. Failing back to Defaults"), *GroupName.ToString());
 		Collection = Defaults.Find(FName(TEXT("Default")));
 		if (!Collection)
 		{
-			ABILITY_LOG(Error, TEXT("FAttributeSetInitterDiscreteLevels::InitAttributeSetDefaults Default DefaultAttributeSet not found! Skipping Initialization"));
+			ABILITY_LOG(Error, TEXT("FAttributeSetInitter::InitAttributeSetDefaults Default DefaultAttributeSet not found! Skipping Initialization"));
 			return;
 		}
 	}
@@ -636,18 +455,18 @@ void FAttributeSetInitterDiscreteLevels::InitAttributeSetDefaults(UAbilitySystem
 	AbilitySystemComponent->ForceReplication();
 }
 
-void FAttributeSetInitterDiscreteLevels::ApplyAttributeDefault(UAbilitySystemComponent* AbilitySystemComponent, FGameplayAttribute& InAttribute, FName GroupName, int32 Level) const
+void FAttributeSetInitter::ApplyAttributeDefault(UAbilitySystemComponent* AbilitySystemComponent, FGameplayAttribute& InAttribute, FName GroupName, int32 Level) const
 {
 	SCOPE_CYCLE_COUNTER(STAT_InitAttributeSetDefaults);
 
-	const FAttributeSetDefaultsCollection* Collection = Defaults.Find(GroupName);
+	const FAttributeSetDefaulsCollection* Collection = Defaults.Find(GroupName);
 	if (!Collection)
 	{
 		ABILITY_LOG(Warning, TEXT("Unable to find DefaultAttributeSet Group %s. Failing back to Defaults"), *GroupName.ToString());
 		Collection = Defaults.Find(FName(TEXT("Default")));
 		if (!Collection)
 		{
-			ABILITY_LOG(Error, TEXT("FAttributeSetInitterDiscreteLevels::InitAttributeSetDefaults Default DefaultAttributeSet not found! Skipping Initialization"));
+			ABILITY_LOG(Error, TEXT("FAttributeSetInitter::InitAttributeSetDefaults Default DefaultAttributeSet not found! Skipping Initialization"));
 			return;
 		}
 	}
@@ -681,11 +500,6 @@ void FAttributeSetInitterDiscreteLevels::ApplyAttributeDefault(UAbilitySystemCom
 	}
 
 	AbilitySystemComponent->ForceReplication();
-}
-
-bool FAttributeSetInitterDiscreteLevels::IsSupportedProperty(UProperty* Property) const
-{
-	return (Property && (Cast<UNumericProperty>(Property) || FGameplayAttribute::IsGameplayAttributeDataProperty(Property)));
 }
 
 // --------------------------------------------------------------------------------

@@ -11,7 +11,6 @@
 struct CORE_API FLinuxOutputDevices : public FGenericPlatformOutputDevices
 {
 	static void							SetupOutputDevices();
-	static FString						GetAbsoluteLogFilename();
 
 	static FOutputDevice*			GetEventLog();
 	static FOutputDeviceConsole*	GetLogConsole();

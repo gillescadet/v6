@@ -14,6 +14,7 @@ public class CoreUObject : ModuleRules
                 new string[] 
 			    {
 				    "TargetPlatform",
+				    "CookingStats",
 			    }
             );
 

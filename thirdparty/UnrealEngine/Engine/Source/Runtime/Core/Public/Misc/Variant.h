@@ -186,7 +186,7 @@ public:
 	FVariant& operator=( const TArray<uint8> InArray )
 	{
 		Type = EVariantTypes::ByteArray;
-		Value = MoveTemp(InArray);
+		Value = InArray;
 
 		return *this;
 	}

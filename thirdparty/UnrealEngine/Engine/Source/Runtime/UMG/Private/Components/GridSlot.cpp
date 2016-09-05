@@ -26,7 +26,6 @@ void UGridSlot::ReleaseSlateResources(bool bReleaseChildren)
 void UGridSlot::BuildSlot(TSharedRef<SGridPanel> GridPanel)
 {
 	Slot = &GridPanel->AddSlot(Column, Row, SGridPanel::Layer(Layer))
-		.Padding(Padding)
 		.HAlign(HorizontalAlignment)
 		.VAlign(VerticalAlignment)
 		.RowSpan(RowSpan)
@@ -35,15 +34,6 @@ void UGridSlot::BuildSlot(TSharedRef<SGridPanel> GridPanel)
 		[
 			Content == nullptr ? SNullWidget::NullWidget : Content->TakeWidget()
 		];
-}
-
-void UGridSlot::SetPadding(FMargin InPadding)
-{
-	Padding = InPadding;
-	if ( Slot )
-	{
-		Slot->Padding(InPadding);
-	}
 }
 
 void UGridSlot::SetRow(int32 InRow)
@@ -91,15 +81,6 @@ void UGridSlot::SetLayer(int32 InLayer)
 	}
 }
 
-void UGridSlot::SetNudge(FVector2D InNudge)
-{
-	Nudge = InNudge;
-	if ( Slot )
-	{
-		Slot->Nudge(InNudge);
-	}
-}
-
 void UGridSlot::SetHorizontalAlignment(EHorizontalAlignment InHorizontalAlignment)
 {
 	HorizontalAlignment = InHorizontalAlignment;
@@ -120,15 +101,11 @@ void UGridSlot::SetVerticalAlignment(EVerticalAlignment InVerticalAlignment)
 
 void UGridSlot::SynchronizeProperties()
 {
-	SetHorizontalAlignment(HorizontalAlignment);
-	SetVerticalAlignment(VerticalAlignment);
-	SetPadding(Padding);
-
 	SetRow(Row);
 	SetRowSpan(RowSpan);
 	SetColumn(Column);
 	SetColumnSpan(ColumnSpan);
-	SetNudge(Nudge);
-
+	SetHorizontalAlignment(HorizontalAlignment);
+	SetVerticalAlignment(VerticalAlignment);
 	SetLayer(Layer);
 }

@@ -93,9 +93,8 @@ struct FMath : public FPlatformMath
 	/** Helper function for rand implementations. Returns a random number in [0..A) */
 	static FORCEINLINE int32 RandHelper(int32 A)
 	{
-		// Note that on some platforms RAND_MAX is a large number so we cannot do ((rand()/(RAND_MAX+1)) * A)
-		// or else we may include the upper bound results, which should be excluded.
-		return A > 0 ? Min(TruncToInt(FRand() * A), A - 1) : 0;
+		// RAND_MAX+1 give interval [0..A) with even distribution.
+		return A>0 ? TruncToInt(Rand()/(float)((uint32)RAND_MAX+1) * A) : 0;
 	}
 
 	/** Helper function for rand implementations. Returns a random number >= Min and <= Max */
@@ -418,42 +417,19 @@ struct FMath : public FPlatformMath
 	 */
 	static float CORE_API ClampAngle(float AngleDegrees, float MinAngleDegrees, float MaxAngleDegrees);
 
-	/** Find the smallest angle between two headings (in degrees) */
-	static float FindDeltaAngleDegrees(float A1, float A2)
-	{
-		// Find the difference
-		float Delta = A2 - A1;
-
-		// If change is larger than 180
-		if (Delta > 180.0f)
-		{
-			// Flip to negative equivalent
-			Delta = Delta - 360.0f;
-		}
-		else if (Delta < -180.0f)
-		{
-			// Otherwise, if change is smaller than -180
-			// Flip to positive equivalent
-			Delta = Delta + 360.0f;
-		}
-
-		// Return delta in [-180,180] range
-		return Delta;
-	}
-
 	/** Find the smallest angle between two headings (in radians) */
-	static float FindDeltaAngleRadians(float A1, float A2)
+	static float FindDeltaAngle(float A1, float A2)
 	{
 		// Find the difference
 		float Delta = A2 - A1;
 
 		// If change is larger than PI
-		if (Delta > PI)
+		if(Delta > PI)
 		{
 			// Flip to negative equivalent
 			Delta = Delta - (PI * 2.0f);
 		}
-		else if (Delta < -PI)
+		else if(Delta < -PI)
 		{
 			// Otherwise, if change is smaller than -PI
 			// Flip to positive equivalent
@@ -462,12 +438,6 @@ struct FMath : public FPlatformMath
 
 		// Return delta in [-PI,PI] range
 		return Delta;
-	}
-
-	DEPRECATED(4.12, "Please use FindDeltaAngleRadians(float A1, float A2) instead of FindDeltaAngle(float A1, float A2).")
-	static float FindDeltaAngle(float A1, float A2)
-	{
-		return FindDeltaAngleRadians(A1, A2);
 	}
 
 	/** Given a heading which may be outside the +/- PI range, 'unwind' it back into that range. */
@@ -501,14 +471,6 @@ struct FMath : public FPlatformMath
 
 		return A;
 	}
-
-	/** 
-	 * Given two angles in degrees, 'wind' the rotation in Angle1 so that it avoids >180 degree flips.
-	 * Good for winding rotations previously expressed as quaternions into a euler-angle representation.
-	 * @param	Angle0	The first angle that we wind relative to.
-	 * @param	Angle1	The second angle that we may wind relative to the first.
-	 */
-	static CORE_API void WindRelativeAnglesDegrees(float InAngle0, float& InOutAngle1);
 
 	/** Returns a new rotation component value
 	 *
@@ -595,7 +557,7 @@ struct FMath : public FPlatformMath
 		return GetMappedRangeValueClamped(InputRange, OutputRange, Value);
 	}
 
-	/** For the given Value clamped to the [Input:Range] inclusive, returns the corresponding percentage in [Output:Range] Inclusive. */
+	/** For the given Value clamped to the Input Range, returns the corresponding value in the Output Range. */
 	static FORCEINLINE float GetMappedRangeValueClamped(const FVector2D& InputRange, const FVector2D& OutputRange, const float Value)
 	{
 		const float ClampedPct = Clamp<float>(GetRangePct(InputRange, Value), 0.f, 1.f);
@@ -701,7 +663,7 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpEaseIn(const T& A, const T& B, float Alpha, float Exp)
 	{
-		float const ModifiedAlpha = Pow(Alpha, Exp);
+		float const ModifiedAlpha = FMath::Pow(Alpha, Exp);
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
@@ -709,7 +671,7 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpEaseOut(const T& A, const T& B, float Alpha, float Exp)
 	{
-		float const ModifiedAlpha = 1.f - Pow(1.f - Alpha, Exp);
+		float const ModifiedAlpha = 1.f - FMath::Pow(1.f - Alpha, Exp);
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
@@ -717,22 +679,20 @@ struct FMath : public FPlatformMath
 	template< class T > 
 	static FORCEINLINE_DEBUGGABLE T InterpEaseInOut( const T& A, const T& B, float Alpha, float Exp )
 	{
-		return Lerp<T>(A, B, (Alpha < 0.5f) ?
-			InterpEaseIn(0.f, 1.f, Alpha * 2.f, Exp) * 0.5f :
-			InterpEaseOut(0.f, 1.f, Alpha * 2.f - 1.f, Exp) * 0.5f + 0.5f);
+		float const ModifiedAlpha = (Alpha < 0.5f) ?
+			0.5f * Pow(2.f * Alpha, Exp) :
+			1.f - 0.5f * Pow(2.f * (1.f - Alpha), Exp);
+
+		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
 	/** Interpolation between A and B, applying a step function. */
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpStep(const T& A, const T& B, float Alpha, int32 Steps)
 	{
-		if (Steps <= 1 || Alpha <= 0)
+		if (Steps <= 1)
 		{
 			return A;
-		}
-		else if (Alpha >= 1)
-		{
-			return B;
 		}
 
 		const float StepsAsFloat = static_cast<float>(Steps);
@@ -745,7 +705,7 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpSinIn(const T& A, const T& B, float Alpha)
 	{
-		float const ModifiedAlpha = -1.f * Cos(Alpha * HALF_PI) + 1.f;
+		float const ModifiedAlpha = -1.f * cos(Alpha * HALF_PI) + 1.f;
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 	
@@ -753,7 +713,7 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpSinOut(const T& A, const T& B, float Alpha)
 	{
-		float const ModifiedAlpha = Sin(Alpha * HALF_PI);
+		float const ModifiedAlpha = sin(Alpha * HALF_PI);
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
@@ -761,16 +721,16 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpSinInOut(const T& A, const T& B, float Alpha)
 	{
-		return Lerp<T>(A, B, (Alpha < 0.5f) ?
-			InterpSinIn(0.f, 1.f, Alpha * 2.f) * 0.5f :
-			InterpSinOut(0.f, 1.f, Alpha * 2.f - 1.f) * 0.5f + 0.5f);
+		return (Alpha < 0.5f) ?
+			InterpSinIn(A, B, Alpha * 2.f) * 0.5f :
+			InterpSinOut(A, B, Alpha * 2.f - 1.f) * 0.5f + 0.5f;
 	}
 
 	/** Interpolation between A and B, applying an exponential in function. */
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpExpoIn(const T& A, const T& B, float Alpha)
 	{
-		float const ModifiedAlpha = (Alpha == 0.f) ? 0.f : Pow(2.f, 10.f * (Alpha - 1.f));
+		float const ModifiedAlpha = (Alpha == 0.f) ? 0.f : pow(2.f, 10.f * (Alpha - 1.f));
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
@@ -778,7 +738,7 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpExpoOut(const T& A, const T& B, float Alpha)
 	{
-		float const ModifiedAlpha = (Alpha == 1.f) ? 1.f : -Pow(2.f, -10.f * Alpha) + 1.f;
+		float const ModifiedAlpha = (Alpha == 1.f) ? 1.f : -pow(2.f, -10.f * Alpha) + 1.f;
 		return Lerp<T>(A, B, ModifiedAlpha);
 	}
 
@@ -786,9 +746,9 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpExpoInOut(const T& A, const T& B, float Alpha)
 	{
-		return Lerp<T>(A, B, (Alpha < 0.5f) ?
-			InterpExpoIn(0.f, 1.f, Alpha * 2.f) * 0.5f :
-			InterpExpoOut(0.f, 1.f, Alpha * 2.f - 1.f) * 0.5f + 0.5f);
+		return (Alpha < 0.5f) ?
+			InterpExpoIn(A, B, Alpha * 2.f) * 0.5f :
+			InterpExpoOut(A, B, Alpha * 2.f - 1.f) * 0.5f + 0.5f;
 	}
 
 	/** Interpolation between A and B, applying a circular in function. */
@@ -812,18 +772,17 @@ struct FMath : public FPlatformMath
 	template< class T >
 	static FORCEINLINE_DEBUGGABLE T InterpCircularInOut(const T& A, const T& B, float Alpha)
 	{
-		return Lerp<T>(A, B, (Alpha < 0.5f) ?
-			InterpCircularIn(0.f, 1.f, Alpha * 2.f) * 0.5f :
-			InterpCircularOut(0.f, 1.f, Alpha * 2.f - 1.f) * 0.5f + 0.5f);
+		return (Alpha < 0.5f) ?
+			InterpCircularIn(A, B, Alpha * 2.f) * 0.5f :
+			InterpCircularOut(A, B, Alpha * 2.f - 1.f) * 0.5f + 0.5f;
 	}
 
 	// Rotator specific interpolation
-	template< class U > static FRotator Lerp(const FRotator& A, const FRotator& B, const U& Alpha);
-	template< class U > static FRotator LerpRange(const FRotator& A, const FRotator& B, const U& Alpha);
+	template< class U > static FRotator Lerp( const FRotator& A, const FRotator& B, const U& Alpha);
 
 	// Quat-specific interpolation
 
-	template< class U > static FQuat Lerp(const FQuat& A, const FQuat& B, const U& Alpha);
+	template< class U > static FQuat Lerp( const FQuat& A, const FQuat& B, const U& Alpha);
 	template< class U > static FQuat BiLerp(const FQuat& P00, const FQuat& P10, const FQuat& P01, const FQuat& P11, float FracX, float FracY);
 
 	/**
@@ -958,11 +917,8 @@ struct FMath : public FPlatformMath
 	 */
 	static CORE_API bool SphereConeIntersection(const FVector& SphereCenter, float SphereRadius, const FVector& ConeAxis, float ConeAngleSin, float ConeAngleCos);
 
-	/** Find the point on the line segment from LineStart to LineEnd which is closest to Point */
+	/** Find the point on line segment from LineStart to LineEnd which is closest to Point */
 	static CORE_API FVector ClosestPointOnLine(const FVector& LineStart, const FVector& LineEnd, const FVector& Point);
-
-	/** Find the point on the infinite line between two points (LineStart, LineEnd) which is closest to Point */
-	static CORE_API FVector ClosestPointOnInfiniteLine(const FVector& LineStart, const FVector& LineEnd, const FVector& Point);
 
 	/** Compute intersection point of three planes. Return 1 if valid, 0 if infinite. */
 	static bool IntersectPlanes3( FVector& I, const FPlane& P1, const FPlane& P2, const FPlane& P3 );
@@ -977,15 +933,15 @@ struct FMath : public FPlatformMath
 	 * Calculates the distance of a given Point in world space to a given line,
 	 * defined by the vector couple (Origin, Direction).
 	 *
-	 * @param	Point				Point to check distance to line
-	 * @param	Direction			Vector indicating the direction of the line. Not required to be normalized.
-	 * @param	Origin				Point of reference used to calculate distance
+	 * @param	Point				point to check distance to Axis
+	 * @param	Direction			unit vector indicating the direction to check against
+	 * @param	Origin				point of reference used to calculate distance
 	 * @param	OutClosestPoint	optional point that represents the closest point projected onto Axis
 	 *
 	 * @return	distance of Point from line defined by (Origin, Direction)
 	 */
-	static CORE_API float PointDistToLine(const FVector &Point, const FVector &Direction, const FVector &Origin, FVector &OutClosestPoint);
-	static CORE_API float PointDistToLine(const FVector &Point, const FVector &Direction, const FVector &Origin);
+	static CORE_API float PointDistToLine(const FVector &Point, const FVector &Line, const FVector &Origin, FVector &OutClosestPoint);
+	static CORE_API float PointDistToLine(const FVector &Point, const FVector &Line, const FVector &Origin);
 
 	/**
 	 * Returns closest point on a segment to a given point.
@@ -1175,61 +1131,32 @@ struct FMath : public FPlatformMath
 	* @param F		Floating point value to convert
 	* @return		The rounded integer
 	*/
-	static FORCEINLINE float RoundFromZero(float F)
-	{
-		return (F < 0.0f) ? FloorToFloat(F) : CeilToFloat(F);
-	}
-
-	static FORCEINLINE double RoundFromZero(double F)
-	{
-		return (F < 0.0) ? FloorToDouble(F) : CeilToDouble(F);
-	}
+	static float RoundFromZero(float F);
+	static double RoundFromZero(double F);
 
 	/**
 	* Converts a floating point number to an integer which is closer to zero, "smaller" in absolute value: 0.1 becomes 0, -0.1 becomes 0
 	* @param F		Floating point value to convert
 	* @return		The rounded integer
 	*/
-	static FORCEINLINE float RoundToZero(float F)
-	{
-		return (F < 0.0f) ? CeilToFloat(F) : FloorToFloat(F);
-	}
-
-	static FORCEINLINE double RoundToZero(double F)
-	{
-		return (F < 0.0) ? CeilToDouble(F) : FloorToDouble(F);
-	}
+	static float RoundToZero(float F);
+	static double RoundToZero(double F);
 
 	/**
 	* Converts a floating point number to an integer which is more negative: 0.1 becomes 0, -0.1 becomes -1
 	* @param F		Floating point value to convert
 	* @return		The rounded integer
 	*/
-	static FORCEINLINE float RoundToNegativeInfinity(float F)
-	{
-		return FloorToFloat(F);
-	}
-
-	static FORCEINLINE double RoundToNegativeInfinity(double F)
-	{
-		return FloorToDouble(F);
-	}
+	static float RoundToNegativeInfinity(float F);
+	static double RoundToNegativeInfinity(double F);
 
 	/**
 	* Converts a floating point number to an integer which is more positive: 0.1 becomes 1, -0.1 becomes 0
 	* @param F		Floating point value to convert
 	* @return		The rounded integer
 	*/
-	static FORCEINLINE float RoundToPositiveInfinity(float F)
-	{
-		return CeilToFloat(F);
-	}
-
-	static FORCEINLINE double RoundToPositiveInfinity(double F)
-	{
-		return CeilToDouble(F);
-	}
-
+	static float RoundToPositiveInfinity(float F);
+	static double RoundToPositiveInfinity(double F);
 
 	// Formatting functions
 
@@ -1239,7 +1166,7 @@ struct FMath : public FPlatformMath
 	 * @param	Val		The value to use
 	 * @return	FString	The human readable string
 	 */
-	static CORE_API FString FormatIntToHumanReadable(int32 Val);
+	static FString FormatIntToHumanReadable(int32 Val);
 
 
 	// Utilities
@@ -1386,3 +1313,35 @@ struct FMath : public FPlatformMath
 		return Quantize8UnsignedByte(y);
 	}
 };
+
+// Platform specific vector intrinsics include.
+#if WITH_DIRECTXMATH
+	#define SIMD_ALIGNMENT (16)
+	#include "UnrealMathDirectX.h"
+#elif PLATFORM_ENABLE_VECTORINTRINSICS
+	#define SIMD_ALIGNMENT (16)
+	#include "UnrealMathSSE.h"
+#elif PLATFORM_ENABLE_VECTORINTRINSICS_NEON
+	#define SIMD_ALIGNMENT (16)
+	#include "UnrealMathNeon.h"
+#else
+	#define SIMD_ALIGNMENT (4)
+	#include "UnrealMathFPU.h"
+#endif
+
+// 'Cross-platform' vector intrinsics (built on the platform-specific ones defined above)
+#include "UnrealMathVectorCommon.h"
+
+/** Vector that represents (1/255,1/255,1/255,1/255) */
+extern CORE_API const VectorRegister VECTOR_INV_255;
+
+/**
+* Below this weight threshold, animations won't be blended in.
+*/
+#define ZERO_ANIMWEIGHT_THRESH (0.00001f)
+
+namespace GlobalVectorConstants
+{
+	static const VectorRegister AnimWeightThreshold = MakeVectorRegister( ZERO_ANIMWEIGHT_THRESH, ZERO_ANIMWEIGHT_THRESH, ZERO_ANIMWEIGHT_THRESH, ZERO_ANIMWEIGHT_THRESH );
+	static const VectorRegister RotationSignificantThreshold = MakeVectorRegister( 1.0f - DELTA*DELTA, 1.0f - DELTA*DELTA, 1.0f - DELTA*DELTA, 1.0f - DELTA*DELTA );
+}

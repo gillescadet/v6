@@ -178,7 +178,7 @@ struct FInstancedStaticMeshVertexFactory : public FLocalVertexFactory
 {
 	DECLARE_VERTEX_FACTORY_TYPE(FInstancedStaticMeshVertexFactory);
 public:
-	struct FDataType : public FLocalVertexFactory::FDataType
+	struct DataType : public FLocalVertexFactory::DataType
 	{
 		/** The stream to read the mesh transform from. */
 		FVertexStreamComponent InstanceOriginComponent;
@@ -202,14 +202,14 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		OutEnvironment.SetDefine(TEXT("USE_INSTANCING"),TEXT("1"));
-		OutEnvironment.SetDefine(TEXT("USE_DITHERED_LOD_TRANSITION_FOR_INSTANCED"), ALLOW_DITHERED_LOD_FOR_INSTANCED_STATIC_MESHES);
+		OutEnvironment.SetDefine(TEXT("USE_DITHERED_LOD_TRANSITION_FOR_INSTANCED"), ALLOW_DITHERED_LOD_FOR_INSTANCED_STATIC_MESHES ? TEXT("1") : TEXT("0"));
 		FLocalVertexFactory::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
 	}
 
 	/**
 	 * An implementation of the interface used by TSynchronizedResource to update the resource with new data from the game thread.
 	 */
-	void SetData(const FDataType& InData)
+	void SetData(const DataType& InData)
 	{
 		Data = InData;
 		UpdateRHI();
@@ -237,16 +237,15 @@ public:
 	*/
 	virtual uint64 GetStaticBatchElementVisibility(const class FSceneView& View, const struct FMeshBatch* Batch) const override
 	{
-		const uint32 NumBits = NumBitsForVisibilityMask();
-		const uint32 NumElements = FMath::Min((uint32)Batch->Elements.Num(), NumBits);
-		return NumElements == NumBits ? ~0ULL : (1ULL << (uint64)NumElements) - 1ULL;
+		uint32 NumElements = FMath::Min((uint32)Batch->Elements.Num(), NumBitsForVisibilityMask());
+		return (1ULL << (uint64)NumElements) - 1ULL;
 	}
 #if ALLOW_DITHERED_LOD_FOR_INSTANCED_STATIC_MESHES
 	virtual bool SupportsNullPixelShader() const override { return false; }
 #endif
 
 private:
-	FDataType Data;
+	DataType Data;
 };
 
 

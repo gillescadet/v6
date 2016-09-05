@@ -1,16 +1,12 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
-#include "Engine/AssetUserData.h"
 #include "Animation/AnimSequence.h"
 #include "AnimationUtils.h"
 #include "Animation/AnimInstanceProxy.h"
 
 #define LEADERSCORE_ALWAYSLEADER  	2.f
 #define LEADERSCORE_MONTAGE			3.f
-
-FVector FRootMotionMovementParams::RootMotionScale(1.0f, 1.0f, 1.0f);
-
 //////////////////////////////////////////////////////////////////////////
 // FAnimGroupInstance
 
@@ -210,31 +206,26 @@ void UAnimationAsset::TickAssetPlayerInstance(FAnimTickRecord& Instance, class U
 }
 
 #if WITH_EDITOR
-void UAnimationAsset::RemapTracksToNewSkeleton(USkeleton* NewSkeleton, bool bConvertSpaces)
-{
-	SetSkeleton(NewSkeleton);
-}
-
 bool UAnimationAsset::ReplaceSkeleton(USkeleton* NewSkeleton, bool bConvertSpaces/*=false*/)
 {
 	// if it's not same 
 	if (NewSkeleton != Skeleton)
 	{
 		// get all sequences that need to change
-		TArray<UAnimationAsset*> AnimAssetsToReplace;
-
+		TArray<UAnimSequence*> AnimSeqsToReplace;
 		if (UAnimSequence* AnimSequence = Cast<UAnimSequence>(this))
 		{
-			AnimAssetsToReplace.AddUnique(AnimSequence);
+			AnimSeqsToReplace.AddUnique(AnimSequence);
 		}
-		if (GetAllAnimationSequencesReferred(AnimAssetsToReplace))
+		if (GetAllAnimationSequencesReferred(AnimSeqsToReplace))
 		{
-			for (auto Iter = AnimAssetsToReplace.CreateIterator(); Iter; ++Iter)
+			for (auto Iter = AnimSeqsToReplace.CreateIterator(); Iter; ++Iter)
 			{
-				UAnimationAsset* IterAsset = (*Iter);
-				// these two are different functions for now
-				// technically if you have implementation for Remap, it will also set skeleton 
-				IterAsset->RemapTracksToNewSkeleton(NewSkeleton, bConvertSpaces);
+				UAnimSequence* AnimSeq = *Iter;
+				if (AnimSeq && AnimSeq->Skeleton != NewSkeleton)
+				{
+					AnimSeq->RemapTracksToNewSkeleton(NewSkeleton, bConvertSpaces);
+				}
 			}
 		}
 
@@ -248,19 +239,12 @@ bool UAnimationAsset::ReplaceSkeleton(USkeleton* NewSkeleton, bool bConvertSpace
 	return false;
 }
 
-bool UAnimationAsset::GetAllAnimationSequencesReferred(TArray<UAnimationAsset*>& AnimationSequences)
+bool UAnimationAsset::GetAllAnimationSequencesReferred(TArray<UAnimSequence*>& AnimationSequences)
 {
 	return false;
 }
 
-void UAnimationAsset::HandleAnimReferenceCollection(TArray<UAnimationAsset*>& AnimationAssets) 
-{
-	AnimationAssets.AddUnique(this);
-	// anim sequence still should call this
-	GetAllAnimationSequencesReferred(AnimationAssets);
-}
-
-void UAnimationAsset::ReplaceReferredAnimations(const TMap<UAnimationAsset*, UAnimationAsset*>& ReplacementMap)
+void UAnimationAsset::ReplaceReferredAnimations(const TMap<UAnimSequence*, UAnimSequence*>& ReplacementMap)
 {
 }
 
@@ -300,52 +284,7 @@ void UAnimationAsset::ValidateSkeleton()
 	{
 		// reset Skeleton
 		ResetSkeleton(Skeleton);
-		UE_LOG(LogAnimation, Verbose, TEXT("Needed to reset skeleton. Resave this asset to speed up load time: %s"), *GetPathNameSafe(this));
 	}
-}
-
-void UAnimationAsset::AddAssetUserData(UAssetUserData* InUserData)
-{
-	if (InUserData != NULL)
-	{
-		UAssetUserData* ExistingData = GetAssetUserDataOfClass(InUserData->GetClass());
-		if (ExistingData != NULL)
-		{
-			AssetUserData.Remove(ExistingData);
-		}
-		AssetUserData.Add(InUserData);
-	}
-}
-
-UAssetUserData* UAnimationAsset::GetAssetUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass)
-{
-	for (int32 DataIdx = 0; DataIdx < AssetUserData.Num(); DataIdx++)
-	{
-		UAssetUserData* Datum = AssetUserData[DataIdx];
-		if (Datum != NULL && Datum->IsA(InUserDataClass))
-		{
-			return Datum;
-		}
-	}
-	return NULL;
-}
-
-void UAnimationAsset::RemoveUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass)
-{
-	for (int32 DataIdx = 0; DataIdx < AssetUserData.Num(); DataIdx++)
-	{
-		UAssetUserData* Datum = AssetUserData[DataIdx];
-		if (Datum != NULL && Datum->IsA(InUserDataClass))
-		{
-			AssetUserData.RemoveAt(DataIdx);
-			return;
-		}
-	}
-}
-
-const TArray<UAssetUserData*>* UAnimationAsset::GetAssetUserDataArray() const
-{
-	return &AssetUserData;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -386,11 +325,6 @@ void FBoneContainer::InitializeTo(const TArray<FBoneIndexType>& InRequiredBoneIn
 
 	Initialize();
 }
-
-struct FBoneContainerScratchArea : public TThreadSingleton<FBoneContainerScratchArea>
-{
-	TArray<int32> MeshIndexToCompactPoseIndex;
-};
 
 void FBoneContainer::Initialize()
 {
@@ -437,7 +371,7 @@ void FBoneContainer::Initialize()
 	}
 
 	// Clear remapping table
-	SkeletonToPoseBoneIndexArray.Reset();
+	SkeletonToPoseBoneIndexArray.Empty();
 
 	// Cache our mapping tables
 	// Here we create look up tables between our target asset and its USkeleton's refpose.
@@ -455,56 +389,38 @@ void FBoneContainer::Initialize()
 
 	//Set up compact pose data
 	int32 NumReqBones = BoneIndicesArray.Num();
-	CompactPoseParentBones.Reset(NumReqBones);
-
-	CompactPoseRefPoseBones.Reset(NumReqBones);
+	CompactPoseParentBones.Empty(NumReqBones);
+	
+	CompactPoseRefPoseBones.Empty(NumReqBones);
 	CompactPoseRefPoseBones.AddUninitialized(NumReqBones);
-
-	CompactPoseToSkeletonIndex.Reset(NumReqBones);
+	
+	CompactPoseToSkeletonIndex.Empty(NumReqBones);
 	CompactPoseToSkeletonIndex.AddUninitialized(NumReqBones);
-
-	SkeletonToCompactPose.Reset(SkeletonToPoseBoneIndexArray.Num());
+	
+	SkeletonToCompactPose.Empty(SkeletonToPoseBoneIndexArray.Num());
 
 	const TArray<FTransform>& RefPoseArray = RefSkeleton->GetRefBonePose();
-	TArray<int32>& MeshIndexToCompactPoseIndex = FBoneContainerScratchArea::Get().MeshIndexToCompactPoseIndex;
-	MeshIndexToCompactPoseIndex.Reset(PoseToSkeletonBoneIndexArray.Num());
-	MeshIndexToCompactPoseIndex.AddUninitialized(PoseToSkeletonBoneIndexArray.Num());
 
-	for (int32& Item : MeshIndexToCompactPoseIndex)
-	{
-		Item = -1;
-	}
-		
 	for (int32 CompactBoneIndex = 0; CompactBoneIndex < NumReqBones; ++CompactBoneIndex)
 	{
 		FBoneIndexType MeshPoseIndex = BoneIndicesArray[CompactBoneIndex];
-		MeshIndexToCompactPoseIndex[MeshPoseIndex] = CompactBoneIndex;
 
 		//Parent Bone
 		const int32 ParentIndex = GetParentBoneIndex(MeshPoseIndex);
-		const int32 CompactParentIndex = ParentIndex == INDEX_NONE ? INDEX_NONE : MeshIndexToCompactPoseIndex[ParentIndex];
+		const int32 CompactParentIndex = ParentIndex == INDEX_NONE ? INDEX_NONE : BoneIndicesArray.IndexOfByKey(ParentIndex);
 
 		CompactPoseParentBones.Add(FCompactPoseBoneIndex(CompactParentIndex));
-	}
 
-	//Ref Pose
-	for (int32 CompactBoneIndex = 0; CompactBoneIndex < NumReqBones; ++CompactBoneIndex)
-	{
-		FBoneIndexType MeshPoseIndex = BoneIndicesArray[CompactBoneIndex];
+		//Ref Pose
 		CompactPoseRefPoseBones[CompactBoneIndex] = RefPoseArray[MeshPoseIndex];
-	}
 
-	for (int32 CompactBoneIndex = 0; CompactBoneIndex < NumReqBones; ++CompactBoneIndex)
-	{
-		FBoneIndexType MeshPoseIndex = BoneIndicesArray[CompactBoneIndex];
 		CompactPoseToSkeletonIndex[CompactBoneIndex] = PoseToSkeletonBoneIndexArray[MeshPoseIndex];
 	}
-
 
 	for (int32 SkeletonBoneIndex = 0; SkeletonBoneIndex < SkeletonToPoseBoneIndexArray.Num(); ++SkeletonBoneIndex)
 	{
 		int32 PoseBoneIndex = SkeletonToPoseBoneIndexArray[SkeletonBoneIndex];
-		int32 CompactIndex = (PoseBoneIndex != INDEX_NONE) ? MeshIndexToCompactPoseIndex[PoseBoneIndex] : INDEX_NONE;
+		int32 CompactIndex  = (PoseBoneIndex != INDEX_NONE) ? (BoneIndicesArray.IndexOfByKey(PoseBoneIndex)) : INDEX_NONE;
 		SkeletonToCompactPose.Add(FCompactPoseBoneIndex(CompactIndex));
 	}
 }
@@ -575,52 +491,44 @@ void FBlendSampleData::NormalizeDataWeight(TArray<FBlendSampleData>& SampleDataL
 	float TotalSum = 0.f;
 
 	check(SampleDataList.Num() > 0);
-	const int32 NumBones = SampleDataList[0].PerBoneBlendData.Num();
+	int32 NumBones = SampleDataList[0].PerBoneBlendData.Num();
 
 	TArray<float> PerBoneTotalSums;
 	PerBoneTotalSums.AddZeroed(NumBones);
 
-	for (int32 PoseIndex = 0; PoseIndex < SampleDataList.Num(); PoseIndex++)
+	for(int32 I = 0; I < SampleDataList.Num(); ++I)
 	{
-		checkf(SampleDataList[PoseIndex].PerBoneBlendData.Num() == NumBones, TEXT("Attempted to normalise a blend sample list, but the samples have differing numbers of bones."));
+		checkf(SampleDataList[I].PerBoneBlendData.Num() == NumBones, TEXT("Attempted to normalise a blend sample list, but the samples have differing numbers of bones."));
 
-		TotalSum += SampleDataList[PoseIndex].GetWeight();
+		TotalSum += SampleDataList[I].GetWeight();
 
-		if (SampleDataList[PoseIndex].PerBoneBlendData.Num() > 0)
+		if(SampleDataList[I].PerBoneBlendData.Num() > 0)
 		{
 			// now interpolate the per bone weights
-			for (int32 BoneIndex = 0; BoneIndex<NumBones; BoneIndex++)
+			for(int32 Iter = 0; Iter<SampleDataList[I].PerBoneBlendData.Num(); ++Iter)
 			{
-				PerBoneTotalSums[BoneIndex] += SampleDataList[PoseIndex].PerBoneBlendData[BoneIndex];
+				PerBoneTotalSums[Iter] += SampleDataList[I].PerBoneBlendData[Iter];
 			}
 		}
 	}
 
-	// Re-normalize Pose weight
-	if (ensure(TotalSum > ZERO_ANIMWEIGHT_THRESH))
+	if(ensure(TotalSum > ZERO_ANIMWEIGHT_THRESH))
 	{
-		if (FMath::Abs<float>(TotalSum - 1.f) > ZERO_ANIMWEIGHT_THRESH)
+		for(int32 I = 0; I < SampleDataList.Num(); ++I)
 		{
-			for (int32 PoseIndex = 0; PoseIndex < SampleDataList.Num(); PoseIndex++)
+			if(FMath::Abs<float>(TotalSum - 1.f) > ZERO_ANIMWEIGHT_THRESH)
 			{
-				SampleDataList[PoseIndex].TotalWeight /= TotalSum;
+				SampleDataList[I].TotalWeight /= TotalSum;
 			}
-		}
-	}
 
-	// Re-normalize per bone weights.
-	for (int32 BoneIndex = 0; BoneIndex < NumBones; BoneIndex++)
-	{
-		if (ensure(PerBoneTotalSums[BoneIndex] > ZERO_ANIMWEIGHT_THRESH))
-		{
-			if (FMath::Abs<float>(PerBoneTotalSums[BoneIndex] - 1.f) > ZERO_ANIMWEIGHT_THRESH)
+			// now interpolate the per bone weights
+			for(int32 Iter = 0; Iter < SampleDataList[I].PerBoneBlendData.Num(); ++Iter)
 			{
-				for (int32 PoseIndex = 0; PoseIndex < SampleDataList.Num(); PoseIndex++)
+				if(FMath::Abs<float>(PerBoneTotalSums[Iter] - 1.f) > ZERO_ANIMWEIGHT_THRESH)
 				{
-					SampleDataList[PoseIndex].PerBoneBlendData[BoneIndex] /= PerBoneTotalSums[BoneIndex];
+					SampleDataList[I].PerBoneBlendData[Iter] /= PerBoneTotalSums[Iter];
 				}
 			}
 		}
 	}
 }
-

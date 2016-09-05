@@ -7,7 +7,7 @@
 UAbilityTask::UAbilityTask(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	WaitStateBitMask = (uint8)EAbilityTaskWaitState::WaitingOnGame;
+	WaitState = EAbilityTaskWaitState::WaitingOnGame;
 }
 
 FGameplayAbilitySpecHandle UAbilityTask::GetAbilitySpecHandle() const
@@ -61,36 +61,17 @@ void UAbilityTask::SetWaitingOnRemotePlayerData()
 {
 	if (Ability && IsPendingKill() == false && AbilitySystemComponent)
 	{
-		WaitStateBitMask |= (uint8)EAbilityTaskWaitState::WaitingOnUser;
+		WaitState = EAbilityTaskWaitState::WaitingOnUser;
 		Ability->NotifyAbilityTaskWaitingOnPlayerData(this);
 	}
 }
 
 void UAbilityTask::ClearWaitingOnRemotePlayerData()
 {
-	WaitStateBitMask &= ~((uint8)EAbilityTaskWaitState::WaitingOnUser);
+	WaitState = EAbilityTaskWaitState::WaitingOnGame;
 }
 
 bool UAbilityTask::IsWaitingOnRemotePlayerdata() const
 {
-	return (WaitStateBitMask & (uint8)EAbilityTaskWaitState::WaitingOnUser) != 0;
-}
-
-void UAbilityTask::SetWaitingOnAvatar()
-{
-	if (Ability && IsPendingKill() == false && AbilitySystemComponent)
-	{
-		WaitStateBitMask |= (uint8)EAbilityTaskWaitState::WaitingOnAvatar;
-		Ability->NotifyAbilityTaskWaitingOnAvatar(this);
-	}
-}
-
-void UAbilityTask::ClearWaitingOnAvatar()
-{
-	WaitStateBitMask &= ~((uint8)EAbilityTaskWaitState::WaitingOnAvatar);
-}
-
-bool UAbilityTask::IsWaitingOnAvatar() const
-{
-	return (WaitStateBitMask & (uint8)EAbilityTaskWaitState::WaitingOnAvatar) != 0;
+	return (WaitState == EAbilityTaskWaitState::WaitingOnUser);
 }

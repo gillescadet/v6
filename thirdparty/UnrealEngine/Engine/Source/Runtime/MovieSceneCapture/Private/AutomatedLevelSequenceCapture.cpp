@@ -7,11 +7,6 @@
 #include "ErrorCodes.h"
 #include "SceneViewport.h"
 #include "ActiveMovieSceneCaptures.h"
-#include "JsonObjectConverter.h"
-#include "LevelSequenceBurnIn.h"
-#include "Tracks/MovieSceneCinematicShotTrack.h"
-#include "Sections/MovieSceneCinematicShotSection.h"
-#include "MovieSceneCaptureHelpers.h"
 
 UAutomatedLevelSequenceCapture::UAutomatedLevelSequenceCapture(const FObjectInitializer& Init)
 	: Super(Init)
@@ -28,12 +23,9 @@ UAutomatedLevelSequenceCapture::UAutomatedLevelSequenceCapture(const FObjectInit
 	EndFrame = 1;
 	WarmUpFrameCount = 0;
 	DelayBeforeWarmUp = 0.0f;
-	bWriteEditDecisionList = true;
 
 	RemainingDelaySeconds = 0.0f;
 	RemainingWarmUpFrames = 0;
-
-	BurnInOptions = Init.CreateDefaultSubobject<ULevelSequenceBurnInOptions>(this, "BurnInOptions");
 #endif
 }
 
@@ -42,14 +34,6 @@ UAutomatedLevelSequenceCapture::UAutomatedLevelSequenceCapture(const FObjectInit
 void UAutomatedLevelSequenceCapture::SetLevelSequenceAsset(FString AssetPath)
 {
 	LevelSequenceAsset = MoveTemp(AssetPath);
-}
-
-void UAutomatedLevelSequenceCapture::AddFormatMappings(TMap<FString, FStringFormatArg>& OutFormatMappings, const FFrameMetrics& FrameMetrics) const
-{
-	OutFormatMappings.Add(TEXT("shot"), CachedState.CurrentShotName.ToString());
-
-	const int32 FrameNumber = FMath::RoundToInt(CachedState.CurrentShotLocalTime * CachedState.Settings.FrameRate);
-	OutFormatMappings.Add(TEXT("shot_frame"), FString::Printf(*FrameNumberFormat, FrameNumber));
 }
 
 void UAutomatedLevelSequenceCapture::Initialize(TSharedPtr<FSceneViewport> InViewport, int32 PIEInstance)
@@ -123,7 +107,7 @@ void UAutomatedLevelSequenceCapture::Initialize(TSharedPtr<FSceneViewport> InVie
 		if (Asset)
 		{
 			// Spawn a new actor
-			Actor = InViewport->GetClient()->GetWorld()->SpawnActor<ALevelSequenceActor>();
+			Actor = GWorld->SpawnActor<ALevelSequenceActor>();
 			Actor->SetSequence(Asset);
 			// Ensure it doesn't loop (-1 is indefinite)
 			Actor->PlaybackSettings.LoopCount = 0;
@@ -138,9 +122,6 @@ void UAutomatedLevelSequenceCapture::Initialize(TSharedPtr<FSceneViewport> InVie
 
 	if (Actor)
 	{
-		Actor->BurnInOptions = BurnInOptions;
-		Actor->RefreshBurnIn();
-
 		// Make sure we're not playing yet (in case AutoPlay was called from BeginPlay)
 		if( Actor->SequencePlayer != nullptr && Actor->SequencePlayer->IsPlaying() )
 		{
@@ -258,21 +239,27 @@ void UAutomatedLevelSequenceCapture::Tick(float DeltaSeconds)
 	}
 	else if( CaptureState == ELevelSequenceCaptureState::ReadyToWarmUp )
 	{
-		Actor->SequencePlayer->SetSnapshotSettings(FLevelSequenceSnapshotSettings(Settings.ZeroPadFrameNumbers, Settings.FrameRate));
-		Actor->SequencePlayer->StartPlayingNextTick();
-		// Start warming up
+		Actor->SequencePlayer->Play();
 		CaptureState = ELevelSequenceCaptureState::WarmingUp;
 	}
 
-	// Count down our warm up frames.
-	// The post increment is important - it ensures we capture the very first frame if there are no warm up frames,
-	// but correctly skip n frames if there are n warmup frames
-	if( CaptureState == ELevelSequenceCaptureState::WarmingUp && RemainingWarmUpFrames-- == 0)
+
+	if( CaptureState == ELevelSequenceCaptureState::WarmingUp )
 	{
-		// Start capturing - this will capture the *next* update from sequencer
-		CaptureState = ELevelSequenceCaptureState::FinishedWarmUp;
-		UpdateFrameState();
-		StartCapture();
+		// Count down our warm up frames
+		if( RemainingWarmUpFrames == 0 )
+		{
+			CaptureState = ELevelSequenceCaptureState::FinishedWarmUp;
+
+			// It's time to start capturing!
+			StartCapture();
+			CaptureThisFrame(LastSequenceUpdateDelta);
+		}
+		else
+		{
+			// Not ready to capture just yet
+			--RemainingWarmUpFrames;
+		}
 	}
 
 	if( bCapturing && !Actor->SequencePlayer->IsPlaying() )
@@ -284,122 +271,11 @@ void UAutomatedLevelSequenceCapture::Tick(float DeltaSeconds)
 
 void UAutomatedLevelSequenceCapture::SequenceUpdated(const ULevelSequencePlayer& Player, float CurrentTime, float PreviousTime)
 {
+	LastSequenceUpdateDelta = CurrentTime - PreviousTime;
 	if (bCapturing)
 	{
-		UpdateFrameState();
-		CaptureThisFrame(CurrentTime - PreviousTime);
+		CaptureThisFrame(LastSequenceUpdateDelta);
 	}
 }
-
-void UAutomatedLevelSequenceCapture::UpdateFrameState()
-{
-	ALevelSequenceActor* Actor = LevelSequenceActor.Get();
-
-	if (Actor && Actor->SequencePlayer)
-	{
-		Actor->SequencePlayer->TakeFrameSnapshot(CachedState);
-	}
-}
-
-void UAutomatedLevelSequenceCapture::LoadFromConfig()
-{
-	UMovieSceneCapture::LoadFromConfig();
-
-	BurnInOptions->LoadConfig();
-	BurnInOptions->ResetSettings();
-	if (BurnInOptions->Settings)
-	{
-		BurnInOptions->Settings->LoadConfig();
-	}
-}
-
-void UAutomatedLevelSequenceCapture::SaveToConfig()
-{
-	BurnInOptions->SaveConfig();
-	if (BurnInOptions->Settings)
-	{
-		BurnInOptions->Settings->SaveConfig();
-	}
-
-	UMovieSceneCapture::SaveToConfig();
-}
-
-void UAutomatedLevelSequenceCapture::Close()
-{
-	Super::Close();
-
-	ExportEDL();
-}
-
-void UAutomatedLevelSequenceCapture::SerializeAdditionalJson(FJsonObject& Object)
-{
-	TSharedRef<FJsonObject> OptionsContainer = MakeShareable(new FJsonObject);
-	if (FJsonObjectConverter::UStructToJsonObject(BurnInOptions->GetClass(), BurnInOptions, OptionsContainer, 0, 0))
-	{
-		Object.SetField(TEXT("BurnInOptions"), MakeShareable(new FJsonValueObject(OptionsContainer)));
-	}
-
-	if (BurnInOptions->Settings)
-	{
-		TSharedRef<FJsonObject> SettingsDataObject = MakeShareable(new FJsonObject);
-		if (FJsonObjectConverter::UStructToJsonObject(BurnInOptions->Settings->GetClass(), BurnInOptions->Settings, SettingsDataObject, 0, 0))
-		{
-			Object.SetField(TEXT("BurnInOptionsInitSettings"), MakeShareable(new FJsonValueObject(SettingsDataObject)));
-		}
-	}
-}
-
-void UAutomatedLevelSequenceCapture::DeserializeAdditionalJson(const FJsonObject& Object)
-{
-	if (!BurnInOptions)
-	{
-		BurnInOptions = NewObject<ULevelSequenceBurnInOptions>(this, "BurnInOptions");
-	}
-
-	TSharedPtr<FJsonValue> OptionsContainer = Object.TryGetField(TEXT("BurnInOptions"));
-	if (OptionsContainer.IsValid())
-	{
-		FJsonObjectConverter::JsonAttributesToUStruct(OptionsContainer->AsObject()->Values, BurnInOptions->GetClass(), BurnInOptions, 0, 0);
-	}
-
-	BurnInOptions->ResetSettings();
-	if (BurnInOptions->Settings)
-	{
-		TSharedPtr<FJsonValue> SettingsDataObject = Object.TryGetField(TEXT("BurnInOptionsInitSettings"));
-		if (SettingsDataObject.IsValid())
-		{
-			FJsonObjectConverter::JsonAttributesToUStruct(SettingsDataObject->AsObject()->Values, BurnInOptions->Settings->GetClass(), BurnInOptions->Settings, 0, 0);
-		}
-	}
-}
-
-void UAutomatedLevelSequenceCapture::ExportEDL()
-{
-	if (!bWriteEditDecisionList)
-	{
-		return;
-	}
-	
-	ALevelSequenceActor* Actor = LevelSequenceActor.Get();
-	ULevelSequencePlayer* Player = Actor ? Actor->SequencePlayer : nullptr;
-	ULevelSequence* LevelSequence = Player ? Player->GetLevelSequence() : nullptr;
-	UMovieScene* MovieScene = LevelSequence ? LevelSequence->GetMovieScene() : nullptr;
-
-	if (!MovieScene)
-	{
-		return;
-	}
-
-	UMovieSceneCinematicShotTrack* ShotTrack = MovieScene->FindMasterTrack<UMovieSceneCinematicShotTrack>();
-	if (!ShotTrack)
-	{
-		return;
-	}
-
-	FString SaveFilename = 	Settings.OutputDirectory.Path / MovieScene->GetOuter()->GetName();
-
-	MovieSceneCaptureHelpers::ExportEDL(MovieScene, Settings.FrameRate, SaveFilename);
-}
-
 
 #endif

@@ -43,10 +43,10 @@ void AVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	static FName NAME_BrushBuilder(TEXT("BrushBuilder"));
+	static FName BrushBuilder(TEXT("BrushBuilder"));
 
 	// The brush builder that created this volume has changed. Notify listeners
-	if( PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive && PropertyChangedEvent.MemberProperty && PropertyChangedEvent.MemberProperty->GetFName() == NAME_BrushBuilder )
+	if( PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive && PropertyChangedEvent.MemberProperty && PropertyChangedEvent.MemberProperty->GetFName() == BrushBuilder )
 	{
 		OnVolumeShapeChanged.Broadcast(*this);
 	}
@@ -54,33 +54,24 @@ void AVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent
 
 #endif // WITH_EDITOR
 
-bool AVolume::EncompassesPoint(FVector Point, float SphereRadius/*=0.f*/, float* OutDistanceToPoint) const
+bool AVolume::EncompassesPoint(FVector Point, float SphereRadius/*=0.f*/, float* OutDistanceToPoint)
 {
-	if (GetBrushComponent())
+	if(GetBrushComponent())
 	{
 #if WITH_PHYSX
 		FVector ClosestPoint;
-		float DistanceSqr;
-
-		if (GetBrushComponent()->GetSquaredDistanceToCollision(Point, DistanceSqr, ClosestPoint) == false)
-		{
-			if (OutDistanceToPoint)
-			{
-				*OutDistanceToPoint = -1.f;
-			}
-			return false;
-		}
+		float Distance = GetBrushComponent()->GetDistanceToCollision(Point, ClosestPoint);
 #else
 		FBoxSphereBounds Bounds = BrushComponent->CalcBounds(BrushComponent->ComponentToWorld);
-		const float DistanceSqr = Bounds.GetBox().ComputeSquaredDistanceToPoint(Point);
+		float Distance = FMath::Sqrt(Bounds.GetBox().ComputeSquaredDistanceToPoint(Point));
 #endif
 
-		if (OutDistanceToPoint)
+		if(OutDistanceToPoint)
 		{
-			*OutDistanceToPoint = FMath::Sqrt(DistanceSqr);
+			*OutDistanceToPoint = Distance;
 		}
 
-		return DistanceSqr >= 0.f && DistanceSqr <= FMath::Square(SphereRadius);
+		return Distance >= 0.f && Distance <= SphereRadius;
 	}
 	else
 	{

@@ -59,8 +59,8 @@ static FPendingRegistrant* GLastPendingRegistrant = NULL;
 UObjectBase::UObjectBase( EObjectFlags InFlags )
 :	ObjectFlags			(InFlags)
 ,	InternalIndex		(INDEX_NONE)
-,	ClassPrivate		(nullptr)
-,	OuterPrivate		(nullptr)
+,	Class				(NULL)
+,	Outer				(NULL)
 {}
 
 /**
@@ -74,10 +74,10 @@ UObjectBase::UObjectBase( EObjectFlags InFlags )
 UObjectBase::UObjectBase(UClass* InClass, EObjectFlags InFlags, EInternalObjectFlags InInternalFlags, UObject *InOuter, FName InName)
 :	ObjectFlags			(InFlags)
 ,	InternalIndex		(INDEX_NONE)
-,	ClassPrivate		(InClass)
-,	OuterPrivate		(InOuter)
+,	Class				(InClass)
+,	Outer				(InOuter)
 {
-	check(ClassPrivate);
+	check(Class);
 	// Add to global table.
 	AddObject(InName, InInternalFlags);
 }
@@ -89,7 +89,7 @@ UObjectBase::UObjectBase(UClass* InClass, EObjectFlags InFlags, EInternalObjectF
 UObjectBase::~UObjectBase()
 {
 	// If not initialized, skip out.
-	if( UObjectInitialized() && ClassPrivate && !GIsCriticalError )
+	if( UObjectInitialized() && Class && !GIsCriticalError )
 	{
 		// Validate it.
 		check(IsValidLowLevel());
@@ -105,42 +105,15 @@ void UObjectBase::CreateStatID() const
 	SCOPE_CYCLE_COUNTER(STAT_CreateStatID);
 
 	FString LongName;
-	LongName.Reserve(255);
-	TArray<UObjectBase const*, TInlineAllocator<24>> ClassChain;
-	
-	// Build class hierarchy
 	UObjectBase const* Target = this;
-	do
+	do 
 	{
-		ClassChain.Add(Target);
+		LongName = Target->GetFName().GetPlainNameString() + (LongName.IsEmpty() ? TEXT("") : TEXT(".")) + LongName;
 		Target = Target->GetOuter();
 	} while(Target);
-
-	// Start with class name
 	if (GetClass())
 	{
-		GetClass()->GetFName().GetDisplayNameEntry()->AppendNameToString(LongName);
-	}
-
-	// Now process from parent -> child so we can append strings more efficiently.
-	bool bFirstEntry = true;
-	for (int32 i = ClassChain.Num()-1; i >= 0; i--)
-	{
-		Target = ClassChain[i];
-		const FNameEntry* NameEntry = Target->GetFName().GetDisplayNameEntry();
-		if (bFirstEntry)
-		{
-			NameEntry->AppendNameToPathString(LongName);
-		}
-		else
-		{
-			if (!LongName.IsEmpty())
-			{
-				LongName += TEXT(".");
-			}
-			NameEntry->AppendNameToString(LongName);
-		}			
-		bFirstEntry = false;
+		LongName = GetClass()->GetFName().GetPlainNameString() / LongName;
 	}
 
 	StatID = FDynamicStats::CreateStatId<FStatGroup_STATGROUP_UObjects>( LongName );
@@ -157,12 +130,12 @@ void UObjectBase::DeferredRegister(UClass *UClassStaticClass,const TCHAR* Packag
 {
 	check(Internal::GObjInitialized);
 	// Set object properties.
-	OuterPrivate        = CreatePackage(nullptr,PackageName);
-	check(OuterPrivate);
+	Outer        = CreatePackage(NULL,PackageName);
+	check(Outer);
 
 	check(UClassStaticClass);
-	check(!ClassPrivate);
-	ClassPrivate = UClassStaticClass;
+	check(!Class);
+	Class = UClassStaticClass;
 
 	// Add to the global object table.
 	AddObject(FName(InName), EInternalObjectFlags::None);
@@ -178,7 +151,7 @@ void UObjectBase::DeferredRegister(UClass *UClassStaticClass,const TCHAR* Packag
  */
 void UObjectBase::AddObject(FName InName, EInternalObjectFlags InSetInternalFlags)
 {
-	NamePrivate = InName;
+	Name = InName;
 	EInternalObjectFlags InternalFlagsToSet = InSetInternalFlags;
 	if (!IsInGameThread())
 	{
@@ -216,10 +189,10 @@ void UObjectBase::LowLevelRename(FName NewName,UObject *NewOuter)
 	STAT(StatID = TStatId();) // reset the stat id since this thing now has a different name
 	UnhashObject(this);
 	check(InternalIndex >= 0);
-	NamePrivate = NewName;
+	Name = NewName;
 	if (NewOuter)
 	{
-		OuterPrivate = NewOuter;
+		Outer = NewOuter;
 	}
 	HashObject(this);
 }
@@ -230,12 +203,11 @@ void UObjectBase::SetClass(UClass* NewClass)
 
 	UnhashObject(this);
 #if USE_UBER_GRAPH_PERSISTENT_FRAME
-	UClass* OldClass = ClassPrivate;
-	ClassPrivate->DestroyPersistentUberGraphFrame((UObject*)this);
+	Class->DestroyPersistentUberGraphFrame((UObject*)this);
 #endif
-	ClassPrivate = NewClass;
+	Class = NewClass;
 #if USE_UBER_GRAPH_PERSISTENT_FRAME
-	ClassPrivate->CreatePersistentUberGraphFrame((UObject*)this, /*bCreateOnlyIfEmpty =*/false, /*bSkipSuperClass =*/false, OldClass);
+	Class->CreatePersistentUberGraphFrame((UObject*)this);
 #endif
 	HashObject(this);
 }
@@ -252,7 +224,7 @@ bool UObjectBase::IsValidLowLevel() const
 		UE_LOG(LogUObjectBase, Warning, TEXT("NULL object") );
 		return false;
 	}
-	if( !ClassPrivate )
+	if( !Class )
 	{
 		UE_LOG(LogUObjectBase, Warning, TEXT("Object is not registered") );
 		return false;
@@ -276,33 +248,33 @@ bool UObjectBase::IsValidLowLevelFast(bool bRecursive /*= true*/) const
 		UE_LOG(LogUObjectBase, Error, TEXT("\'this\' pointer is misaligned."));
 		return false;
 	}
-	if (*(void**)this == nullptr)
+	if (*(void**)this == NULL)
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("Virtual functions table is invalid."));
 		return false;
 	}
 
 	// These should all be 0.
-	const UPTRINT CheckZero = (ObjectFlags & ~RF_AllFlags) | ((UPTRINT)ClassPrivate & AlignmentCheck) | ((UPTRINT)OuterPrivate & AlignmentCheck);
+	const UPTRINT CheckZero = (ObjectFlags & ~RF_AllFlags) | ((UPTRINT)Class & AlignmentCheck) | ((UPTRINT)Outer & AlignmentCheck);
 	if (!!CheckZero)
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("Object flags are invalid or either Class or Outer is misaligned"));
 		return false;
 	}
 	// These should all be non-NULL (except CDO-alignment check which should be 0)
-	if (ClassPrivate == nullptr || ClassPrivate->ClassDefaultObject == nullptr || ((UPTRINT)ClassPrivate->ClassDefaultObject & AlignmentCheck) != 0)
+	if (Class == NULL || Class->ClassDefaultObject == NULL || ((UPTRINT)Class->ClassDefaultObject & AlignmentCheck) != 0)
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("Class pointer is invalid or CDO is invalid."));
 		return false;
 	}
 	// Avoid infinite recursion so call IsValidLowLevelFast on the class object with bRecirsive = false.
-	if (bRecursive && !ClassPrivate->IsValidLowLevelFast(false))
+	if (bRecursive && !Class->IsValidLowLevelFast(false))
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("Class object failed IsValidLowLevelFast test."));
 		return false;
 	}
 	// Lightweight versions of index checks.
-	if (!GUObjectArray.IsValidIndex(this) || !NamePrivate.IsValidIndexFast())
+	if (!GUObjectArray.IsValidIndex(this) || !Name.IsValidIndexFast())
 	{
 		UE_LOG(LogUObjectBase, Error, TEXT("Object array index or name index is invalid."));
 		return false;
@@ -314,8 +286,8 @@ void UObjectBase::EmitBaseReferences(UClass *RootClass)
 {
 	static const FName ClassPropertyName(TEXT("Class"));
 	static const FName OuterPropertyName(TEXT("Outer"));
-	RootClass->EmitObjectReference(STRUCT_OFFSET(UObjectBase, ClassPrivate), ClassPropertyName);
-	RootClass->EmitObjectReference(STRUCT_OFFSET(UObjectBase, OuterPrivate), OuterPropertyName, GCRT_PersistentObject);
+	RootClass->EmitObjectReference(STRUCT_OFFSET(UObjectBase, Class), ClassPropertyName);
+	RootClass->EmitObjectReference(STRUCT_OFFSET(UObjectBase, Outer), OuterPropertyName, GCRT_PersistentObject);
 }
 
 /** Enqueue the registration for this object. */
@@ -493,6 +465,18 @@ void UObjectCompiledInDeferEnum(class UEnum *(*InRegister)(), const TCHAR* Packa
 
 class UEnum *GetStaticEnum(class UEnum *(*InRegister)(), UObject* EnumOuter, const TCHAR* EnumName)
 {
+#if WITH_HOT_RELOAD
+	if (GIsHotReload)
+	{
+		UEnum* ReturnEnum = FindObject<UEnum>(EnumOuter, EnumName);
+		if (ReturnEnum)
+		{
+			UE_LOG(LogClass, Log, TEXT( "%s HotReload."), EnumName);
+			return ReturnEnum;
+		}
+		UE_LOG(LogClass, Log, TEXT("Could not find existing enum %s for HotReload. Assuming new"), EnumName);
+	}
+#endif
 	return (*InRegister)();
 }
 
@@ -576,7 +560,7 @@ void UClassCompiledInDefer(FFieldCompiledInInfo* ClassInfo, const TCHAR* Name, S
 	if (ExistingClassInfo)
 	{
 		// Class exists, this can only happen during hot-reload
-		checkf(GIsHotReload, TEXT("Trying to recreate class '%s' outside of hot reload!"), *CPPClassName.ToString());
+		check(GIsHotReload);
 
 		// Get the native name
 		FString NameWithoutPrefix(RemoveClassPrefix(Name));
@@ -619,13 +603,21 @@ void UClassCompiledInDefer(FFieldCompiledInInfo* ClassInfo, const TCHAR* Name, S
 	GetDeferredClassRegistration().Add(ClassInfo);
 }
 
-TMap<FName, FDynamicClassStaticData>& GetDynamicClassMap()
+struct FClassConstructFunctions
 {
-	static TMap<FName, FDynamicClassStaticData> DynamicClassMap;
+	/** Autogenerated Z_Construct* function pointer */
+	UClass::StaticClassFunctionType ZConstructFn;
+	/** StaticClass() function pointer */
+	UClass::StaticClassFunctionType StaticClassFn;
+};
+
+TMap<FName, FClassConstructFunctions>& GetDynamicClassMap()
+{
+	static TMap<FName, FClassConstructFunctions> DynamicClassMap;
 	return DynamicClassMap;
 }
 
-void UObjectCompiledInDefer(UClass *(*InRegister)(), UClass *(*InStaticClass)(), const TCHAR* Name, bool bDynamic, const TCHAR* DynamicPathName, void (*InInitSearchableValues)(TMap<FName, FName>&))
+void UObjectCompiledInDefer(UClass *(*InRegister)(), UClass *(*InStaticClass)(), const TCHAR* Name, bool bDynamic, const TCHAR* DynamicPathName)
 {
 	if (!bDynamic)
 	{
@@ -640,13 +632,9 @@ void UObjectCompiledInDefer(UClass *(*InRegister)(), UClass *(*InStaticClass)(),
 	}
 	else
 	{
-		FDynamicClassStaticData ClassFunctions;
+		FClassConstructFunctions ClassFunctions;
 		ClassFunctions.ZConstructFn = InRegister;
 		ClassFunctions.StaticClassFn = InStaticClass;
-		if (InInitSearchableValues)
-		{
-			InInitSearchableValues(ClassFunctions.SelectedSearchableValues);
-		}
 		GetDynamicClassMap().Add(FName(DynamicPathName), ClassFunctions);
 	}
 }
@@ -654,23 +642,20 @@ void UObjectCompiledInDefer(UClass *(*InRegister)(), UClass *(*InStaticClass)(),
 /** Register all loaded classes */
 void UClassRegisterAllCompiledInClasses()
 {
-	TArray<FFieldCompiledInInfo*>& DeferredClassRegistration = GetDeferredClassRegistration();
-	for (const FFieldCompiledInInfo* Class : DeferredClassRegistration)
+	for (auto Class : GetDeferredClassRegistration())
 	{
 		Class->Register();
 	}
-	DeferredClassRegistration.Empty();
+	GetDeferredClassRegistration().Empty();
 }
 
 #if WITH_HOT_RELOAD
 /** Re-instance all existing classes that have changed during hot-reload */
 void UClassReplaceHotReloadClasses()
 {
-	TArray<FFieldCompiledInInfo*>& HotReloadClasses = GetHotReloadClasses();
-
 	if (FCoreUObjectDelegates::RegisterClassForHotReloadReinstancingDelegate.IsBound())
 	{
-		for (const FFieldCompiledInInfo* Class : HotReloadClasses)
+		for (auto Class : GetHotReloadClasses())
 		{
 			check(Class->OldClass);
 
@@ -685,7 +670,7 @@ void UClassReplaceHotReloadClasses()
 	}
 
 	FCoreUObjectDelegates::ReinstanceHotReloadedClassesDelegate.ExecuteIfBound();
-	HotReloadClasses.Empty();
+	GetHotReloadClasses().Empty();
 }
 
 /**
@@ -699,26 +684,21 @@ static void UClassGenerateCDODuplicatesForHotReload()
 		return;
 	}
 
-	const TArray<FFieldCompiledInInfo*>& HotReloadClasses = GetHotReloadClasses();
-	TMap<UObject*, UObject*> DuplicatedCDOMap = GetDuplicatedCDOMap();
-	UPackage* TransientPackage = GetTransientPackage();
-
-	for (UClass* Class : TObjectRange<UClass>())
+	for (FObjectIterator It(UClass::StaticClass()); It; ++It)
 	{
-		UObject* CDO = Class->GetDefaultObject();
+		UClass* Class = (UClass*)*It;
 
-		for (const FFieldCompiledInInfo* HotReloadedClass : HotReloadClasses)
+		for (auto* HotReloadedClass : GetHotReloadClasses())
 		{
 			if (!HotReloadedClass->bHasChanged && Class->IsChildOf(HotReloadedClass->OldClass))
 			{
 				GIsDuplicatingClassForReinstancing = true;
-
-				FName UniqueName = MakeUniqueObjectName(TransientPackage, Class, TEXT("HOTRELOAD_CDO_DUPLICATE"));
-				UObject* DupCDO = StaticDuplicateObject(CDO, TransientPackage, UniqueName);
-
+				UObject* DupCDO = (UObject*)StaticDuplicateObject(
+					Class->GetDefaultObject(), GetTransientPackage(),
+					MakeUniqueObjectName(GetTransientPackage(), Class, TEXT("HOTRELOAD_CDO_DUPLICATE"))
+					);
 				GIsDuplicatingClassForReinstancing = false;
-
-				DuplicatedCDOMap.Add(CDO, DupCDO);
+				GetDuplicatedCDOMap().Add(Class->GetDefaultObject(), DupCDO);
 			}
 		}
 	}
@@ -730,33 +710,38 @@ static void UClassGenerateCDODuplicatesForHotReload()
  */
 static void UObjectLoadAllCompiledInDefaultProperties()
 {
-	TArray<UClass *(*)()>& DeferredCompiledInRegistration = GetDeferredCompiledInRegistration();
-
-	const bool bHaveRegistrants = DeferredCompiledInRegistration.Num() != 0;
+	const bool bHaveRegistrants = GetDeferredCompiledInRegistration().Num() != 0;
 	if( bHaveRegistrants )
 	{
+		TArray<class UClass *(*)()> PendingRegistrants;
 		TArray<UClass*> NewClasses;
-		TArray<UClass* (*)()> PendingRegistrants = MoveTemp(DeferredCompiledInRegistration);
-		for (UClass* (*Registrant)() : PendingRegistrants)
+		PendingRegistrants = GetDeferredCompiledInRegistration();
+		GetDeferredCompiledInRegistration().Empty();
+		for(int32 RegistrantIndex = 0;RegistrantIndex < PendingRegistrants.Num();++RegistrantIndex)
 		{
-			NewClasses.Add(Registrant());
+			NewClasses.Add(PendingRegistrants[RegistrantIndex]());
 		}
-		for (UClass* Class : NewClasses)
+		for (int32 Index = 0; Index < NewClasses.Num(); Index++)
 		{
+			UClass* Class = NewClasses[Index];
 			Class->GetDefaultObject();
 		}
 		FFeedbackContext& ErrorsFC = UClass::GetDefaultPropertiesFeedbackContext();
-		if (ErrorsFC.GetNumErrors() || ErrorsFC.GetNumWarnings())
+		if (ErrorsFC.Errors.Num() || ErrorsFC.Warnings.Num())
 		{
-			TArray<FString> AllErrorsAndWarnings;
-			ErrorsFC.GetErrorsAndWarningsAndEmpty(AllErrorsAndWarnings);
+			TArray<FString> All;
+			All = ErrorsFC.Errors;
+			All += ErrorsFC.Warnings;
+
+			ErrorsFC.Errors.Empty();
+			ErrorsFC.Warnings.Empty();
 
 			FString AllInOne;
 			UE_LOG(LogUObjectBase, Warning, TEXT("-------------- Default Property warnings and errors:"));
-			for (const FString& ErrorOrWarning : AllErrorsAndWarnings)
+			for (int32 Index = 0; Index < All.Num(); Index++)
 			{
-				UE_LOG(LogUObjectBase, Warning, TEXT("%s"), *ErrorOrWarning);
-				AllInOne += ErrorOrWarning;
+				UE_LOG(LogUObjectBase, Warning, TEXT("%s"), *All[Index]);
+				AllInOne += All[Index];
 				AllInOne += TEXT("\n");
 			}
 			FMessageDialog::Open(EAppMsgType::Ok, FText::Format( NSLOCTEXT("Core", "DefaultPropertyWarningAndErrors", "Default Property warnings and errors:\n{0}"), FText::FromString( AllInOne ) ) );
@@ -769,43 +754,52 @@ static void UObjectLoadAllCompiledInDefaultProperties()
  */
 static void UObjectLoadAllCompiledInStructs()
 {
-	TArray<FPendingEnumRegistrant>& DeferredCompiledInEnumRegistration = GetDeferredCompiledInEnumRegistration();
-	TArray<FPendingStructRegistrant>& DeferredCompiledInStructRegistration = GetDeferredCompiledInStructRegistration();
-
 	// Load Enums first
-	if( DeferredCompiledInEnumRegistration.Num() )
+	const bool bHaveEnumRegistrants = GetDeferredCompiledInEnumRegistration().Num() != 0;
+	if( bHaveEnumRegistrants )
 	{
-		TArray<FPendingEnumRegistrant> PendingRegistrants = MoveTemp(DeferredCompiledInEnumRegistration);
+		TArray<FPendingEnumRegistrant> PendingRegistrants;
+		PendingRegistrants = GetDeferredCompiledInEnumRegistration();
+		GetDeferredCompiledInEnumRegistration().Empty();
 		
-		for (const FPendingEnumRegistrant& EnumRegistrant : PendingRegistrants)
+		for (auto& EnumRegistrant : PendingRegistrants)
 		{
 			// Make sure the package exists in case it does not contain any UObjects
-			CreatePackage(nullptr, EnumRegistrant.PackageName);
+			CreatePackage(NULL, EnumRegistrant.PackageName);
 		}
 
-		for (const FPendingEnumRegistrant& EnumRegistrant : PendingRegistrants)
+		for (auto& EnumRegistrant : PendingRegistrants)
 		{
 			EnumRegistrant.RegisterFn();
 		}
 	}
 
 	// Load Structs
-	if( DeferredCompiledInStructRegistration.Num() )
+	const bool bHaveRegistrants = GetDeferredCompiledInStructRegistration().Num() != 0;
+	if( bHaveRegistrants )
 	{
-		TArray<FPendingStructRegistrant> PendingRegistrants = MoveTemp(DeferredCompiledInStructRegistration);
+		TArray<FPendingStructRegistrant> PendingRegistrants;
+		PendingRegistrants = GetDeferredCompiledInStructRegistration();
+		GetDeferredCompiledInStructRegistration().Empty();
 
-		for (const FPendingStructRegistrant& StructRegistrant : PendingRegistrants)
+		for (auto& StructRegistrant : PendingRegistrants)
 		{
 			// Make sure the package exists in case it does not contain any UObjects or UEnums
-			CreatePackage(nullptr, StructRegistrant.PackageName);
+			CreatePackage(NULL, StructRegistrant.PackageName);
 		}
 
-		for (const FPendingStructRegistrant& StructRegistrant : PendingRegistrants)
+		for (auto& StructRegistrant : PendingRegistrants)
 		{
 			StructRegistrant.RegisterFn();
 		}
 	}
 }
+
+bool AnyNewlyLoadedUObjects()
+{
+	return GFirstPendingRegistrant != NULL || GetDeferredCompiledInRegistration().Num() || GetDeferredCompiledInStructRegistration().Num() || GetDeferredCompiledInEnumRegistration().Num();
+}
+
 
 void ProcessNewlyLoadedUObjects()
 {
@@ -816,26 +810,15 @@ void ProcessNewlyLoadedUObjects()
 #endif
 	UClassRegisterAllCompiledInClasses();
 
-	const TArray<UClass* (*)()>& DeferredCompiledInRegistration = GetDeferredCompiledInRegistration();
-	const TArray<FPendingStructRegistrant>& DeferredCompiledInStructRegistration = GetDeferredCompiledInStructRegistration();
-	const TArray<FPendingEnumRegistrant>& DeferredCompiledInEnumRegistration = GetDeferredCompiledInEnumRegistration();
-
-	bool bNewUObjects = false;
-	while( GFirstPendingRegistrant || DeferredCompiledInRegistration.Num() || DeferredCompiledInStructRegistration.Num() || DeferredCompiledInEnumRegistration.Num() )
+	while( AnyNewlyLoadedUObjects() )
 	{
-		bNewUObjects = true;
 		UObjectProcessRegistrants();
 		UObjectLoadAllCompiledInStructs();
-		UObjectLoadAllCompiledInDefaultProperties();
+		UObjectLoadAllCompiledInDefaultProperties();		
 	}
 #if WITH_HOT_RELOAD
 	UClassReplaceHotReloadClasses();
 #endif
-
-	if (bNewUObjects && !GIsInitialLoad)
-	{
-		UClass::AssembleReferenceTokenStreams();
-	}
 }
 
 static int32 GVarMaxObjectsNotConsideredByGC;
@@ -1155,7 +1138,7 @@ UEnum* FindExistingEnumIfHotReloadOrDynamic(UObject* Outer, const TCHAR* EnumNam
 
 UClass::StaticClassFunctionType GetDynamicClassConstructFn(FName ClassPathName)
 {
-	FDynamicClassStaticData* ClassConstructFn = GetDynamicClassMap().Find(ClassPathName);
+	FClassConstructFunctions* ClassConstructFn = GetDynamicClassMap().Find(ClassPathName);
 	UE_CLOG(!ClassConstructFn, LogUObjectBase, Fatal, TEXT("Unable to find construct function pointer for dynamic class %s. Make sure dynamic class exists."), *ClassPathName.ToString());
 	if (ClassConstructFn)
 	{
@@ -1168,12 +1151,9 @@ UClass::StaticClassFunctionType GetDynamicClassConstructFn(FName ClassPathName)
 UObject* ConstructDynamicType(FName TypePathName)
 {
 	UObject* Result = nullptr;
-	if (FDynamicClassStaticData* ClassConstructFn = GetDynamicClassMap().Find(TypePathName))
+	if (FClassConstructFunctions* ClassConstructFn = GetDynamicClassMap().Find(TypePathName))
 	{
-		UClass* DynamicClass = ClassConstructFn->StaticClassFn();
-		check(DynamicClass);
-		DynamicClass->AssembleReferenceTokenStream();
-		Result = DynamicClass;
+		Result = ClassConstructFn->StaticClassFn();
 	}
 	else if (UScriptStruct *(**StaticStructFNPtr)() = GetDynamicStructMap().Find(TypePathName))
 	{

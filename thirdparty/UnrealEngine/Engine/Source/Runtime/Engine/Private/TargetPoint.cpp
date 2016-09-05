@@ -41,7 +41,7 @@ ATargetPoint::ATargetPoint(const FObjectInitializer& ObjectInitializer)
 			SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_TargetPoint;
 			SpriteComponent->bIsScreenSizeScaled = true;
 
-			SpriteComponent->SetupAttachment(SceneComponent);
+			SpriteComponent->AttachParent = SceneComponent;
 		}
 
 		if (ArrowComponent)
@@ -52,7 +52,7 @@ ATargetPoint::ATargetPoint(const FObjectInitializer& ObjectInitializer)
 			ArrowComponent->bTreatAsASprite = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_TargetPoint;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_TargetPoint;
-			ArrowComponent->SetupAttachment(SpriteComponent);
+			ArrowComponent->AttachParent = SpriteComponent;
 			ArrowComponent->bIsScreenSizeScaled = true;
 		}
 	}

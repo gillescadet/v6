@@ -49,12 +49,6 @@ namespace ConvexHull2D
 	template<typename Allocator>
 	void ComputeConvexHull(const TArray<FVector, Allocator>& Points, TArray<int32, Allocator>& OutIndices)
 	{
-		if (Points.Num() == 0)
-		{
-			// Early exit here, otherwise an invalid index will be added to the output.
-			return;
-		}
-
 		// Find lower-leftmost point.
 		int32 HullStart = 0;
 		int32 HullEnd = 0;
@@ -176,12 +170,9 @@ namespace ConvexHull2D
 	template<typename Allocator>
 	void ComputeConvexHull2(const TArray<FVector2D, Allocator>& Points, TArray<int32, Allocator>& OutIndices)
 	{
-		if (Points.Num() == 0)
-		{
-			return;
-		}
-
 		// Jarvis march implementation
+		check(Points.Num() > 0);
+
 		int32 LeftmostIndex = -1;
 		FVector2D Leftmost(FLT_MAX, FLT_MAX);
 

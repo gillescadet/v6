@@ -14,7 +14,6 @@
 #include "SceneUtils.h"
 #include "ShaderCache.h"
 #include "MetalProfiler.h"
-#include "MetalCommandBuffer.h"
 
 static const bool GUsesInvertedZ = true;
 static FGlobalBoundShaderState GClearMRTBoundShaderState[8][2];
@@ -85,29 +84,18 @@ void FMetalRHICommandContext::RHIDispatchComputeShader(uint32 ThreadGroupCountX,
 	ThreadGroupCountX = FMath::Max(ThreadGroupCountX, 1u);
 	ThreadGroupCountY = FMath::Max(ThreadGroupCountY, 1u);
 	ThreadGroupCountZ = FMath::Max(ThreadGroupCountZ, 1u);
-	
-	METAL_DEBUG_COMMAND_BUFFER_DISPATCH_LOG(Context, @"RHIDispatchComputeShader(ThreadGroupCountX %d, ThreadGroupCountY %d, ThreadGroupCountZ %d)", ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ);
-	
 	Context->Dispatch(ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ);
 }
 
 void FMetalRHICommandContext::RHIDispatchIndirectComputeShader(FVertexBufferRHIParamRef ArgumentBufferRHI, uint32 ArgumentOffset)
 {
-#if METAL_API_1_1
-	if (GetMetalDeviceContext().SupportsFeature(EMetalFeaturesIndirectBuffer))
-	{
-		RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeCompute, EMTLSamplePointAfterCompute, 1,1);
-		FMetalVertexBuffer* VertexBuffer = ResourceCast(ArgumentBufferRHI);
-		
-		METAL_DEBUG_COMMAND_BUFFER_DISPATCH_LOG(Context, @"RHIDispatchIndirectComputeShader(ArgumentBufferRHI %p, ArgumentOffset %d)", ArgumentBufferRHI, ArgumentOffset);
-		
-		Context->DispatchIndirect(VertexBuffer, ArgumentOffset);
-	}
-	else
+#if PLATFORM_MAC
+	RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeCompute, EMTLSamplePointAfterCompute, 1,1);
+	FMetalVertexBuffer* VertexBuffer = ResourceCast(ArgumentBufferRHI);
+	Context->DispatchIndirect(VertexBuffer, ArgumentOffset);
+#else
+	NOT_SUPPORTED("RHIDispatchIndirectComputeShader");
 #endif
-	{
-		NOT_SUPPORTED("RHIDispatchIndirectComputeShader");
-	}
 }
 
 void FMetalRHICommandContext::RHISetViewport(uint32 MinX,uint32 MinY,float MinZ,uint32 MaxX,uint32 MaxY,float MaxZ)
@@ -123,11 +111,6 @@ void FMetalRHICommandContext::RHISetViewport(uint32 MinX,uint32 MinY,float MinZ,
 	Context->GetCurrentState().SetViewport(Viewport);
 	
 	FShaderCache::SetViewport(MinX,MinY, MinZ, MaxX, MaxY, MaxZ);
-}
-
-void FMetalRHICommandContext::RHISetStereoViewport(uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ)
-{
-	NOT_SUPPORTED("RHISetStereoViewport");
 }
 
 void FMetalRHICommandContext::RHISetMultipleViewports(uint32 Count, const FViewportBounds* Data)
@@ -154,7 +137,7 @@ void FMetalRHICommandContext::RHISetScissorRect(bool bEnable,uint32 MinX,uint32 
 		Scissor.width = (Viewport.originX + Viewport.width <= FBSize.width) ? Viewport.width : FBSize.width - Viewport.originX;
 		Scissor.height = (Viewport.originY + Viewport.height <= FBSize.height) ? Viewport.height : FBSize.height - Viewport.originY;
 	}
-	Context->GetCurrentState().SetScissorRect(bEnable, Scissor);
+	Context->GetCommandEncoder().SetScissorRect(Scissor);
 }
 
 void FMetalRHICommandContext::RHISetBoundShaderState( FBoundShaderStateRHIParamRef BoundShaderStateRHI)
@@ -172,7 +155,11 @@ void FMetalRHICommandContext::RHISetBoundShaderState( FBoundShaderStateRHIParamR
 void FMetalRHICommandContext::RHISetUAVParameter(FComputeShaderRHIParamRef ComputeShaderRHI, uint32 UAVIndex, FUnorderedAccessViewRHIParamRef UAVRHI)
 {
 	FMetalUnorderedAccessView* UAV = ResourceCast(UAVRHI);
-	Context->SetShaderUnorderedAccessView(SF_Compute, UAVIndex, UAV);
+
+	if (UAV)
+	{
+		UAV->Set(Context, UAVIndex);
+	}
 }
 
 void FMetalRHICommandContext::RHISetUAVParameter(FComputeShaderRHIParamRef ComputeShaderRHI,uint32 UAVIndex,FUnorderedAccessViewRHIParamRef UAVRHI, uint32 InitialCount)
@@ -494,15 +481,10 @@ void FMetalRHICommandContext::RHIDrawPrimitive(uint32 PrimitiveType, uint32 Base
 	uint32 NumVertices = GetVertexCountForPrimitiveCount(NumPrimitives, PrimitiveType);
 
 	// finalize any pending state
-	if(!Context->PrepareToDraw(PrimitiveType))
-	{
-		return;
-	}
+	Context->PrepareToDraw(PrimitiveType);
 
 	uint32 VertexCount = GetVertexCountForPrimitiveCount(NumPrimitives,PrimitiveType);
 	RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, NumPrimitives * NumInstances, VertexCount * NumInstances);
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawPrimitive(PrimitiveType %d, BaseVertexIndex %d, NumPrimitives %d, NumInstances %d)", PrimitiveType, BaseVertexIndex, NumPrimitives, NumInstances);
 	
 	// draw!
 	if(!FShaderCache::IsPredrawCall())
@@ -527,12 +509,7 @@ void FMetalRHICommandContext::RHIDrawPrimitiveIndirect(uint32 PrimitiveType, FVe
 	FMetalVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
 	
 	// finalize any pending state
-	if(!Context->PrepareToDraw(PrimitiveType))
-	{
-		return;
-	}
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawPrimitiveIndirect(PrimitiveType %d, VertexBufferRHI %p, ArgumentOffset %d)", PrimitiveType, VertexBufferRHI, ArgumentOffset);
+	Context->PrepareToDraw(PrimitiveType);
 	
 	if(!FShaderCache::IsPredrawCall())
 	{
@@ -552,9 +529,11 @@ void FMetalRHICommandContext::RHIDrawIndexedPrimitive(FIndexBufferRHIParamRef In
 	uint32 NumVertices, uint32 StartIndex, uint32 NumPrimitives, uint32 NumInstances)
 {
 	SCOPE_CYCLE_COUNTER(STAT_MetalDrawCallTime);
+#if PLATFORM_IOS
 	//checkf(NumInstances == 1, TEXT("Currently only 1 instance is supported"));
-	checkf(GRHISupportsBaseVertexIndex || BaseVertexIndex == 0, TEXT("BaseVertexIndex must be 0, see GRHISupportsBaseVertexIndex"));
-	checkf(GRHISupportsFirstInstance || FirstInstance == 0, TEXT("FirstInstance must be 0, see GRHISupportsFirstInstance"));
+	checkf(BaseVertexIndex  == 0, TEXT("BaseVertexIndex must be 0, see GRHISupportsBaseVertexIndex"));
+	checkf(FirstInstance  == 0, TEXT("FirstInstance is currently unsupported on this RHI"));
+#endif
 	
 	NumInstances = FMath::Max(NumInstances,1u);
 
@@ -565,10 +544,7 @@ void FMetalRHICommandContext::RHIDrawIndexedPrimitive(FIndexBufferRHIParamRef In
 	FMetalIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
 
 	// finalize any pending state
-	if(!Context->PrepareToDraw(PrimitiveType))
-	{
-		return;
-	}
+	Context->PrepareToDraw(PrimitiveType);
 	
 	uint32 NumIndices = GetVertexCountForPrimitiveCount(NumPrimitives, PrimitiveType);
 	if (NumInstances == 0)
@@ -578,116 +554,89 @@ void FMetalRHICommandContext::RHIDrawIndexedPrimitive(FIndexBufferRHIParamRef In
 
 	RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, NumPrimitives * NumInstances, NumVertices * NumInstances);
 	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawIndexedPrimitive(IndexBufferRHI %p, PrimitiveType %d, BaseVertexIndex %d, FirstInstance %d, NumVertices %d, StartIndex %d, NumPrimitives %d, NumInstances %d)", IndexBufferRHI, PrimitiveType, BaseVertexIndex, FirstInstance, NumVertices, StartIndex, NumPrimitives, NumInstances);
-	
 	if(!FShaderCache::IsPredrawCall())
 	{
-#if METAL_API_1_1
-		if (GRHISupportsBaseVertexIndex && GRHISupportsFirstInstance)
-		{
-			[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
-													indexCount:NumIndices
-													 indexType:IndexBuffer->IndexType
-												   indexBuffer:IndexBuffer->Buffer
-											 indexBufferOffset:StartIndex * IndexBuffer->GetStride()
-												 instanceCount:NumInstances
-													baseVertex:BaseVertexIndex
-												  baseInstance:FirstInstance];
-		}
-		else
-#endif
-		{
-			[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
+#if PLATFORM_IOS
+		[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
 												indexCount:NumIndices
 												 indexType:IndexBuffer->IndexType
 											   indexBuffer:IndexBuffer->Buffer
 										 indexBufferOffset:StartIndex * IndexBuffer->GetStride()
 											 instanceCount:NumInstances];
-		}
+#else
+		[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
+												indexCount:NumIndices
+												 indexType:IndexBuffer->IndexType
+											   indexBuffer:IndexBuffer->Buffer
+										 indexBufferOffset:StartIndex * IndexBuffer->GetStride()
+											 instanceCount:NumInstances
+											 baseVertex:BaseVertexIndex
+											 baseInstance:FirstInstance];
+#endif
 		FShaderCache::LogDraw(IndexBuffer->GetStride());
 	}
 }
 
 void FMetalRHICommandContext::RHIDrawIndexedIndirect(FIndexBufferRHIParamRef IndexBufferRHI, uint32 PrimitiveType, FStructuredBufferRHIParamRef VertexBufferRHI, int32 DrawArgumentsIndex, uint32 NumInstances)
 {
-#if METAL_API_1_1
-	if (GetMetalDeviceContext().SupportsFeature(EMetalFeaturesIndirectBuffer))
+#if PLATFORM_IOS
+	NOT_SUPPORTED("RHIDrawIndexedIndirect");
+#else
+	check(NumInstances > 1);
+
+	SCOPE_CYCLE_COUNTER(STAT_MetalDrawCallTime);
+	RHI_DRAW_CALL_STATS(PrimitiveType,1);
+	
+	FMetalIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
+	FMetalStructuredBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
+	
+	// finalize any pending state
+	Context->PrepareToDraw(PrimitiveType);
+	
+	if(!FShaderCache::IsPredrawCall())
 	{
-		check(NumInstances > 1);
+		RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, 1, 1);
 		
-		SCOPE_CYCLE_COUNTER(STAT_MetalDrawCallTime);
-		RHI_DRAW_CALL_STATS(PrimitiveType,1);
-		
-		FMetalIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
-		FMetalStructuredBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
-		
-		// finalize any pending state
-		if(!Context->PrepareToDraw(PrimitiveType))
-		{
-			return;
-		}
-		
-		METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawIndexedIndirect(IndexBufferRHI %p, PrimitiveType %d, VertexBufferRHI %p, DrawArgumentsIndex %d, NumInstances %d)", IndexBufferRHI, PrimitiveType, VertexBufferRHI, DrawArgumentsIndex, NumInstances);
-		
-		if(!FShaderCache::IsPredrawCall())
-		{
-			RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, 1, 1);
-			
-			[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
+		[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
 													 indexType:IndexBuffer->IndexType
 												   indexBuffer:IndexBuffer->Buffer
 											 indexBufferOffset:0
 												indirectBuffer:VertexBuffer->Buffer
 										  indirectBufferOffset:(DrawArgumentsIndex * 5 * sizeof(uint32))];
-			
-			FShaderCache::LogDraw(IndexBuffer->GetStride());
-		}
+		
+		FShaderCache::LogDraw(IndexBuffer->GetStride());
 	}
-	else
 #endif
-	{
-		NOT_SUPPORTED("RHIDrawIndexedIndirect");
-	}
 }
 
 void FMetalRHICommandContext::RHIDrawIndexedPrimitiveIndirect(uint32 PrimitiveType,FIndexBufferRHIParamRef IndexBufferRHI,FVertexBufferRHIParamRef VertexBufferRHI,uint32 ArgumentOffset)
 {
-#if METAL_API_1_1
-	if (GetMetalDeviceContext().SupportsFeature(EMetalFeaturesIndirectBuffer))
+#if PLATFORM_IOS
+	NOT_SUPPORTED("RHIDrawIndexedPrimitiveIndirect");
+#else
+	SCOPE_CYCLE_COUNTER(STAT_MetalDrawCallTime);
+	RHI_DRAW_CALL_STATS(PrimitiveType,1);
+	
+	FMetalIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
+	FMetalVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
+	
+	// finalize any pending state
+	Context->PrepareToDraw(PrimitiveType);
+	
+	if(!FShaderCache::IsPredrawCall())
 	{
-		SCOPE_CYCLE_COUNTER(STAT_MetalDrawCallTime);
-		RHI_DRAW_CALL_STATS(PrimitiveType,1);
+		RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, 1, 1);
 		
-		FMetalIndexBuffer* IndexBuffer = ResourceCast(IndexBufferRHI);
-		FMetalVertexBuffer* VertexBuffer = ResourceCast(VertexBufferRHI);
-		
-		// finalize any pending state
-		if(!Context->PrepareToDraw(PrimitiveType))
-		{
-			return;
-		}
-		
-		METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawIndexedPrimitiveIndirect(PrimitiveType %d, IndexBufferRHI %p, VertexBufferRHI %p, ArgumentOffset %d)", PrimitiveType, IndexBufferRHI, VertexBufferRHI, ArgumentOffset);
-		
-		if(!FShaderCache::IsPredrawCall())
-		{
-			RHI_PROFILE_DRAW_CALL_STATS(EMTLSamplePointBeforeDraw, EMTLSamplePointAfterDraw, 1, 1);
-			
-			[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
+		[Context->GetRenderContext() drawIndexedPrimitives:TranslatePrimitiveType(PrimitiveType)
 													 indexType:IndexBuffer->IndexType
 												   indexBuffer:IndexBuffer->Buffer
 											 indexBufferOffset:0
 												indirectBuffer:VertexBuffer->Buffer
 										  indirectBufferOffset:ArgumentOffset];
-			
-			FShaderCache::LogDraw(IndexBuffer->GetStride());
-		}
+		
+		FShaderCache::LogDraw(IndexBuffer->GetStride());
 	}
-	else
 #endif
-	{
-		NOT_SUPPORTED("RHIDrawIndexedPrimitiveIndirect");
-	}
 }
 
 
@@ -708,8 +657,6 @@ void FMetalRHICommandContext::RHIBeginDrawPrimitiveUP( uint32 PrimitiveType, uin
 	PendingPrimitiveType = PrimitiveType;
 	PendingNumPrimitives = NumPrimitives;
 	PendingVertexDataStride = VertexDataStride;
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIBeginDrawPrimitiveUP(PrimitiveType %d, NumPrimitives %d, NumVertices %d, VertexDataStride %d)", PrimitiveType, NumPrimitives, NumVertices, VertexDataStride);
 }
 
 
@@ -726,12 +673,7 @@ void FMetalRHICommandContext::RHIEndDrawPrimitiveUP()
 	uint32 NumVertices = GetVertexCountForPrimitiveCount(PendingNumPrimitives, PendingPrimitiveType);
 
 	// last minute draw setup
-	if(!Context->PrepareToDraw(PendingPrimitiveType))
-	{
-		return;
-	}
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"%@", @"RHIEndDrawPrimitiveUP()");
+	Context->PrepareToDraw(PendingPrimitiveType);
 
 	if(!FShaderCache::IsPredrawCall())
 	{
@@ -769,8 +711,6 @@ void FMetalRHICommandContext::RHIBeginDrawIndexedPrimitiveUP( uint32 PrimitiveTy
 	PendingIndexDataStride = IndexDataStride;
 
 	PendingVertexDataStride = VertexDataStride;
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIBeginDrawIndexedPrimitiveUP(PrimitiveType %d, NumPrimitives %d, NumVertices %d, VertexDataStride %d, MinVertexIndex %d, NumIndices %d, IndexDataStride %d)", PrimitiveType, NumPrimitives, NumVertices, VertexDataStride, MinVertexIndex, NumIndices, IndexDataStride);
 }
 
 void FMetalRHICommandContext::RHIEndDrawIndexedPrimitiveUP()
@@ -786,12 +726,7 @@ void FMetalRHICommandContext::RHIEndDrawIndexedPrimitiveUP()
 	uint32 NumIndices = GetVertexCountForPrimitiveCount(PendingNumPrimitives, PendingPrimitiveType);
 
 	// last minute draw setup
-	if(!Context->PrepareToDraw(PendingPrimitiveType))
-	{
-		return;
-	}
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"%@", @"RHIEndDrawIndexedPrimitiveUP()");
+	Context->PrepareToDraw(PendingPrimitiveType);
 	
 	if(!FShaderCache::IsPredrawCall())
 	{
@@ -839,12 +774,7 @@ void FMetalRHICommandContext::RHIDrawInstancedPrimitiveUP( FRHICommandList& RHIC
 	Context->GetCurrentState().SetVertexBuffer(UNREAL_TO_METAL_BUFFER_INDEX(0), Context->GetRingBuffer(), VertexDataStride, PendingVertexBufferOffset);
 	
 	// last minute draw setup
-	if(!Context->PrepareToDraw(PrimitiveType))
-	{
-		return;
-	}
-	
-	METAL_DEBUG_COMMAND_BUFFER_DRAW_LOG(Context, @"RHIDrawInstancedPrimitiveUP( PrimitiveType %d, NumPrimitives %d, VertexData %p, VertexDataStride %d, InstanceCount %d)", PrimitiveType, NumPrimitives, VertexData, VertexDataStride, InstanceCount);
+	Context->PrepareToDraw(PrimitiveType);
 	
 	if(!FShaderCache::IsPredrawCall())
 	{
@@ -862,10 +792,9 @@ void FMetalRHICommandContext::RHIDrawInstancedPrimitiveUP( FRHICommandList& RHIC
 
 void FMetalDynamicRHI::SetupRecursiveResources()
 {
-	static bool bSetupResources = false;
-	if (GRHISupportsRHIThread && !bSetupResources)
+	if (GRHISupportsRHIThread)
 	{
-		FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
+		FRHICommandList_RecursiveHazardous RHICmdList(RHIGetDefaultContext());
 		extern int32 GCreateShadersOnLoad;
 		TGuardValue<int32> Guard(GCreateShadersOnLoad, 1);
 		auto ShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
@@ -930,8 +859,6 @@ void FMetalDynamicRHI::SetupRecursiveResources()
 				SetGlobalBoundShaderState(RHICmdList, GMaxRHIFeatureLevel, GClearMRTBoundShaderState[NumBuffers - 1][Instanced], GVector4VertexDeclaration.VertexDeclarationRHI, VertexShader, PixelShader);
 			}
 		}
-		
-		bSetupResources = true;
 	}
 }
 
@@ -949,7 +876,7 @@ void FMetalRHICommandContext::RHIClearMRT(bool bClearColor,int32 NumClearColors,
 		return;
 	}
 
-	RHIPushEvent(TEXT("MetalClearMRT"), FColor(255, 0, 255, 255));
+	RHIPushEvent(TEXT("MetalClearMRT"));
 
 	// Build new states
 	FBlendStateRHIRef BlendStateRHI;
@@ -1163,10 +1090,5 @@ IRHICommandContext* FMetalDynamicRHI::RHIGetDefaultContext()
 	return this;
 }
 
-IRHIComputeContext* FMetalDynamicRHI::RHIGetDefaultAsyncComputeContext()
-{
-	IRHIComputeContext* ComputeContext = GSupportsEfficientAsyncCompute && AsyncComputeContext ? AsyncComputeContext : RHIGetDefaultContext();
-	// On platforms that support non-async compute we set this to the normal context.  It won't be async, but the high level
-	// code can be agnostic if it wants to be.
-	return ComputeContext;
-}
+
+

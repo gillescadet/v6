@@ -115,6 +115,11 @@ void UProgressBar::PostLoad()
 
 #if WITH_EDITOR
 
+const FSlateBrush* UProgressBar::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.ProgressBar");
+}
+
 const FText UProgressBar::GetPaletteCategory()
 {
 	return LOCTEXT("Common", "Common");

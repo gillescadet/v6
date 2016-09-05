@@ -55,37 +55,3 @@ FMetalRHICommandContext::~FMetalRHICommandContext()
 	delete Context;
 }
 
-FMetalRHIComputeContext::FMetalRHIComputeContext(struct FMetalGPUProfiler* InProfiler, FMetalContext* WrapContext)
-: FMetalRHICommandContext(InProfiler, WrapContext)
-{
-}
-
-FMetalRHIComputeContext::~FMetalRHIComputeContext()
-{
-}
-
-void FMetalRHIComputeContext::RHISetAsyncComputeBudget(EAsyncComputeBudget Budget)
-{
-	if (!Context->GetCurrentCommandBuffer())
-	{
-		Context->InitFrame(false);
-	}
-	FMetalRHICommandContext::RHISetAsyncComputeBudget(Budget);
-}
-
-void FMetalRHIComputeContext::RHISetComputeShader(FComputeShaderRHIParamRef ComputeShader)
-{
-	if (!Context->GetCurrentCommandBuffer())
-	{
-		Context->InitFrame(false);
-	}
-	FMetalRHICommandContext::RHISetComputeShader(ComputeShader);
-}
-
-void FMetalRHIComputeContext::RHISubmitCommandsHint()
-{
-	Context->FinishFrame();
-	
-	FMetalContext::MakeCurrent(&GetMetalDeviceContext());
-	FMetalContext::CreateAutoreleasePool();
-}

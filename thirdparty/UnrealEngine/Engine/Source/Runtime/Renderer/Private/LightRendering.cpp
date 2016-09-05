@@ -13,7 +13,6 @@
 #include "LightPropagationVolume.h"
 #include "SceneUtils.h"
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Lights"), Stat_GPU_Lights, STATGROUP_GPU);
 
 IMPLEMENT_UNIFORM_BUFFER_STRUCT(FDeferredLightUniformStruct,TEXT("DeferredLightUniforms"));
 
@@ -33,7 +32,7 @@ IMPLEMENT_SHADER_TYPE(template<>,TDeferredLightVS<false>,TEXT("DeferredLightVert
 IMPLEMENT_SHADER_TYPE(template<>,TDeferredLightVS<true>,TEXT("DeferredLightVertexShaders"),TEXT("RadialVertexMain"),SF_Vertex);
 
 /** A pixel shader for rendering the light in a deferred pass. */
-template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff, bool bVisualizeLightCulling, bool bUseLightingChannels>
+template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff, bool bVisualizeLightCulling, bool bUseClearCoat, bool bUseLightingChannels>
 class TDeferredLightPS : public FGlobalShader
 {
 	DECLARE_SHADER_TYPE(TDeferredLightPS,Global)
@@ -52,6 +51,7 @@ public:
 		OutEnvironment.SetDefine(TEXT("INVERSE_SQUARED_FALLOFF"), (uint32)bInverseSquaredFalloff);
 		OutEnvironment.SetDefine(TEXT("LIGHT_SOURCE_SHAPE"), 1);
 		OutEnvironment.SetDefine(TEXT("VISUALIZE_LIGHT_CULLING"), (uint32)bVisualizeLightCulling);
+		OutEnvironment.SetDefine(TEXT("USE_CLEARCOAT"), (uint32)bUseClearCoat);
 		OutEnvironment.SetDefine(TEXT("USE_LIGHTING_CHANNELS"), (uint32)bUseLightingChannels);
 	}
 
@@ -179,28 +179,46 @@ private:
 };
 
 // Typedef is necessary because the C preprocessor thinks the comma in the template parameter list is a comma in the macro parameter list.
-#define IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(A, B, C, D, E, EntryName) \
-	typedef TDeferredLightPS<A,B,C,D,E> TDeferredLightPS##A##B##C##D##E; \
-	IMPLEMENT_SHADER_TYPE(template<>,TDeferredLightPS##A##B##C##D##E,TEXT("DeferredLightPixelShaders"),EntryName,SF_Pixel);
+#define IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(A, B, C, D, E, F, EntryName) \
+	typedef TDeferredLightPS<A,B,C,D,E, F> TDeferredLightPS##A##B##C##D##E##F; \
+	IMPLEMENT_SHADER_TYPE(template<>,TDeferredLightPS##A##B##C##D##E##F,TEXT("DeferredLightPixelShaders"),EntryName,SF_Pixel);
 
 // Implement a version for each light type, and it's shader permutations
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, false, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, false, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, false, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, false, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, false, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, false, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, false, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, false, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, false, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, false, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, false, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, false, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, false, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, false, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, false, false, TEXT("RadialPixelMain"));
 
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, true, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, true, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, true, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, true, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, true, TEXT("RadialPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, true, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, true, TEXT("DirectionalPixelMain"));
-IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, true, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, true, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, true, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, true, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, true, false, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, true, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, true, false, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, true, false, TEXT("RadialPixelMain"));
+
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, false, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, false, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, false, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, false, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, false, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, false, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, false, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, false, true, TEXT("RadialPixelMain"));
+
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, true, false, true, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, true, false, false, true, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(true, false, false, false, true, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, true, false, true, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, false, true, true, TEXT("RadialPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, false, true, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, false, false, true, true, true, TEXT("DirectionalPixelMain"));
+IMPLEMENT_DEFERREDLIGHT_PIXELSHADER_TYPE(false, true, false, true, true, true, TEXT("RadialPixelMain"));
 
 /** Shader used to visualize stationary light overlap. */
 template<bool bRadialAttenuation>
@@ -316,16 +334,17 @@ void FSceneRenderer::GetLightNameForDrawEvent(const FLightSceneProxy* LightProxy
 #endif
 }
 
-extern int32 GbEnableAsyncComputeTranslucencyLightingVolumeClear;
-
 uint32 GetShadowQuality();
 
 /** Renders the scene's lighting. */
 void FDeferredShadingSceneRenderer::RenderLights(FRHICommandListImmediate& RHICmdList)
 {
 	SCOPED_DRAW_EVENT(RHICmdList, Lights);
-	SCOPED_GPU_STAT(RHICmdList, Stat_GPU_Lights);
 
+	if(IsSimpleDynamicLightingEnabled())
+	{
+		return;
+	}
 
 	bool bStencilBufferDirty = false;	// The stencil buffer should've been cleared to 0 already
 
@@ -421,12 +440,6 @@ void FDeferredShadingSceneRenderer::RenderLights(FRHICommandListImmediate& RHICm
 			}
 		}
 		
-		if (GbEnableAsyncComputeTranslucencyLightingVolumeClear && GSupportsEfficientAsyncCompute)
-		{
-			//Gfx pipe must wait for the async compute clear of the translucency volume clear.
-			RHICmdList.WaitComputeFence(TranslucencyLightingVolumeClearEndFence);
-		}
-
 		if(ViewFamily.EngineShowFlags.DirectLighting)
 		{
 			SCOPED_DRAW_EVENT(RHICmdList, NonShadowedLights);
@@ -522,7 +535,7 @@ void FDeferredShadingSceneRenderer::RenderLights(FRHICommandListImmediate& RHICm
 					if ( LightSceneInfo.Proxy->HasReflectiveShadowMap() )
 					{
 						INC_DWORD_STAT(STAT_NumReflectiveShadowMapLights);
-						InjectReflectiveShadowMaps(RHICmdList, &LightSceneInfo);
+						RenderReflectiveShadowMaps( RHICmdList, &LightSceneInfo );
 						bRenderedRSM = true;
 					}
 				}
@@ -550,13 +563,10 @@ void FDeferredShadingSceneRenderer::RenderLights(FRHICommandListImmediate& RHICm
 								if (LightSceneInfo->ShouldRenderLight(View))
 								{
 									FSceneViewState* ViewState = (FSceneViewState*)View.State;
-									if (ViewState)
+									FLightPropagationVolume* Lpv = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
+									if ( Lpv && LightSceneInfo->Proxy )
 									{
-										FLightPropagationVolume* Lpv = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
-										if (Lpv && LightSceneInfo->Proxy)
-										{
-											Lpv->InjectLightDirect(RHICmdList, *LightSceneInfo->Proxy, View);
-										}
+										Lpv->InjectLightDirect( RHICmdList, *LightSceneInfo->Proxy, View );
 									}
 								}
 							}					
@@ -607,8 +617,10 @@ void FDeferredShadingSceneRenderer::RenderLights(FRHICommandListImmediate& RHICm
 					bool bClearToWhite = true;
 					SceneContext.BeginRenderingLightAttenuation(RHICmdList, bClearToWhite);
 
-					RenderShadowProjections(RHICmdList, &LightSceneInfo, bInjectedTranslucentVolume);
-
+					bool bRenderedTranslucentObjectShadows = RenderTranslucentProjectedShadows(RHICmdList, &LightSceneInfo );
+					// Render non-modulated projected shadows to the attenuation buffer.
+					RenderProjectedShadows(RHICmdList, &LightSceneInfo, bRenderedTranslucentObjectShadows, bInjectedTranslucentVolume );
+				
 					bUsedLightAttenuation = true;
 				}
 
@@ -722,11 +734,7 @@ void FDeferredShadingSceneRenderer::RenderStationaryLightOverlap(FRHICommandList
 /** Sets up rasterizer and depth state for rendering bounding geometry in a deferred pass. */
 void SetBoundingGeometryRasterizerAndDepthState(FRHICommandList& RHICmdList, const FViewInfo& View, const FSphere& LightBounds)
 {
-	const bool bCameraInsideLightGeometry = ((FVector)View.ViewMatrices.ViewOrigin - LightBounds.Center).SizeSquared() < FMath::Square(LightBounds.W * 1.05f + View.NearClippingDistance * 2.0f)
-		// Always draw backfaces in ortho
-		//@todo - accurate ortho camera / light intersection
-		|| !View.IsPerspectiveProjection();
-
+	const bool bCameraInsideLightGeometry = ((FVector)View.ViewMatrices.ViewOrigin - LightBounds.Center).SizeSquared() < FMath::Square(LightBounds.W * 1.05f + View.NearClippingDistance * 2.0f);
 	if (bCameraInsideLightGeometry)
 	{
 		// Render backfaces with depth tests disabled since the camera is inside (or close to inside) the light geometry
@@ -751,7 +759,7 @@ static FVertexDeclarationRHIParamRef GetDeferredLightingVertexDeclaration()
 	return bRadialAttenuation ? GetVertexDeclarationFVector4() : GFilterVertexDeclaration.VertexDeclarationRHI;
 }
 
-template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff>
+template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff, bool bHandleClearCoat>
 static void SetShaderTemplLighting(
 	FRHICommandList& RHICmdList,
 	const FViewInfo& View,
@@ -760,7 +768,7 @@ static void SetShaderTemplLighting(
 {
 	if(View.Family->EngineShowFlags.VisualizeLightCulling)
 	{
-		TShaderMapRef<TDeferredLightPS<false, bRadialAttenuation, false, true, false> > PixelShader(View.ShaderMap);
+		TShaderMapRef<TDeferredLightPS<false, bRadialAttenuation, false, true, bHandleClearCoat, false> > PixelShader(View.ShaderMap);
 		SetGlobalBoundShaderState(RHICmdList, View.GetFeatureLevel(), PixelShader->GetBoundShaderState(), GetDeferredLightingVertexDeclaration<bRadialAttenuation>(), VertexShader, *PixelShader);
 		PixelShader->SetParameters(RHICmdList, View, LightSceneInfo);
 	}
@@ -768,20 +776,20 @@ static void SetShaderTemplLighting(
 	{
 		if (View.bUsesLightingChannels)
 		{
-			TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, true> > PixelShader(View.ShaderMap);
+			TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, bHandleClearCoat, true> > PixelShader(View.ShaderMap);
 			SetGlobalBoundShaderState(RHICmdList, View.GetFeatureLevel(), PixelShader->GetBoundShaderState(), GetDeferredLightingVertexDeclaration<bRadialAttenuation>(), VertexShader, *PixelShader);
 			PixelShader->SetParameters(RHICmdList, View, LightSceneInfo);
 		}
 		else
 		{
-			TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, false> > PixelShader(View.ShaderMap);
+			TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, bHandleClearCoat, false> > PixelShader(View.ShaderMap);
 			SetGlobalBoundShaderState(RHICmdList, View.GetFeatureLevel(), PixelShader->GetBoundShaderState(), GetDeferredLightingVertexDeclaration<bRadialAttenuation>(), VertexShader, *PixelShader);
 			PixelShader->SetParameters(RHICmdList, View, LightSceneInfo);
 		}
 	}
 }
 
-template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff>
+template<bool bUseIESProfile, bool bRadialAttenuation, bool bInverseSquaredFalloff, bool bHandleClearCoat>
 static void SetShaderTemplLightingSimple(
 	FRHICommandList& RHICmdList,
 	const FViewInfo& View,
@@ -791,13 +799,13 @@ static void SetShaderTemplLightingSimple(
 {
 	if(View.Family->EngineShowFlags.VisualizeLightCulling)
 	{
-		TShaderMapRef<TDeferredLightPS<false, bRadialAttenuation, false, true, false> > PixelShader(View.ShaderMap);
+		TShaderMapRef<TDeferredLightPS<false, bRadialAttenuation, false, true, bHandleClearCoat, false> > PixelShader(View.ShaderMap);
 		SetGlobalBoundShaderState(RHICmdList, View.GetFeatureLevel(), PixelShader->GetBoundShaderState(), GetDeferredLightingVertexDeclaration<bRadialAttenuation>(), VertexShader, *PixelShader);
 		PixelShader->SetParametersSimpleLight(RHICmdList, View, SimpleLight, SimpleLightPerViewData);
 	}
 	else
 	{
-		TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, false> > PixelShader(View.ShaderMap);
+		TShaderMapRef<TDeferredLightPS<bUseIESProfile, bRadialAttenuation, bInverseSquaredFalloff, false, bHandleClearCoat, false> > PixelShader(View.ShaderMap);
 		SetGlobalBoundShaderState(RHICmdList, View.GetFeatureLevel(), PixelShader->GetBoundShaderState(), GetDeferredLightingVertexDeclaration<bRadialAttenuation>(), VertexShader, *PixelShader);
 		PixelShader->SetParametersSimpleLight(RHICmdList, View, SimpleLight, SimpleLightPerViewData);
 	}
@@ -891,11 +899,25 @@ void FDeferredShadingSceneRenderer::RenderLight(FRHICommandList& RHICmdList, con
 			{
 				if(bUseIESTexture)
 				{
-					SetShaderTemplLighting<true, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					if (bClearCoatNeeded)
+					{
+						SetShaderTemplLighting<true, false, false, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					}
+					else
+					{
+						SetShaderTemplLighting<true, false, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					}
 				}
 				else
 				{
-					SetShaderTemplLighting<false, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					if (bClearCoatNeeded)
+					{
+						SetShaderTemplLighting<false, false, false, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					}
+					else
+					{
+						SetShaderTemplLighting<false, false, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+					}
 				}
 			}
 
@@ -931,22 +953,50 @@ void FDeferredShadingSceneRenderer::RenderLight(FRHICommandList& RHICmdList, con
 				{
 					if(bUseIESTexture)
 					{
-						SetShaderTemplLighting<true, true, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						if (bClearCoatNeeded)
+						{
+							SetShaderTemplLighting<true, true, true, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}						
+						else
+						{
+							SetShaderTemplLighting<true, true, true, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
 					}
 					else
 					{
-						SetShaderTemplLighting<false, true, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						if (bClearCoatNeeded)
+						{
+							SetShaderTemplLighting<false, true, true, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
+						else
+						{
+							SetShaderTemplLighting<false, true, true, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
 					}
 				}
 				else
 				{
 					if(bUseIESTexture)
 					{
-						SetShaderTemplLighting<true, true, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						if (bClearCoatNeeded)
+						{
+							SetShaderTemplLighting<true, true, false, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
+						else
+						{
+							SetShaderTemplLighting<true, true, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
 					}
 					else
 					{
-						SetShaderTemplLighting<false, true, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						if (bClearCoatNeeded)
+						{
+							SetShaderTemplLighting<false, true, false, true>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
+						else
+						{
+							SetShaderTemplLighting<false, true, false, false>(RHICmdList, View, *VertexShader, LightSceneInfo);
+						}
 					}
 				}
 			}
@@ -1026,15 +1076,30 @@ void FDeferredShadingSceneRenderer::RenderSimpleLightsStandardDeferred(FRHIComma
 
 			SetBoundingGeometryRasterizerAndDepthState(RHICmdList, View, LightBounds);
 
+			bool bClearCoatNeeded = (View.ShadingModelMaskInView & (1 << MSM_ClearCoat)) != 0;
 			if (SimpleLight.Exponent == 0)
 			{
 				// inverse squared
-				SetShaderTemplLightingSimple<false, true, true>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				if (bClearCoatNeeded)
+				{
+					SetShaderTemplLightingSimple<false, true, true, true>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				}
+				else
+				{
+					SetShaderTemplLightingSimple<false, true, true, false>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				}
 			}
 			else
 			{
 				// light's exponent, not inverse squared
-				SetShaderTemplLightingSimple<false, true, false>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				if (bClearCoatNeeded)
+				{
+					SetShaderTemplLightingSimple<false, true, false, true>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				}
+				else
+				{
+					SetShaderTemplLightingSimple<false, true, false, false>(RHICmdList, View, *VertexShader, SimpleLight, SimpleLightPerViewData);
+				}
 			}
 
 			VertexShader->SetSimpleLightParameters(RHICmdList, View, LightBounds);

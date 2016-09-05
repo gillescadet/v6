@@ -19,7 +19,7 @@ class UMaterialExpressionIf : public UMaterialExpression
 	UPROPERTY()
 	FExpressionInput AGreaterThanB;
 
-	UPROPERTY(meta = (RequiredInput = "false", ToolTip = "Defaults to 'A > B' if not specified"))
+	UPROPERTY(meta = (RequiredInput = "false"))
 	FExpressionInput AEqualsB;
 
 	UPROPERTY()
@@ -36,9 +36,9 @@ class UMaterialExpressionIf : public UMaterialExpression
 	float ConstAEqualsB_DEPRECATED;
 
 	//~ Begin UMaterialExpression Interface
-#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#if WITH_EDITOR
 	virtual uint32 GetInputType(int32 InputIndex) override;
 	virtual uint32 GetOutputType(int32 InputIndex) override {return MCT_Unknown;}
 #endif

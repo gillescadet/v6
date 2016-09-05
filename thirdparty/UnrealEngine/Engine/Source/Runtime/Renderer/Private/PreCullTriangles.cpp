@@ -290,6 +290,8 @@ IMPLEMENT_SHADER_TYPE(,FPreCullTrianglesCS,TEXT("PreCullTriangles"),TEXT("PreCul
 TGlobalResource<FPreCulledTriangleBufferResource> GPreCulledTriangleBuffers;
 TGlobalResource<FPreCulledTriangleBufferResource> GPreCulledTriangleBuffersFromHeightfields;
 
+extern bool SupportsDistanceFieldAO(ERHIFeatureLevel::Type FeatureLevel, EShaderPlatform ShaderPlatform);
+
 void FDeferredShadingSceneRenderer::PreCullStaticMeshes(FRHICommandListImmediate& RHICmdList, const TArray<UStaticMeshComponent*>& ComponentsToPreCull, const TArray<TArray<FPlane> >& CullVolumes)
 {
 	FViewInfo& View = Views[0];
@@ -580,7 +582,7 @@ void FScene::PreCullStaticMeshes(const TArray<UStaticMeshComponent*>& Components
 
 	// Projection matrix based on the fov, near / far clip settings
 	// Each face always uses a 90 degree field of view
-	if ((bool)ERHIZBuffer::IsInverted)
+	if ((int32)ERHIZBuffer::IsInverted != 0)
 	{
 		ViewInitOptions.ProjectionMatrix = FReversedZPerspectiveMatrix(
 			90.0f * (float)PI / 360.0f,

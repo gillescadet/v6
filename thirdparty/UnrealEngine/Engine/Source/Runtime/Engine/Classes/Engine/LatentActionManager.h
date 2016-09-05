@@ -35,14 +35,6 @@ struct ENGINE_API FLatentActionInfo
 		, CallbackTarget(NULL)
 	{
 	}
-
-	FORCENOINLINE FLatentActionInfo(int32 InLinkage, int32 InUUID, const TCHAR* InFunctionName, UObject* InCallbackTarget)
-		: Linkage(InLinkage)
-		, UUID(InUUID)
-		, ExecutionFunction(InFunctionName)
-		, CallbackTarget(InCallbackTarget)
-	{
-	}
 };
 
 

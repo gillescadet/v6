@@ -6,7 +6,6 @@ class FNameTableArchiveReader : public FArchive
 {
 public:
 	FNameTableArchiveReader();
-	~FNameTableArchiveReader();
 
 	bool LoadFile(const TCHAR* Filename, int32 SerializationVersion);
 
@@ -22,15 +21,16 @@ public:
 	FArchive& operator<<( FName& Name );
 
 private:
-	FArchive* FileAr;
+	FArrayReader Reader;
 	TArray<FName> NameMap;
 };
 
 class FNameTableArchiveWriter : public FArchive
 {
 public:
-	FNameTableArchiveWriter(int32 SerializationVersion, const FString& Filename);
-	~FNameTableArchiveWriter();
+	FNameTableArchiveWriter(int32 SerializationVersion);
+
+	bool SaveToFile(const TCHAR* Filename);
 
 	/** Serializers for different package maps */
 	void SerializeNameMap();
@@ -44,9 +44,7 @@ public:
 	FArchive& operator<<( FName& Name );
 
 private:
-	FArchive* FileAr;
-	FString FinalFilename;
-	FString TempFilename;
+	FArrayWriter Writer;
 	TArray<FName> NameMap;
 	TMap<FName, int32, FDefaultSetAllocator, TLinkerNameMapKeyFuncs<int32>> NameMapLookup;
 	int64 NameOffsetLoc;

@@ -45,12 +45,12 @@ UParticleModuleColor::UParticleModuleColor(const FObjectInitializer& ObjectIniti
 
 void UParticleModuleColor::InitializeDefaults() 
 {
-	if (!StartColor.IsCreated())
+	if (!StartColor.Distribution)
 	{
 		StartColor.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionStartColor"));
 	}
 
-	if (!StartAlpha.IsCreated())
+	if (!StartAlpha.Distribution)
 	{
 		UDistributionFloatConstant* DistributionStartAlpha = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStartAlpha"));
 		DistributionStartAlpha->Constant = 1.0f;
@@ -222,12 +222,12 @@ UParticleModuleColorOverLife::UParticleModuleColorOverLife(const FObjectInitiali
 
 void UParticleModuleColorOverLife::InitializeDefaults()
 {
-	if (!ColorOverLife.IsCreated())
+	if (!ColorOverLife.Distribution)
 	{
 		ColorOverLife.Distribution = NewObject<UDistributionVectorConstantCurve>(this, TEXT("DistributionColorOverLife"));
 	}
 
-	if (!AlphaOverLife.IsCreated())
+	if (!AlphaOverLife.Distribution)
 	{
 		UDistributionFloatConstant* DistributionAlphaOverLife = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionAlphaOverLife"));
 		DistributionAlphaOverLife->Constant = 1.0f;
@@ -472,12 +472,12 @@ UParticleModuleColorScaleOverLife::UParticleModuleColorScaleOverLife(const FObje
 
 void UParticleModuleColorScaleOverLife::InitializeDefaults()
 {
-	if (!ColorScaleOverLife.IsCreated())
+	if (!ColorScaleOverLife.Distribution)
 	{
 		ColorScaleOverLife.Distribution = NewObject<UDistributionVectorConstantCurve>(this, TEXT("DistributionColorScaleOverLife"));
 	}
 
-	if (!AlphaScaleOverLife.IsCreated())
+	if (!AlphaScaleOverLife.Distribution)
 	{
 		UDistributionFloatConstant* DistributionAlphaScaleOverLife = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionAlphaScaleOverLife"));
 		DistributionAlphaScaleOverLife->Constant = 1.0f;

@@ -25,7 +25,7 @@ class UAbilityTask_ApplyRootMotionMoveToForce : public UAbilityTask
 
 	/** Apply force to character's movement */
 	UFUNCTION(BlueprintCallable, Category = "Ability|Tasks", meta = (HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject", BlueprintInternalUseOnly = "TRUE"))
-	static UAbilityTask_ApplyRootMotionMoveToForce* ApplyRootMotionMoveToForce(UObject* WorldContextObject, FName TaskInstanceName, FVector TargetLocation, float Duration, bool bSetNewMovementMode, EMovementMode MovementMode, bool bRestrictSpeedToExpected, UCurveVector* PathOffsetCurve, ERootMotionFinishVelocityMode VelocityOnFinishMode, FVector SetVelocityOnFinish);
+	static UAbilityTask_ApplyRootMotionMoveToForce* ApplyRootMotionMoveToForce(UObject* WorldContextObject, FName TaskInstanceName, FVector TargetLocation, float Duration, bool bSetNewMovementMode, EMovementMode MovementMode, bool bRestrictSpeedToExpected, UCurveVector* PathOffsetCurve);
 
 	virtual void Activate() override;
 
@@ -34,6 +34,8 @@ class UAbilityTask_ApplyRootMotionMoveToForce : public UAbilityTask
 
 	virtual void PreDestroyFromReplication() override;
 	virtual void OnDestroy(bool AbilityIsEnding) override;
+
+	void PreReplicatedRemove(const struct FOrionCardArray& InArray);
 
 protected:
 
@@ -55,22 +57,11 @@ protected:
 	UPROPERTY(Replicated)
 	TEnumAsByte<EMovementMode> NewMovementMode;
 
-	/** If enabled, we limit velocity to the initial expected velocity to go distance to the target over Duration.
-	 *  This prevents cases of getting really high velocity the last few frames of the root motion if you were being blocked by
-	 *  collision. Disabled means we do everything we can to velocity during the move to get to the TargetLocation. */
 	UPROPERTY(Replicated)
 	bool bRestrictSpeedToExpected;
 
 	UPROPERTY(Replicated)
 	UCurveVector* PathOffsetCurve;
-
-	/** What to do with character's Velocity when root motion finishes */
-	UPROPERTY(Replicated)
-	ERootMotionFinishVelocityMode VelocityOnFinishMode;
-
-	/** If VelocityOnFinish mode is "SetVelocity", character velocity is set to this value when root motion finishes */
-	UPROPERTY(Replicated)
-	FVector SetVelocityOnFinish;
 
 	uint16 RootMotionSourceID;
 	EMovementMode PreviousMovementMode;

@@ -5,11 +5,6 @@
 #include "LatentActions.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"
-#include "FrameworkObjectVersion.h"
-
-#if WITH_EDITORONLY_DATA
-#include "AnimationEditorUtils.h"
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 // UAnimBlueprint
@@ -138,14 +133,14 @@ void UAnimBlueprint::PostLoad()
 	Super::PostLoad();
 #if WITH_EDITOR
 	// Validate animation overrides
-	UAnimBlueprintGeneratedClass* AnimBPGeneratedClass = GetAnimBlueprintGeneratedClass();
+	UAnimBlueprintGeneratedClass* GeneratedClass = GetAnimBlueprintGeneratedClass();
 	
-	if (AnimBPGeneratedClass)
+	if (GeneratedClass)
 	{
 		// If there is no index for the guid, remove the entry.
-		ParentAssetOverrides.RemoveAll([AnimBPGeneratedClass](const FAnimParentNodeAssetOverride& Element)
+		ParentAssetOverrides.RemoveAll([GeneratedClass](const FAnimParentNodeAssetOverride& Element)
 		{
-			if (!AnimBPGeneratedClass->GetNodePropertyIndexFromGuid(Element.ParentNodeGuid, EPropertySearchMode::Hierarchy))
+			if (!GeneratedClass->GetNodePropertyIndexFromGuid(Element.ParentNodeGuid, EPropertySearchMode::Hierarchy))
 			{
 				return true;
 			}
@@ -154,19 +149,6 @@ void UAnimBlueprint::PostLoad()
 		});
 	}
 #endif
-
-#if WITH_EDITORONLY_DATA
-	if(GetLinkerCustomVersion(FFrameworkObjectVersion::GUID) < FFrameworkObjectVersion::AnimBlueprintSubgraphFix)
-	{
-		AnimationEditorUtils::RegenerateSubGraphArrays(this);
-	}
-#endif
-}
-
-void UAnimBlueprint::Serialize(FArchive& Ar)
-{
-	Super::Serialize(Ar);
-	Ar.UsingCustomVersion(FFrameworkObjectVersion::GUID);
 }
 
 #endif

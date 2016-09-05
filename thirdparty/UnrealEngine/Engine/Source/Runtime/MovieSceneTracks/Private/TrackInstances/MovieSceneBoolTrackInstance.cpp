@@ -9,20 +9,14 @@ FMovieSceneBoolTrackInstance::FMovieSceneBoolTrackInstance( UMovieSceneBoolTrack
 {
 	BoolTrack = &InBoolTrack;
 	
-	FString PropertyVarName = BoolTrack->GetPropertyName().ToString();
-	PropertyVarName.RemoveFromStart("b", ESearchCase::CaseSensitive);
-	FName PropertyName = FName(*PropertyVarName);
-
-	PropertyBindings = MakeShareable( new FTrackInstancePropertyBindings( PropertyName, BoolTrack->GetPropertyPath() ) );
+	PropertyBindings = MakeShareable( new FTrackInstancePropertyBindings( BoolTrack->GetPropertyName(), BoolTrack->GetPropertyPath() ) );
 }
 
 
-void FMovieSceneBoolTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneBoolTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (InitBoolMap.Find(Object) == nullptr)
 		{
 			bool BoolValue = PropertyBindings->GetCurrentValue<bool>(Object);
@@ -32,12 +26,10 @@ void FMovieSceneBoolTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject
 }
 
 
-void FMovieSceneBoolTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneBoolTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (!IsValid(Object))
 		{
 			continue;
@@ -55,22 +47,21 @@ void FMovieSceneBoolTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObj
 }
 
 
-void FMovieSceneBoolTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieSceneBoolTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
 	bool BoolValue = false;
 
-	if( BoolTrack->Eval( UpdateData.Position, UpdateData.LastPosition, BoolValue ) )
+	if( BoolTrack->Eval( Position, LastPosition, BoolValue ) )
 	{
-		for (auto ObjectPtr : RuntimeObjects)
+		for( UObject* Object : RuntimeObjects )
 		{
-			UObject* Object = ObjectPtr.Get();
 			PropertyBindings->CallFunction<bool>( Object, &BoolValue );
 		}
 	}
 }
 
 
-void FMovieSceneBoolTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieSceneBoolTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	PropertyBindings->UpdateBindings( RuntimeObjects );
 }

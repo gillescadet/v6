@@ -3,7 +3,6 @@
 #pragma once
 #include "Misc/CoreMisc.h"
 #include "EngineDefines.h"
-#include "Engine/EngineTypes.h"
 #include "Engine/World.h"
 #include "AI/AISystemBase.h"
 #include "AISystem.generated.h"
@@ -65,13 +64,6 @@ public:
 	UPROPERTY(globalconfig, EditDefaultsOnly, Category = "EQS")
 	bool bAllowControllersAsEQSQuerier;
 
-	/** if set, GameplayDebuggerPlugin will be loaded on module's startup */
-	UPROPERTY(globalconfig, EditDefaultsOnly, Category = "AISystem")
-	bool bEnableDebuggerPlugin;
-
-	UPROPERTY(globalconfig, EditAnywhere, Category = "PerceptionSystem")
-	TEnumAsByte<ECollisionChannel> DefaultSightCollisionChannel;
-
 protected:
 	/** Behavior tree manager used by game */
 	UPROPERTY(Transient)
@@ -110,7 +102,7 @@ public:
 	virtual void CleanupWorld(bool bSessionEnded = true, bool bCleanupResources = true, UWorld* NewWorld = NULL) override;
 	virtual void StartPlay() override;
 	// UAISystemBase end
-
+	
 	/** Behavior tree manager getter */
 	FORCEINLINE UBehaviorTreeManager* GetBehaviorTreeManager() { return BehaviorTreeManager; }
 	/** Behavior tree manager const getter */
@@ -180,7 +172,8 @@ public:
 			return Tmp;
 		}
 
-		FORCEINLINE explicit operator bool() const { return CurrentIteratorIndex < Iterators.Num() && (bool)GetCurrentIteratorRef(); }
+		SAFE_BOOL_OPERATORS(FBlackboardDataToComponentsIterator);
+		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const { return CurrentIteratorIndex < Iterators.Num() && (bool)GetCurrentIteratorRef(); }
 		FORCEINLINE bool operator !() const { return !(bool)*this; }
 
 		FORCEINLINE UBlackboardData* Key() const { return GetCurrentIteratorRef().Key().Get(); }
@@ -228,9 +221,6 @@ public:
 	*/
 	FBlackboardDataToComponentsIterator CreateBlackboardDataToComponentsIterator(class UBlackboardData& BlackboardAsset);
 
-	virtual void ConditionalLoadDebuggerPlugin();
-
 protected:
 	virtual void OnActorSpawned(AActor* SpawnedActor);
-	void LoadDebuggerPlugin();
 };

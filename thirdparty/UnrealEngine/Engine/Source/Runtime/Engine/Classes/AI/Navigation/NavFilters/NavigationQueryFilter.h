@@ -27,17 +27,13 @@ struct ENGINE_API FNavigationFilterArea
 	UPROPERTY(EditAnywhere, Category=Area)
 	uint32 bIsExcluded : 1;
 
-	UPROPERTY(EditAnywhere, Category=Area, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverrideTravelCost : 1;
 
-	UPROPERTY(EditAnywhere, Category=Area, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverrideEnteringCost : 1;
 
-	FNavigationFilterArea()
-	{
-		FMemory::Memzero(*this);
-		TravelCostOverride = 1.f;
-	}
+	FNavigationFilterArea() : TravelCostOverride(1.0f) {}
 };
 
 // 
@@ -223,11 +219,10 @@ class ENGINE_API UNavigationQueryFilter : public UObject
 	FNavigationFilterFlags ExcludeFlags;
 
 	/** get filter for given navigation data and initialize on first access */
-	FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData, const UObject* Querier) const;
+	FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData) const;
 	
 	/** helper functions for accessing filter */
 	static FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData, TSubclassOf<UNavigationQueryFilter> FilterClass);
-	static FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData, const UObject* Querier, TSubclassOf<UNavigationQueryFilter> FilterClass);
 
 	template<class T>
 	static FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData, TSubclassOf<UNavigationQueryFilter> FilterClass = T::StaticClass())
@@ -241,12 +236,6 @@ class ENGINE_API UNavigationQueryFilter : public UObject
 
 protected:
 
-	/** if set, filter will not be cached by navigation data and can be configured per Querier */
-	uint32 bInstantiateForQuerier : 1;
-
-	/** if set to true GetSimpleFilterForAgent will be called when determining the actual filter class to be used */
-	uint32 bIsMetaFilter : 1;
-
 	/** helper functions for adding area overrides */
 	void AddTravelCostOverride(TSubclassOf<UNavArea> AreaClass, float TravelCost);
 	void AddEnteringCostOverride(TSubclassOf<UNavArea> AreaClass, float EnteringCost);
@@ -256,17 +245,38 @@ protected:
 	int32 FindAreaOverride(TSubclassOf<UNavArea> AreaClass) const;
 	
 	/** setup filter for given navigation data, use to create custom filters */
-	virtual void InitializeFilter(const ANavigationData& NavData, const UObject* Querier, FNavigationQueryFilter& Filter) const;
-
-	virtual TSubclassOf<UNavigationQueryFilter> GetSimpleFilterForAgent(const UObject& Querier) const { return nullptr; }
+	virtual void InitializeFilter(const ANavigationData& NavData, FNavigationQueryFilter& Filter) const;
 
 public:
-	DEPRECATED(4.12, "This function is now deprecated, use version with Querier argument instead.")
-	FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData& NavData) const
+	//----------------------------------------------------------------------//
+	// deprecated
+	//----------------------------------------------------------------------//
+
+	DEPRECATED(4.8, "This version of InitializeFilter is deprecated. Please use the version taking NavData and Filter references")
+	virtual void InitializeFilter(const ANavigationData* NavData, FNavigationQueryFilter* Filter) const
 	{
-		return GetQueryFilter(NavData, nullptr);
+		if (NavData && Filter)
+		{
+			InitializeFilter(*NavData, *Filter);
+		}
 	}
 
-	DEPRECATED(4.12, "This function is now deprecated, use version with Querier argument instead.")
-	virtual void InitializeFilter(const ANavigationData& NavData, FNavigationQueryFilter& Filter) const {}
+	DEPRECATED(4.8, "This version of GetQueryFilter is deprecated. Please use ANavigationData reference rather than a pointer version")
+	FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData* NavData) const 
+	{ 
+		return NavData ? GetQueryFilter(*NavData) : nullptr; 
+	}
+
+	DEPRECATED(4.8, "This version of GetQueryFilter is deprecated. Please use ANavigationData reference rather than a pointer version")
+	static FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
+	{
+		return NavData ? GetQueryFilter(*NavData, FilterClass) : nullptr;
+	}
+
+	// will "auto-deprecate" due to the function called inside
+	template<class T>
+	static FSharedConstNavQueryFilter GetQueryFilter(const ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass = T::StaticClass())
+	{
+		return NavData ? GetQueryFilter(*NavData, FilterClass) : nullptr;
+	}
 };

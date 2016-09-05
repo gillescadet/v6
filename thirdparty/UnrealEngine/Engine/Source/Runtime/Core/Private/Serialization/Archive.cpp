@@ -7,9 +7,6 @@
 #include "Serialization/Archive.h"
 #include "Serialization/CustomVersion.h"
 #include "EngineVersion.h"
-#include "NetworkVersion.h"
-#include "TargetPlatform.h"
-#include "GenericPlatformCompression.h"
 
 /*-----------------------------------------------------------------------------
 	FArchiveProxy implementation.
@@ -30,19 +27,11 @@ FArchive::FArchive()
 {
 	CustomVersionContainer = new FCustomVersionContainer;
 
-#if USE_STABLE_LOCALIZATION_KEYS
-	LocalizationNamespacePtr = nullptr;
-#endif // USE_STABLE_LOCALIZATION_KEYS
-
 	Reset();
 }
 
 FArchive::FArchive(const FArchive& ArchiveToCopy)
 {
-#if USE_STABLE_LOCALIZATION_KEYS
-	LocalizationNamespacePtr = nullptr;
-#endif // USE_STABLE_LOCALIZATION_KEYS
-
 	CopyTrivialFArchiveStatusMembers(ArchiveToCopy);
 
 	// Don't know why this is set to false, but this is what the original copying code did
@@ -66,20 +55,15 @@ FArchive& FArchive::operator=(const FArchive& ArchiveToCopy)
 FArchive::~FArchive()
 {
 	delete CustomVersionContainer;
-
-#if USE_STABLE_LOCALIZATION_KEYS
-	delete LocalizationNamespacePtr;
-#endif // USE_STABLE_LOCALIZATION_KEYS
 }
 
 // Resets all of the base archive members
 void FArchive::Reset()
 {
+	ArNetVer							= GEngineNegotiationVersion;
 	ArUE4Ver							= GPackageFileUE4Version;
 	ArLicenseeUE4Ver					= GPackageFileLicenseeUE4Version;
 	ArEngineVer							= FEngineVersion::Current();
-	ArEngineNetVer						= FNetworkVersion::GetEngineNetworkProtocolVersion();
-	ArGameNetVer						= FNetworkVersion::GetGameNetworkProtocolVersion();
 	ArIsLoading							= false;
 	ArIsSaving							= false;
 	ArIsTransacting						= false;
@@ -107,16 +91,11 @@ void FArchive::Reset()
 	ArMaxSerializeSize					= 0;
 	ArIsFilterEditorOnly				= false;
 	ArIsSaveGame						= false;
-	ArCustomPropertyList				= nullptr;
-	ArUseCustomPropertyList				= false;
 	CookingTargetPlatform = nullptr;
 	SerializedProperty = nullptr;
 #if WITH_EDITORONLY_DATA
 	EditorOnlyPropertyStack = 0;
 #endif
-#if USE_STABLE_LOCALIZATION_KEYS
-	SetBaseLocalizationNamespace(FString());
-#endif // USE_STABLE_LOCALIZATION_KEYS
 #if WITH_EDITOR
 	ArDebugSerializationFlags			= 0;
 #endif
@@ -126,11 +105,10 @@ void FArchive::Reset()
 
 void FArchive::CopyTrivialFArchiveStatusMembers(const FArchive& ArchiveToCopy)
 {
+	ArNetVer                             = ArchiveToCopy.ArNetVer;
 	ArUE4Ver                             = ArchiveToCopy.ArUE4Ver;
 	ArLicenseeUE4Ver                     = ArchiveToCopy.ArLicenseeUE4Ver;
 	ArEngineVer                          = ArchiveToCopy.ArEngineVer;
-	ArEngineNetVer						 = ArchiveToCopy.ArEngineNetVer;
-	ArGameNetVer						 = ArchiveToCopy.ArGameNetVer;
 	ArIsLoading                          = ArchiveToCopy.ArIsLoading;
 	ArIsSaving                           = ArchiveToCopy.ArIsSaving;
 	ArIsTransacting                      = ArchiveToCopy.ArIsTransacting;
@@ -158,16 +136,11 @@ void FArchive::CopyTrivialFArchiveStatusMembers(const FArchive& ArchiveToCopy)
 	ArMaxSerializeSize                   = ArchiveToCopy.ArMaxSerializeSize;
 	ArIsFilterEditorOnly                 = ArchiveToCopy.ArIsFilterEditorOnly;
 	ArIsSaveGame                         = ArchiveToCopy.ArIsSaveGame;
-	ArCustomPropertyList				 = ArchiveToCopy.ArCustomPropertyList;
-	ArUseCustomPropertyList				 = ArchiveToCopy.ArUseCustomPropertyList;
 	CookingTargetPlatform                = ArchiveToCopy.CookingTargetPlatform;
 	SerializedProperty = ArchiveToCopy.SerializedProperty;
 #if WITH_EDITORONLY_DATA
 	EditorOnlyPropertyStack = ArchiveToCopy.EditorOnlyPropertyStack;
 #endif
-#if USE_STABLE_LOCALIZATION_KEYS
-	SetBaseLocalizationNamespace(ArchiveToCopy.GetBaseLocalizationNamespace());
-#endif // USE_STABLE_LOCALIZATION_KEYS
 }
 
 /**
@@ -181,37 +154,6 @@ FString FArchive::GetArchiveName() const
 	return TEXT("FArchive");
 }
 
-#if USE_STABLE_LOCALIZATION_KEYS
-void FArchive::SetBaseLocalizationNamespace(const FString& InLocalizationNamespace)
-{
-	if (InLocalizationNamespace.IsEmpty())
-	{
-		delete LocalizationNamespacePtr;
-		LocalizationNamespacePtr = nullptr;
-	}
-	else
-	{
-		if (!LocalizationNamespacePtr)
-		{
-			LocalizationNamespacePtr = new FString();
-		}
-		*LocalizationNamespacePtr = InLocalizationNamespace;
-	}
-}
-FString FArchive::GetBaseLocalizationNamespace() const
-{
-	return LocalizationNamespacePtr ? *LocalizationNamespacePtr : FString();
-}
-void FArchive::SetLocalizationNamespace(const FString& InLocalizationNamespace)
-{
-	SetBaseLocalizationNamespace(InLocalizationNamespace);
-}
-FString FArchive::GetLocalizationNamespace() const
-{
-	return GetBaseLocalizationNamespace();
-}
-#endif // USE_STABLE_LOCALIZATION_KEYS
-
 #if WITH_EDITOR
 FArchive::FScopeAddDebugData::FScopeAddDebugData(FArchive& InAr, const FName& DebugData) : Ar(InAr)
 {
@@ -222,12 +164,6 @@ void FArchive::PushDebugDataString(const FName& DebugData)
 {
 }
 #endif
-
-FArchive& FArchive::operator<<( FText& Value )
-{
-	FText::SerializeText(*this, Value);
-	return *this;
-}
 
 FArchive& FArchive::operator<<( class FLazyObjectPtr& LazyObjectPtr )
 {
@@ -318,17 +254,6 @@ FString FArchiveProxy::GetArchiveName() const
 	return InnerArchive.GetArchiveName();
 }
 
-#if USE_STABLE_LOCALIZATION_KEYS
-void FArchiveProxy::SetLocalizationNamespace(const FString& InLocalizationNamespace)
-{
-	InnerArchive.SetLocalizationNamespace(InLocalizationNamespace);
-}
-FString FArchiveProxy::GetLocalizationNamespace() const
-{
-	return InnerArchive.GetLocalizationNamespace();
-}
-#endif // USE_STABLE_LOCALIZATION_KEYS
-
 /**
  * Serialize the given FName as an FString
  */
@@ -380,8 +305,6 @@ public:
 	int32 CompressedSize;
 	/** Uncompressed size in bytes as passed to compressor.						*/
 	int32 UncompressedSize;
-	/** Target platform for compressed data										*/
-	int32 BitWindow;
 	/** Flags to control compression											*/
 	ECompressionFlags Flags;
 
@@ -393,7 +316,6 @@ public:
 		, CompressedBuffer(0)
 		, CompressedSize(0)
 		, UncompressedSize(0)
-		, BitWindow(DEFAULT_ZLIB_BIT_WINDOW)
 		, Flags(ECompressionFlags(0))
 	{
 	}
@@ -403,7 +325,7 @@ public:
 	void DoWork()
 	{
 		// Compress from memory to memory.
-		verify( FCompression::CompressMemory( Flags, CompressedBuffer, CompressedSize, UncompressedBuffer, UncompressedSize, BitWindow) );
+		verify( FCompression::CompressMemory( Flags, CompressedBuffer, CompressedSize, UncompressedBuffer, UncompressedSize ) );
 	}
 
 	FORCEINLINE TStatId GetStatId() const
@@ -424,9 +346,8 @@ public:
  * @param	Length	Length of source data if we're saving, unused otherwise
  * @param	Flags	Flags to control what method to use for [de]compression and optionally control memory vs speed when compressing
  * @param	bTreatBufferAsFileReader true if V is actually an FArchive, which is used when saving to read data - helps to avoid single huge allocations of source data
- * @param	bUsePlatformBitWindow use a platform specific bitwindow setting
  */
-void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Flags, bool bTreatBufferAsFileReader, bool bUsePlatformBitWindow )
+void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Flags, bool bTreatBufferAsFileReader )
 {
 	if( IsLoading() )
 	{
@@ -478,7 +399,6 @@ void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Fla
 		}
 
 		int64 Padding = 0;
-		const int32 CompressionBitWindow = bUsePlatformBitWindow ? FPlatformMisc::GetPlatformCompression()->GetCompressionBitWindow() : DEFAULT_ZLIB_BIT_WINDOW;
 
 		// Set up destination pointer and allocate memory for compressed chunk[s] (one at a time).
 		uint8*	Dest				= (uint8*) V;
@@ -491,7 +411,7 @@ void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Fla
 			// Read compressed data.
 			Serialize( CompressedBuffer, Chunk.CompressedSize );
 			// Decompress into dest pointer directly.
-			verify( FCompression::UncompressMemory( Flags, Dest, Chunk.UncompressedSize, CompressedBuffer, Chunk.CompressedSize, (Padding > 0) ? true : false, CompressionBitWindow ) );
+			verify( FCompression::UncompressMemory( Flags, Dest, Chunk.UncompressedSize, CompressedBuffer, Chunk.CompressedSize, (Padding > 0) ? true : false ) );
 			// And advance it by read amount.
 			Dest += Chunk.UncompressedSize;
 		}
@@ -632,21 +552,6 @@ void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Fla
 						SrcBuffer += NewChunk.UncompressedSize;
 					}
 
-					if (!bUsePlatformBitWindow)
-					{
-						NewChunk.BitWindow = DEFAULT_ZLIB_BIT_WINDOW;
-					}
-					else if (CookingTargetPlatform)
-					{
-						NewChunk.BitWindow = CookingTargetPlatform->GetCompressionBitWindow();
-					}
-					else
-					{
-						IPlatformCompression* PlatformCompression = FPlatformMisc::GetPlatformCompression();
-						check(PlatformCompression);
-						NewChunk.BitWindow = PlatformCompression->GetCompressionBitWindow();
-					}
-
 					// Update status variables for tracking how much work is left, what to do next.
 					BytesRemainingToKickOff -= NewChunk.UncompressedSize;
 					AsyncChunkIndex[FreeIndex] = CurrentChunkIndex++;
@@ -760,24 +665,7 @@ void FArchive::SerializeCompressed( void* V, int64 Length, ECompressionFlags Fla
 
 			check(CompressedSize < INT_MAX);
 			int32 CompressedSizeInt = (int32)CompressedSize;
-			
-			int32 BitWindow = 0;
-			if (!bUsePlatformBitWindow)
-			{
-				BitWindow = DEFAULT_ZLIB_BIT_WINDOW;
-			}
-			else if (CookingTargetPlatform)
-			{
-				BitWindow = CookingTargetPlatform->GetCompressionBitWindow();
-			}
-			else
-			{
-				IPlatformCompression* PlatformCompression = FPlatformMisc::GetPlatformCompression();
-				check(PlatformCompression);
-				BitWindow = PlatformCompression->GetCompressionBitWindow();
-			}
-			
-			verify( FCompression::CompressMemory( Flags, CompressedBuffer, CompressedSizeInt, Src, BytesToCompress, BitWindow) );
+			verify( FCompression::CompressMemory( Flags, CompressedBuffer, CompressedSizeInt, Src, BytesToCompress ) );
 			CompressedSize = CompressedSizeInt;
 			// move to next chunk if not reading from file
 			if (!bTreatBufferAsFileReader)
@@ -910,6 +798,7 @@ VARARG_BODY( void, FArchive::Logf, const TCHAR*, VARARG_NONE )
 	// Free temporary buffers.
 	FMemory::SystemFree( Buffer );
 }
+
 
 /*----------------------------------------------------------------------------
 	Transparent compression/ decompression archives.
@@ -1173,154 +1062,6 @@ void FArchiveLoadCompressedProxy::Seek( int64 InPos )
 int64 FArchiveLoadCompressedProxy::Tell()
 {
 	return RawBytesSerialized;
-}
-
-
-/*----------------------------------------------------------------------------
-	FLargeMemoryWriter
-----------------------------------------------------------------------------*/
-
-FLargeMemoryWriter::FLargeMemoryWriter(const int64 PreAllocateBytes, bool bIsPersistent, const FName InArchiveName)
-	: FMemoryArchive()
-	, Data(nullptr)
-	, NumBytes(0)
-	, MaxBytes(0)
-	, ArchiveName(InArchiveName)
-{
-	ArIsSaving = true;
-	ArIsPersistent = bIsPersistent;
-	GrowBuffer(PreAllocateBytes);
-}
-
-void FLargeMemoryWriter::Serialize(void* InData, int64 Num)
-{
-	UE_CLOG(!Data, LogSerialization, Fatal, TEXT("Tried to serialize data to an FLargeMemoryWriter that was already released. Archive name: %s."), *ArchiveName.ToString());
-	
-	const int64 NumBytesToAdd = Offset + Num - NumBytes;
-	if (NumBytesToAdd > 0)
-	{
-		const int64 NewByteCount = NumBytes + NumBytesToAdd;
-		if (NewByteCount > MaxBytes)
-		{
-			GrowBuffer(NewByteCount);
-		}
-
-		NumBytes = NewByteCount;
-	}
-
-	check((Offset + Num) <= NumBytes);
-
-	if (Num)
-	{
-		FMemory::Memcpy(&Data[Offset], InData, Num);
-		Offset += Num;
-	}
-}
-
-FString FLargeMemoryWriter::GetArchiveName() const
-{
-	return ArchiveName.ToString();
-}
-
-int64 FLargeMemoryWriter::TotalSize()
-{
-	return NumBytes;
-}
-
-uint8* FLargeMemoryWriter::GetData() const
-{
-	UE_CLOG(!Data, LogSerialization, Warning, TEXT("Tried to get written data from an FLargeMemoryWriter that was already released. Archive name: %s."), *ArchiveName.ToString());
-
-	return Data;
-}
-
-void FLargeMemoryWriter::ReleaseOwnership()
-{
-	Data = nullptr;
-	NumBytes = 0;
-	MaxBytes = 0;
-}
-
-FLargeMemoryWriter::~FLargeMemoryWriter()
-{
-	if (Data)
-	{
-		FMemory::Free(Data);
-	}
-}
-
-void FLargeMemoryWriter::GrowBuffer(const int64 DesiredBytes)
-{
-	int64 NewBytes = 4; // Initial alloc size
-
-	if (MaxBytes || DesiredBytes > NewBytes)
-	{
-		// Allocate slack proportional to the buffer size
-		NewBytes = FMemory::QuantizeSize(DesiredBytes + 3 * DesiredBytes / 8 + 16);
-	}
-
-	if (Data)
-	{
-		Data = (uint8*)FMemory::Realloc(Data, NewBytes);
-	}
-	else
-	{
-		Data = (uint8*)FMemory::Malloc(NewBytes);
-	}
-
-	MaxBytes = NewBytes;
-}
-
-
-/*----------------------------------------------------------------------------
-	FLargeMemoryReader
-----------------------------------------------------------------------------*/
-
-FLargeMemoryReader::FLargeMemoryReader(const uint8* InData, const int64 Num, ELargeMemoryReaderFlags InFlags, const FName InArchiveName)
-	: FMemoryArchive()
-	, bFreeOnClose((InFlags & ELargeMemoryReaderFlags::TakeOwnership) != ELargeMemoryReaderFlags::None)
-	, Data(InData)
-	, NumBytes(Num)
-	, ArchiveName(InArchiveName)
-{
-	UE_CLOG(!(InData && Num > 0), LogSerialization, Fatal, TEXT("Tried to initialize an FLargeMemoryReader with a null or empty buffer. Archive name: %s."), *ArchiveName.ToString());
-	ArIsLoading = true;
-	ArIsPersistent = (InFlags & ELargeMemoryReaderFlags::Persistent) != ELargeMemoryReaderFlags::None;
-}
-
-void FLargeMemoryReader::Serialize(void* OutData, int64 Num)
-{
-	if (Num && !ArIsError)
-	{
-		// Only serialize if we have the requested amount of data
-		if (Offset + Num <= NumBytes)
-		{
-			FMemory::Memcpy(OutData, &Data[Offset], Num);
-			Offset += Num;
-		}
-		else
-		{
-			ArIsError = true;
-		}
-	}
-}
-
-int64 FLargeMemoryReader::TotalSize()
-{
-	return NumBytes;
-}
-
-FString FLargeMemoryReader::GetArchiveName() const
-{
-	return ArchiveName.ToString();
-}
-
-FLargeMemoryReader::~FLargeMemoryReader()
-{
-	if (bFreeOnClose)
-	{
-		FMemory::Free((void*)Data);
-	}
 }
 
 /*----------------------------------------------------------------------------

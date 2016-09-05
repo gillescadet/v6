@@ -119,7 +119,7 @@ struct CORE_API FLogCategoryBase
 	/** Destructor, unregisters from the log suppression system **/
 	~FLogCategoryBase();
 	/** Should not generally be used directly. Tests the runtime verbosity and maybe triggers a debug break, etc. **/
-	FORCEINLINE bool IsSuppressed(ELogVerbosity::Type VerbosityLevel) const
+	FORCEINLINE bool IsSuppressed(ELogVerbosity::Type VerbosityLevel)
 	{
 		if ((VerbosityLevel & ELogVerbosity::VerbosityMask) <= Verbosity)
 		{
@@ -150,9 +150,9 @@ protected:
 	uint8 Verbosity;
 	/** Holds the break flag **/
 	bool DebugBreakOnLog;
-	/** Holds default suppression **/
+	/** Holds default supression **/
 	uint8 DefaultVerbosity;
-	/** Holds compile time suppression **/
+	/** Holds compile time supression **/
 	uint8 CompileTimeVerbosity;
 	/** FName for this category **/
 	FName CategoryFName;
@@ -388,9 +388,6 @@ public:
 /** string added to the filename of timestamped backup log files */
 #define BACKUP_LOG_FILENAME_POSTFIX TEXT("-backup-")
 
-/** Used by FOutputDeviceFile to write to a file on a separate thread */
-class FAsyncWriter;
-
 /**
  * File output device (Note: Only works if ALLOW_LOG_FILE && !NO_LOGGING is true, otherwise Serialize does nothing).
  */
@@ -408,7 +405,6 @@ public:
 	/** Sets the filename that the output device writes to.  If the output device was already writing to a file, closes that file. */
 	void SetFilename(const TCHAR* InFilename);
 
-	//~ Begin FOutputDevice Interface.
 	/**
 	 * Closes output device and cleans up. This can't happen in the destructor
 	 * as we have to call "delete" which cannot be done for static/ global
@@ -423,39 +419,32 @@ public:
 	void Flush() override;
 
 	virtual void Serialize( const TCHAR* Data, ELogVerbosity::Type Verbosity, const class FName& Category, const double Time ) override;
+
 	virtual void Serialize( const TCHAR* Data, ELogVerbosity::Type Verbosity, const class FName& Category) override;
+
 	virtual bool CanBeUsedOnAnyThread() const override
 	{
 		return true;
 	}
-	//~ End FOutputDevice Interface.
-
-	/** Creates a backup copy of a log file if it already exists */
-	static void CreateBackupCopy(const TCHAR* Filename);
-
-	/** Checks if the filename represents a backup copy of a log file */
-	static bool IsBackupCopy(const TCHAR* Filename);
 
 private:
-
-	/** Writes to a file on a separate thread */
-	FAsyncWriter* AsyncWriter;
-	/** Archive used by the async writer */
-	FArchive* WriterArchive;
-
-	TCHAR Filename[1024];
-	bool Opened;
-	bool Dead;
+	FArchive*	LogAr;
+	TCHAR		Filename[1024];
+	bool		Opened;
+	bool		Dead;
 
 	/** If true, existing files will not be backed up */
 	bool		bDisableBackup;
 	
 	void WriteRaw( const TCHAR* C );
 
-	/** Creates the async writer and its archive. Returns true if successful.  */
-	bool CreateWriter(uint32 MaxAttempts = 32);
+	FArchive* CreateArchive(uint32 MaxAttempts = 32);
 
 	void WriteByteOrderMarkToArchive(EByteOrderMark ByteOrderMark);
+
+	void CastAndSerializeData(const TCHAR* Data);
+
+	void WriteDataToArchive(const TCHAR* Data, ELogVerbosity::Type Verbosity, const class FName& Category, const double Time);
 };
 
 // Null output device.
@@ -492,22 +481,15 @@ public:
 };
 
 /** Buffered output device. */
-class CORE_API FBufferedOutputDevice : public FOutputDevice
+class FBufferedOutputDevice : public FOutputDevice
 {
-protected:
-	TArray<FBufferedLine>		BufferedLines;
-	ELogVerbosity::Type			FilterLevel;
-	FCriticalSection			SynchronizationObject;
+	TArray<FBufferedLine> BufferedLines;
 
 public:
-
-	FBufferedOutputDevice() : FilterLevel(ELogVerbosity::All)
+	virtual void Serialize( const TCHAR* InData, ELogVerbosity::Type Verbosity, const class FName& Category ) override
 	{
+		new(BufferedLines)FBufferedLine( InData, Category, Verbosity );
 	}
-
-	void	SetVerbosity(ELogVerbosity::Type Verbosity) { FilterLevel = Verbosity; }
-	void	Serialize(const TCHAR* InData, ELogVerbosity::Type Verbosity, const class FName& Category) override;
-	void	GetContents(TArray<FBufferedLine>& DestBuffer, bool ClearDevice = true);
 
 	/** Pushes buffered lines into the specified output device. */
 	void RedirectTo( class FOutputDevice& Ar )
@@ -578,6 +560,9 @@ public:
 
 private:
 	FArchive* LogAr;
+
+private:
+	void CastAndSerializeData(const TCHAR* Data);
 };
 
 CORE_API DECLARE_LOG_CATEGORY_EXTERN(LogHAL, Log, All);

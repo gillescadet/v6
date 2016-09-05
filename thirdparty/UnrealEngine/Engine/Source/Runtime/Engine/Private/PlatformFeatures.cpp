@@ -19,13 +19,4 @@ IDVRStreamingSystem* IPlatformFeaturesModule::GetStreamingSystem()
 	return &GenericStreamingSystem;
 }
 
-TSharedPtr<const class FJsonObject> IPlatformFeaturesModule::GetTitleSettings()
-{
-	return nullptr;
-}
 
-IVideoRecordingSystem* IPlatformFeaturesModule::GetVideoRecordingSystem()
-{
-	static FGenericVideoRecordingSystem GenericVideoRecordingSystem;
-	return &GenericVideoRecordingSystem;
-}

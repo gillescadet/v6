@@ -2,14 +2,13 @@
 
 #pragma once
 
-#include "Curves/IntegralCurve.h"
 #include "MovieSceneSection.h"
 #include "MovieSceneParticleSection.generated.h"
 
 
 /**
- * Defines the types of particle keys.
- */
+* Defines the types of particle keys.
+*/
 UENUM()
 namespace EParticleKey
 {
@@ -31,23 +30,19 @@ class UMovieSceneParticleSection
 {
 	GENERATED_UCLASS_BODY()
 
-	MOVIESCENETRACKS_API void AddKey(float Time, EParticleKey::Type KeyType);
+	void AddKey(float Time, EParticleKey::Type KeyType);
 
 	MOVIESCENETRACKS_API FIntegralCurve& GetParticleCurve();
 
-public:
-
-	//~ UMovieSceneSection interface
-
-	virtual void MoveSection(float DeltaPosition, TSet<FKeyHandle>& KeyHandles) override;
-	virtual void DilateSection(float DilationFactor, float Origin, TSet<FKeyHandle>& KeyHandles) override;
-	virtual void GetKeyHandles(TSet<FKeyHandle>& OutKeyHandles, TRange<float> TimeRange) const override;
-	virtual TOptional<float> GetKeyTime(FKeyHandle KeyHandle) const override;
-	virtual void SetKeyTime(FKeyHandle KeyHandle, float Time) override;
+	/**
+	* UMovieSceneSection interface
+	*/
+	virtual void MoveSection( float DeltaPosition, TSet<FKeyHandle>& KeyHandles ) override;
+	virtual void DilateSection( float DilationFactor, float Origin, TSet<FKeyHandle>& KeyHandles ) override;
+	virtual void GetKeyHandles( TSet<FKeyHandle>& KeyHandles ) const override;
 
 private:
-
 	/** Curve containing the particle keys. */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, Category="Particles")
 	FIntegralCurve ParticleKeys;
 };

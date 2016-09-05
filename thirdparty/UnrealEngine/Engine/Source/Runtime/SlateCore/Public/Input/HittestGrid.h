@@ -21,7 +21,6 @@ class SLATECORE_API FHittestGrid
 public:
 
 	FHittestGrid();
-	~FHittestGrid();
 
 	/**
 	 * Given a Slate Units coordinate in virtual desktop space, perform a hittest
@@ -39,7 +38,7 @@ public:
 	void ClearGridForNewFrame(const FSlateRect& HittestArea);
 
 	/** Add Widget into the hittest data structure so that we can later make queries about it. */
-	int32 InsertWidget(const int32 ParentHittestIndex, const EVisibility& Visibility, const FArrangedWidget& Widget, const FVector2D InWindowOffset, const FSlateRect& InClippingRect, int32 LayerId);
+	int32 InsertWidget( const int32 ParentHittestIndex, const EVisibility& Visibility, const FArrangedWidget& Widget, const FVector2D InWindowOffset, const FSlateRect& InClippingRect );
 
 	void InsertCustomHitTestPath( TSharedRef<ICustomHitTestPath> CustomHitTestPath, int32 WidgetIndex );
 
@@ -81,19 +80,17 @@ private:
 	bool IsValidCellCoord(const FIntPoint& CellCoord) const;
 	bool IsValidCellCoord(const int32 XCoord, const int32 YCoord) const;
 
-	/** Bubble path, distance to leafmost widget from point of picking, and LayerId of leafmost widget. */
+	/** Bubble path and distance to leafmost widget from point of picking. */
 	struct FWidgetPathAndDist
 	{
 		/** Ctor */
 		FWidgetPathAndDist( float InDistanceSq = -1.0f )
 		: DistToTopWidgetSq(InDistanceSq)
-		, LayerId(0)
 		{}
 
-		FWidgetPathAndDist(const TArray<FWidgetAndPointer>& InPath, float InDistanceSq, int32 InLayerId)
+		FWidgetPathAndDist(const TArray<FWidgetAndPointer>& InPath, float InDistanceSq)
 		: BubblePath(InPath)
 		, DistToTopWidgetSq(InDistanceSq)
-		, LayerId(InLayerId)
 		{}
 
 		void Clear()
@@ -109,7 +106,6 @@ private:
 
 		TArray<FWidgetAndPointer> BubblePath;
 		float DistToTopWidgetSq;
-		int32 LayerId;
 	};
 
 	FWidgetPathAndDist GetWidgetPathAndDist(const FGridTestingParams& Params, const bool bIgnoreEnabledStatus) const;

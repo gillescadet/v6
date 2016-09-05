@@ -11,7 +11,6 @@
 #include "Engine/DestructibleFractureSettings.h"
 #include "PhysicsEngine/PhysXSupport.h"
 #include "EditorFramework/AssetImportData.h"
-#include "GPUSkinVertexFactory.h"
 
 #if WITH_APEX && WITH_EDITOR
 #include "ApexDestructibleAssetImport.h"
@@ -39,14 +38,14 @@ void UDestructibleMesh::PostLoad()
 	// since this might not work well if outside of editor
 	// you'll have to save re-chunked asset here, but I don't have a good way to let user
 	// know here since PostLoad invalidate any dirty package mark. 
-	FSkeletalMeshResource* ImportedMeshResource = GetImportedResource();
-	const uint32 MaxGPUSkinBones = FGPUBaseSkinVertexFactory::GetMaxGPUSkinBones();
-	check(MaxGPUSkinBones <= FGPUBaseSkinVertexFactory::GHardwareMaxGPUSkinBones);
+	FSkeletalMeshResource* ImportedResource = GetImportedResource();
+	static IConsoleVariable* MaxBonesVar = IConsoleManager::Get().FindConsoleVariable(TEXT("Compat.MAX_GPUSKIN_BONES"));
+	const int32 MaxGPUSkinBones = MaxBonesVar->GetInt();
 	// if this doesn't have the right MAX GPU Bone count, recreate it. 
 	for(int32 LodIndex=0; LodIndex<LODInfo.Num(); LodIndex++)
 	{
 		FSkeletalMeshLODInfo& ThisLODInfo = LODInfo[LodIndex];
-		FStaticLODModel& ThisLODModel = ImportedMeshResource->LODModels[LodIndex];
+		FStaticLODModel& ThisLODModel = ImportedResource->LODModels[LodIndex];
 
 		// Check that we list the root bone as an active bone.
 		if(!ThisLODModel.ActiveBoneIndices.Contains(0))
@@ -55,9 +54,9 @@ void UDestructibleMesh::PostLoad()
 			ThisLODModel.ActiveBoneIndices.Sort();
 		}
 
-		for (int32 SectionIndex = 0; SectionIndex < ThisLODModel.Sections.Num(); ++SectionIndex)
+		for (int32 ChunkIndex = 0; ChunkIndex < ThisLODModel.Chunks.Num(); ++ChunkIndex)
 		{
-			if (ThisLODModel.Sections[SectionIndex].BoneMap.Num() > (int)MaxGPUSkinBones)
+			if (ThisLODModel.Chunks[ChunkIndex].BoneMap.Num() > MaxGPUSkinBones)
 			{
 #if WITH_EDITOR
 				// re create destructible asset if it exceeds
@@ -187,7 +186,7 @@ void UDestructibleMesh::Serialize(FArchive& Ar)
 		{
 			Name = ApexDestructibleAsset->getName();
 		}
-		if( Name == NULL  || Ar.IsCooking())
+		if( Name == NULL )
 		{
 			Name = "";
 		}
@@ -598,10 +597,12 @@ bool UDestructibleMesh::BuildFractureSettingsFromStaticMesh(UStaticMesh* StaticM
 	Submeshes.SetNum(OverallSubmeshCount);
 
 	// UE Materials
-	TArray<UMaterialInterface*> MeshMaterials;
+	TArray<UMaterialInterface*> Materials;
 
 	// Counter for submesh index
 	int32 SubmeshIndexCounter = 0;
+
+	
 
 	// Start creating apex data
 	for (int32 MeshIdx=0; MeshIdx < RenderMeshes.Num(); ++MeshIdx)
@@ -618,7 +619,7 @@ bool UDestructibleMesh::BuildFractureSettingsFromStaticMesh(UStaticMesh* StaticM
 			physx::NxExplicitSubmeshData& SubmeshData = Submeshes[SubmeshIndexCounter];
 
 			// Parallel materials array
-			MeshMaterials.Add(CurrentStaticMesh->GetMaterial(Section.MaterialIndex));
+			Materials.Add(CurrentStaticMesh->GetMaterial(Section.MaterialIndex));
 
 			CreateSubmeshFromSMSection(RenderMesh, SubmeshIndexCounter, Section, SubmeshData, Triangles);
 		}
@@ -629,7 +630,7 @@ bool UDestructibleMesh::BuildFractureSettingsFromStaticMesh(UStaticMesh* StaticM
 		}
 	}
 
-	FractureSettings->SetRootMesh(Triangles, MeshMaterials, Submeshes, MeshPartitions, true);
+	FractureSettings->SetRootMesh(Triangles, Materials, Submeshes, MeshPartitions, true);
 	return true;
 #else // WITH_APEX && WITH_EDITOR
 	return false;

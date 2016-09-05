@@ -275,8 +275,8 @@ public:
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
-		OutEnvironment.SetDefine(TEXT("POINT_LIGHT_SHAFTS"), (LightType == LightType_Point || LightType == LightType_Spot));
-		OutEnvironment.SetDefine(TEXT("SPOT_LIGHT_SHAFTS"), (LightType == LightType_Spot));
+		OutEnvironment.SetDefine(TEXT("POINT_LIGHT_SHAFTS"), (LightType == LightType_Point || LightType == LightType_Spot) ? TEXT("1") : TEXT("0"));
+		OutEnvironment.SetDefine(TEXT("SPOT_LIGHT_SHAFTS"), (LightType == LightType_Spot) ? TEXT("1") : TEXT("0"));
 		OutEnvironment.SetDefine(TEXT("POINT_LIGHT_RADIUS_FADE_FACTOR"), PointLightRadiusFadeFactor);
 		OutEnvironment.SetDefine(TEXT("OCCLUSION_TERM"), (uint32)bOcclusionTerm);
 	}
@@ -694,7 +694,7 @@ bool DoesViewFamilyAllowLightShafts(const FSceneViewFamily& ViewFamily)
 	return GLightShafts
 		&& ViewFamily.EngineShowFlags.LightShafts
 		&& ViewFamily.EngineShowFlags.Lighting
-		&& !ViewFamily.UseDebugViewPS()
+		&& !(ViewFamily.EngineShowFlags.ShaderComplexity)
 		&& !(ViewFamily.EngineShowFlags.VisualizeAdaptiveDOF)
 		&& !(ViewFamily.EngineShowFlags.VisualizeDOF)
 		&& !(ViewFamily.EngineShowFlags.VisualizeBuffer)

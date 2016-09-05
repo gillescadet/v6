@@ -36,15 +36,6 @@ public:
 	}
 
 	/**  
-	 * Construct from a unique object identifier
-	 * @param ObjectID Object identifier to create a weak pointer to
-	**/
-	explicit FORCEINLINE FAssetPtr(const FStringAssetReference &ObjectID)
-		: TPersistentObjectPtr<FStringAssetReference>(ObjectID)
-	{
-	}
-
-	/**  
 	 * Construct from another lazy pointer
 	 * @param Other lazy pointer to copy from
 	 */
@@ -95,8 +86,13 @@ public:
 	 * Construct from another lazy pointer
 	 * @param Other lazy pointer to copy from
 	 */
+#if !PLATFORM_COMPILER_HAS_DEFAULT_FUNCTION_TEMPLATE_ARGUMENTS
+	template <class U>
+	FORCEINLINE TAssetPtr(const TAssetPtr<U>& Other, typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value>::Type* = nullptr)
+#else
 	template <class U, class = typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value>::Type>
 	FORCEINLINE TAssetPtr(const TAssetPtr<U>& Other)
+#endif
 		: AssetPtr(Other.AssetPtr)
 	{
 	}
@@ -107,15 +103,6 @@ public:
 	**/
 	FORCEINLINE TAssetPtr(const T* Object)
 		: AssetPtr(Object)
-	{
-	}
-
-	/**  
-	 * Construct from a unique object identifier
-	 * @param ObjectID Object identifier to create a weak pointer to
-	**/
-	explicit FORCEINLINE TAssetPtr(const FStringAssetReference &ObjectID)
-		: AssetPtr(ObjectID)
 	{
 	}
 
@@ -282,7 +269,7 @@ public:
 	/**  
 	 * Dereference lazy pointer to see if it points somewhere valid.
 	 */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{
 		return Get() != NULL;
 	}
@@ -336,15 +323,6 @@ public:
 	**/
 	FORCEINLINE TAssetSubclassOf(const UClass* From)
 		: AssetPtr(From)
-	{
-	}
-
-	/**  
-	 * Construct from a unique object identifier
-	 * @param ObjectID Object identifier to create a weak pointer to
-	**/
-	explicit FORCEINLINE TAssetSubclassOf(const FStringAssetReference &ObjectID)
-		: AssetPtr(ObjectID)
 	{
 	}
 
@@ -493,7 +471,7 @@ public:
 	/**  
 	 * Dereference lazy pointer to see if it points somewhere valid.
 	 */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{
 		return Get() != NULL;
 	}
@@ -502,24 +480,6 @@ public:
 	FORCEINLINE friend uint32 GetTypeHash(const TAssetSubclassOf<TClass>& Other)
 	{
 		return GetTypeHash(static_cast<const TPersistentObjectPtr<FStringAssetReference>&>(Other.AssetPtr));
-	}
-
-	/**  
-	 * Synchronously load (if necessary) and return the asset object represented by this asset ptr
-	 */
-	UClass* LoadSynchronous()
-	{
-		UObject* Asset = AssetPtr.Get();
-		if (Asset == nullptr && IsPending())
-		{
-			Asset = AssetPtr.LoadSynchronous();
-		}
-		UClass* Class = dynamic_cast<UClass*>(Asset);
-		if (!Class || !Class->IsChildOf(TClass::StaticClass()))
-		{
-			return nullptr;
-		}
-		return Class;
 	}
 
 	friend FArchive& operator<<(FArchive& Ar, TAssetSubclassOf<TClass>& Other)

@@ -40,7 +40,7 @@ UParticleModuleSize::UParticleModuleSize(const FObjectInitializer& ObjectInitial
 
 void UParticleModuleSize::InitializeDefaults()
 {
-	if (!StartSize.IsCreated())
+	if (!StartSize.Distribution)
 	{
 		UDistributionVectorUniform* DistributionStartSize = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionStartSize"));
 		DistributionStartSize->Min = FVector(1.0f, 1.0f, 1.0f);
@@ -144,7 +144,7 @@ UParticleModuleSizeMultiplyLife::UParticleModuleSizeMultiplyLife(const FObjectIn
 
 void UParticleModuleSizeMultiplyLife::InitializeDefaults()
 {
-	if (!LifeMultiplier.IsCreated())
+	if (!LifeMultiplier.Distribution)
 	{
 		LifeMultiplier.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionLifeMultiplier"));
 	}
@@ -334,7 +334,7 @@ UParticleModuleSizeScale::UParticleModuleSizeScale(const FObjectInitializer& Obj
 
 void UParticleModuleSizeScale::InitializeDefaults()
 {
-	if (!SizeScale.IsCreated())
+	if (!SizeScale.Distribution)
 	{
 		SizeScale.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionSizeScale"));
 	}

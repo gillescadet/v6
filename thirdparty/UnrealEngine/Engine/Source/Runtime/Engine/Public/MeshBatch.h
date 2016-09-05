@@ -19,15 +19,10 @@ struct FMeshBatchElement
 
 	const FIndexBuffer* IndexBuffer;
 
-	union 
-	{
-		/** If bIsSplineProxy, Instance runs, where number of runs is specified by NumInstances.  Run structure is [StartInstanceIndex, EndInstanceIndex]. */
-		uint32* InstanceRuns;
-		/** If bIsSplineProxy, a pointer back to the proxy */
-		class FSplineMeshSceneProxy* SplineMeshSceneProxy;
-	};
+	/** Instance runs, where number of runs is specified by NumInstances.  Run structure is [StartInstanceIndex, EndInstanceIndex]. */
+	uint32* InstanceRuns;
 	const void* UserData;
-	/**
+	/** 
 	 *	DynamicIndexData - pointer to user memory containing the index data.
 	 *	Used for rendering dynamic data directly.
 	 */
@@ -39,7 +34,6 @@ struct FMeshBatchElement
 	uint32 NumInstances;
 	uint32 MinVertexIndex;
 	uint32 MaxVertexIndex;
-	// Meaning depends on the vertex factory, e.g. FGPUSkinPassthroughVertexFactory: element index in FGPUSkinCache::CachedElements
 	int32 UserIndex;
 	float MinScreenSize;
 	float MaxScreenSize;
@@ -49,14 +43,7 @@ struct FMeshBatchElement
 	uint8 InstancedLODRange : 4;
 	uint8 bUserDataIsColorVertexBuffer : 1;
 	uint8 bIsInstancedMesh : 1;
-	uint8 bIsSplineProxy : 1;
-	uint8 bIsInstanceRuns : 1;
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	/** Conceptual element index used for debug viewmodes. */
-	int8 VisualizeElementIndex;
-#endif
-
+	
 	FMeshBatchElement()
 	:	PrimitiveUniformBufferResource(nullptr)
 	,	IndexBuffer(nullptr)
@@ -71,12 +58,6 @@ struct FMeshBatchElement
 	,	InstancedLODRange(0)
 	,	bUserDataIsColorVertexBuffer(false)
 	,   bIsInstancedMesh(false)
-	,	bIsSplineProxy(false)
-	,	bIsInstanceRuns(false)
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	,	VisualizeElementIndex(INDEX_NONE)
-#endif
-
 	{
 	}
 };
@@ -94,13 +75,8 @@ struct FMeshBatch
 	/** LOD index of the mesh, used for fading LOD transitions. */
 	int8 LODIndex;
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	/** Conceptual LOD index used for the LOD Coloration visualization. */
 	int8 VisualizeLODIndex;
-#endif
-
-	/** Conceptual HLOD index used for the HLOD Coloration visualization. */
-	int8 VisualizeHLODIndex;
 
 	uint32 UseDynamicData : 1;
 	uint32 ReverseCulling : 1;
@@ -133,9 +109,6 @@ struct FMeshBatch
 	/** Whether the mesh batch can be selected through editor selection, aka hit proxies. */
 	uint32 bSelectable : 1;
 
-	/** Whether the mesh batch needs VertexFactory->GetStaticBatchElementVisibility to be called each frame to determine which elements of the batch are visible. */
-	uint32 bRequiresPerElementVisibility : 1;
-	
 	/** Whether the mesh batch should apply dithered LOD. */
 	uint32 bDitheredLODTransition : 1;
 
@@ -165,15 +138,6 @@ struct FMeshBatch
 	{
 		// Note: blend mode does not depend on the feature level we are actually rendering in.
 		return IsTranslucentBlendMode(MaterialRenderProxy->GetMaterial(InFeatureLevel)->GetBlendMode());
-	}
-
-	// todo: can be optimized with a single function that returns multiple states (Translucent, Decal, Masked) 
-	FORCEINLINE bool IsDecal(ERHIFeatureLevel::Type InFeatureLevel) const
-	{
-		// Note: does not depend on the feature level we are actually rendering in.
-		const FMaterial* Mat = MaterialRenderProxy->GetMaterial(InFeatureLevel);
-
-		return Mat->IsDeferredDecal();
 	}
 
 	FORCEINLINE bool IsMasked(ERHIFeatureLevel::Type InFeatureLevel) const
@@ -209,7 +173,7 @@ struct FMeshBatch
 		int32 Count=0;
 		for( int32 ElementIdx=0;ElementIdx<Elements.Num();ElementIdx++ )
 		{
-			if (Elements[ElementIdx].bIsInstanceRuns && Elements[ElementIdx].InstanceRuns)
+			if (Elements[ElementIdx].InstanceRuns)
 			{
 				for (uint32 Run = 0; Run < Elements[ElementIdx].NumInstances; Run++)
 				{
@@ -238,10 +202,7 @@ struct FMeshBatch
 	FMeshBatch()
 	:	DynamicVertexStride(0)
 	,	LODIndex(INDEX_NONE)
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	,	VisualizeLODIndex(INDEX_NONE)
-#endif
-	,	VisualizeHLODIndex(INDEX_NONE)
 	,	UseDynamicData(false)
 	,	ReverseCulling(false)
 	,	bDisableBackfaceCulling(false)
@@ -255,7 +216,6 @@ struct FMeshBatch
 	,	bUseWireframeSelectionColoring(false)
 	,	bUseSelectionOutline(true)
 	,	bSelectable(true)
-	,	bRequiresPerElementVisibility(false)
 	,	bDitheredLODTransition(false)
 	,   DitheredLODTransitionAlpha(0.0f)
 	,	LCI(NULL)

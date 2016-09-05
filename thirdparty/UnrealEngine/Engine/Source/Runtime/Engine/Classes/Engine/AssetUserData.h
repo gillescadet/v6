@@ -8,7 +8,7 @@
 /**
  * Object that can be subclassed to store custom data on Unreal asset objects.
  */
-UCLASS(DefaultToInstanced, abstract, editinlinenew)
+UCLASS(DefaultToInstanced)
 class ENGINE_API UAssetUserData
 	: public UObject
 {

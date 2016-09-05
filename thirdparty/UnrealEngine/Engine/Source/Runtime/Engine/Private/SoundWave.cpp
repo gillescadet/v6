@@ -6,25 +6,11 @@
 #include "Audio.h"
 #include "AudioDevice.h"
 #include "AudioDecompress.h"
-#include "AudioThread.h"
 #include "TargetPlatform.h"
 #include "AudioDerivedData.h"
 #include "SubtitleManager.h"
 #include "DerivedDataCacheInterface.h"
 #include "EditorFramework/AssetImportData.h"
-#include "CookStats.h"
-#include "FrameworkObjectVersion.h"
-
-#if ENABLE_COOK_STATS
-namespace SoundWaveCookStats
-{
-	static FCookStats::FDDCResourceUsageStats UsageStats;
-	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
-	{
-		UsageStats.LogStats(AddStat, TEXT("SoundWave.Usage"), TEXT(""));
-	});
-}
-#endif
 
 /*-----------------------------------------------------------------------------
 	FStreamedAudioChunk
@@ -49,7 +35,7 @@ void FStreamedAudioChunk::Serialize(FArchive& Ar, UObject* Owner, int32 ChunkInd
 }
 
 #if WITH_EDITORONLY_DATA
-uint32 FStreamedAudioChunk::StoreInDerivedDataCache(const FString& InDerivedDataKey)
+void FStreamedAudioChunk::StoreInDerivedDataCache(const FString& InDerivedDataKey)
 {
 	int32 BulkDataSizeInBytes = BulkData.GetBulkDataSize();
 	check(BulkDataSizeInBytes > 0);
@@ -63,11 +49,9 @@ uint32 FStreamedAudioChunk::StoreInDerivedDataCache(const FString& InDerivedData
 		BulkData.Unlock();
 	}
 
-	const uint32 Result = DerivedData.Num();
 	GetDerivedDataCacheRef().Put(*InDerivedDataKey, DerivedData);
 	DerivedDataKey = InDerivedDataKey;
 	BulkData.RemoveBulkData();
-	return Result;
 }
 #endif // #if WITH_EDITORONLY_DATA
 
@@ -77,44 +61,31 @@ USoundWave::USoundWave(const FObjectInitializer& ObjectInitializer)
 	Volume = 1.0;
 	Pitch = 1.0;
 	CompressionQuality = 40;
-	SubtitlePriority = DEFAULT_SUBTITLE_PRIORITY;
-	ResourceState = ESoundWaveResourceState::NeedsFree;
 }
 
 SIZE_T USoundWave::GetResourceSize(EResourceSizeMode::Type Mode)
 {
-	if (!GEngine)
+	int32 CalculatedResourceSize = 0;
+
+	if (DecompressionType == DTYPE_Native)
 	{
-		return 0;
+		// If we've been decompressed, need to account for decompressed and also compressed
+		CalculatedResourceSize += RawPCMDataSize;
+	}
+	else if (DecompressionType == DTYPE_RealTime)
+	{
+		if (CachedRealtimeFirstBuffer)
+		{
+			CalculatedResourceSize += MONO_PCM_BUFFER_SIZE * NumChannels;
+		}
 	}
 
-	SIZE_T CalculatedResourceSize = 0;
-
-	if (FAudioDevice* LocalAudioDevice = GEngine->GetMainAudioDevice())
+	if (GEngine && GEngine->GetMainAudioDevice())
 	{
-		if (LocalAudioDevice->HasCompressedAudioInfoClass(this) && DecompressionType == DTYPE_Native)
+		// Don't add compressed data to size of streaming sounds
+		if (!FPlatformProperties::SupportsAudioStreaming() || !IsStreaming())
 		{
-			// In non-editor builds ensure that the "native" sound wave has unloaded its compressed asset at this point.
-			// DTYPE_Native assets fully decompress themselves on load and are supposed to unload the compressed asset when it finishes.
-			// However, in the editor, it's possible for an asset to be DTYPE_Native and not referenced by currently loaded level and thus not
-			// actually loaded (and fully decompressed) before its ResourceSize is queried.
-			if (!GIsEditor)
-			{
-				ensureMsgf(ResourceSize == 0, TEXT("ResourceSize for DTYPE_Native USoundWave '%s' was not 0 (%d)."), *GetName(), ResourceSize);
-			}
-			CalculatedResourceSize = RawPCMDataSize;
-		}
-		else 
-		{
-			if (DecompressionType == DTYPE_RealTime && CachedRealtimeFirstBuffer)
-			{
-				CalculatedResourceSize = MONO_PCM_BUFFER_SIZE * NumChannels;
-			}
-			
-			if ((!FPlatformProperties::SupportsAudioStreaming() || !IsStreaming()))
-			{
-				CalculatedResourceSize += GetCompressedDataSize(LocalAudioDevice->GetRuntimeFormat(this));
-			}
+			CalculatedResourceSize += GetCompressedDataSize(GEngine->GetMainAudioDevice()->GetRuntimeFormat(this));
 		}
 	}
 
@@ -188,12 +159,14 @@ void USoundWave::Serialize( FArchive& Ar )
 		UE_LOG(LogAudio, Fatal, TEXT("This platform requires cooked packages, and audio data was not cooked into %s."), *GetFullName());
 	}
 
-	Ar.UsingCustomVersion(FFrameworkObjectVersion::GUID);
-
-	if (Ar.IsLoading() && (Ar.UE4Ver() >= VER_UE4_SOUND_COMPRESSION_TYPE_ADDED) && (Ar.CustomVer(FFrameworkObjectVersion::GUID) < FFrameworkObjectVersion::RemoveSoundWaveCompressionName))
+	if (Ar.IsCooking())
 	{
-		FName DummyCompressionName;
-		Ar << DummyCompressionName;
+		CompressionName = Ar.CookingTarget()->GetWaveFormat(this);
+	}
+	
+	if (Ar.UE4Ver() >= VER_UE4_SOUND_COMPRESSION_TYPE_ADDED)
+	{
+		Ar << CompressionName;
 	}
 
 	bool bSupportsStreaming = false;
@@ -288,11 +261,6 @@ void USoundWave::LogSubtitle( FOutputDevice& Ar )
 	Ar.Logf( bMature ? TEXT( "Mature:    Yes" ) : TEXT( "Mature:    No" ) );
 }
 
-float USoundWave::GetSubtitlePriority() const
-{ 
-	return SubtitlePriority;
-};
-
 void USoundWave::PostInitProperties()
 {
 	Super::PostInitProperties();
@@ -310,21 +278,11 @@ void USoundWave::PostInitProperties()
 #endif
 }
 
-bool USoundWave::HasCompressedData(FName Format) const
-{
-	if (IsTemplate() || IsRunningDedicatedServer())
-	{
-		return false;
-	}
-
-	return CompressedFormatData.Contains(Format);
-}
-
 FByteBulkData* USoundWave::GetCompressedData(FName Format)
 {
 	if (IsTemplate() || IsRunningDedicatedServer())
 	{
-		return nullptr;
+		return NULL;
 	}
 	bool bContainedData = CompressedFormatData.Contains(Format);
 	FByteBulkData* Result = &CompressedFormatData.GetFormat(Format);
@@ -334,12 +292,9 @@ FByteBulkData* USoundWave::GetCompressedData(FName Format)
 		{
 			TArray<uint8> OutData;
 			FDerivedAudioDataCompressor* DeriveAudioData = new FDerivedAudioDataCompressor(this, Format);
-
-			COOK_STAT(auto Timer = SoundWaveCookStats::UsageStats.TimeSyncWork());
-			bool bDataWasBuilt = false;
-			if (GetDerivedDataCacheRef().GetSynchronous(DeriveAudioData, OutData, &bDataWasBuilt))
+			GetDerivedDataCacheRef().GetSynchronous(DeriveAudioData, OutData);
+			if (OutData.Num())
 			{
-				COOK_STAT(Timer.AddHitOrMiss(bDataWasBuilt ? FCookStats::CallStats::EHitOrMiss::Miss : FCookStats::CallStats::EHitOrMiss::Hit, OutData.Num()));
 				Result->Lock(LOCK_READ_WRITE);
 				FMemory::Memcpy(Result->Realloc(OutData.Num()), OutData.GetData(), OutData.Num());
 				Result->Unlock();
@@ -387,7 +342,7 @@ void USoundWave::PostLoad()
 	if( !GIsEditor && !IsTemplate( RF_ClassDefaultObject ) && GEngine )
 	{
 		FAudioDevice* AudioDevice = GEngine->GetMainAudioDevice();
-		if( AudioDevice && AudioDevice->AreStartupSoundsPreCached())
+		if( AudioDevice && AudioDevice->bStartupSoundsPreCached)
 		{
 			// Upload the data to the hardware, but only if we've precached startup sounds already
 			AudioDevice->Precache( this );
@@ -463,6 +418,17 @@ void USoundWave::RemoveAudioResource()
 	}
 }
 
+
+bool USoundWave::IsLocalizedResource()
+{
+	FString FullPathName;
+	bool bIsLocalised = false;
+
+	//@todo-packageloc Handle this based on the appropriate localized package name.
+
+	return( Super::IsLocalizedResource() || Subtitles.Num() > 0 || bIsLocalised );
+}
+
 #if WITH_EDITOR
 
 void USoundWave::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
@@ -496,8 +462,6 @@ void USoundWave::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 
 void USoundWave::FreeResources()
 {
-	check(IsInAudioThread());
-
 	// Housekeeping of stats
 	DEC_FLOAT_STAT_BY( STAT_AudioBufferTime, Duration );
 	DEC_FLOAT_STAT_BY( STAT_AudioBufferTimeChannels, NumChannels * Duration );
@@ -510,7 +474,7 @@ void USoundWave::FreeResources()
 		FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
 		if (AudioDeviceManager)
 		{
-			AudioDeviceManager->StopSoundsUsingResource(this);
+			AudioDeviceManager->StopSoundsUsingWave(this);
 			AudioDeviceManager->FreeResource(this);
 		}
 	}
@@ -540,15 +504,9 @@ void USoundWave::FreeResources()
 	bDynamicResource = false;
 	DecompressionType = DTYPE_Setup;
 	bDecompressedFromOgg = 0;
-
-	USoundWave* SoundWave = this;
-	FAudioThread::RunCommandOnGameThread([SoundWave]()
-	{
-		SoundWave->ResourceState = ESoundWaveResourceState::Freed;
-	}, TStatId());
 }
 
-FWaveInstance* USoundWave::HandleStart( FActiveSound& ActiveSound, const UPTRINT WaveInstanceHash ) const
+FWaveInstance* USoundWave::HandleStart( FActiveSound& ActiveSound, const UPTRINT WaveInstanceHash )
 {
 	// Create a new wave instance and associate with the ActiveSound
 	FWaveInstance* WaveInstance = new FWaveInstance( &ActiveSound );
@@ -558,16 +516,21 @@ FWaveInstance* USoundWave::HandleStart( FActiveSound& ActiveSound, const UPTRINT
 	// Add in the subtitle if they exist
 	if (ActiveSound.bHandleSubtitles && Subtitles.Num() > 0)
 	{
-		FQueueSubtitleParams QueueSubtitleParams(Subtitles);
-		QueueSubtitleParams.AudioComponentID = ActiveSound.GetAudioComponentID();
-		QueueSubtitleParams.WorldPtr = ActiveSound.GetWeakWorld();
-		QueueSubtitleParams.WaveInstance = (PTRINT)WaveInstance;
-		QueueSubtitleParams.SubtitlePriority = ActiveSound.SubtitlePriority;
-		QueueSubtitleParams.Duration = Duration;
-		QueueSubtitleParams.bManualWordWrap = bManualWordWrap;
-		QueueSubtitleParams.bSingleLine = bSingleLine;
-
-		FSubtitleManager::QueueSubtitles(QueueSubtitleParams);
+		if (UAudioComponent* AudioComponent = ActiveSound.GetAudioComponent())
+		{
+			// TODO - Audio Threading. This would need to be a call back to the main thread.
+			if (AudioComponent->OnQueueSubtitles.IsBound())
+			{
+				// intercept the subtitles if the delegate is set
+				AudioComponent->OnQueueSubtitles.ExecuteIfBound( Subtitles, Duration );
+			}
+			else if( ActiveSound.World.IsValid() )
+			{
+				// otherwise, pass them on to the subtitle manager for display
+				// Subtitles are hashed based on the associated sound (wave instance).
+				FSubtitleManager::GetSubtitleManager()->QueueSubtitles( ( PTRINT )WaveInstance, ActiveSound.SubtitlePriority, bManualWordWrap, bSingleLine, Duration, Subtitles, ActiveSound.World->GetAudioTimeSeconds() );
+			}
+		}
 	}
 
 	return WaveInstance;
@@ -575,30 +538,17 @@ FWaveInstance* USoundWave::HandleStart( FActiveSound& ActiveSound, const UPTRINT
 
 bool USoundWave::IsReadyForFinishDestroy()
 {
-	const bool bIsStreamingInProgress = IStreamingManager::Get().GetAudioStreamingManager().IsStreamingInProgress(this);
+	bool bIsStreamingInProgress = IStreamingManager::Get().GetAudioStreamingManager().IsStreamingInProgress(this);
 
 	// Wait till streaming and decompression finishes before deleting resource.
-	if ( !bIsStreamingInProgress && (( AudioDecompressor == nullptr ) || AudioDecompressor->IsDone()) )
-	{
-		if (ResourceState == ESoundWaveResourceState::NeedsFree)
-		{
-			DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.FreeResources"), STAT_AudioFreeResources, STATGROUP_AudioThreadCommands);
-
-			USoundWave* SoundWave = this;
-			ResourceState = ESoundWaveResourceState::Freeing;
-			FAudioThread::RunCommandOnAudioThread([SoundWave]()
-			{
-				SoundWave->FreeResources();
-			}, GET_STATID(STAT_AudioFreeResources));
-		}
-	}
-	
-	return ResourceState == ESoundWaveResourceState::Freed;
+	return( !bIsStreamingInProgress && (( AudioDecompressor == NULL ) || AudioDecompressor->IsDone()) );
 }
 
 
 void USoundWave::FinishDestroy()
 {
+	FreeResources();
+
 	Super::FinishDestroy();
 
 	CleanupCachedRunningPlatformData();
@@ -629,9 +579,9 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 	{
 		WaveInstance->bIsFinished = false;
 #if !(NO_LOGGING || UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		if (!ActiveSound.bWarnedAboutOrphanedLooping && ActiveSound.GetAudioComponentID() == 0)
+		if (!ActiveSound.bWarnedAboutOrphanedLooping && ActiveSound.GetAudioComponent() == nullptr)
 		{
-			UE_LOG(LogAudio, Warning, TEXT("Detected orphaned looping sound '%s'."), *ActiveSound.GetSound()->GetName());
+			UE_LOG(LogAudio, Warning, TEXT("Detected orphaned looping sound '%s'."), *ActiveSound.Sound->GetName());
 			ActiveSound.bWarnedAboutOrphanedLooping = true;
 		}
 #endif
@@ -643,7 +593,6 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 		// Propagate properties and add WaveInstance to outgoing array of FWaveInstances.
 		WaveInstance->Volume = ParseParams.Volume * Volume;
 		WaveInstance->VolumeMultiplier = ParseParams.VolumeMultiplier;
-		WaveInstance->VolumeApp = ParseParams.VolumeApp;
 		WaveInstance->Pitch = ParseParams.Pitch * Pitch;
 		WaveInstance->bEnableLowPassFilter = ParseParams.bEnableLowPassFilter;
 		WaveInstance->bIsOccluded = ParseParams.bIsOccluded;
@@ -668,6 +617,7 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 			WaveInstance->Pitch *= SoundClassProperties->Pitch;
 			//TODO: Add in HighFrequencyGainMultiplier property to sound classes
 
+
 			WaveInstance->VoiceCenterChannelVolume = SoundClassProperties->VoiceCenterChannelVolume;
 			WaveInstance->RadioFilterVolume = SoundClassProperties->RadioFilterVolume * ParseParams.VolumeMultiplier;
 			WaveInstance->RadioFilterVolumeThreshold = SoundClassProperties->RadioFilterVolumeThreshold * ParseParams.VolumeMultiplier;
@@ -680,13 +630,6 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 			WaveInstance->bEQFilterApplied = ActiveSound.bEQFilterApplied || SoundClassProperties->bApplyEffects;
 			WaveInstance->bReverb = ActiveSound.bReverb || SoundClassProperties->bReverb;
 			WaveInstance->OutputTarget = SoundClassProperties->OutputTarget;
-
-			if (SoundClassProperties->bApplyAmbientVolumes)
-			{
-				WaveInstance->VolumeMultiplier *= ParseParams.InteriorVolumeMultiplier;
-				WaveInstance->RadioFilterVolume *= ParseParams.InteriorVolumeMultiplier;
-				WaveInstance->RadioFilterVolumeThreshold *= ParseParams.InteriorVolumeMultiplier;
-			}
 
 			bAlwaysPlay = ActiveSound.bAlwaysPlay || SoundClassProperties->bAlwaysPlay;
 		}
@@ -734,11 +677,7 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 			WaveInstance->SpatializationAlgorithm = ParseParams.SpatializationAlgorithm;
 		}
 
-		// Only append to the wave instances list if we're virtual (always append) or we're audible (non-zero volume)
-		if (WaveInstance->GetVolume() > KINDA_SMALL_NUMBER || (bVirtualizeWhenSilent && AudioDevice->VirtualSoundsEnabled()))
-		{
-			WaveInstances.Add(WaveInstance);
-		}
+		WaveInstances.Add(WaveInstance);
 
 		// We're still alive.
 		ActiveSound.bFinished = false;
@@ -750,33 +689,21 @@ void USoundWave::Parse( FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanc
 			if (!ReportedSounds.Contains(this))
 			{
 				FString SoundWarningInfo = FString::Printf(TEXT("Spatialisation on stereo and multichannel sounds is not supported. SoundWave: %s"), *GetName());
-				if (ActiveSound.GetSound() != this)
+				if (ActiveSound.Sound != this)
 				{
-					SoundWarningInfo += FString::Printf(TEXT(" SoundCue: %s"), *ActiveSound.GetSound()->GetName());
+					SoundWarningInfo += FString::Printf(TEXT(" SoundCue: %s"), *ActiveSound.Sound->GetName());
 				}
 
-#if !NO_LOGGING
-				const uint64 AudioComponentID = ActiveSound.GetAudioComponentID();
-				if (AudioComponentID > 0)
+				if (UAudioComponent* AudioComponent = ActiveSound.GetAudioComponent())
 				{
-					FAudioThread::RunCommandOnGameThread([AudioComponentID, SoundWarningInfo]()
-					{
-						if (UAudioComponent* AudioComponent = UAudioComponent::GetAudioComponentFromID(AudioComponentID))
-						{
-							AActor* SoundOwner = AudioComponent->GetOwner();
-							UE_LOG(LogAudio, Warning, TEXT( "%s Actor: %s AudioComponent: %s" ), *SoundWarningInfo, (SoundOwner ? *SoundOwner->GetName() : TEXT("None")), *AudioComponent->GetName() );
-						}
-						else
-						{
-							UE_LOG(LogAudio, Warning, TEXT("%s"), *SoundWarningInfo );
-						}
-					});
+					// TODO - Audio Threading. This log would have to be a task back to game thread
+					AActor* SoundOwner = AudioComponent->GetOwner();
+					UE_LOG(LogAudio, Warning, TEXT( "%s Actor: %s AudioComponent: %s" ), *SoundWarningInfo, (SoundOwner ? *SoundOwner->GetName() : TEXT("None")), *AudioComponent->GetName() );
 				}
 				else
 				{
 					UE_LOG(LogAudio, Warning, TEXT("%s"), *SoundWarningInfo );
 				}
-#endif
 
 				ReportedSounds.Add(this);
 			}

@@ -23,8 +23,6 @@ public:
 			ARO,
 			/** Object is referenced by a map */
 			MapProperty,
-			/** Object is referenced by a set */
-			SetProperty,
 		};
 	};
 

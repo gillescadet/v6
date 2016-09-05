@@ -9,14 +9,7 @@
 
 UMovieScene3DTransformTrack::UMovieScene3DTransformTrack( const FObjectInitializer& ObjectInitializer )
 	: Super( ObjectInitializer )
-{
-	static FName Transform("Transform");
-	SetPropertyNameAndPath(Transform, Transform.ToString());
-
-#if WITH_EDITORONLY_DATA
-	TrackTint = FColor(65, 173, 164, 65);
-#endif
-}
+{ }
 
 
 UMovieSceneSection* UMovieScene3DTransformTrack::CreateNewSection()

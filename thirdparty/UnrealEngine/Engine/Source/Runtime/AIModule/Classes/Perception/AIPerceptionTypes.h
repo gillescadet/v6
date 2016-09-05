@@ -49,11 +49,6 @@ struct FPerceptionChannelWhitelist
 		AcceptedChannelsMask = 0;
 	}
 
-	bool IsEmpty() const
-	{
-		return (AcceptedChannelsMask == 0);
-	}
-
 	FORCEINLINE FPerceptionChannelWhitelist& FilterOutChannel(FAISenseID Channel)
 	{
 		AcceptedChannelsMask &= ~(1 << Channel);
@@ -107,7 +102,7 @@ struct FPerceptionChannelWhitelist
 			}
 		}
 
-		FORCEINLINE explicit operator bool() const
+		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 		{
 			return (RemainingChannelsToTest & Whitelist.GetAcceptedChannelsMask()) != 0;
 		}
@@ -180,6 +175,14 @@ public:
 	/** this is the recommended constructor. Use others if you know what you're doing. */
 	FAIStimulus(const UAISense& Sense, float StimulusStrength, const FVector& InStimulusLocation, const FVector& InReceiverLocation, FResult Result = SensingSucceeded, FName InStimulusTag = NAME_None);
 
+	/*FAIStimulus(FAISenseID SenseType, float StimulusStrength, const FVector& InStimulusLocation, const FVector& InReceiverLocation, FResult Result = SensingSucceeded)
+		: Age(0.f), ExpirationAge(NeverHappenedAge)
+		, Strength(Result == SensingSucceeded ? StimulusStrength : -1.f)
+		, StimulusLocation(InStimulusLocation)
+		, ReceiverLocation(InReceiverLocation), Type(SenseType), bWantsToNotifyOnlyOnValueChange(false)
+		, bSuccessfullySensed(Result == SensingSucceeded), bExpired(false)
+	{}*/
+
 	// default constructor
 	FAIStimulus()
 		: Age(NeverHappenedAge), ExpirationAge(NeverHappenedAge), Strength(-1.f), StimulusLocation(FAISystem::InvalidLocation)
@@ -204,7 +207,6 @@ public:
 	FORCEINLINE void MarkExpired() { bExpired = true; MarkNoLongerSensed(); }
 	FORCEINLINE bool IsActive() const { return WasSuccessfullySensed() == true && GetAge() < NeverHappenedAge; }
 	FORCEINLINE bool WantsToNotifyOnlyOnPerceptionChange() const { return bWantsToNotifyOnlyOnValueChange; }
-	FORCEINLINE bool IsValid() const { return Type != FAISenseID::InvalidID(); }
 };
 
 USTRUCT()

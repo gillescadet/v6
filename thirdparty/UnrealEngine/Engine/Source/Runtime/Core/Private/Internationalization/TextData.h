@@ -24,7 +24,7 @@ public:
 	{
 	}
 
-	TTextData(FTextDisplayStringPtr InLocalizedString, THistoryType&& InHistory)
+	TTextData(FTextDisplayStringPtr InLocalizedString, THistoryType InHistory)
 		: LocalizedString(MoveTemp(InLocalizedString))
 		, History(MoveTemp(InHistory))
 	{
@@ -54,16 +54,6 @@ public:
 		return History;
 	}
 
-	virtual uint16 GetGlobalHistoryRevision() const override
-	{
-		return History.GetRevision();
-	}
-
-	virtual uint16 GetLocalHistoryRevision() const override
-	{
-		return (LocalizedString.IsValid()) ? FTextLocalizationManager::Get().GetLocalRevisionForDisplayString(LocalizedString.ToSharedRef()) : 0;
-	}
-
 protected:
 	FTextDisplayStringPtr LocalizedString;
 	THistoryType History;
@@ -86,7 +76,7 @@ public:
 	{
 	}
 
-	TLocalizedTextData(FTextDisplayStringRef InLocalizedString, THistoryType&& InHistory)
+	TLocalizedTextData(FTextDisplayStringRef InLocalizedString, THistoryType InHistory)
 		: TTextData<THistoryType>(InLocalizedString, MoveTemp(InHistory))
 	{
 	}
@@ -118,13 +108,13 @@ public:
 	{
 	}
 
-	explicit TGeneratedTextData(FString&& InDisplayString)
+	explicit TGeneratedTextData(FString InDisplayString)
 		: TTextData<THistoryType>(nullptr)
 		, DisplayString(MoveTemp(InDisplayString))
 	{
 	}
 
-	TGeneratedTextData(FString&& InDisplayString, THistoryType&& InHistory)
+	TGeneratedTextData(FString InDisplayString, THistoryType InHistory)
 		: TTextData<THistoryType>(nullptr, MoveTemp(InHistory))
 		, DisplayString(MoveTemp(InDisplayString))
 	{

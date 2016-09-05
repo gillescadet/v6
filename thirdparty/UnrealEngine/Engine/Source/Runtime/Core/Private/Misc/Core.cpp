@@ -30,7 +30,6 @@ FConfigCacheIni*				GConfig						= nullptr;		/* Configuration database cache */
 ITransaction*				GUndo						= nullptr;		/* Transaction tracker, non-NULL when a transaction is in progress */
 FOutputDeviceConsole*		GLogConsole					= nullptr;		/* Console log hook */
 CORE_API FMalloc*			GMalloc						= nullptr;		/* Memory allocator */
-CORE_API FMalloc**			GFixedMallocLocationPtr = nullptr;		/* Memory allocator pointer location when PLATFORM_USES_FIXED_GMalloc_CLASS is true */
 
 class UPropertyWindowManager*	GPropertyWindowManager	= nullptr;		/* Manages and tracks property editing windows */
 
@@ -106,12 +105,6 @@ bool					GIsUCCMakeStandaloneHeaderGenerator = false;				/* Are we rebuilding sc
 bool					GIsTransacting					= false;					/* true if there is an undo/redo operation in progress. */
 bool					GIntraFrameDebuggingGameThread	= false;					/* Indicates that the game thread is currently paused deep in a call stack; do not process any game thread tasks */
 bool					GFirstFrameIntraFrameDebugging	= false;					/* Indicates that we're currently processing the first frame of intra-frame debugging */
-#elif USING_CODE_ANALYSIS
-// These are always false during 'non-editor code analysis', just like they would be when #defined.
-bool					GIsEditor						= false;
-bool					GIsUCCMakeStandaloneHeaderGenerator = false;
-bool					GIntraFrameDebuggingGameThread	= false;
-bool					GFirstFrameIntraFrameDebugging	= false;
 #endif // !WITH_EDITORONLY_DATA
 
 bool					GEdSelectionLock				= false;					/* Are selections locked? (you can't select/deselect additional actors) */
@@ -152,7 +145,6 @@ FString				GEditorPerProjectIni;										/* Editor User Settings ini filename *
 FString				GCompatIni;
 FString				GLightmassIni;												/* Lightmass settings ini filename */
 FString				GScalabilityIni;											/* Scalability settings ini filename */
-FString				GHardwareIni;												/* Hardware ini filename */
 FString				GInputIni;													/* Input ini filename */
 FString				GGameIni;													/* Game ini filename */
 FString				GGameUserSettingsIni;										/* User Game Settings ini filename */
@@ -194,8 +186,6 @@ static bool IsAsyncLoadingCoreInternal()
 bool (*IsAsyncLoading)() = &IsAsyncLoadingCoreInternal;
 void (*SuspendAsyncLoading)() = &appNoop;
 void (*ResumeAsyncLoading)() = &appNoop;
-bool (*IsAsyncLoadingMultithreaded)() = &IsAsyncLoadingCoreInternal;
-
 /** Whether the editor is currently loading a package or not												*/
 bool					GIsEditorLoadingPackage				= false;
 /** Whether GWorld points to the play in editor world														*/
@@ -217,7 +207,7 @@ uint64					GFrameCounter					= 0;
 uint64					GLastGCFrame					= 0;
 /** Incremented once per frame before the scene is being rendered. In split screen mode this is incremented once for all views (not for each view). */
 uint32					GFrameNumber					= 1;
-/** NEED TO RENAME, for RT version of GFrameTime use View.ViewFamily->FrameNumber or pass down from RT from GFrameTime). */
+/** Render Thread copy of the frame number. */
 uint32					GFrameNumberRenderThread		= 1;
 #if !(UE_BUILD_SHIPPING && WITH_EDITOR)
 // We cannot count on this variable to be accurate in a shipped game, so make sure no code tries to use it
@@ -236,7 +226,6 @@ bool					GUseSeekFreeLoading				= false;
 uint32					GGameThreadId					= 0;
 uint32					GRenderThreadId					= 0;
 uint32					GSlateLoadingThreadId			= 0;
-uint32					GAudioThreadId					= 0;
 /** Has GGameThreadId been set yet?																			*/
 bool					GIsGameThreadIdInitialized		= false;
 
@@ -263,8 +252,8 @@ bool					GIsAutomationTesting					= false;
 /** Whether or not messages are being pumped outside of the main loop										*/
 bool					GPumpingMessagesOutsideOfMainLoop = false;
 
-/** Enables various editor and HMD hacks that allow the experimental VR editor feature to work, perhaps at the expense of other systems */
-bool					GEnableVREditorHacks = false;
+/** Total blueprint compile time.																			*/
+double GBlueprintCompileTime = 0.0;
 
 DEFINE_STAT(STAT_AudioMemory);
 DEFINE_STAT(STAT_TextureMemory);

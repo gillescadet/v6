@@ -43,7 +43,7 @@ AAtmosphericFog::AAtmosphericFog(const FObjectInitializer& ObjectInitializer)
 			GetSpriteComponent()->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
 			GetSpriteComponent()->SpriteInfo.Category = ConstructorStatics.ID_Fog;
 			GetSpriteComponent()->SpriteInfo.DisplayName = ConstructorStatics.NAME_Fog;
-			GetSpriteComponent()->SetupAttachment(AtmosphericFogComponent);
+			GetSpriteComponent()->AttachParent = AtmosphericFogComponent;
 		}
 
 		if (ArrowComponent)
@@ -53,7 +53,7 @@ AAtmosphericFog::AAtmosphericFog(const FObjectInitializer& ObjectInitializer)
 			ArrowComponent->bTreatAsASprite = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Fog;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Fog;
-			ArrowComponent->SetupAttachment(AtmosphericFogComponent);
+			ArrowComponent->AttachParent = AtmosphericFogComponent;
 			ArrowComponent->bLightAttachment = true;
 			ArrowComponent->bIsScreenSizeScaled = true;
 		}
@@ -328,7 +328,7 @@ void UAtmosphericFogComponent::CreateRenderState_Concurrent()
 
 void UAtmosphericFogComponent::SendRenderTransform_Concurrent()
 {
-	GetWorld()->Scene->RemoveAtmosphericFog(this);
+	World->Scene->RemoveAtmosphericFog(this);
 	AddFogIfNeeded();
 	Super::SendRenderTransform_Concurrent();
 }
@@ -336,12 +336,11 @@ void UAtmosphericFogComponent::SendRenderTransform_Concurrent()
 void UAtmosphericFogComponent::DestroyRenderState_Concurrent()
 {
 	Super::DestroyRenderState_Concurrent();
-	GetWorld()->Scene->RemoveAtmosphericFog(this);
+	World->Scene->RemoveAtmosphericFog(this);
 	// Search for new fog component
 	for(TObjectIterator<UAtmosphericFogComponent> It; It; ++It)
 	{
 		UAtmosphericFogComponent* Component = *It;
-		checkSlow(Component);
 		if (Component != this && Component->IsRegistered())
 		{
 			Component->AddFogIfNeeded();
@@ -503,7 +502,7 @@ void UAtmosphericFogComponent::AddFogIfNeeded()
 	if (ShouldComponentAddToScene() && ShouldRender() && IsRegistered() && SunMultiplier > DELTA && FogMultiplier > DELTA
 		&& (GetOuter() == NULL || !GetOuter()->HasAnyFlags(RF_ClassDefaultObject)))
 	{
-		GetWorld()->Scene->AddAtmosphericFog(this);
+		World->Scene->AddAtmosphericFog(this);
 	}
 }
 

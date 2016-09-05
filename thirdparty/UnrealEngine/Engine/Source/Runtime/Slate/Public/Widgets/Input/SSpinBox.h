@@ -51,7 +51,7 @@ public:
 		/** The maximum value that can be specified by using the slider, defaults to MaxValue */
 		SLATE_ATTRIBUTE( TOptional< NumericType >, MaxSliderValue )
 		/** Delta to increment the value as the slider moves.  If not specified will determine automatically */
-		SLATE_ATTRIBUTE( NumericType, Delta )
+		SLATE_ARGUMENT( NumericType, Delta )
 		/** Use exponential scale for the slider */
 		SLATE_ATTRIBUTE( float, SliderExponent )
 		/** Font used to display text in the slider */
@@ -207,10 +207,9 @@ public:
 		if (!bUnlimitedSpinRange)
 		{
 			double Value = ValueAttribute.Get();
-			NumericType CurrentDelta = Delta.Get();
-			if( CurrentDelta != 0.0f )
+			if( Delta != 0.0f )
 			{
-				Value= Snap(Value, CurrentDelta); // snap floating point value to nearest Delta
+				Value= Snap(Value, Delta); // snap floating point value to nearest Delta
 			}
 
 			float FractionFilled = Fraction(Value, GetMinSliderValue(), GetMaxSliderValue());
@@ -311,6 +310,10 @@ public:
 				{
 					ExitTextMode();
 					bDragging = true;
+				}
+
+				if( bDragging )
+				{
 					OnBeginSliderMovement.ExecuteIfBound();
 				}
 
@@ -414,13 +417,13 @@ public:
 		}
 		else if ( Key == EKeys::Up || Key == EKeys::Right )
 		{
-			CommitValue( InternalValue + Delta.Get(), CommittedViaSpin, ETextCommit::OnEnter );
+			CommitValue( InternalValue + Delta, CommittedViaSpin, ETextCommit::OnEnter );
 			ExitTextMode();
 			return FReply::Handled();	
 		}
 		else if ( Key == EKeys::Down || Key == EKeys::Left )
 		{
-			CommitValue( InternalValue - Delta.Get(), CommittedViaSpin, ETextCommit::OnEnter );
+			CommitValue( InternalValue - Delta, CommittedViaSpin, ETextCommit::OnEnter );
 			ExitTextMode();
 			return FReply::Handled();
 		}
@@ -482,8 +485,8 @@ public:
 	}
 
 	/** See the Delta attribute */
-	NumericType GetDelta() const { return Delta.Get(); }
-	void SetDelta(NumericType InDelta) { Delta.Set( InDelta ); }
+	NumericType GetDelta() const { return Delta; }
+	void SetDelta(NumericType InDelta) { Delta = InDelta; }
 
 	/** See the SliderExponent attribute */
 	float GetSliderExponent() const { return SliderExponent.Get(); }
@@ -512,10 +515,9 @@ protected:
 	FString GetValueAsString() const
 	{
 		auto CurrentValue = ValueAttribute.Get();
-		NumericType CurrentDelta = Delta.Get();
-		if( CurrentDelta != 0 )
+		if( Delta != 0 )
 		{
-			CurrentValue = (NumericType)Snap(CurrentValue, CurrentDelta);
+			CurrentValue = (NumericType)Snap(CurrentValue, Delta);
 		}
 		
 		return Interface->ToString(CurrentValue);
@@ -540,7 +542,7 @@ protected:
 			ExitTextMode();
 		}
 
-		TOptional<NumericType> NewValue = Interface->FromString(NewText.ToString(), ValueAttribute.Get());
+		TOptional<NumericType> NewValue = Interface->FromString(NewText.ToString());
 		if (NewValue.IsSet())
 		{
 			CommitValue( NewValue.GetValue(), CommittedViaTypeIn, CommitInfo );
@@ -573,7 +575,15 @@ protected:
 
 		if ( !ValueAttribute.IsBound() )
 		{
-			ValueAttribute.Set( RoundIfIntegerValue( NewValue ) );
+			if (TIsIntegralType<NumericType>::Value)
+			{
+				// Round floating point to avoid 'jumping' when spinning down integral values 
+				ValueAttribute.Set( (NumericType)FMath::FloorToDouble(NewValue+0.5) );
+			}
+			else
+			{
+				ValueAttribute.Set( (NumericType)NewValue );
+			}
 		}
 
 		auto CurrentValue = ValueAttribute.Get();
@@ -594,19 +604,18 @@ protected:
 		// If needed, round this value to the delta. Internally the value is not held to the Delta but externally it appears to be.
 		if ( CommitMethod == CommittedViaSpin )
 		{
-			NumericType CurrentDelta = Delta.Get();
-			if( CurrentDelta != 0 )
+			if( Delta != 0 )
 			{
-				NewValue = Snap(NewValue, CurrentDelta); // snap numeric point value to nearest Delta
+				NewValue = Snap(NewValue, Delta); // snap numeric point value to nearest Delta
 			}
 		}
 
 		if( CommitMethod == CommittedViaTypeIn )
 		{
-			OnValueCommitted.ExecuteIfBound( RoundIfIntegerValue( NewValue ), OriginalCommitInfo );
+			OnValueCommitted.ExecuteIfBound( NumericType(NewValue), OriginalCommitInfo );
 		}
 
-		OnValueChanged.ExecuteIfBound( RoundIfIntegerValue( NewValue ) );
+		OnValueChanged.ExecuteIfBound( NumericType(NewValue) );
 
 		// Update the cache of the external value to what the user believes the value is now.
 		CachedExternalValue = ValueAttribute.Get();
@@ -620,9 +629,7 @@ protected:
 	
 	void NotifyValueCommitted() const
 	{
-		// The internal value will have been clamped and rounded to the delta at this point, but integer values may still need to be rounded
-		// if the delta is 0.
-		const auto CurrentValue = RoundIfIntegerValue( InternalValue );
+		const auto CurrentValue = (NumericType)InternalValue; // internal value should be snapped and clamped at this point
 		OnValueCommitted.ExecuteIfBound( CurrentValue, ETextCommit::OnEnter );
 		OnEndSliderMovement.ExecuteIfBound( CurrentValue );
 	}
@@ -677,7 +684,7 @@ private:
 	const FSlateBrush* InactiveFillBrush;
 
 	float DistanceDragged;
-	TAttribute<NumericType> Delta;
+	NumericType Delta;
 	TAttribute<float> SliderExponent;
 	TAttribute< TOptional<NumericType> > MinValue;
 	TAttribute< TOptional<NumericType> > MaxValue;
@@ -695,14 +702,6 @@ private:
 	bool IsCharacterValid(TCHAR InChar) const
 	{
 		return Interface->IsCharacterValid(InChar);
-	}
-
-	/** Rounds the submitted value to the correct value if it's an integer. */
-	NumericType RoundIfIntegerValue( double ValueToRound ) const
-	{
-		return TIsIntegral<NumericType>::Value
-			? (NumericType)FMath::FloorToDouble( ValueToRound + 0.5 )
-			: (NumericType)ValueToRound;
 	}
 
 	/** Whether the user is dragging the slider */

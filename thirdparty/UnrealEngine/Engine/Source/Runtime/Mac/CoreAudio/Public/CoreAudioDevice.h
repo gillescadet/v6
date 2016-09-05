@@ -29,7 +29,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogCoreAudio, Log, All);
  * Maximum number of multichannel audio channels - used only for MatrixMixer setup
  */
 
-#define CORE_AUDIO_MAX_CHANNELS (MAX_AUDIOCHANNELS + 1)
+#define CORE_AUDIO_MAX_CHANNELS (MAX_AUDIOCHANNELS)
 #define CORE_AUDIO_MAX_MULTICHANNEL_AUDIOCHANNELS 16
 
 class FCoreAudioDevice;
@@ -398,7 +398,7 @@ class FCoreAudioDevice : public FAudioDevice
 
 	int32 FindFreeAudioChannel()
 	{
-		for (int32 Index = 1; Index < CORE_AUDIO_MAX_CHANNELS; Index++)
+		for (int32 Index = 1; Index < CORE_AUDIO_MAX_CHANNELS + 1; Index++)
 		{
 			if (AudioChannels[Index] == nullptr)
 			{
@@ -408,7 +408,6 @@ class FCoreAudioDevice : public FAudioDevice
 		return 0;
 	}
 
-	void UpdateAUGraph();
 
 protected:
 
@@ -431,14 +430,8 @@ private:
 	bool						Mixer3DInputStatus[CORE_AUDIO_MAX_CHANNELS];
 	bool						MatrixMixerInputStatus[CORE_AUDIO_MAX_MULTICHANNEL_AUDIOCHANNELS];
 
-	class FCoreAudioSoundSource* AudioChannels[CORE_AUDIO_MAX_CHANNELS];
-	
+	class FCoreAudioSoundSource* AudioChannels[CORE_AUDIO_MAX_CHANNELS + 1];
 
-	TSet<AudioConverterRef>		ConvertersToDispose;
-	TArray<FCoreAudioSoundSource*> SourcesAttached;
-	TArray<FCoreAudioSoundSource*> SourcesDetached;
-	bool						bNeedsUpdate;
-	
 	friend class FCoreAudioSoundBuffer;
 	friend class FCoreAudioSoundSource;
 	friend class FCoreAudioEffectsManager;

@@ -3,7 +3,7 @@
 #include "SlatePrivatePCH.h"
 #include "GenericCommands.h"
 
-#define LOCTEXT_NAMESPACE "GenericCommands"
+#define LOCTEXT_NAMESPACE ""
 
 void FGenericCommands::RegisterCommands()
 {

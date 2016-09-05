@@ -14,7 +14,7 @@ FUObjectArray::FUObjectArray()
 : ObjFirstGCIndex(0)
 , ObjLastNonGCIndex(INDEX_NONE)
 , MaxObjectsNotConsideredByGC(0)
-, OpenForDisregardForGC(!HACK_HEADER_GENERATOR)
+, OpenForDisregardForGC(!IS_PROGRAM)
 , MasterSerialNumber(START_SERIAL_NUMBER)
 {
 	FCoreDelegates::GetObjectArrayForDebugVisualizersDelegate().BindStatic(GetObjectArrayForDebugVisualizers);
@@ -33,7 +33,6 @@ void FUObjectArray::AllocateObjectPool(int32 InMaxUObjects, int32 InMaxObjectsNo
 
 	// Pre-size array.
 	check(ObjObjects.Num() == 0);
-	UE_CLOG(InMaxUObjects <= 0, LogUObjectArray, Fatal, TEXT("Max UObject count is invalid. It must be a number that is greater than 0."));
 	ObjObjects.PreAllocate(InMaxUObjects);
 
 	if (MaxObjectsNotConsideredByGC > 0)
@@ -55,7 +54,23 @@ void FUObjectArray::CloseDisregardForGC()
 	check(IsInGameThread());
 	check(OpenForDisregardForGC);
 
-	UClass::AssembleReferenceTokenStreams();
+	// Iterate over all class objects and force the default objects to be created. Additionally also
+	// assembles the token reference stream at this point. This is required for class objects that are
+	// not taken into account for garbage collection but have instances that are.
+
+	// Workaround for Visual Studio 2013 analyzer bug. Using a temporary directly in the range-for
+	// errors if the analyzer is enabled.
+	TObjectRange<UClass> Range;
+	for (UClass* Class : Range)
+	{
+		// Force the default object to be created.
+		Class->GetDefaultObject(); // Force the default object to be constructed if it isn't already
+		// Assemble reference token stream for garbage collection/ RTGC.
+		if (!Class->HasAnyClassFlags(CLASS_TokenStreamAssembled))
+		{
+			Class->AssembleReferenceTokenStream();
+		}
+	}
 
 	if (GIsInitialLoad)
 	{
@@ -186,8 +201,7 @@ void FUObjectArray::FreeUObjectIndex(UObjectBase* Object)
 	}
 
 	// @todo: threading: delete listeners should be locked while we're doing this
-	// Iterate in reverse order so that when one of the listeners removes itself from the array inside of NotifyUObjectDeleted we don't skip the next listener.
-	for (int32 ListenerIndex = UObjectDeleteListeners.Num() - 1; ListenerIndex >= 0; --ListenerIndex)
+	for (int32 ListenerIndex = 0; ListenerIndex < UObjectDeleteListeners.Num(); ListenerIndex++)
 	{
 		UObjectDeleteListeners[ListenerIndex]->NotifyUObjectDeleted(Object, Index);
 	}

@@ -5,10 +5,9 @@
 // Dependencies.
 #include "ModuleManager.h"
 #include "Core.h"
-#include "Json.h"
-#include "NetworkVersion.h"
+#include "OnlineJsonSerializer.h"
 
-class FReplayEventListItem : public FJsonSerializable
+class FReplayEventListItem : public FOnlineJsonSerializable
 {
 public:
 	FReplayEventListItem() {}
@@ -20,17 +19,17 @@ public:
 	uint32		Time1;
 	uint32		Time2;
 
-	// FJsonSerializable
-	BEGIN_JSON_SERIALIZER
-		JSON_SERIALIZE("id", ID);
-		JSON_SERIALIZE("group", Group);
-		JSON_SERIALIZE("meta", Metadata);
-		JSON_SERIALIZE("time1", Time1);
-		JSON_SERIALIZE("time2", Time2);
-	END_JSON_SERIALIZER
+	// FOnlineJsonSerializable
+	BEGIN_ONLINE_JSON_SERIALIZER
+	ONLINE_JSON_SERIALIZE("id", ID);
+	ONLINE_JSON_SERIALIZE("group", Group);
+	ONLINE_JSON_SERIALIZE("meta", Metadata);
+	ONLINE_JSON_SERIALIZE("time1", Time1);
+	ONLINE_JSON_SERIALIZE("time2", Time2);
+	END_ONLINE_JSON_SERIALIZER
 };
 
-class FReplayEventList : public FJsonSerializable
+class FReplayEventList : public FOnlineJsonSerializable
 {
 public:
 	FReplayEventList()
@@ -39,10 +38,10 @@ public:
 
 	TArray< FReplayEventListItem > ReplayEvents;
 
-	// FJsonSerializable
-	BEGIN_JSON_SERIALIZER
-		JSON_SERIALIZE_ARRAY_SERIALIZABLE("events", ReplayEvents, FReplayEventListItem);
-	END_JSON_SERIALIZER
+	// FOnlineJsonSerializable
+	BEGIN_ONLINE_JSON_SERIALIZER
+		ONLINE_JSON_SERIALIZE_ARRAY_SERIALIZABLE("events", ReplayEvents, FReplayEventListItem);
+	END_ONLINE_JSON_SERIALIZER
 };
 
 /** Struct to store information about a stream, returned from search results. */
@@ -147,6 +146,17 @@ DECLARE_DELEGATE_TwoParams(FEnumerateEventsCompleteDelegate, const FReplayEventL
 */
 DECLARE_DELEGATE_TwoParams(FOnRequestEventDataComplete, const TArray<uint8>&, bool)
 
+class FNetworkReplayVersion
+{
+public:
+	FNetworkReplayVersion() : NetworkVersion( 0 ), Changelist( 0 ) {}
+	FNetworkReplayVersion( const FString& InAppString, const uint32 InNetworkVersion, const uint32 InChangelist ) : AppString( InAppString ), NetworkVersion( InNetworkVersion ), Changelist( InChangelist ) {}
+
+	FString		AppString;
+	uint32		NetworkVersion;
+	uint32		Changelist;
+};
+
 /** Generic interface for network replay streaming */
 class INetworkReplayStreamer 
 {
@@ -161,6 +171,7 @@ public:
 	virtual void FlushCheckpoint( const uint32 TimeInMS ) = 0;
 	virtual void GotoCheckpointIndex( const int32 CheckpointIndex, const FOnCheckpointReadyDelegate& Delegate ) = 0;
 	virtual void GotoTimeInMS( const uint32 TimeInMS, const FOnCheckpointReadyDelegate& Delegate ) = 0;
+	virtual FArchive* GetMetadataArchive() = 0;
 	virtual void UpdateTotalDemoTime( uint32 TimeInMS ) = 0;
 	virtual uint32 GetTotalDemoTime() const = 0;
 	virtual bool IsDataAvailable() const = 0;
@@ -176,7 +187,6 @@ public:
 	virtual void KeepReplay( const FString& ReplayName, const bool bKeep ) = 0;
 	/** Returns true if the playing stream is currently in progress */
 	virtual bool IsLive() const = 0;
-	virtual FString	GetReplayID() const = 0;
 
 	/**
 	 * Attempts to delete the stream with the specified name. May execute asynchronously.
@@ -215,13 +225,6 @@ public:
 	 * @param UserString a string that uniquely identifies the user, usually his or her FUniqueNetId
 	 */
 	virtual void AddUserToReplay( const FString& UserString ) = 0;
-
-	/**
-	 * Sets a hint for how much data needs to be kept in memory. If set to a value greater than zero,
-	 * a streamer implementation may free any in-memory data that would be required to go to a time
-	 * before the beginning of the buffer.
-	 */
-	virtual void SetTimeBufferHintSeconds(const float InTimeBufferHintSeconds) = 0;
 };
 
 /** Replay streamer factory */

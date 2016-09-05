@@ -15,7 +15,7 @@ public class AndroidAudio : ModuleRules
 			"Engine",
 		});
 
-		AddEngineThirdPartyPrivateStaticDependencies(Target,
+		AddThirdPartyPrivateStaticDependencies(Target,
 			"UEOgg",
 			"Vorbis",
 			"VorbisFile"

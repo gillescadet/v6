@@ -56,7 +56,7 @@ public:
 		, ServerPingTask(NULL)
 		, ServerPingRetries(0)
 	{
-		Thread = FRunnableThread::Create(this, *FString::Printf(TEXT("XmppConnectionThread_%d"), ThreadInstanceIdx++), 64 * 1024, TPri_Normal);
+		Thread = FRunnableThread::Create(this, TEXT("XmppConnectionThread"), 64 * 1024, TPri_Normal);
 	}
 
 	~FXmppConnectionPumpThread()
@@ -370,12 +370,7 @@ private:
 	class buzz::PingTask* ServerPingTask;
 	/** Number of times ping task has been restarted before logging out */
 	int32 ServerPingRetries;
-
-	/** Index used to disambiguate thread instances for stats reasons */
-	static int32 ThreadInstanceIdx;
 };
-
-int32 FXmppConnectionPumpThread::ThreadInstanceIdx = 0;
 
 FXmppConnectionJingle::FXmppConnectionJingle()
 	: LastLoginState(ELoginProgress::NotStarted)
@@ -420,28 +415,28 @@ const FString& FXmppConnectionJingle::GetPubSubDomain() const
 	}
 }
 
-IXmppPresencePtr FXmppConnectionJingle::Presence()
+TSharedPtr<class IXmppPresence> FXmppConnectionJingle::Presence()
 {
 	return PresenceJingle;
 }
 
-IXmppPubSubPtr FXmppConnectionJingle::PubSub()
+TSharedPtr<class IXmppPubSub> FXmppConnectionJingle::PubSub()
 {
 	//@todo samz - not implemented
 	return NULL;
 }
 
-IXmppMessagesPtr FXmppConnectionJingle::Messages()
+TSharedPtr<class IXmppMessages> FXmppConnectionJingle::Messages()
 {
 	return MessagesJingle;
 }
 
-IXmppMultiUserChatPtr FXmppConnectionJingle::MultiUserChat()
+TSharedPtr<class IXmppMultiUserChat> FXmppConnectionJingle::MultiUserChat()
 {
 	return MultiUserChatJingle;
 }
 
-IXmppChatPtr FXmppConnectionJingle::PrivateChat()
+TSharedPtr<class IXmppChat> FXmppConnectionJingle::PrivateChat()
 {
 	return ChatJingle;
 }
@@ -464,6 +459,15 @@ bool FXmppConnectionJingle::Tick(float DeltaTime)
 			if (LocalLastLoginState == ELoginProgress::ProcessingLogin)
 			{
 				OnLoginComplete().Broadcast(GetUserJid(), true, FString());
+
+				// send/obtain initial presence
+				if (Presence().IsValid())
+				{
+					FXmppUserPresence InitialPresence = Presence()->GetPresence();
+					InitialPresence.bIsAvailable = true;
+					InitialPresence.Status = EXmppPresenceStatus::Offline;
+					Presence()->UpdatePresence(InitialPresence);
+				}
 			}
 			OnLoginChanged().Broadcast(GetUserJid(), EXmppLoginStatus::LoggedIn);
 		}

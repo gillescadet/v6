@@ -110,7 +110,7 @@ public:
 		return NumElements; 
 	}
 
-	SIZE_T GetAllocatedSize( void ) const
+	uint32 GetAllocatedSize( void ) const
 	{
 		return Chunks.GetAllocatedSize();
 	}

@@ -32,32 +32,7 @@ enum EMetalFeatures
 	/** Support for specifying resource usage & memory options */
 	EMetalFeaturesResourceOptions = 1 << 3,
 	/** Supports texture->buffer blit options for depth/stencil blitting */
-	EMetalFeaturesDepthStencilBlitOptions = 1 << 4,
-    /** Supports creating a native stencil texture view from a depth/stencil texture */
-    EMetalFeaturesStencilView = 1 << 5,
-    /** Supports a depth-16 pixel format */
-    EMetalFeaturesDepth16 = 1 << 6,
-	/** Supports NSUInteger counting visibility queries */
-	EMetalFeaturesCountingQueries = 1 << 7,
-	/** Supports base vertex/instance for draw calls */
-	EMetalFeaturesBaseVertexInstance = 1 << 8,
-	/** Supports indirect buffers for draw calls */
-	EMetalFeaturesIndirectBuffer = 1 << 9,
-	/** Supports layered rendering */
-	EMetalFeaturesLayeredRendering = 1 << 10
-};
-
-/**
- * Enumeration for submission hints to avoid unclear bool values.
- */
-enum EMetalSubmitFlags
-{
-	/** No submission flags. */
-	EMetalSubmitFlagsNone = 0,
-	/** Create the next command buffer. */
-	EMetalSubmitFlagsCreateCommandBuffer = 1 << 0,
-	/** Wait on the submitted command buffer. */
-	EMetalSubmitFlagsWaitOnCommandBuffer = 1 << 1
+	EMetalFeaturesDepthStencilBlitOptions = 1 << 4
 };
 
 class FMetalRHICommandContext;
@@ -89,20 +64,19 @@ public:
 	/**
 	 * Handle rendering thread starting/stopping
 	 */
-	static void CreateAutoreleasePool();
-	static void DrainAutoreleasePool();
+	void CreateAutoreleasePool();
+	void DrainAutoreleasePool();
 
 	/**
 	 * Do anything necessary to prepare for any kind of draw call 
 	 * @param PrimitiveType The UE4 primitive type for the draw call, needed to compile the correct render pipeline.
-	 * @returns True if the preparation completed and the draw call can be encoded, false to skip.
 	 */
-	bool PrepareToDraw(uint32 PrimitiveType);
+	void PrepareToDraw(uint32 PrimitiveType);
 	
 	/**
 	 * Set the color, depth and stencil render targets, and then make the new command buffer/encoder
 	 */
-	void SetRenderTargetsInfo(const FRHISetRenderTargetsInfo& RenderTargetsInfo, bool const bReset = true);
+	void SetRenderTargetsInfo(const FRHISetRenderTargetsInfo& RenderTargetsInfo);
 	
 	/**
 	 * Allocate from a dynamic ring buffer - by default align to the allowed alignment for offset field when setting buffers
@@ -117,50 +91,38 @@ public:
 	{
 		return QueryBuffer.ToSharedRef();
 	}
-	
-	/** @returns True if the Metal validation layer is enabled else false. */
-	bool IsValidationLayerEnabled() const { return bValidationEnabled; }
 
-    void SubmitCommandsHint(uint32 const bFlags = EMetalSubmitFlagsCreateCommandBuffer);
+    void SubmitCommandsHint(bool const bCreateNew = true);
 	void SubmitCommandBufferAndWait();
+	void SubmitComputeCommandBufferAndWait();
 	void ResetRenderCommandEncoder();
 	
 	void SetShaderResourceView(EShaderFrequency ShaderStage, uint32 BindIndex, FMetalShaderResourceView* RESTRICT SRV);
-	void SetShaderUnorderedAccessView(EShaderFrequency ShaderStage, uint32 BindIndex, FMetalUnorderedAccessView* RESTRICT UAV);
 
 	void Dispatch(uint32 ThreadGroupCountX, uint32 ThreadGroupCountY, uint32 ThreadGroupCountZ);
-#if METAL_API_1_1
+#if PLATFORM_MAC
 	void DispatchIndirect(FMetalVertexBuffer* ArgumentBuffer, uint32 ArgumentOffset);
 #endif
 
 	void StartTiming(class FMetalEventNode* EventNode);
 	void EndTiming(class FMetalEventNode* EventNode);
 
-	static void MakeCurrent(FMetalContext* Context);
+protected:
 	void InitFrame(bool const bImmediateContext);
 	void FinishFrame();
 
-protected:
 	/** Create & set the current command buffer, waiting on outstanding command buffers if required. */
 	void CreateCurrentCommandBuffer(bool bWait);
 
 	/**
-	 * Possibly switch from blit or compute to graphics
+	 * Possibly switch from compute to graphics
 	 */
-	void ConditionalSwitchToGraphics(bool bRTChangePending = false, bool bRTChangeForce = false);
+	void ConditionalSwitchToGraphics();
 	
 	/**
 	 * Switch to blitting
 	 */
 	void ConditionalSwitchToBlit();
-	
-	/**
-	 * Switch to compute
-	 */
-	void ConditionalSwitchToCompute();
-	
-	/** Conditionally submit based on the number of outstanding draw/dispatch ops. */
-	void ConditionalSubmit(bool bRTChangePending = false, bool bRTChangeForce = false);
 	
 	/** Apply the SRT before drawing */
 	void CommitGraphicsResourceTables();
@@ -173,8 +135,6 @@ private:
 	FORCEINLINE void SetResource(uint32 ShaderStage, uint32 BindIndex, FMetalShaderResourceView* RESTRICT SRV, float CurrentTime);
 	
 	FORCEINLINE void SetResource(uint32 ShaderStage, uint32 BindIndex, FMetalSamplerState* RESTRICT SamplerState, float CurrentTime);
-	
-	FORCEINLINE void SetResource(uint32 ShaderStage, uint32 BindIndex, FMetalUnorderedAccessView* RESTRICT UAV, float CurrentTime);
 	
 	template <typename MetalResourceType>
 	inline int32 SetShaderResourcesFromBuffer(uint32 ShaderStage, FMetalUniformBuffer* RESTRICT Buffer, const uint32* RESTRICT ResourceMap, int32 BufferIndex);
@@ -210,23 +170,17 @@ protected:
 	/** A pool of buffers for writing visibility query results. */
 	TSharedPtr<FMetalQueryBufferPool, ESPMode::ThreadSafe> QueryBuffer;
 	
-	/** A fallback depth-stencil surface for draw calls that write to depth without a depth-stencil surface bound. */
-	FTexture2DRHIRef FallbackDepthStencilSurface;
-	
 	/** the slot to store a per-thread autorelease pool */
 	static uint32 AutoReleasePoolTLSSlot;
 	
 	/** the slot to store a per-thread context ref */
 	static uint32 CurrentContextTLSSlot;
 	
-	/** The side table for runtiem validation of buffer access */
-	uint32 BufferSideTable[SF_NumFrequencies][MaxMetalStreams];
-	
-	/** The number of outstanding draw & dispatch commands in the current command buffer, used to commit command buffers at encoder boundaries when sufficiently large. */
-	uint32 OutstandingOpCount;
-	
-	/** Whether the validation layer is enabled */
-	bool bValidationEnabled;
+	/**
+	 * Internal counter used for resource table caching.
+	 * INDEX_NONE means caching is not allowed.
+	 */
+	uint32 ResourceTableFrameCounter;
 };
 
 
@@ -284,12 +238,10 @@ private:
 	
 	/** Free lists for releasing objects only once it is safe to do so */
 	TSet<id> FreeList;
-	NSMutableSet<id<MTLBuffer>>* FreeBuffers;
 	struct FMetalDelayedFreeList
 	{
-		dispatch_semaphore_t Signal;
+		FEvent* Signal;
 		TSet<id> FreeList;
-		NSMutableSet<id<MTLBuffer>>* FreeBuffers;
 	};
 	TArray<FMetalDelayedFreeList*> DelayedFreeLists;
 	

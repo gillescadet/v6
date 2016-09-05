@@ -13,10 +13,7 @@
 
 UInputSettings::UInputSettings(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
-	, bCaptureMouseOnLaunch(true)
 	, DefaultViewportMouseCaptureMode(EMouseCaptureMode::CapturePermanently_IncludingInitialMouseDown)
-	, bDefaultViewportMouseLock_DEPRECATED(false)
-	, DefaultViewportMouseLockMode(EMouseLockMode::LockOnCapture)
 {
 }
 
@@ -30,7 +27,20 @@ void UInputSettings::PostInitProperties()
 		ConsoleKeys.Add(ConsoleKey_DEPRECATED);
 	}
 
-	PopulateAxisConfigs();
+	TMap<FName, int32> UniqueAxisConfigNames;
+	for (int32 Index = 0; Index < AxisConfig.Num(); ++Index)
+	{
+		UniqueAxisConfigNames.Add(AxisConfig[Index].AxisKeyName, Index);
+	}
+
+	for (int32 Index = AxisConfig.Num() - 1; Index >= 0; --Index)
+	{
+		const int32 UniqueAxisIndex = UniqueAxisConfigNames.FindChecked(AxisConfig[Index].AxisKeyName);
+		if (UniqueAxisIndex != Index)
+		{
+			AxisConfig.RemoveAtSwap(Index);
+		}
+	}
 
 #if PLATFORM_WINDOWS
 	// If the console key is set to the default we'll see about adding the keyboard default
@@ -46,10 +56,6 @@ void UInputSettings::PostInitProperties()
 
 		case LANG_GERMAN:
 			DefaultConsoleKey = EKeys::Caret;
-			break;
-
-		case LANG_ITALIAN:
-			DefaultConsoleKey = EKeys::Backslash;
 			break;
 
 		case LANG_SPANISH:
@@ -70,46 +76,7 @@ void UInputSettings::PostInitProperties()
 #endif
 }
 
-void UInputSettings::PopulateAxisConfigs()
-{
-	TMap<FName, int32> UniqueAxisConfigNames;
-	for (int32 Index = 0; Index < AxisConfig.Num(); ++Index)
-	{
-		UniqueAxisConfigNames.Add(AxisConfig[Index].AxisKeyName, Index);
-	}
-
-	for (int32 Index = AxisConfig.Num() - 1; Index >= 0; --Index)
-	{
-		const int32 UniqueAxisIndex = UniqueAxisConfigNames.FindChecked(AxisConfig[Index].AxisKeyName);
-		if (UniqueAxisIndex != Index)
-		{
-			AxisConfig.RemoveAtSwap(Index);
-		}
-	}
-
 #if WITH_EDITOR
-	TArray<FKey> AllKeys;
-	EKeys::GetAllKeys(AllKeys);
-	for (const FKey& Key : AllKeys)
-	{
-		if (Key.IsFloatAxis() && !UniqueAxisConfigNames.Contains(Key.GetFName()))
-		{
-			FInputAxisConfigEntry NewAxisConfigEntry;
-			NewAxisConfigEntry.AxisKeyName = Key.GetFName();
-			NewAxisConfigEntry.AxisProperties.DeadZone = 0.f; // Override the default so that we keep existing behavior
-			AxisConfig.Add(NewAxisConfigEntry);
-		}
-	}
-#endif
-}
-
-#if WITH_EDITOR
-void UInputSettings::PostReloadConfig( UProperty* PropertyThatWasLoaded )
-{
-	Super::PostReloadConfig(PropertyThatWasLoaded);
-	PopulateAxisConfigs();
-}
-
 void UInputSettings::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeChainProperty(PropertyChangedEvent);

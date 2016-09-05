@@ -2,6 +2,7 @@
 
 #pragma once
 #include "GameFramework/Pawn.h"
+#include "Animation/AnimationAsset.h"
 #include "GameFramework/RootMotionSource.h"
 #include "Character.generated.h"
 
@@ -271,10 +272,6 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_ReplicatedBasedMovement)
 	struct FBasedMovementInfo ReplicatedBasedMovement;
 
-	/** Scale to apply to root motion translation on this Character */
-	UPROPERTY(Replicated)
-	float AnimRootMotionTranslationScale;
-
 public:
 	/** Rep notify for ReplicatedBasedMovement */
 	UFUNCTION()
@@ -296,10 +293,6 @@ protected:
 	/** Event called after actor's base changes (if SetBase was requested to notify us with bNotifyPawn). */
 	virtual void BaseChange();
 
-	/** CharacterMovement ServerLastTransformUpdateTimeStamp value, replicated to simulated proxies. */
-	UPROPERTY(Replicated)
-	float ReplicatedServerLastTransformUpdateTimeStamp;
-
 	/** CharacterMovement MovementMode (and custom mode) replicated for simulated proxies. Use CharacterMovementComponent::UnpackNetworkMovementMode() to translate it. */
 	UPROPERTY(Replicated)
 	uint8 ReplicatedMovementMode;
@@ -309,9 +302,6 @@ protected:
 	bool bInBaseReplication;
 
 public:	
-
-	/** Accessor for ReplicatedServerLastTransformUpdateTimeStamp. */
-	FORCEINLINE float GetReplicatedServerLastTransformUpdateTimeStamp() const { return ReplicatedServerLastTransformUpdateTimeStamp; }
 
 	/** Accessor for BasedMovement */
 	FORCEINLINE const FBasedMovementInfo& GetBasedMovement() const { return BasedMovement; }
@@ -342,9 +332,6 @@ public:
 	/** Set by character movement to specify that this Character is currently crouched. */
 	UPROPERTY(BlueprintReadOnly, replicatedUsing=OnRep_IsCrouched, Category=Character)
 	uint32 bIsCrouched:1;
-
-	UPROPERTY( replicated )
-	uint32 bReplayHasRootMotionSources:1;
 
 	/** Handle Crouching replicated from server */
 	UFUNCTION()
@@ -394,35 +381,8 @@ public:
 	 * then the character will carry on receiving vertical velocity. Therefore it is usually 
 	 * best to call StopJumping() when jump input has ceased (such as a button up event).
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category=Character, Meta=(ClampMin=0.0, UIMin=0.0))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category=Character)
 	float JumpMaxHoldTime;
-
-    /**
-     * The max number of jumps the character can perform.
-     * Note that if JumpMaxHoldTime is non zero and StopJumping is not called, the player
-     * may be able to perform and unlimited number of jumps. Therefore it is usually
-     * best to call StopJumping() when jump input has ceased (such as a button up event).
-     */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category=Character)
-    int32 JumpMaxCount;
-
-    /**
-     * Tracks the current number of jumps performed.
-     * This is incremented in CheckJumpInput, used in CanJump_Implementation, and reset in OnMovementModeChanged.
-     * When providing overrides for these methods, it's recommended to either manually
-     * increment / reset this value, or call the Super:: method.
-     */
-    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Character")
-    int32 JumpCurrentCount;
-
-    /**
-     * Whether or not the JumpMaxCount value has been exceeded.
-     * This is set in CheckJumpInput, used in CanJump_Implementation, and reset in OnMovementModeChanged.
-     * When providing overrides for these methods, it's recommended to either manually
-     * set / reset this value, or call the Super:: method.
-     */
-    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Character")
-    uint32 bJumpMaxCountExceeded:1;
 
 	//~ Begin AActor Interface.
 	virtual void ClearCrossLevelReferences() override;
@@ -452,7 +412,7 @@ public:
 	virtual void PawnClientRestart() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void UnPossessed() override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	virtual void SetupPlayerInputComponent(class UInputComponent* InInputComponent) override;
 	virtual void DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos) override;
 	virtual void RecalculateBaseEyeHeight() override;
 	virtual void UpdateNavigationRelevance() override;
@@ -508,8 +468,6 @@ protected:
 	UFUNCTION(BlueprintNativeEvent, Category="Pawn|Character", meta=(DisplayName="CanJump"))
 	bool CanJumpInternal() const;
 	virtual bool CanJumpInternal_Implementation() const;
-
-	void CheckResetJumpCount();
 
 public:
 
@@ -829,13 +787,6 @@ public:
 	 * This means code path for networked root motion is enabled. */
 	UFUNCTION(BlueprintCallable, Category = Animation)
 	bool IsPlayingNetworkedRootMotionMontage() const;
-
-	/** Sets scale to apply to root motion translation on this Character */
-	void SetAnimRootMotionTranslationScale(float InAnimRootMotionTranslationScale = 1.f);
-
-	/** Returns current value of AnimRootMotionScale */
-	UFUNCTION(BlueprintCallable, Category = Animation)
-	float GetAnimRootMotionTranslationScale() const;
 
 	/** Called on the actor right before replication occurs */
 	virtual void PreReplication( IRepChangedPropertyTracker & ChangedPropertyTracker ) override;

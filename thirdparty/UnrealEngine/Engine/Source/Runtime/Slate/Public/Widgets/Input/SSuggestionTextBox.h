@@ -128,7 +128,7 @@ public:
 	 *
 	 * @return The text string.
 	 */
-	FText GetText( ) const
+	const FText& GetText( ) const
 	{
 		return TextBox->GetText();
 	}

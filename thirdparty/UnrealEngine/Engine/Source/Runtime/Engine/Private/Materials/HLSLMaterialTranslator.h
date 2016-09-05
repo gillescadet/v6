@@ -203,9 +203,6 @@ protected:
 	uint32 bUsesVertexColor : 1;
 	/** true if the material reads particle color in the pixel shader. */
 	uint32 bUsesParticleColor : 1;
-	/** true if the material reads mesh particle transform in the pixel shader. */
-	uint32 bUsesParticleTransform : 1;
-
 	uint32 bUsesTransformVector : 1;
 	// True if the current property requires last frame's information
 	uint32 bCompilingPreviousFrame : 1;
@@ -255,7 +252,6 @@ public:
 	,	bUsesAtmosphericFog(false)
 	,	bUsesVertexColor(false)
 	,	bUsesParticleColor(false)
-	,	bUsesParticleTransform(false)
 	,	bUsesTransformVector(false)
 	,	bCompilingPreviousFrame(false)
 	,	bOutputsBasePassVelocities(true)
@@ -385,10 +381,10 @@ public:
 
 			if(IsTranslucentBlendMode(Material->GetBlendMode()))
 			{
-				int32 UserRefraction = ForceCast(Material->CompilePropertyAndSetMaterialProperty(MP_Refraction, this), MCT_Float1);
+				int32 UserRefraction = ForceCast(Material->CompilePropertyAndSetMaterialProperty(MP_Refraction, this), MCT_Float2);
 				int32 RefractionDepthBias = ForceCast(ScalarParameter(FName(TEXT("RefractionDepthBias")), Material->GetRefractionDepthBiasValue()), MCT_Float1);
 
-				Chunk[MP_Refraction] = AppendVector(UserRefraction, RefractionDepthBias);
+				Chunk[MP_Refraction] = AppendVector(ForceCast(UserRefraction, MCT_Float1), RefractionDepthBias);
 			}
 
 			if (bCompileForComputeShader)
@@ -423,10 +419,8 @@ public:
 
 			const bool bUsesWorldPositionOffset = IsMaterialPropertyUsed(MP_WorldPositionOffset, Chunk[MP_WorldPositionOffset], FLinearColor(0, 0, 0, 0), 3);
 			MaterialCompilationOutput.bModifiesMeshPosition = bUsesPixelDepthOffset || bUsesWorldPositionOffset;
-			MaterialCompilationOutput.bUsesWorldPositionOffset = bUsesWorldPositionOffset;
-			MaterialCompilationOutput.bUsesPixelDepthOffset = bUsesPixelDepthOffset;
 			
-			if (Material->GetBlendMode() == BLEND_Modulate && MaterialShadingModel != MSM_Unlit && !Material->IsDeferredDecal())
+			if (Material->GetBlendMode() == BLEND_Modulate && MaterialShadingModel != MSM_Unlit && !Material->IsUsedWithDeferredDecal())
 			{
 				Errorf(TEXT("Dynamically lit translucency is not supported for BLEND_Modulate materials."));
 			}
@@ -472,32 +466,21 @@ public:
 				Errorf(TEXT("Post process materials must use unlit."));
 			}
 
-			if (Material->AllowNegativeEmissiveColor() && MaterialShadingModel != MSM_Unlit)
-			{
-				Errorf(TEXT("Only unlit materials can output negative emissive color."));
-			}
-
-			static IConsoleVariable* CDBufferVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DBuffer"));
-			bool bDBufferAllowed = CDBufferVar ? CDBufferVar->GetInt() != 0 : false;
-			bool bDBufferBlendMode = IsDBufferDecalBlendMode((EDecalBlendMode)Material->GetDecalBlendMode());
-
-			if (bDBufferBlendMode && !bDBufferAllowed)
-			{
-				// Error feedback for when the decal would not be displayed due to project settings
-				Errorf(TEXT("DBuffer decal blend modes are only supported when the 'DBuffer Decals' Rendering Project setting is enabled."));
-			}
-
-			if (Domain == MD_DeferredDecal && Material->GetBlendMode() != BLEND_Translucent)
-			{
-				// We could make the change for the user but it would be confusing when going to DeferredDecal and back
-				// or we would have to pay a performance cost to make the change more transparently.
-				// The change saves performance as with translucency we don't need to test for MeshDecals in all opaque rendering passes
-				Errorf(TEXT("Material using the DeferredDecal domain need to use the BlendModel Translucent (this saves performance)"));
-			}
-
 			if (MaterialCompilationOutput.bNeedsSceneTextures)
 			{
-				if (Domain != MD_DeferredDecal && Domain != MD_PostProcess)
+				if (Domain == MD_DeferredDecal)
+				{
+					uint32 DecalBlendMode = Material->GetDecalBlendMode();
+					if (DecalBlendMode != DBM_Translucent && DecalBlendMode != DBM_Stain && DecalBlendMode != DBM_Emissive && DecalBlendMode != DBM_Normal && DecalBlendMode != DBM_Volumetric_DistanceFunction)
+					{
+						Errorf(TEXT("SceneTexture expressions can not be used with decals using DBuffer"));
+					} 
+					else if (MaterialCompilationOutput.bNeedsGBuffer && Material->HasNormalConnected()) // GBuffer can only relate to WorldNormal here.
+					{
+						Errorf(TEXT("Can't read WorldNormal and output to normal at the same time"));
+					}
+				}
+				else if (Domain != MD_PostProcess)
 				{
 					if (Material->GetBlendMode() == BLEND_Opaque || Material->GetBlendMode() == BLEND_Masked)
 					{
@@ -591,12 +574,6 @@ public:
 					SharedPropertyCodeChunks[NormalShaderFrequency],
 					TranslatedCodeChunkDefinitions[MP_Normal],
 					TranslatedCodeChunks[MP_Normal]);
-
-				// Always gather MP_Normal definitions as they can be shared by other properties
-				if (TranslatedCodeChunkDefinitions[MP_Normal].IsEmpty())
-				{
-					TranslatedCodeChunkDefinitions[MP_Normal] = GetDefinitions(SharedPropertyCodeChunks[NormalShaderFrequency], 0, NormalCodeChunkEnd);
-				}
 			}
 
 			// Now the rest, skipping Normal
@@ -760,16 +737,15 @@ public:
 		{
 			OutEnvironment.SetDefine(TEXT("USES_EYE_ADAPTATION"), TEXT("1"));
 		}
-		OutEnvironment.SetDefine(TEXT("MATERIAL_ATMOSPHERIC_FOG"), bUsesAtmosphericFog);
-		OutEnvironment.SetDefine(TEXT("INTERPOLATE_VERTEX_COLOR"), bUsesVertexColor); 
-		OutEnvironment.SetDefine(TEXT("NEEDS_PARTICLE_COLOR"), bUsesParticleColor); 
-		OutEnvironment.SetDefine(TEXT("NEEDS_PARTICLE_TRANSFORM"), bUsesParticleTransform);
-		OutEnvironment.SetDefine(TEXT("USES_TRANSFORM_VECTOR"), bUsesTransformVector);
-		OutEnvironment.SetDefine(TEXT("WANT_PIXEL_DEPTH_OFFSET"), bUsesPixelDepthOffset); 
+		OutEnvironment.SetDefine(TEXT("MATERIAL_ATMOSPHERIC_FOG"), bUsesAtmosphericFog ? TEXT("1") : TEXT("0"));
+		OutEnvironment.SetDefine(TEXT("INTERPOLATE_VERTEX_COLOR"), bUsesVertexColor ? TEXT("1") : TEXT("0")); 
+		OutEnvironment.SetDefine(TEXT("NEEDS_PARTICLE_COLOR"), bUsesParticleColor ? TEXT("1") : TEXT("0")); 
+		OutEnvironment.SetDefine(TEXT("USES_TRANSFORM_VECTOR"), bUsesTransformVector ? TEXT("1") : TEXT("0")); 
+		OutEnvironment.SetDefine(TEXT("WANT_PIXEL_DEPTH_OFFSET"), bUsesPixelDepthOffset ? TEXT("1") : TEXT("0")); 
 		// Distortion uses tangent space transform 
-		OutEnvironment.SetDefine(TEXT("USES_DISTORTION"), Material->IsDistorted()); 
+		OutEnvironment.SetDefine(TEXT("USES_DISTORTION"), Material->IsDistorted() ? TEXT("1") : TEXT("0")); 
 
-		OutEnvironment.SetDefine(TEXT("ENABLE_TRANSLUCENCY_VERTEX_FOG"), Material->UseTranslucencyVertexFog());
+		OutEnvironment.SetDefine(TEXT("ENABLE_TRANSLUCENCY_VERTEX_FOG"), Material->UseTranslucencyVertexFog() ? TEXT("1") : TEXT("0"));
 
 		for (int32 CollectionIndex = 0; CollectionIndex < ParameterCollections.Num(); CollectionIndex++)
 		{
@@ -777,7 +753,6 @@ public:
 			const FString CollectionName = FString::Printf(TEXT("MaterialCollection%u"), CollectionIndex);
 			FShaderUniformBufferParameter::ModifyCompilationEnvironment(*CollectionName, ParameterCollections[CollectionIndex]->GetUniformBufferStruct(), InPlatform, OutEnvironment);
 		}
-		OutEnvironment.SetDefine(TEXT("IS_MATERIAL_SHADER"), TEXT("1"));
 	}
 
 	void GetSharedInputsMaterialCode(FString& PixelMembersDeclaration, FString& NormalAssignment, FString& PixelMembersInitializationEpilog)
@@ -894,6 +869,7 @@ public:
 
 		FString CustomUVAssignments;
 
+		{
 			int32 LastProperty = -1;
 			for (uint32 CustomUVIndex = 0; CustomUVIndex < NumUserTexCoords; CustomUVIndex++)
 			{
@@ -912,6 +888,7 @@ public:
 				}
 				CustomUVAssignments += FString::Printf(TEXT("\tOutTexCoords[%u] = %s;") LINE_TERMINATOR, CustomUVIndex, *TranslatedCodeChunks[MP_CustomizedUVs0 + CustomUVIndex]);
 			}
+		}
 
 		LazyPrintf.PushParam(*CustomUVAssignments);
 
@@ -1527,12 +1504,6 @@ protected:
 		return ShaderFrequency;
 	}
 
-	virtual EMaterialShadingModel GetMaterialShadingModel() const override
-	{
-		check(Material);
-		return Material->GetShadingModel();
-	}
-
 	virtual int32 Error(const TCHAR* Text) override
 	{
 		FString ErrorString;
@@ -1649,16 +1620,17 @@ protected:
 			return INDEX_NONE;
 		}
 
-		EMaterialValueType SourceType = GetParameterType(Code);
-		int32 CompiledResult = INDEX_NONE;
+		if(GetParameterUniformExpression(Code) && !GetParameterUniformExpression(Code)->IsConstant())
+		{
+			return ValidCast(AccessUniformExpression(Code),DestType);
+		}
 
+		EMaterialValueType SourceType = GetParameterType(Code);
+
+		int32 CompiledResult = INDEX_NONE;
 		if (SourceType & DestType)
 		{
 			CompiledResult = Code;
-		}
-		else if(GetParameterUniformExpression(Code) && !GetParameterUniformExpression(Code)->IsConstant())
-		{
-			return ValidCast(AccessUniformExpression(Code), DestType);
 		}
 		else if((SourceType & MCT_Float) && (DestType & MCT_Float))
 		{
@@ -1879,10 +1851,10 @@ protected:
 		};
 
 		static const EMaterialExposedViewPropertyMeta ViewPropertyMetaArray[] = {
-			{MEVP_BufferSize, MCT_Float2, TEXT("View.BufferSizeAndInvSize.xy"), TEXT("View.BufferSizeAndInvSize.zw")},
-			{MEVP_FieldOfView, MCT_Float2, TEXT("View.<PREV>FieldOfViewWideAngles"), nullptr},
+			{MEVP_BufferSize, MCT_Float2, TEXT("Frame.BufferSizeAndInvSize.xy"), TEXT("Frame.BufferSizeAndInvSize.zw")},
+			{MEVP_FieldOfView, MCT_Float2, TEXT("Frame.<PREV>FieldOfViewWideAngles"), nullptr},
 			{MEVP_TanHalfFieldOfView, MCT_Float2, TEXT("Get<PREV>TanHalfFieldOfView()"), TEXT("Get<PREV>CotanHalfFieldOfView()")},
-			{MEVP_ViewSize, MCT_Float2, TEXT("View.ViewSizeAndInvSize.xy"), TEXT("View.ViewSizeAndInvSize.zw")},
+			{MEVP_ViewSize, MCT_Float2, TEXT("Frame.ViewSizeAndInvSize.xy"), TEXT("Frame.ViewSizeAndInvSize.zw")},
 			{MEVP_WorldSpaceViewPosition, MCT_Float3, TEXT("ResolvedView.<PREV>WorldViewOrigin"), nullptr},
 			{MEVP_WorldSpaceCameraPosition, MCT_Float3, TEXT("ResolvedView.<PREV>WorldCameraOrigin"), nullptr},
 		};
@@ -1916,10 +1888,10 @@ protected:
 		{
 			if (bCompilingPreviousFrame)
 			{
-				return AddInlinedCodeChunk(MCT_Float, TEXT("View.PrevFrameGameTime"));
+				return AddInlinedCodeChunk(MCT_Float, TEXT("Frame.PrevFrameGameTime"));
 			}
 
-			return AddInlinedCodeChunk(MCT_Float, TEXT("View.GameTime"));
+			return AddInlinedCodeChunk(MCT_Float, TEXT("Frame.GameTime"));
 		}
 		else if (Period == 0.0f)
 		{
@@ -1941,10 +1913,10 @@ protected:
 		{
 			if (bCompilingPreviousFrame)
 			{
-				return AddInlinedCodeChunk(MCT_Float, TEXT("View.PrevFrameRealTime"));
+				return AddInlinedCodeChunk(MCT_Float, TEXT("Frame.PrevFrameRealTime"));
 			}
 
-			return AddInlinedCodeChunk(MCT_Float, TEXT("View.RealTime"));
+			return AddInlinedCodeChunk(MCT_Float, TEXT("Frame.RealTime"));
 		}
 		else if (Period == 0.0f)
 		{
@@ -2162,7 +2134,7 @@ protected:
 			return NonPixelShaderExpressionError();
 		}
 
-		if (!Material->IsLightFunction() && !Material->IsDeferredDecal())
+		if (!Material->IsLightFunction() && !Material->IsUsedWithDeferredDecal())
 		{
 			return Errorf(TEXT("LightVector can only be used in LightFunction or DeferredDecal materials"));
 		}
@@ -2187,7 +2159,7 @@ protected:
 			//return AddCodeChunk(MCT_Float2, TEXT("SvPositionToViewportUV(Parameters.SvPosition)"));
 		default:
 			return Errorf(TEXT("Invalid UV mapping!"));
-		}		
+		}	
 	}
 
 	virtual int32 ParticleMacroUV() override 
@@ -2256,7 +2228,7 @@ protected:
 			return NonVertexOrPixelShaderExpressionError();
 		}
 		bNeedsParticlePosition = true;
-		return AddInlinedCodeChunk(MCT_Float3,TEXT("(Parameters.Particle.TranslatedWorldPositionAndSize.xyz - ResolvedView.PreViewTranslation.xyz)"));	
+		return AddInlinedCodeChunk(MCT_Float3,TEXT("Parameters.Particle.PositionAndSize.xyz"));	
 	}
 
 	virtual int32 ParticleRadius() override
@@ -2266,7 +2238,7 @@ protected:
 			return NonVertexOrPixelShaderExpressionError();
 		}
 		bNeedsParticlePosition = true;
-		return AddInlinedCodeChunk(MCT_Float,TEXT("max(Parameters.Particle.TranslatedWorldPositionAndSize.w, .001f)"));	
+		return AddInlinedCodeChunk(MCT_Float,TEXT("max(Parameters.Particle.PositionAndSize.w, .001f)"));	
 	}
 
 	virtual int32 SphericalParticleOpacity(int32 Density) override
@@ -2283,8 +2255,6 @@ protected:
 
 		bNeedsParticlePosition = true;
 		bUsesSphericalParticleOpacity = true;
-		bNeedsWorldPositionExcludingShaderOffsets = true;
-		bUsesSceneDepth = true;
 		return AddCodeChunk(MCT_Float, TEXT("GetSphericalParticleOpacity(Parameters,%s)"), *GetParameterCode(Density));
 	}
 
@@ -2561,8 +2531,7 @@ protected:
 		int32 MipValue0Index=INDEX_NONE,
 		int32 MipValue1Index=INDEX_NONE,
 		ETextureMipValueMode MipValueMode=TMVM_None,
-		ESamplerSourceMode SamplerSource=SSM_FromTextureAsset,
-		int32 TextureReferenceIndex=INDEX_NONE
+		ESamplerSourceMode SamplerSource=SSM_FromTextureAsset
 		) override
 	{
 		if(TextureIndex == INDEX_NONE || CoordinateIndex == INDEX_NONE)
@@ -2570,16 +2539,8 @@ protected:
 			return INDEX_NONE;
 		}
 
-		if (FeatureLevel == ERHIFeatureLevel::ES2 && ShaderFrequency == SF_Vertex)
-		{
-			if (MipValueMode != TMVM_MipLevel)
-			{
-				Errorf(TEXT("Sampling from vertex textures requires an absolute mip level on feature level ES2!"));
-				return INDEX_NONE;
-			}
-		}
-		else if (ShaderFrequency != SF_Pixel
-			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
+		if (ShaderFrequency != SF_Pixel
+			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
 		{
 			return INDEX_NONE;
 		}
@@ -2646,7 +2607,7 @@ protected:
 			// there's a driver as of 7.0.2 that will cause a GPU hang if used with an Aniso > 1 sampler, so show an error for now
 			if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
 			{
-				Errorf(TEXT("Sampling for a specific mip-level is not supported for ES2"));
+				Errorf(TEXT("Sampling for a specific mip-level is not supported for mobile"));
 				return INDEX_NONE;
 			}
 
@@ -2724,13 +2685,7 @@ protected:
 
 		FString UVs = CoerceParameter(CoordinateIndex, UVsType);
 
-		const bool bStoreTexCoordScales = (ShaderFrequency == SF_Pixel && TextureReferenceIndex != INDEX_NONE && Material && Material->GetShaderMapUsage() == EMaterialShaderMapUsage::DebugViewModeTexCoordScale);
-		if (bStoreTexCoordScales)
-		{
-			AddCodeChunk(MCT_Float, TEXT("StoreTexCoordScale(Parameters.TexCoordScalesParams, %s, %d)"), *UVs, (int)TextureReferenceIndex);
-		}
-
-		int32 SamplingCodeIndex = AddCodeChunk(
+		return AddCodeChunk(
 			MCT_Float4,
 			*SampleCode,
 			*TextureName,
@@ -2739,14 +2694,6 @@ protected:
 			*MipValue0Code,
 			*MipValue1Code
 			);
-
-		if (bStoreTexCoordScales)
-		{
-			FString SamplingCode = CoerceParameter(SamplingCodeIndex, MCT_Float4);
-			AddCodeChunk(MCT_Float, TEXT("StoreTexSample(Parameters.TexCoordScalesParams, %s, %d)"), *SamplingCode, (int)TextureReferenceIndex);
-		}
-
-		return SamplingCodeIndex;
 	}
 
 	virtual int32 TextureProperty(int32 TextureIndex, EMaterialExposedTextureProperty Property) override
@@ -2800,24 +2747,6 @@ protected:
 			);
 	}
 
-	virtual int32 DecalLifetimeOpacity() override
-	{
-		if (Material->GetMaterialDomain() != MD_DeferredDecal)
-		{
-			return Errorf(TEXT("Decal lifetime fade is only available in the decal material domain."));
-		}
-
-		if (ShaderFrequency != SF_Pixel)
-		{
-			return Errorf(TEXT("Decal lifetime fade is only available in the pixel shader."));
-		}
-
-		return AddCodeChunk(
-			MCT_Float,
-			TEXT("DecalLifetimeOpacity()")
-			);
-	}
-
 	virtual int32 PixelDepth() override
 	{
 		if (ShaderFrequency != SF_Pixel && ShaderFrequency != SF_Compute && ShaderFrequency != SF_Vertex)
@@ -2864,8 +2793,7 @@ protected:
 	// @param SceneTextureId of type ESceneTextureId e.g. PPI_SubsurfaceColor
 	virtual int32 SceneTextureLookup(int32 UV, uint32 InSceneTextureId, bool bFiltered) override
 	{
-		if (InSceneTextureId != PPI_PostProcessInput0 // fetching PostProcessInput0 supported on all platforms
-			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
+		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
 		{
 			return INDEX_NONE;
 		}
@@ -2885,28 +2813,14 @@ protected:
 
 		UseSceneTextureId(SceneTextureId, true);
 
-		if (FeatureLevel >= ERHIFeatureLevel::SM4)
-		{
-			FString DefaultScreenAligned(TEXT("ScreenAlignedPosition(GetScreenPosition(Parameters))"));
-			FString TexCoordCode((UV != INDEX_NONE) ? CoerceParameter(UV, MCT_Float2) : DefaultScreenAligned);
-			
-			return AddCodeChunk(
-				MCT_Float4,
-				TEXT("SceneTextureLookup(%s, %d, %s)"),
-				*TexCoordCode, (int)SceneTextureId, bFiltered ? TEXT("true") : TEXT("false")
-				);
-		}
-		else
-		{
-			if (UV == INDEX_NONE)
-			{
-				// Avoid UV computation in a pixel shader
-				UV = TextureCoordinate(0, false, false);
-			}
-			FString TexCoordCode = CoerceParameter(UV, MCT_Float2);
-			// Only PPI_PostProcessInput0, which holds scene color 
-			return AddCodeChunk(MCT_Float4,	TEXT("MobileLookupPostProcessInput0(Parameters, %s)"), *TexCoordCode);
-		}
+		FString DefaultScreenAligned(TEXT("ScreenAlignedPosition(GetScreenPosition(Parameters))"));
+		FString TexCoordCode((UV != INDEX_NONE) ? CoerceParameter(UV, MCT_Float2) : DefaultScreenAligned);
+
+		return AddCodeChunk(
+			MCT_Float4,
+			TEXT("SceneTextureLookup(%s, %d, %s)"),
+			*TexCoordCode, (int)SceneTextureId, bFiltered ? TEXT("true") : TEXT("false")
+			);
 	}
 
 	// @param SceneTextureId of type ESceneTextureId e.g. PPI_SubsurfaceColor
@@ -2933,11 +2847,11 @@ protected:
 			// BufferSize
 			if(bInvert)
 			{
-				return Div(Constant(1.0f), AddCodeChunk(MCT_Float2, TEXT("View.RenderTargetSize")));
+				return Div(Constant(1.0f), AddCodeChunk(MCT_Float2, TEXT("Frame.RenderTargetSize")));
 			}
 			else
 			{
-				return AddCodeChunk(MCT_Float2, TEXT("View.RenderTargetSize"));
+				return AddCodeChunk(MCT_Float2, TEXT("Frame.RenderTargetSize"));
 			}
 		}
 	}
@@ -2963,7 +2877,7 @@ protected:
 		}
 		else
 		{			
-			return AddCodeChunk(MCT_Float2,TEXT("View.SceneTextureMinMax.xy"));
+			return AddCodeChunk(MCT_Float2,TEXT("Frame.SceneTextureMinMax.xy"));
 		}
 	}
 
@@ -2987,7 +2901,7 @@ protected:
 		}
 		else
 		{			
-			return AddCodeChunk(MCT_Float2,TEXT("View.SceneTextureMinMax.zw"));
+			return AddCodeChunk(MCT_Float2,TEXT("Frame.SceneTextureMinMax.zw"));
 		}
 	}
 
@@ -2996,38 +2910,16 @@ protected:
 	{
 		MaterialCompilationOutput.bNeedsSceneTextures = true;
 
+		//todo: available textures change depending on whether this is a dbuffer decal or not.  Need to pass that information in to warn properly.
 		if(Material->GetMaterialDomain() == MD_DeferredDecal)
 		{
-			EDecalBlendMode DecalBlendMode = (EDecalBlendMode)Material->GetDecalBlendMode();
-			bool bDBuffer = IsDBufferDecalBlendMode(DecalBlendMode);
-
-			bool bRequiresSM5 = (SceneTextureId == PPI_WorldNormal || SceneTextureId == PPI_CustomDepth || SceneTextureId == PPI_CustomStencil || SceneTextureId == PPI_AmbientOcclusion);
-
-			if(bDBuffer)
+			if (SceneTextureId == PPI_WorldNormal || SceneTextureId == PPI_CustomDepth || SceneTextureId == PPI_CustomStencil || SceneTextureId == PPI_AmbientOcclusion)
 			{
-				if(!(SceneTextureId == PPI_SceneDepth || SceneTextureId == PPI_CustomDepth || SceneTextureId == PPI_CustomStencil))
-				{
-					// Note: For DBuffer decals: CustomDepth and CustomStencil are only available if r.CustomDepth.Order = 0
-					Errorf(TEXT("DBuffer decals (MaterialDomain=DeferredDecal and DecalBlendMode is using DBuffer) can only access SceneDepth, CustomDepth, CustomStencil"));
-				}
+				ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4);
 			}
 			else
 			{
-				if(!(SceneTextureId == PPI_SceneDepth || SceneTextureId == PPI_CustomDepth || SceneTextureId == PPI_CustomStencil || SceneTextureId == PPI_WorldNormal || SceneTextureId == PPI_AmbientOcclusion))
-				{
-					Errorf(TEXT("Decals (MaterialDomain=DeferredDecal) can only access WorldNormal, AmbientOcclusion, SceneDepth, CustomDepth, CustomStencil"));
-				}
-
-				if (SceneTextureId == PPI_WorldNormal && Material->HasNormalConnected())
-				{
-					 // GBuffer can only relate to WorldNormal here.
-					Errorf(TEXT("Decals that read WorldNormal cannot output to normal at the same time"));
-				}
-			}
-
-			if (bRequiresSM5)
-			{
-				ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4);
+				Errorf(TEXT("Only some SceneTextureId are available when MaterialDomain = Deferred Decal."));
 			}
 		}
 
@@ -3102,24 +2994,16 @@ protected:
 			);
 	}
 
-	virtual int32 Texture(UTexture* InTexture,int32& TextureReferenceIndex,ESamplerSourceMode SamplerSource=SSM_FromTextureAsset, ETextureMipValueMode MipValueMode = TMVM_None) override
+	virtual int32 Texture(UTexture* InTexture,ESamplerSourceMode SamplerSource=SSM_FromTextureAsset) override
 	{
-		if (FeatureLevel == ERHIFeatureLevel::ES2 && ShaderFrequency == SF_Vertex)
-		{
-			if (MipValueMode != TMVM_MipLevel)
-			{
-				Errorf(TEXT("Sampling from vertex textures requires an absolute mip level on feature level ES2"));
-				return INDEX_NONE;
-			}
-		}
-		else if (ShaderFrequency != SF_Pixel
-			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::ES3_1) == INDEX_NONE)
+		if (ShaderFrequency != SF_Pixel
+			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
 		{
 			return INDEX_NONE;
 		}
 
 		EMaterialValueType ShaderType = InTexture->GetMaterialType();
-		TextureReferenceIndex = Material->GetReferencedTextures().Find(InTexture);
+		const int32 TextureReferenceIndex = Material->GetReferencedTextures().Find(InTexture);
 
 #if DO_CHECK
 		// UE-3518: Additional pre-assert logging to help determine the cause of this failure.
@@ -3138,7 +3022,7 @@ protected:
 		return AddUniformExpression(new FMaterialUniformExpressionTexture(TextureReferenceIndex, SamplerSource),ShaderType,TEXT(""));
 	}
 
-	virtual int32 TextureParameter(FName ParameterName,UTexture* DefaultValue,int32& TextureReferenceIndex,ESamplerSourceMode SamplerSource=SSM_FromTextureAsset) override
+	virtual int32 TextureParameter(FName ParameterName,UTexture* DefaultValue,ESamplerSourceMode SamplerSource=SSM_FromTextureAsset) override
 	{
 		if (ShaderFrequency != SF_Pixel
 			&& ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
@@ -3147,14 +3031,9 @@ protected:
 		}
 
 		EMaterialValueType ShaderType = DefaultValue->GetMaterialType();
-		TextureReferenceIndex = Material->GetReferencedTextures().Find(DefaultValue);
+		const int32 TextureReferenceIndex = Material->GetReferencedTextures().Find(DefaultValue);
 		checkf(TextureReferenceIndex != INDEX_NONE, TEXT("Material expression called Compiler->TextureParameter() without implementing UMaterialExpression::GetReferencedTexture properly"));
 		return AddUniformExpression(new FMaterialUniformExpressionTextureParameter(ParameterName, TextureReferenceIndex, SamplerSource),ShaderType,TEXT(""));
-	}
-
-	virtual int32 GetTextureReferenceIndex(UTexture* TextureValue)
-	{
-		return Material->GetReferencedTextures().Find(TextureValue);
 	}
 
 	virtual int32 StaticBool(bool bValue) override
@@ -3252,8 +3131,7 @@ protected:
 		else if (GetFeatureLevel() >= ERHIFeatureLevel::SM4)
 		{
 			FString WeightmapName = FString::Printf(TEXT("Weightmap%d"),WeightmapIndex);
-			int32 TextureReferenceIndex = INDEX_NONE;
-			int32 TextureCodeIndex = TextureParameter(FName(*WeightmapName), GEngine->WeightMapPlaceholderTexture, TextureReferenceIndex);
+			int32 TextureCodeIndex = TextureParameter(FName(*WeightmapName),  GEngine->WeightMapPlaceholderTexture);
 			int32 WeightmapCode = TextureSample(TextureCodeIndex, TextureCoordinate(3, false, false), SAMPLERTYPE_Masks);
 			FString LayerMaskName = FString::Printf(TEXT("LayerMask_%s"),*ParameterName.ToString());
 			return Dot(WeightmapCode,VectorParameter(FName(*LayerMaskName), FLinearColor(1.f,0.f,0.f,0.f)));
@@ -3469,57 +3347,8 @@ protected:
 			return INDEX_NONE;
 		}
 
-		FMaterialUniformExpression* ExpressionX = GetParameterUniformExpression(X);
-		FMaterialUniformExpression* ExpressionY = GetParameterUniformExpression(Y);
-		FMaterialUniformExpression* ExpressionA = GetParameterUniformExpression(A);
-		bool bExpressionsAreEqual = false;
-
-		// Skip over interpolations where inputs are equal
-		if (X == Y)
-		{
-			bExpressionsAreEqual = true;
-		}
-		else if (ExpressionX && ExpressionY)
-		{
-			if (ExpressionX->IsConstant() && ExpressionY->IsConstant() && (*CurrentScopeChunks)[X].Type == (*CurrentScopeChunks)[Y].Type)
-			{
-				FLinearColor ValueX, ValueY;
-				FMaterialRenderContext DummyContext(nullptr, *Material, nullptr);
-				ExpressionX->GetNumberValue(DummyContext, ValueX);
-				ExpressionY->GetNumberValue(DummyContext, ValueY);
-
-				if (ValueX == ValueY)
-				{
-					bExpressionsAreEqual = true;
-				}
-			}
-		}
-
-		if (bExpressionsAreEqual)
-		{
-			return X;
-		}
-
 		EMaterialValueType ResultType = GetArithmeticResultType(X,Y);
 		EMaterialValueType AlphaType = ResultType == (*CurrentScopeChunks)[A].Type ? ResultType : MCT_Float1;
-
-		if (AlphaType == MCT_Float1 && ExpressionA && ExpressionA->IsConstant())
-		{
-			// Skip over interpolations that explicitly select an input
-			FLinearColor Value;
-			FMaterialRenderContext DummyContext(nullptr, *Material, nullptr);
-			ExpressionA->GetNumberValue(DummyContext, Value);
-
-			if (Value.R == 0.0f)
-			{
-				return X;
-			}
-			else if (Value.R == 1.f)
-			{
-				return Y;
-			}
-		}
-
 		return AddCodeChunk(ResultType,TEXT("lerp(%s,%s,%s)"),*CoerceParameter(X,ResultType),*CoerceParameter(Y,ResultType),*CoerceParameter(A,AlphaType));
 	}
 
@@ -3806,12 +3635,6 @@ protected:
 						CodeStr = TEXT("<A>");
 					}
 				}
-				else if (DestCoordBasis == MCB_MeshParticle)
-				{
-					CodeStr = TEXT("mul(<A>, <MATRIX>(Parameters.Particle.LocalToWorld))");
-					bUsesParticleTransform = true;
-				}
-
 				// else use MCB_TranslatedWorld as intermediary basis
 				IntermediaryBasis = MCB_TranslatedWorld;
 				break;
@@ -3836,19 +3659,6 @@ protected:
 				IntermediaryBasis = MCB_TranslatedWorld;
 				break;
 			}
-			case MCB_MeshParticle:
-			{
-				if (DestCoordBasis == MCB_World)
-				{
-					CodeStr = TEXT("mul(<MATRIX>(Parameters.Particle.LocalToWorld), <A>)");
-					bUsesParticleTransform = true;
-				}
-				else
-				{
-					return Errorf(TEXT("Can transform only to world space from particle space"));
-				}
-				break;
-			}
 			default:
 				check(0);
 				break;
@@ -3868,10 +3678,7 @@ protected:
 		
 		if (AWComponent != 0)
 		{
-			if (GetType(A) == MCT_Float3)
-			{
-				A = AppendVector(A, Constant(1));
-			}
+			A = AppendVector(A, Constant(1));
 			CodeStr.ReplaceInline(TEXT("<TO>"),TEXT("PositionTo"));
 			CodeStr.ReplaceInline(TEXT("<MATRIX>"),TEXT(""));
 			CodeStr += ".xyz";
@@ -4141,7 +3948,7 @@ protected:
 			*GetParameterCode(Depth), FunctionValueIndex);
 	}
 
-	virtual int32 Noise(int32 Position, float Scale, int32 Quality, uint8 NoiseFunction, bool bTurbulence, int32 Levels, float OutputMin, float OutputMax, float LevelScale, int32 FilterWidth, bool bTiling, uint32 RepeatSize) override
+	virtual int32 Noise(int32 Position, float Scale, int32 Quality, uint8 NoiseFunction, bool bTurbulence, int32 Levels, float OutputMin, float OutputMax, float LevelScale, int32 FilterWidth) override
 	{
 		if (ErrorUnlessFeatureLevelSupported(ERHIFeatureLevel::SM4) == INDEX_NONE)
 		{
@@ -4164,11 +3971,9 @@ protected:
 		int32 OutputMinConst = Constant(OutputMin);
 		int32 OutputMaxConst = Constant(OutputMax);
 		int32 LevelScaleConst = Constant(LevelScale);
-		int32 TilingConst = Constant(bTiling);
-		int32 RepeatSizeConst = Constant(RepeatSize);
 
 		return AddCodeChunk(MCT_Float, 
-			TEXT("MaterialExpressionNoise(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"), 
+			TEXT("MaterialExpressionNoise(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"), 
 			*GetParameterCode(Position),
 			*GetParameterCode(ScaleConst),
 			*GetParameterCode(QualityConst),
@@ -4178,9 +3983,7 @@ protected:
 			*GetParameterCode(OutputMinConst),
 			*GetParameterCode(OutputMaxConst),
 			*GetParameterCode(LevelScaleConst),
-			*GetParameterCode(FilterWidth),
-			*GetParameterCode(TilingConst),
-			*GetParameterCode(RepeatSizeConst));
+			*GetParameterCode(FilterWidth));
 	}
 
 	virtual int32 BlackBody( int32 Temp ) override
@@ -4327,10 +4130,7 @@ protected:
 			Code = FString(TEXT("return "))+Code+TEXT(";");
 		}
 		Code.ReplaceInline(TEXT("\n"),TEXT("\r\n"), ESearchCase::CaseSensitive);
-
-		FString ParametersType = ShaderFrequency == SF_Vertex ? TEXT("Vertex") : (ShaderFrequency == SF_Domain ? TEXT("Tessellation") : TEXT("Pixel"));
-
-		FString ImplementationCode = FString::Printf(TEXT("%s CustomExpression%d(FMaterial%sParameters Parameters%s)\r\n{\r\n%s\r\n}\r\n"), *OutputTypeString, CustomExpressionIndex, *ParametersType, *InputParamDecl, *Code);
+		FString ImplementationCode = FString::Printf(TEXT("%s CustomExpression%d(FMaterial%sParameters Parameters%s)\r\n{\r\n%s\r\n}\r\n"), *OutputTypeString, CustomExpressionIndex, ShaderFrequency==SF_Vertex?TEXT("Vertex"):TEXT("Pixel"), *InputParamDecl, *Code);
 		CustomExpressionImplementations.Add( ImplementationCode );
 
 		// Add call to implementation function

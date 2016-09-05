@@ -15,6 +15,8 @@
 #include "Apple/ApplePlatformHttp.h"
 #elif PLATFORM_ANDROID
 #include "Android/AndroidHttp.h"
+#elif PLATFORM_WINRT
+#include "WinRT/WinRTHttp.h"
 #elif PLATFORM_HTML5
 #include "HTML5/HTML5PlatformHttp.h"
 #elif PLATFORM_LINUX

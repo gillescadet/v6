@@ -2,20 +2,17 @@
 
 #pragma once
 
+#include "MovieSceneTrack.h"
 #include "KeyParams.h"
-#include "MovieSceneNameableTrack.h"
 #include "MovieScenePropertyTrack.generated.h"
-
-
-class UMovieSceneSection;
 
 
 /**
  * Base class for tracks that animate an object property
  */
-UCLASS(abstract)
+UCLASS( abstract )
 class MOVIESCENETRACKS_API UMovieScenePropertyTrack
-	: public UMovieSceneNameableTrack
+	: public UMovieSceneTrack
 {
 	GENERATED_UCLASS_BODY()
 
@@ -25,7 +22,7 @@ public:
 
 	virtual FName GetTrackName() const override;
 	virtual void RemoveAllAnimationData() override;
-	virtual bool HasSection(const UMovieSceneSection& Section) const override;
+	virtual bool HasSection(const UMovieSceneSection& Section ) const override;
 	virtual void AddSection(UMovieSceneSection& Section) override;
 	virtual void RemoveSection(UMovieSceneSection& Section) override;
 	virtual bool IsEmpty() const override;
@@ -33,8 +30,7 @@ public:
 	virtual const TArray<UMovieSceneSection*>& GetAllSections() const override;
 
 #if WITH_EDITORONLY_DATA
-	virtual FText GetDefaultDisplayName() const override;
-	virtual bool CanRename() const override { return false; }
+	virtual FText GetDisplayName() const override;
 #endif
 
 public:
@@ -42,9 +38,9 @@ public:
 	/**
 	 * Sets the property name for this animatable property
 	 *
-	 * @param InPropertyName The property being animated
+	 * @param InPropertyName	The property being animated
 	 */
-	virtual void SetPropertyNameAndPath(FName InPropertyName, const FString& InPropertyPath);
+	virtual void SetPropertyNameAndPath( FName InPropertyName, const FString& InPropertyPath );
 
 	/** @return the name of the property being animated by this track */
 	FName GetPropertyName() const { return PropertyName; }
@@ -56,10 +52,10 @@ public:
 	 * Finds a section at the current time.
 	 *
 	 * @param Time	The time relative to the owning movie scene where the section should be
-	 * @param bSectionAdded Whether a section was added or not
+	 *
 	 * @return The found section, or the new section.
 	 */
-	class UMovieSceneSection* FindOrAddSection(float Time, bool& bSectionAdded);
+	class UMovieSceneSection* FindOrAddSection(  float Time );
 
 protected:
 

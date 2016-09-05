@@ -8,7 +8,6 @@
 #include "DerivedDataCacheInterface.h"
 #include "TargetPlatform.h"
 #include "../ShaderDerivedDataVersion.h"
-#include "CookStats.h"
 
 int32 GCreateShadersOnLoad = 0;
 static FAutoConsoleVariableRef CVarCreateShadersOnLoad(
@@ -18,21 +17,142 @@ static FAutoConsoleVariableRef CVarCreateShadersOnLoad(
 	);
 
 
-#if ENABLE_COOK_STATS
-namespace MaterialShaderCookStats
-{
-	static FCookStats::FDDCResourceUsageStats UsageStats;
-	static int32 ShadersCompiled = 0;
-	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
-	{
-		UsageStats.LogStats(AddStat, TEXT("MaterialShader.Usage"), TEXT(""));
-		AddStat(TEXT("MaterialShader.Misc"), FCookStatsManager::CreateKeyValueArray(
-			TEXT("ShadersCompiled"), ShadersCompiled
-			));
-	});
-}
-#endif
 
+//
+// Cooking Stats
+// 
+#define MATERIAL_COOKING_STATS (1 && WITH_EDITORONLY_DATA)
+
+#if MATERIAL_COOKING_STATS
+
+#include "CookingStatsModule.h"
+#include "ModuleManager.h"
+
+
+static FString GetMaterialShaderMapKeyString(const FMaterialShaderMapId& ShaderMapId, EShaderPlatform Platform);
+
+namespace MaterialStats
+{
+
+	ICookingStats* GetCookingStats()
+	{
+		static ICookingStats* CookingStats = nullptr;
+		static bool bInitialized = false;
+		if (bInitialized == false)
+		{
+			FCookingStatsModule* CookingStatsModule = FModuleManager::LoadModulePtr<FCookingStatsModule>(TEXT("CookingStats"));
+			if (CookingStatsModule)
+			{
+				CookingStats = CookingStatsModule->Get();
+			}
+			bInitialized = true;
+		}
+		return CookingStats;
+	}
+
+	FCriticalSection CookingStatsSyncObject;
+
+	struct FMaterialTimingInfo
+	{
+	public:
+		FName TransactionGuid;
+		TMap<FName, double> TagStartTime;
+	};
+
+	TMap<FMaterialShaderMapId, FMaterialTimingInfo> CurrentCookingStats;
+	int32 CurrentIndex;
+	FName TransactionGuid;
+
+	FName GenerateNewTransactionName()
+	{
+		FScopeLock ScopeSync(&CookingStatsSyncObject);
+		++CurrentIndex;
+		if (CurrentIndex <= 1)
+		{
+			FString TransactionGuidString = TEXT("MaterialTransactionId");
+			TransactionGuidString += FGuid::NewGuid().ToString();
+			TransactionGuid = FName(*TransactionGuidString);
+			CurrentIndex = 1;
+		}
+		check(TransactionGuid != NAME_None);
+
+		return FName(TransactionGuid, CurrentIndex);
+	}
+
+	void StartStat(const FMaterialShaderMapId& ShaderMapId, const EShaderPlatform Platform, const FName& TagName)
+	{
+		ICookingStats* CookingStats = GetCookingStats();
+		if (CookingStats)
+		{
+			FScopeLock ScopeSync(&CookingStatsSyncObject);
+
+			FMaterialTimingInfo* TimingInfo = CurrentCookingStats.Find(ShaderMapId);
+
+			if (TimingInfo == nullptr)
+			{
+				TimingInfo = &CurrentCookingStats.Add(ShaderMapId);
+				TimingInfo->TransactionGuid = GenerateNewTransactionName();
+				static const FName NAME_CacheKey(TEXT("CacheKey"));
+
+				FString CacheKeyString = GetMaterialShaderMapKeyString(ShaderMapId, Platform);
+
+				CookingStats->AddTagValue(TimingInfo->TransactionGuid, NAME_CacheKey, CacheKeyString);
+			}
+
+			double* StartTime = TimingInfo->TagStartTime.Find(TagName);
+			if (!StartTime)
+			{
+				TimingInfo->TagStartTime.Add(TagName, FPlatformTime::Seconds());
+			}
+		}
+	}
+
+	void StopStat(const FMaterialShaderMapId& ShaderMapId, const FName& TagName)
+	{
+		ICookingStats* CookingStats = GetCookingStats();
+		if (CookingStats)
+		{
+			FScopeLock ScopeSync(&CookingStatsSyncObject);
+
+			FMaterialTimingInfo* TimingInfo = CurrentCookingStats.Find(ShaderMapId);
+			if (TimingInfo == nullptr)
+			{
+				UE_LOG(LogShaders, Warning, TEXT("Stat tag wasn't found for stat %s, probably caused by calling COOKING_STAT_STOP before COOKING_STAT_START"), *TagName.ToString());
+				return;
+			}
+			check(TimingInfo); // did you call stop stat before calling start
+			double* StartTime = TimingInfo->TagStartTime.Find(TagName);
+			if (StartTime == nullptr)
+			{
+				UE_LOG(LogShaders, Warning, TEXT("Stat start time wasn't found for stat %s, probably caused by calling COOKING_STAT_STOP before COOKING_STAT_START"), *TagName.ToString());
+				return;
+			}
+			check(StartTime); // did you call stop stat before calling start for that tag
+			
+			double Duration = FPlatformTime::Seconds() - *StartTime;
+			TimingInfo->TagStartTime.Remove(TagName);
+
+			CookingStats->AddTagValue(TimingInfo->TransactionGuid, TagName, (float)(Duration*1000.0f));
+		}
+	}
+
+};
+
+#define COOKING_STAT_START(TagName, ShaderMapID, Platform) \
+	static const FName NAME_##TagName(TEXT(#TagName)); \
+	MaterialStats::StartStat(ShaderMapID, Platform, NAME_##TagName);
+
+#define COOKING_STAT_STOP(TagName, ShaderMapID) \
+	static const FName NAME_##TagName(TEXT(#TagName)); \
+	MaterialStats::StopStat(ShaderMapID, NAME_##TagName);
+
+
+#else
+
+#define COOKING_STAT_START(...)
+#define COOKING_STAT_STOP(...)
+
+#endif // MATERIAL_COOKING_STATS
 
 //
 // Globals
@@ -86,7 +206,6 @@ FString GetBlendModeString(EBlendMode BlendMode)
 		case BLEND_Translucent: BlendModeName = TEXT("BLEND_Translucent"); break;
 		case BLEND_Additive: BlendModeName = TEXT("BLEND_Additive"); break;
 		case BLEND_Modulate: BlendModeName = TEXT("BLEND_Modulate"); break;
-		case BLEND_AlphaComposite: BlendModeName = TEXT("BLEND_AlphaComposite"); break;
 		default: BlendModeName = TEXT("Unknown"); break;
 	}
 	return BlendModeName;
@@ -695,7 +814,6 @@ FShaderCompileJob* FMaterialShaderType::BeginCompileShader(
 	FShaderCompilerEnvironment& ShaderEnvironment = NewJob->Input.Environment;
 
 	UE_LOG(LogShaders, Verbose, TEXT("			%s"), GetName());
-	COOK_STAT(MaterialShaderCookStats::ShadersCompiled++);
 
 	//update material shader stats
 	UpdateMaterialShaderCompilingStats(Material);
@@ -870,21 +988,18 @@ void FMaterialShaderMap::LoadFromDerivedDataCache(const FMaterial* Material, con
 		STAT(double MaterialDDCTime = 0);
 		{
 			SCOPE_SECONDS_COUNTER(MaterialDDCTime);
-			COOK_STAT(auto Timer = MaterialShaderCookStats::UsageStats.TimeSyncWork());
 
 			TArray<uint8> CachedData;
 			const FString DataKey = GetMaterialShaderMapKeyString(ShaderMapId, Platform);
 
+			// Find the shader map in the derived data cache
 			if (GetDerivedDataCacheRef().GetSynchronous(*DataKey, CachedData))
 			{
-				COOK_STAT(Timer.AddHit(CachedData.Num()));
 				InOutShaderMap = new FMaterialShaderMap();
 				FMemoryReader Ar(CachedData, true);
 
 				// Deserialize from the cached data
 				InOutShaderMap->Serialize(Ar);
-				InOutShaderMap->RegisterSerializedShaders();
-
 				checkSlow(InOutShaderMap->GetShaderMapId() == ShaderMapId);
 
 				// Register in the global map
@@ -892,8 +1007,6 @@ void FMaterialShaderMap::LoadFromDerivedDataCache(const FMaterial* Material, con
 			}
 			else
 			{
-				// We should be build the data later, and we can track that the resource was built there when we push it to the DDC.
-				COOK_STAT(Timer.TrackCyclesOnly());
 				InOutShaderMap = nullptr;
 			}
 		}
@@ -903,13 +1016,11 @@ void FMaterialShaderMap::LoadFromDerivedDataCache(const FMaterial* Material, con
 
 void FMaterialShaderMap::SaveToDerivedDataCache()
 {
-	COOK_STAT(auto Timer = MaterialShaderCookStats::UsageStats.TimeSyncWork());
 	TArray<uint8> SaveData;
 	FMemoryWriter Ar(SaveData, true);
 	Serialize(Ar);
 
 	GetDerivedDataCacheRef().Put(*GetMaterialShaderMapKeyString(ShaderMapId, Platform), SaveData);
-	COOK_STAT(Timer.AddMiss(SaveData.Num()));
 }
 
 TArray<uint8>* FMaterialShaderMap::BackupShadersToMemory()
@@ -922,12 +1033,10 @@ TArray<uint8>* FMaterialShaderMap::BackupShadersToMemory()
 		// Serialize data needed to handle shader key changes in between the save and the load of the FShaders
 		const bool bHandleShaderKeyChanges = true;
 		MeshShaderMaps[Index].SerializeInline(Ar, true, bHandleShaderKeyChanges);
-		MeshShaderMaps[Index].RegisterSerializedShaders();
 		MeshShaderMaps[Index].Empty();
 	}
 
 	SerializeInline(Ar, true, true);
-	RegisterSerializedShaders();
 	Empty();
 
 	return SavedShaderData;
@@ -942,11 +1051,9 @@ void FMaterialShaderMap::RestoreShadersFromMemory(const TArray<uint8>& ShaderDat
 		// Use the serialized shader key data to detect when the saved shader is no longer valid and skip it
 		const bool bHandleShaderKeyChanges = true;
 		MeshShaderMaps[Index].SerializeInline(Ar, true, bHandleShaderKeyChanges);
-		MeshShaderMaps[Index].RegisterSerializedShaders();
 	}
 
 	SerializeInline(Ar, true, true);
-	RegisterSerializedShaders();
 }
 
 void FMaterialShaderMap::SaveForRemoteRecompile(FArchive& Ar, const TMap<FString, TArray<TRefCountPtr<FMaterialShaderMap> > >& CompiledShaderMaps, const TArray<FShaderResourceId>& ClientResourceIds)
@@ -1182,6 +1289,8 @@ void FMaterialShaderMap::Compile(
 		}
 		else
 		{
+			COOKING_STAT_START(ShaderCompilation, InShaderMapId, InPlatform);
+
 			// Assign a unique identifier so that shaders from this shader map can be associated with it after a deferred compile
 			CompilingId = NextCompilingId;
 			check(NextCompilingId < UINT_MAX);
@@ -1386,11 +1495,8 @@ void FMaterialShaderMap::Compile(
 			// Mark as not having been compiled
 			bCompiledSuccessfully = false;
   
-			// Only cause a global component recreate state for non-preview materials
-			const bool bRecreateComponentRenderStateOnCompletion = Material->IsPersistent();
-
 			// Note: using Material->IsPersistent() to detect whether this is a preview material which should have higher priority over background compiling
-			GShaderCompilingManager->AddJobs(NewJobs, bApplyCompletedShaderMapForRendering && !bSynchronousCompile, bSynchronousCompile || !Material->IsPersistent(), bRecreateComponentRenderStateOnCompletion);
+			GShaderCompilingManager->AddJobs(NewJobs, bApplyCompletedShaderMapForRendering && !bSynchronousCompile, bSynchronousCompile || !Material->IsPersistent());
   
 			// Compile the shaders for this shader map now if the material is not deferring and deferred compiles are not enabled globally
 			if (bSynchronousCompile)
@@ -1616,6 +1722,8 @@ bool FMaterialShaderMap::ProcessCompilationResults(const TArray<FShaderCommonCom
 
 		// The shader map can now be used on the rendering thread
 		bCompilationFinalized = true;
+
+		COOKING_STAT_STOP(ShaderCompilation, ShaderMapId)
 
 		return true;
 	}
@@ -2030,7 +2138,6 @@ void FMaterialShaderMap::Serialize(FArchive& Ar, bool bInlineShaderResources)
 	{
 		// Material shaders
 		TShaderMap<FMaterialShaderType>::SerializeInline(Ar, bInlineShaderResources, false);
-		RegisterSerializedShaders();
 
 		// Mesh material shaders
 		int32 NumMeshShaderMaps = 0;
@@ -2071,7 +2178,6 @@ void FMaterialShaderMap::Serialize(FArchive& Ar, bool bInlineShaderResources)
 				Ar << VFType;
 
 				MeshShaderMap->SerializeInline(Ar, bInlineShaderResources, false);
-				MeshShaderMap->RegisterSerializedShaders();
 			}
 		}
 	}
@@ -2114,37 +2220,22 @@ void FMaterialShaderMap::Serialize(FArchive& Ar, bool bInlineShaderResources)
 			check(MeshShaderMap);
 			MeshShaderMap->SerializeInline(Ar, bInlineShaderResources, false);
 		}
-	}
-}
 
-void FMaterialShaderMap::RegisterSerializedShaders()
-{
-	check(IsInGameThread());
-
-	TShaderMap<FMaterialShaderType>::RegisterSerializedShaders();
-	
-	for (FMeshMaterialShaderMap* MeshShaderMap : OrderedMeshShaderMaps)
-	{
-		if (MeshShaderMap)
+		// Trim the mesh shader maps by removing empty entries
+		for (int32 VFIndex = 0; VFIndex < OrderedMeshShaderMaps.Num(); VFIndex++)
 		{
-			MeshShaderMap->RegisterSerializedShaders();
+			if (OrderedMeshShaderMaps[VFIndex]->IsEmpty())
+			{
+				OrderedMeshShaderMaps[VFIndex] = NULL;
+			}
 		}
-	}
 
-	// Trim the mesh shader maps by removing empty entries
-	for (int32 VFIndex = 0; VFIndex < OrderedMeshShaderMaps.Num(); VFIndex++)
-	{
-		if (OrderedMeshShaderMaps[VFIndex] && OrderedMeshShaderMaps[VFIndex]->IsEmpty())
+		for (int32 Index = MeshShaderMaps.Num() - 1; Index >= 0; Index--)
 		{
-			OrderedMeshShaderMaps[VFIndex] = NULL;
-		}
-	}
-
-	for (int32 Index = MeshShaderMaps.Num() - 1; Index >= 0; Index--)
-	{
-		if (MeshShaderMaps[Index].IsEmpty())
-		{
-			MeshShaderMaps.RemoveAt(Index);
+			if (MeshShaderMaps[Index].IsEmpty())
+			{
+				MeshShaderMaps.RemoveAt(Index);
+			}
 		}
 	}
 }

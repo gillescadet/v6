@@ -1,7 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "NiagaraPrivate.h"
-#include "NiagaraConstants.h"
 #include "NiagaraSimulation.h"
 #include "NiagaraEffectRenderer.h"
 #include "VectorVM.h"
@@ -110,13 +109,9 @@ void FNiagaraSimulation::Init()
 	Data.AddVariables(PinnedProps->UpdateScriptProps.Script->Attributes);
 	Data.AddVariables(PinnedProps->SpawnScriptProps.Script->Attributes);
 
-//	ExternalConstantsMap.Empty();
-//	ExternalConstantsMap.Merge(PinnedProps->UpdateScriptProps.ExternalConstants);
-//	ExternalConstantsMap.Merge(PinnedProps->SpawnScriptProps.ExternalConstants);
-
-	ExternalConstants.Empty();
-	ExternalConstants.Merge(PinnedProps->UpdateScriptProps.ExternalConstants);
-	ExternalConstants.Merge(PinnedProps->SpawnScriptProps.ExternalConstants);
+	Constants.Empty();
+	Constants.Merge(PinnedProps->UpdateScriptProps.ExternalConstants);
+	Constants.Merge(PinnedProps->SpawnScriptProps.ExternalConstants);
 
 	//Create data storage for event generators.
 	for (FNiagaraEventGeneratorProperties& Generator : Props->SpawnScriptProps.EventGenerators)
@@ -236,75 +231,61 @@ int FNiagaraSimulation::GetTotalBytesUsed()
 	return BytesUsed;
 }
 
-
-/** Look for dead particles and move from the end of the list to the dead location, compacting in the process
-  */
-void FNiagaraSimulation::KillParticles()
-{
-	SCOPE_CYCLE_COUNTER(STAT_NiagaraKill);
-	int32 OrigNumParticles = Data.GetNumInstances();
-	int32 CurNumParticles = OrigNumParticles;
-	int32 ParticleIndex = OrigNumParticles - 1;
-
-	if (bGenerateDeathEvents)
-	{
-		DeathEventGenerator.BeginTrackingDeaths();
-	}
-
-	const FVector4* ParticleRelativeTimes = Data.GetVariableData(FNiagaraVariableInfo(BUILTIN_VAR_PARTICLEAGE, ENiagaraDataType::Vector));
-	if (ParticleRelativeTimes)
-	{
-		while (ParticleIndex >= 0)
-		{
-			if (ParticleRelativeTimes[ParticleIndex].X > 1.0f)
-			{
-				if (bGenerateDeathEvents)
-				{
-					DeathEventGenerator.OnDeath(ParticleIndex);
-				}
-
-				check(CurNumParticles > ParticleIndex);
-
-				// Particle is dead, move one from the end here. 
-				MoveParticleToIndex(--CurNumParticles, ParticleIndex);
-			}
-			--ParticleIndex;
-		}
-	}
-
-	Data.SetNumInstances(CurNumParticles);
-
-	if (bGenerateDeathEvents)
-	{
-		DeathEventGenerator.EndTrackingDeaths();
-	}
-
-	// check if the emitter has officially died
-	if (GetTickState() == NTS_Dieing && CurNumParticles == 0)
-	{
-		SetTickState(NTS_Dead);
-	}
-}
-
-/** 
-  * PreTick - handles killing dead particles, emitter death, and buffer swaps
-  */
 void FNiagaraSimulation::PreTick()
 {
 	UNiagaraEmitterProperties* PinnedProps = Props.Get();
-
-	if (!PinnedProps || !bIsEnabled
-		|| TickState == NTS_Suspended || TickState == NTS_Dead
-		|| Data.GetNumInstances() == 0)
-	{
+	if (!PinnedProps || !bIsEnabled || TickState == NTS_Suspended || TickState == NTS_Dead)
 		return;
-	}
 
 	check(Data.GetNumVariables() > 0);
 	check(PinnedProps->SpawnScriptProps.Script);
 	check(PinnedProps->UpdateScriptProps.Script);
 
-	KillParticles();
+	// Iterate over looking for dead particles and move from the end of the list to the dead location, compacting in the process
+	{
+		SCOPE_CYCLE_COUNTER(STAT_NiagaraKill);
+		int32 OrigNumParticles = Data.GetNumInstances();
+		int32 CurNumParticles = OrigNumParticles;
+		int32 ParticleIndex = OrigNumParticles-1;
+
+		if (bGenerateDeathEvents)
+		{
+			DeathEventGenerator.BeginTrackingDeaths();
+		}
+		const FVector4* ParticleRelativeTimes = Data.GetVariableData(FNiagaraVariableInfo(FName(TEXT("Age")), ENiagaraDataType::Vector));
+		if (ParticleRelativeTimes)
+		{
+			while (ParticleIndex >= 0)
+			{
+				if (ParticleRelativeTimes[ParticleIndex].X > 1.0f)
+				{
+					if (bGenerateDeathEvents)
+					{
+						DeathEventGenerator.OnDeath(ParticleIndex);
+					}
+
+					check(CurNumParticles > ParticleIndex);
+					// Particle is dead, move one from the end here. 
+					MoveParticleToIndex(--CurNumParticles, ParticleIndex);
+
+					DebuggerHook_OnDeath(this, ParticleIndex, CurNumParticles);
+				}
+				--ParticleIndex;
+			}
+		}
+		Data.SetNumInstances(CurNumParticles);
+
+		if (bGenerateDeathEvents)
+		{
+			DeathEventGenerator.EndTrackingDeaths();
+		}
+
+		// check if the emitter has officially died
+		if (GetTickState() == NTS_Dieing && CurNumParticles == 0)
+		{
+			SetTickState(NTS_Dead);
+		}
+	}
 
 	//Swap all data set buffers before doing the main tick on any simulation.
 	for (TPair<FNiagaraDataSetID, FNiagaraDataSet*> SetPair : DataSetMap)
@@ -316,37 +297,49 @@ void FNiagaraSimulation::PreTick()
 void FNiagaraSimulation::Tick(float DeltaSeconds)
 {
 	SCOPE_CYCLE_COUNTER(STAT_NiagaraTick);
-	SimpleTimer TickTime;
 
 	UNiagaraEmitterProperties* PinnedProps = Props.Get();
-	if (!PinnedProps || !bIsEnabled || TickState == NTS_Suspended || TickState == NTS_Dead)
-	{
+	if (!PinnedProps || !bIsEnabled || TickState==NTS_Suspended || TickState==NTS_Dead)
 		return;
-	}
 
-	Age += DeltaSeconds;
+	SimpleTimer TickTime;
 
 	check(Data.GetNumVariables() > 0);
 	check(PinnedProps->SpawnScriptProps.Script);
 	check(PinnedProps->UpdateScriptProps.Script);
 	
-	TickEvents(DeltaSeconds);
+	//Handle Event Actions.
+	auto CallEventActions = [&](FNiagaraEventReceiverProperties& Receiver)
+	{
+		for (auto& Action : Receiver.EmitterActions)
+		{
+			if (Action)
+				Action->PerformAction(*this, Receiver);
+		}
+	};
+	for (auto& Receiver : Props->SpawnScriptProps.EventReceivers)	{ CallEventActions(Receiver); }
+	for (auto& Receiver : Props->UpdateScriptProps.EventReceivers)	{ CallEventActions(Receiver); }
+
+	int32 OrigNumParticles = Data.GetNumInstances();
+	int32 NumToSpawn = 0;
 
 	// Figure out how many we will spawn.
-	int32 OrigNumParticles = Data.GetNumInstances();
-	int32 NumToSpawn = CalcNumToSpawn(DeltaSeconds);
+	NumToSpawn = CalcNumToSpawn(DeltaSeconds);
 	int32 MaxNewParticles = OrigNumParticles + NumToSpawn;
 	Data.Allocate(MaxNewParticles);
 
-	ExternalConstants.SetOrAdd(BUILTIN_CONST_EMITTERAGE, FVector4(Age, Age, Age, Age));
-	ExternalConstants.SetOrAdd(BUILTIN_CONST_DELTATIME, FVector4(DeltaSeconds, DeltaSeconds, DeltaSeconds, DeltaSeconds));
+	Age += DeltaSeconds;
+	Constants.SetOrAdd(TEXT("Emitter Age"), FVector4(Age, Age, Age, Age));
+	Constants.SetOrAdd(TEXT("Delta Time"), FVector4(DeltaSeconds, DeltaSeconds, DeltaSeconds, DeltaSeconds));
 
 	// Simulate particles forward by DeltaSeconds.
 	if (TickState==NTS_Running || TickState==NTS_Dieing)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_NiagaraSimulate);
-		RunVMScript(PinnedProps->UpdateScriptProps, EUnusedAttributeBehaviour::PassThrough);
+		RunVMScript(PinnedProps->UpdateScriptProps, EUnusedAttributeBehaviour::Copy);
 	}
+
+	DebuggerHook_PreSpawn(this, OrigNumParticles, NumToSpawn);
 
 	//Init new particles with the spawn script.
 	if (TickState==NTS_Running)
@@ -355,38 +348,19 @@ void FNiagaraSimulation::Tick(float DeltaSeconds)
 		Data.SetNumInstances(MaxNewParticles);
 		//For now, zero any unused attributes here. But as this is really uninitialized data we should maybe make this a more serious error.
 		RunVMScript(PinnedProps->SpawnScriptProps, EUnusedAttributeBehaviour::Zero, OrigNumParticles, NumToSpawn);
+	}
 
-		if (bGenerateSpawnEvents)
-		{
-			SpawnEventGenerator.OnSpawned(OrigNumParticles, NumToSpawn);
-		}
+	if (bGenerateSpawnEvents)
+	{
+		SpawnEventGenerator.OnSpawned(OrigNumParticles, NumToSpawn);
 	}
 
 
 	CPUTimeMS = TickTime.GetElapsedMilliseconds();
 
 	INC_DWORD_STAT_BY(STAT_NiagaraNumParticles, Data.GetNumInstances());
+
 }
-
-
-void FNiagaraSimulation::TickEvents(float DeltaSeconds)
-{
-	//Handle Event Actions.
-	auto CallEventActions = [&](FNiagaraEventReceiverProperties& Receiver)
-	{
-		for (auto& Action : Receiver.EmitterActions)
-		{
-			if (Action)
-			{
-				Action->PerformAction(*this, Receiver);
-			}
-		}
-	};
-
-	for (auto& Receiver : Props->SpawnScriptProps.EventReceivers) { CallEventActions(Receiver); }
-	for (auto& Receiver : Props->UpdateScriptProps.EventReceivers) { CallEventActions(Receiver); }
-}
-
 
 void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProps, EUnusedAttributeBehaviour UnusedAttribBehaviour)
 {
@@ -401,9 +375,7 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProps, EUnusedAttributeBehaviour UnusedAttribBehaviour, uint32 StartParticle, uint32 NumParticles)
 {
 	if (NumParticles == 0)
-	{
 		return;
-	}
 	
 	UNiagaraScript* Script = ScriptProps.Script;
 
@@ -416,11 +388,18 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 
 	check(StartParticle + NumParticles <= CurrNumParticles);
 
+	const FVector4* InputBuffer = Data.GetPreviousBuffer();
+	const FVector4* OutputBuffer = Data.GetCurrentBuffer();
+
+	uint32 InputAttributeStride = Data.GetPrevDataAllocation();
+	uint32 OutputAttributeStride = Data.GetDataAllocation();
+
 	VectorRegister* InputRegisters[VectorVM::MaxInputRegisters] = { 0 };
 	VectorRegister* OutputRegisters[VectorVM::MaxOutputRegisters] = { 0 };
 	
 	//The current script run will be using NumScriptAttrs. We must pick out the Attributes form the simulation data in the order that they appear in the script.
 	//The remaining attributes being handled according to UnusedAttribBehaviour
+	const int32 NumSimulationAttrs = Data.GetNumVariables();
 	const int32 NumScriptAttrs = Script->Attributes.Num();
 
 	check(NumScriptAttrs < VectorVM::MaxInputRegisters);
@@ -428,65 +407,56 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 
 	int32 NumInputRegisters = 0;
 	int32 NumOutputRegitsers = 0;
-
+	// Setup input and output registers.
+	for (TPair<FNiagaraVariableInfo, uint32> AttrIndexPair : Data.GetVariables())
 	{
-		SCOPE_CYCLE_COUNTER(STAT_NiagaraSimRegisterSetup);
+		const FNiagaraVariableInfo& AttrInfo = AttrIndexPair.Key;
 
-		// Setup input and output registers.
-		for (TPair<FNiagaraVariableInfo, uint32> AttrIndexPair : Data.GetVariables())
+		FVector4* InBuff;
+		FVector4* OutBuff;
+		Data.GetVariableData(AttrInfo, InBuff, OutBuff, StartParticle);
+
+		int32 AttrIndex = Script->Attributes.Find(AttrInfo);
+		if (AttrIndex != INDEX_NONE)
 		{
-			const FNiagaraVariableInfo& AttrInfo = AttrIndexPair.Key;
+			//The input buffer can be NULL but only if this script never accesses it.
+			check(InBuff || !Script->Usage.bReadsAttriubteData);
 
-			FVector4* InBuff;
-			FVector4* OutBuff;
-			Data.GetVariableData(AttrInfo, InBuff, OutBuff, StartParticle);
+			//This attribute is used in this script so set it to the correct Input and Output buffer locations.
+			InputRegisters[AttrIndex] = (VectorRegister*)InBuff;
+			OutputRegisters[AttrIndex] = (VectorRegister*)OutBuff;
+			
+			NumInputRegisters += InBuff ? 1 : 0;
+			NumOutputRegitsers += OutBuff ? 1 : 0;
+		}	
+		else
+		{
+			//This attribute is not used in this script so handle it accordingly.
+			check(OutBuff);
 
-			int32 AttrIndex = Script->Attributes.Find(AttrInfo);
-			if (AttrIndex != INDEX_NONE)
+			if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::Copy)
 			{
-				//The input buffer can be NULL but only if this script never accesses it.
-				check(InBuff || !Script->Usage.bReadsAttriubteData);
-
-				//This attribute is used in this script so set it to the correct Input and Output buffer locations.
-				InputRegisters[AttrIndex] = (VectorRegister*)InBuff;
-				OutputRegisters[AttrIndex] = (VectorRegister*)OutBuff;
-
-				NumInputRegisters += InBuff ? 1 : 0;
-				NumOutputRegitsers += OutBuff ? 1 : 0;
+				check(InBuff);
+				FMemory::Memcpy(OutBuff, InBuff, NumParticles * sizeof(FVector4));
 			}
-			else
+			else if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::Zero)
 			{
-				//This attribute is not used in this script so handle it accordingly.
-				check(OutBuff);
-
-				if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::PassThrough)
-				{
-					Data.GetVariableBuffer(AttrInfo).EnablePassThrough();
-				}
-				else if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::Copy)
-				{
-					check(InBuff);
-					FMemory::Memcpy(OutBuff, InBuff, NumParticles * sizeof(FVector4));
-				}
-				else if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::Zero)
-				{
-					FMemory::Memzero(OutBuff, NumParticles * sizeof(FVector4));
-				}
-				else if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::MarkInvalid)
-				{
-					FMemory::Memset(OutBuff, NIAGARA_INVALID_MEMORY, NumParticles * sizeof(FVector4));
-				}
+				FMemory::Memzero(OutBuff, NumParticles * sizeof(FVector4));
+			}
+			else if (UnusedAttribBehaviour == EUnusedAttributeBehaviour::MarkInvalid)
+			{
+				FMemory::Memset(OutBuff, NIAGARA_INVALID_MEMORY, NumParticles * sizeof(FVector4));
 			}
 		}
 	}
 
-	// Fill constant table with required emitter constants and internal script constants.
+	//Fill constant table with required emitter constants and internal script constants.
 	TArray<FVector4> ConstantTable;
-	//Script->ConstantData.FillConstantTable(ExternalConstantsMap, ConstantTable);
-	Script->ConstantData.FillConstantTable(ExternalConstants, ConstantTable);
+	TArray<UNiagaraDataObject *>DataObjTable;
+	Script->ConstantData.FillConstantTable(Constants, ConstantTable, DataObjTable);
 
 
-	// Fill in the shared data table
+	//Fill in the shared data table
 	TArray<FVectorVMSharedDataView, TInlineAllocator<64>> SharedDataTable;
 	
 	for (FNiagaraEventReceiverProperties Receiver : ScriptProps.EventReceivers)
@@ -535,6 +505,8 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 		}
 	}
 	
+	DebuggerHook_PreScriptRun(this, ScriptProps.Script, Data.GetDataAllocation(), NumParticles, StartParticle);
+
 	VectorVM::Exec(
 		Script->ByteCode.GetData(),
 		InputRegisters,
@@ -542,6 +514,7 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 		OutputRegisters,
 		NumOutputRegitsers,
 		ConstantTable.GetData(),
+		DataObjTable.GetData(),
 		SharedDataTable.Num() > 0 ? SharedDataTable.GetData() : NULL,
 		NumParticles
 		);
@@ -555,6 +528,8 @@ void FNiagaraSimulation::RunVMScript(FNiagaraEmitterScriptProperties& ScriptProp
 		GeneratorSet->SetNumInstances(View.GetCounter());
 		INC_DWORD_STAT_BY(STAT_NiagaraNumCustomEvents, View.GetCounter());
 	}
+
+	DebuggerHook_PostScriptRun(this, Script);
 }
 
 bool FNiagaraSimulation::CheckAttriubtesForRenderer()

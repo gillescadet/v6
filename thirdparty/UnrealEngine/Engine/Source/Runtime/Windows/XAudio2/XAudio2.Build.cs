@@ -27,7 +27,7 @@ public class XAudio2 : ModuleRules
 			}
 		}
 
-		AddEngineThirdPartyPrivateStaticDependencies(Target, 
+		AddThirdPartyPrivateStaticDependencies(Target, 
 			"DX11Audio",
 			"UEOgg",
 			"Vorbis",

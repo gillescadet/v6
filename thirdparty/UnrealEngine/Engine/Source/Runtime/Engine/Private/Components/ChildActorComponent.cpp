@@ -1,16 +1,14 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
+#include "ComponentInstanceDataCache.h"
 #include "Components/ChildActorComponent.h"
-#include "Net/UnrealNetwork.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogChildActorComponent, Warning, All);
 
 UChildActorComponent::UChildActorComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	bWantsBeginPlay = true;
-	bAllowReregistration = false;
 }
 
 void UChildActorComponent::OnRegister()
@@ -27,19 +25,11 @@ void UChildActorComponent::OnRegister()
 		else
 		{
 			ChildActorName = ChildActor->GetFName();
-			
-			USceneComponent* ChildRoot = ChildActor->GetRootComponent();
-			if (ChildRoot && ChildRoot->GetAttachParent() != this)
-			{
-				// attach new actor to this component
-				// we can't attach in CreateChildActor since it has intermediate Mobility set up
-				// causing spam with inconsistent mobility set up
-				// so moving Attach to happen in Register
-				ChildRoot->AttachToComponent(this, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-			}
-
-			// Ensure the components replication is correctly initialized
-			SetIsReplicated(ChildActor->GetIsReplicated());
+			// attach new actor to this component
+			// we can't attach in CreateChildActor since it has intermediate Mobility set up
+			// causing spam with inconsistent mobility set up
+			// so moving Attach to happen in Register
+			ChildActor->AttachRootComponentTo(this, NAME_None, EAttachLocation::SnapToTargetIncludingScale);
 		}
 	}
 	else if (ChildActorClass)
@@ -75,7 +65,7 @@ void UChildActorComponent::PostEditUndo()
 	// This hack exists to fix up known cases where the AttachChildren array is broken in very problematic ways.
 	// The correct fix will be to use a Transaction Annotation at the SceneComponent level, however, it is too risky
 	// to do right now, so this will go away when that is done.
-	for (USceneComponent*& Component : FDirectAttachChildrenAccessor::Get(this))
+	for (USceneComponent*& Component : AttachChildren)
 	{
 		if (Component)
 		{
@@ -89,29 +79,6 @@ void UChildActorComponent::PostEditUndo()
 }
 #endif
 
-void UChildActorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
-	DOREPLIFETIME(UChildActorComponent, ChildActor);
-}
-
-void UChildActorComponent::PostRepNotifies()
-{
-	Super::PostRepNotifies();
-
-	if (ChildActor)
-	{
-		ChildActorClass = ChildActor->GetClass();
-		ChildActorName = ChildActor->GetFName();
-	}
-	else
-	{
-		ChildActorClass = nullptr;
-		ChildActorName = NAME_None;
-	}
-}
-
 void UChildActorComponent::OnComponentCreated()
 {
 	Super::OnComponentCreated();
@@ -123,85 +90,76 @@ void UChildActorComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 {
 	Super::OnComponentDestroyed(bDestroyingHierarchy);
 
-	DestroyChildActor();
+	const UWorld* const MyWorld = GetWorld();
+	DestroyChildActor(MyWorld && !MyWorld->IsGameWorld());
 }
 
-void UChildActorComponent::OnUnregister()
+class FChildActorComponentInstanceData : public FSceneComponentInstanceData
 {
-	Super::OnUnregister();
-
-	DestroyChildActor();
-}
-
-FChildActorComponentInstanceData::FChildActorComponentInstanceData(const UChildActorComponent* Component)
-	: FSceneComponentInstanceData(Component)
-	, ChildActorName(Component->GetChildActorName())
-	, ComponentInstanceData(nullptr)
-{
-	if (Component->GetChildActor())
+public:
+	FChildActorComponentInstanceData(const UChildActorComponent* Component)
+		: FSceneComponentInstanceData(Component)
+		, ChildActorName(Component->ChildActorName)
+		, ComponentInstanceData(nullptr)
 	{
-		ComponentInstanceData = new FComponentInstanceDataCache(Component->GetChildActor());
-		// If it is empty dump it
-		if (!ComponentInstanceData->HasInstanceData())
+		if (Component->ChildActor)
 		{
-			delete ComponentInstanceData;
-			ComponentInstanceData = nullptr;
-		}
-
-		USceneComponent* ChildRootComponent = Component->GetChildActor()->GetRootComponent();
-		if (ChildRootComponent)
-		{
-			for (USceneComponent* AttachedComponent : ChildRootComponent->GetAttachChildren())
+			ComponentInstanceData = new FComponentInstanceDataCache(Component->ChildActor);
+			// If it is empty dump it
+			if (!ComponentInstanceData->HasInstanceData())
 			{
-				if (AttachedComponent)
+				delete ComponentInstanceData;
+				ComponentInstanceData = nullptr;
+			}
+
+			USceneComponent* ChildRootComponent = Component->ChildActor->GetRootComponent();
+			if (ChildRootComponent)
+			{
+				for (USceneComponent* AttachedComponent : ChildRootComponent->AttachChildren)
 				{
-					AActor* AttachedActor = AttachedComponent->GetOwner();
-					if (AttachedActor != Component->GetChildActor())
+					if (AttachedComponent)
 					{
-						FAttachedActorInfo Info;
-						Info.Actor = AttachedActor;
-						Info.SocketName = AttachedComponent->GetAttachSocketName();
-						Info.RelativeTransform = AttachedComponent->GetRelativeTransform();
-						AttachedActors.Add(Info);
+						AActor* AttachedActor = AttachedComponent->GetOwner();
+						if (AttachedActor != Component->ChildActor)
+						{
+							FAttachedActorInfo Info;
+							Info.Actor = AttachedActor;
+							Info.SocketName = AttachedComponent->AttachSocketName;
+							Info.RelativeTransform = AttachedComponent->GetRelativeTransform();
+							AttachedActors.Add(Info);
+						}
 					}
 				}
 			}
 		}
 	}
-}
 
-FChildActorComponentInstanceData::~FChildActorComponentInstanceData()
-{
-	delete ComponentInstanceData;
-}
-
-void FChildActorComponentInstanceData::ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase)
-{
-	FSceneComponentInstanceData::ApplyToComponent(Component, CacheApplyPhase);
-	CastChecked<UChildActorComponent>(Component)->ApplyComponentInstanceData(this, CacheApplyPhase);
-}
-
-void FChildActorComponentInstanceData::AddReferencedObjects(FReferenceCollector& Collector)
-{
-	FSceneComponentInstanceData::AddReferencedObjects(Collector);
-
-	if (ComponentInstanceData)
+	virtual ~FChildActorComponentInstanceData()
 	{
-		ComponentInstanceData->AddReferencedObjects(Collector);
-	}
-}
-
-void UChildActorComponent::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
-{
-	UChildActorComponent* This = CastChecked<UChildActorComponent>(InThis);
-
-	if (This->CachedInstanceData)
-	{
-		This->CachedInstanceData->AddReferencedObjects(Collector);
+		delete ComponentInstanceData;
 	}
 
-	Super::AddReferencedObjects(InThis, Collector);
-}
+	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override
+	{
+		FSceneComponentInstanceData::ApplyToComponent(Component, CacheApplyPhase);
+		CastChecked<UChildActorComponent>(Component)->ApplyComponentInstanceData(this, CacheApplyPhase);
+	}
+
+	// The name of the spawned child actor so it (attempts to) remain constant across construction script reruns
+	FName ChildActorName;
+
+	// The component instance data cache for the ChildActor spawned by this component
+	FComponentInstanceDataCache* ComponentInstanceData;
+
+	struct FAttachedActorInfo
+	{
+		TWeakObjectPtr<AActor> Actor;
+		FName SocketName;
+		FTransform RelativeTransform;
+	};
+
+	TArray<FAttachedActorInfo> AttachedActors;
+};
 
 void UChildActorComponent::BeginDestroy()
 {
@@ -265,7 +223,7 @@ void UChildActorComponent::ApplyComponentInstanceData(FChildActorComponentInstan
 					if (AttachedRootComponent)
 					{
 						AttachedActor->DetachRootComponentFromParent();
-						AttachedRootComponent->AttachToComponent(ChildActorRoot, FAttachmentTransformRules::KeepWorldTransform, AttachInfo.SocketName);
+						AttachedRootComponent->AttachTo(ChildActorRoot, AttachInfo.SocketName, EAttachLocation::KeepWorldPosition);
 						AttachedRootComponent->SetRelativeTransform(AttachInfo.RelativeTransform);
 						AttachedRootComponent->UpdateComponentToWorld();
 					}
@@ -311,18 +269,6 @@ void UChildActorComponent::PostLoad()
 
 void UChildActorComponent::CreateChildActor()
 {
-	AActor* MyOwner = GetOwner();
-
-	if (MyOwner && !MyOwner->HasAuthority())
-	{
-		AActor* ChildClassCDO = (ChildActorClass ? ChildActorClass->GetDefaultObject<AActor>() : nullptr);
-		if (ChildClassCDO && ChildClassCDO->GetIsReplicated())
-		{
-			// If we belong to an actor that is not authoritative and the child class is replicated then we expect that Actor will be replicated across so don't spawn one
-			return;
-		}
-	}
-
 	// Kill spawned actor if we have one
 	DestroyChildActor();
 
@@ -334,6 +280,7 @@ void UChildActorComponent::CreateChildActor()
 		{
 			// Before we spawn let's try and prevent cyclic disaster
 			bool bSpawn = true;
+			AActor* MyOwner = GetOwner();
 			AActor* Actor = MyOwner;
 			while (Actor && bSpawn)
 			{
@@ -342,7 +289,14 @@ void UChildActorComponent::CreateChildActor()
 					bSpawn = false;
 					UE_LOG(LogChildActorComponent, Error, TEXT("Found cycle in child actor component '%s'.  Not spawning Actor of class '%s' to break."), *GetPathName(), *ChildActorClass->GetName());
 				}
-				Actor = Actor->GetParentActor();
+				if (UChildActorComponent* ParentComponent = Actor->GetParentComponent())
+				{
+					Actor = ParentComponent->GetOwner();
+				}
+				else
+				{
+					Actor = nullptr;
+				}
 			}
 
 			if (bSpawn)
@@ -359,7 +313,6 @@ void UChildActorComponent::CreateChildActor()
 				}
 
 				// Spawn actor of desired class
-				ConditionalUpdateComponentToWorld();
 				FVector Location = GetComponentLocation();
 				FRotator Rotation = GetComponentRotation();
 				ChildActor = World->SpawnActor(ChildActorClass, &Location, &Rotation, Params);
@@ -376,9 +329,7 @@ void UChildActorComponent::CreateChildActor()
 					const FComponentInstanceDataCache* ComponentInstanceData = (CachedInstanceData ? CachedInstanceData->ComponentInstanceData : nullptr);
 					ChildActor->FinishSpawning(ComponentToWorld, false, ComponentInstanceData);
 
-					ChildActor->AttachToComponent(this, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-
-					SetIsReplicated(ChildActor->GetIsReplicated());
+					ChildActor->AttachRootComponentTo(this, NAME_None, EAttachLocation::SnapToTargetIncludingScale);
 				}
 			}
 		}
@@ -392,74 +343,49 @@ void UChildActorComponent::CreateChildActor()
 	}
 }
 
-void UChildActorComponent::DestroyChildActor()
+void UChildActorComponent::DestroyChildActor(const bool bRequiresRename)
 {
-	// If we own an Actor, kill it now unless we don't have authority on it, for that we rely on the server
-	// If the level that the child actor is being removed then don't destory the child actor so re-adding it doesn't
-	// need to create a new actor
-	if (ChildActor && ChildActor->HasAuthority() && !GetOwner()->GetLevel()->bIsBeingRemoved)
+	// If we own an Actor, kill it now
+	if(ChildActor != nullptr && !GExitPurge)
 	{
-		if (!GExitPurge)
+		// if still alive, destroy, otherwise just clear the pointer
+		if (!ChildActor->IsPendingKillOrUnreachable())
 		{
-			// if still alive, destroy, otherwise just clear the pointer
-			if (!ChildActor->IsPendingKillOrUnreachable())
-			{
 #if WITH_EDITOR
-				if (CachedInstanceData)
-				{
-					delete CachedInstanceData;
-					CachedInstanceData = nullptr;
-				}
+			if (CachedInstanceData)
+			{
+				delete CachedInstanceData;
+				CachedInstanceData = nullptr;
+			}
 #else
-				check(!CachedInstanceData);
+			check(!CachedInstanceData);
 #endif
-				// If we're already tearing down we won't be needing this
-				if (!HasAnyFlags(RF_BeginDestroyed) && !IsUnreachable())
+			// If we're already tearing down we won't be needing this
+			if (!HasAnyFlags(RF_BeginDestroyed))
+			{
+				CachedInstanceData = new FChildActorComponentInstanceData(this);
+			}
+
+			UWorld* World = ChildActor->GetWorld();
+			// World may be nullptr during shutdown
+			if(World != nullptr)
+			{
+				UClass* ChildClass = ChildActor->GetClass();
+
+				// We would like to make certain that our name is not going to accidentally get taken from us while we're destroyed
+				// so we increment ClassUnique beyond our index to be certain of it.  This is ... a bit hacky.
+				ChildClass->ClassUnique = FMath::Max(ChildClass->ClassUnique, ChildActor->GetFName().GetNumber());
+
+				if (bRequiresRename)
 				{
-					CachedInstanceData = new FChildActorComponentInstanceData(this);
+					const FString ObjectBaseName = FString::Printf(TEXT("DESTROYED_%s_CHILDACTOR"), *ChildClass->GetName());
+					const ERenameFlags RenameFlags = ((GetWorld()->IsGameWorld() || IsLoading()) ? REN_DoNotDirty | REN_ForceNoResetLoaders : REN_DoNotDirty);
+					ChildActor->Rename(*MakeUniqueObjectName(ChildActor->GetOuter(), ChildClass, *ObjectBaseName).ToString(), nullptr, RenameFlags);
 				}
-
-				UWorld* World = ChildActor->GetWorld();
-				// World may be nullptr during shutdown
-				if (World != nullptr)
-				{
-					UClass* ChildClass = ChildActor->GetClass();
-
-					// We would like to make certain that our name is not going to accidentally get taken from us while we're destroyed
-					// so we increment ClassUnique beyond our index to be certain of it.  This is ... a bit hacky.
-					int32& ClassUnique = ChildActor->GetOutermost()->ClassUniqueNameIndexMap.FindOrAdd(ChildClass->GetFName());
-					ClassUnique = FMath::Max(ClassUnique, ChildActor->GetFName().GetNumber());
-
-					// If we are getting here due to garbage collection we can't rename, so we'll have to abandon this child actor name and pick up a new one
-					if (!IsGarbageCollecting())
-					{
-						const FString ObjectBaseName = FString::Printf(TEXT("DESTROYED_%s_CHILDACTOR"), *ChildClass->GetName());
-						const ERenameFlags RenameFlags = ((GetWorld()->IsGameWorld() || IsLoading()) ? REN_DoNotDirty | REN_ForceNoResetLoaders : REN_DoNotDirty);
-						ChildActor->Rename(*MakeUniqueObjectName(ChildActor->GetOuter(), ChildClass, *ObjectBaseName).ToString(), nullptr, RenameFlags);
-					}
-					else
-					{
-						ChildActorName = NAME_None;
-						if (CachedInstanceData)
-						{
-							CachedInstanceData->ChildActorName = NAME_None;
-						}
-					}
-					World->DestroyActor(ChildActor);
-				}
+				World->DestroyActor(ChildActor);
 			}
 		}
 
 		ChildActor = nullptr;
-	}
-}
-
-void UChildActorComponent::BeginPlay()
-{
-	Super::BeginPlay();
-
-	if (ChildActor && !ChildActor->HasActorBegunPlay())
-	{
-		ChildActor->BeginPlay();
 	}
 }

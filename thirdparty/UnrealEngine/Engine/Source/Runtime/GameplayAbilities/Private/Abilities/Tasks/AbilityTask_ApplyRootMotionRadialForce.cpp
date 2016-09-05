@@ -15,10 +15,9 @@ UAbilityTask_ApplyRootMotionRadialForce::UAbilityTask_ApplyRootMotionRadialForce
 	MovementComponent = nullptr;
 	StrengthDistanceFalloff = nullptr;
 	StrengthOverTime = nullptr;
-	bUseFixedWorldDirection = false;
 }
 
-UAbilityTask_ApplyRootMotionRadialForce* UAbilityTask_ApplyRootMotionRadialForce::ApplyRootMotionRadialForce(UObject* WorldContextObject, FName TaskInstanceName, FVector Location, AActor* LocationActor, float Strength, float Duration, float Radius, bool bIsPush, bool bIsAdditive, bool bNoZForce, UCurveFloat* StrengthDistanceFalloff, UCurveFloat* StrengthOverTime, bool bUseFixedWorldDirection, FRotator FixedWorldDirection)
+UAbilityTask_ApplyRootMotionRadialForce* UAbilityTask_ApplyRootMotionRadialForce::ApplyRootMotionRadialForce(UObject* WorldContextObject, FName TaskInstanceName, FVector Location, AActor* LocationActor, float Strength, float Duration, float Radius, bool bIsPush, bool bIsAdditive, bool bNoZForce, UCurveFloat* StrengthDistanceFalloff, UCurveFloat* StrengthOverTime)
 {
 	auto MyTask = NewAbilityTask<UAbilityTask_ApplyRootMotionRadialForce>(WorldContextObject, TaskInstanceName);
 
@@ -33,8 +32,6 @@ UAbilityTask_ApplyRootMotionRadialForce* UAbilityTask_ApplyRootMotionRadialForce
 	MyTask->bNoZForce = bNoZForce;
 	MyTask->StrengthDistanceFalloff = StrengthDistanceFalloff;
 	MyTask->StrengthOverTime = StrengthOverTime;
-	MyTask->bUseFixedWorldDirection = bUseFixedWorldDirection;
-	MyTask->FixedWorldDirection = FixedWorldDirection;
 	MyTask->SharedInitAndApply();
 
 	return MyTask;
@@ -75,8 +72,6 @@ void UAbilityTask_ApplyRootMotionRadialForce::SharedInitAndApply()
 			RadialForce->bNoZForce = bNoZForce;
 			RadialForce->StrengthDistanceFalloff = StrengthDistanceFalloff;
 			RadialForce->StrengthOverTime = StrengthOverTime;
-			RadialForce->bUseFixedWorldDirection = bUseFixedWorldDirection;
-			RadialForce->FixedWorldDirection = FixedWorldDirection;
 			RootMotionSourceID = MovementComponent->ApplyRootMotionSource(RadialForce);
 
 			if (Ability)
@@ -139,8 +134,6 @@ void UAbilityTask_ApplyRootMotionRadialForce::GetLifetimeReplicatedProps(TArray<
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionRadialForce, bNoZForce);
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionRadialForce, StrengthDistanceFalloff);
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionRadialForce, StrengthOverTime);
-	DOREPLIFETIME(UAbilityTask_ApplyRootMotionRadialForce, bUseFixedWorldDirection);
-	DOREPLIFETIME(UAbilityTask_ApplyRootMotionRadialForce, FixedWorldDirection);
 }
 
 void UAbilityTask_ApplyRootMotionRadialForce::PreDestroyFromReplication()

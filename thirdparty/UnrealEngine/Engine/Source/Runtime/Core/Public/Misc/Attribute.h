@@ -265,11 +265,6 @@ public:
 		return Attrib;
 	}
 
-	static TAttribute< ObjectType > Create(TFunction<ObjectType(void)>&& InLambda)
-	{
-		return Create(TAttribute< ObjectType >::FGetter::CreateLambda(MoveTemp(InLambda)));
-	}
-
 	/**
 	 * Checks to see if this attribute has a 'getter' function bound
 	 *

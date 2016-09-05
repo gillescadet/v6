@@ -58,16 +58,12 @@ class SANDBOXFILE_API FSandboxPlatformFile : public IPlatformFile
 	IPlatformFile*		LowerLevel;
 	/** Absolute path to the sandbox directory */
 	FString			SandboxDirectory;
-	/** Name of the game's sandbox directory */
-	FString			GameSandboxDirectoryName;
 	/** Relative path to root directory. Cached for faster access */
 	FString			RelativeRootDirectory;
 	/** Absolute path to root directory. Cached for faster access */
 	FString			AbsoluteRootDirectory;
-	/** Absolute game directory. Cached for faster access */
-	FString			AbsoluteGameDirectory;
 	/** Absolute path to game directory. Cached for faster access */
-	FString			AbsolutePathToGameDirectory;
+	FString			AbsoluteGameDirectory;
 	/** Access to any file (in unreal standard form) matching this is not allowed */
 	TArray<FString>		FileExclusionWildcards;
 	/** Access to any directory (in unreal standard form) matching this is not allowed */
@@ -220,17 +216,11 @@ public:
 		return SandboxDirectory;
 	}
 
-	/** Returns the name of the sandbox directory for the game's content */
-	const FString& GetGameSandboxDirectoryName();
-
 	/** Returns absolute root directory */
 	const FString& GetAbsoluteRootDirectory() const
 	{
 		return AbsoluteRootDirectory;
 	}
-
-	/** Returns absolute game directory */
-	const FString& GetAbsoluteGameDirectory();
 
 	/** Returns absolute path to game directory (without the game directory itself) */
 	const FString& GetAbsolutePathToGameDirectory();
@@ -469,8 +459,7 @@ public:
 				}
 				else
 				{
-					LocalFilename = LocalFilename.Mid(SandboxFile.GetGameSandboxDirectoryName().Len());
-					LocalFilename = SandboxFile.GetAbsoluteGameDirectory() / LocalFilename;
+					LocalFilename = SandboxFile.GetAbsolutePathToGameDirectory() / LocalFilename;
 				}
 			}
 			else
@@ -610,12 +599,6 @@ public:
 
 	virtual FString ConvertToAbsolutePathForExternalAppForRead( const TCHAR* Filename ) override;
 	virtual FString ConvertToAbsolutePathForExternalAppForWrite( const TCHAR* Filename ) override;
-#if USE_NEW_ASYNC_IO
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override
-	{
-		return LowerLevel->OpenAsyncRead(*ConvertToSandboxPath(Filename));
-	}
-#endif // USE_NEW_ASYNC_IO
 };
 
 

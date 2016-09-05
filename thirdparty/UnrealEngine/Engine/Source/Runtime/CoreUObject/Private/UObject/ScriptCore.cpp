@@ -16,14 +16,6 @@ DECLARE_CYCLE_STAT(TEXT("Blueprint Time"),STAT_BlueprintTime,STATGROUP_Game);
 
 #define LOCTEXT_NAMESPACE "ScriptCore"
 
-#if TOTAL_OVERHEAD_SCRIPT_STATS
-COREUOBJECT_API FBlueprintEventTimer::FScopedVMTimer* FBlueprintEventTimer::ActiveVMTimer = nullptr;
-COREUOBJECT_API FBlueprintEventTimer::FPausableScopeTimer* FBlueprintEventTimer::ActiveTimer = nullptr;
-
-DEFINE_STAT(STAT_ScriptVmTime_Total);
-DEFINE_STAT(STAT_ScriptNativeTime_Total);
-#endif //TOTAL_OVERHEAD_SCRIPT_STATS
-
 /*-----------------------------------------------------------------------------
 	Globals.
 -----------------------------------------------------------------------------*/
@@ -71,26 +63,20 @@ COREUOBJECT_API void GInitRunaway() {}
 // FBlueprintCoreDelegates
 
 FBlueprintCoreDelegates::FOnScriptDebuggingEvent FBlueprintCoreDelegates::OnScriptException;
-FBlueprintCoreDelegates::FOnScriptExecutionEnd FBlueprintCoreDelegates::OnScriptExecutionEnd;
 FBlueprintCoreDelegates::FOnScriptInstrumentEvent FBlueprintCoreDelegates::OnScriptProfilingEvent;
 FBlueprintCoreDelegates::FOnToggleScriptProfiler FBlueprintCoreDelegates::OnToggleScriptProfiler;
 
 void FBlueprintCoreDelegates::ThrowScriptException(const UObject* ActiveObject, const FFrame& StackFrame, const FBlueprintExceptionInfo& Info)
 {
-	bool bShouldLogWarning = true;
-
 	switch (Info.GetType())
 	{
 	case EBlueprintExceptionType::Breakpoint:
 	case EBlueprintExceptionType::Tracepoint:
 	case EBlueprintExceptionType::WireTracepoint:
-		// These shouldn't warn (they're just to pass the exception into the editor via the delegate below)
-		bShouldLogWarning = false;
 		break;
 #if WITH_EDITOR && DO_BLUEPRINT_GUARD
 	case EBlueprintExceptionType::AccessViolation:
 		{
-			// Determine if the access none should warn or not (we suppress warnings beyond a certain count for each object to avoid per-frame spaminess)
 			struct FIntConfigValueHelper
 			{
 				int32 Value;
@@ -108,33 +94,20 @@ void FBlueprintCoreDelegates::ThrowScriptException(const UObject* ActiveObject, 
 				int32& Num = FBlueprintExceptionTracker::Get().DisplayedWarningsMap.FindOrAdd(ActiveObjectName);
 				if (Num > MaxNumOfAccessViolation.Value)
 				{
-					// Skip the generic warning, we've hit this one too many times
-					bShouldLogWarning = false;
+					break;
 				}
 				Num++;
 			}
 		}
-		break;
-#endif // WITH_EDITOR && DO_BLUEPRINT_GUARD
+#endif // WITH_EDITOR
 	default:
-		// Other unhandled cases should always emit a warning
+		UE_SUPPRESS(LogScript, Warning, const_cast<FFrame*>(&StackFrame)->Logf(TEXT("%s"), *(Info.GetDescription().ToString())));
 		break;
 	}
 
-	if (bShouldLogWarning)
+	// cant fire arbitrary delegates here off the game thead
+	if(IsInGameThread())
 	{
-		UE_SUPPRESS(LogScript, Warning, const_cast<FFrame*>(&StackFrame)->Logf(TEXT("%s"), *(Info.GetDescription().ToString())));
-	}
-
-	// cant fire arbitrary delegates here off the game thread
-	if (IsInGameThread())
-	{
-		// If nothing is bound, show warnings so something is left in the log.
-		if (bShouldLogWarning && (OnScriptException.IsBound() == false))
-		{
-			UE_LOG(LogScript, Warning, TEXT("%s"), *StackFrame.GetStackTrace());
-		}
-
 		OnScriptException.Broadcast(ActiveObject, StackFrame, Info);
 	}
 
@@ -144,7 +117,7 @@ void FBlueprintCoreDelegates::ThrowScriptException(const UObject* ActiveObject, 
 	}
 }
 
-void FBlueprintCoreDelegates::InstrumentScriptEvent(const FScriptInstrumentationSignal& Info)
+void FBlueprintCoreDelegates::InstrumentScriptEvent(const EScriptInstrumentationEvent& Info)
 {
 	OnScriptProfilingEvent.Broadcast(Info);
 }
@@ -241,20 +214,7 @@ FString UnicodeToCPPIdentifier(const FString& InName, bool bDeprecated, const TC
 		}
 	}
 
-	FString PrefixStr(Prefix);
-	//fix for error C2059: syntax error : 'bad suffix on number'
-	if (!PrefixStr.Len() && Ret.Len() && FChar::IsDigit(Ret[0]))
-	{
-		Ret.InsertAt(0, TCHAR('_'));
-	}
-	Ret = PrefixStr + Ret + Postfix;
-
-	// Workaround for a strange compiler error
-	if (InName == TEXT("Replicate to server"))
-	{
-		Ret = TEXT("MagicNameWorkaround");
-	}
-
+	Ret = FString(Prefix) + Ret + Postfix;
 	return bDeprecated ? Ret + TEXT("_DEPRECATED") : Ret;
 }
 
@@ -293,98 +253,53 @@ void FFrame::StepExplicitProperty(void*const Result, UProperty* Property)
 }
 
 //
-// Helper function that checks commandline and Engine ini to see whether
-// script stack should be shown on warnings
-static bool ShowKismetScriptStackOnWarnings()
-{
-	static bool ShowScriptStackForScriptWarning = false;
-	static bool CheckScriptWarningOptions = false;
-
-	if (!CheckScriptWarningOptions)
-	{
-		GConfig->GetBool(TEXT("Kismet"), TEXT("ScriptStackOnWarnings"), ShowScriptStackForScriptWarning, GEngineIni);
-
-		if (FParse::Param(FCommandLine::Get(), TEXT("SCRIPTSTACKONWARNINGS")))
-		{
-			ShowScriptStackForScriptWarning = true;
-		}
-
-		CheckScriptWarningOptions = true;
-	}
-
-	return ShowScriptStackForScriptWarning;
-}
-
-FString FFrame::GetScriptCallstack()
-{
-	FString ScriptStack;
-
-#if DO_BLUEPRINT_GUARD
-	FBlueprintExceptionTracker& BlueprintExceptionTracker = FBlueprintExceptionTracker::Get();
-	if (BlueprintExceptionTracker.ScriptStack.Num() > 0)
-	{
-		for (int32 i = BlueprintExceptionTracker.ScriptStack.Num() - 1; i >= 0; --i)
-		{
-			ScriptStack += TEXT("\t") + BlueprintExceptionTracker.ScriptStack[i].GetStackDescription() + TEXT("\n");
-		}
-	}
-#else
-	ScriptStack = TEXT("Unable to display Script Callstack. Compile with DO_BLUEPRINT_GUARD=1");
-#endif
-
-	return ScriptStack;
-}
-
-//
 // Error or warning handler.
 //
 //@TODO: This function should take more information in, or be able to gather it from the callstack!
-void FFrame::KismetExecutionMessage(const TCHAR* Message, ELogVerbosity::Type Verbosity, FName WarningId)
+void FFrame::KismetExecutionMessage(const TCHAR* Message, ELogVerbosity::Type Verbosity)
 {
-#if !UE_BUILD_SHIPPING
-	// Optionally always treat errors/warnings as bad
-	if (Verbosity <= ELogVerbosity::Warning && FParse::Param(FCommandLine::Get(), TEXT("FATALSCRIPTWARNINGS")))
+	// Treat errors/warnings as bad
+	if (Verbosity == ELogVerbosity::Warning)
 	{
-		Verbosity = ELogVerbosity::Fatal;
-	}
-	else if(Verbosity == ELogVerbosity::Warning && WarningId != FName())
-	{
-		// check to see if this specific warning has been elevated to an error:
-		if( FBlueprintSupport::ShouldTreatWarningAsError(WarningId) )
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		static bool GTreatScriptWarningsFatal = FParse::Param(FCommandLine::Get(),TEXT("FATALSCRIPTWARNINGS"));
+		if (GTreatScriptWarningsFatal)
 		{
 			Verbosity = ELogVerbosity::Error;
 		}
-		else if(FBlueprintSupport::ShouldSuppressWarning(WarningId))
+#endif
+	}
+
+#if DO_BLUEPRINT_GUARD
+	// Walk the script stack, if any
+	FString ScriptStack;
+
+	FBlueprintExceptionTracker& BlueprintExceptionTracker = FBlueprintExceptionTracker::Get();
+	if( BlueprintExceptionTracker.ScriptStack.Num() > 0 )
+	{
+		ScriptStack = TEXT( "Script call stack:\n" );
+		for( int32 i = BlueprintExceptionTracker.ScriptStack.Num() - 1; i >= 0; --i )
 		{
-			return;
+			ScriptStack += TEXT( "\t" ) + BlueprintExceptionTracker.ScriptStack[i].GetStackDescription() + TEXT( "\n" );
 		}
 	}
 #endif
 
-	FString ScriptStack;
-
-	// Tracking down some places that display warnings but no message..
-	ensure(Verbosity > ELogVerbosity::Warning || FCString::Strlen(Message) > 0);
-
-	// Show the stackfor fatal/error, and on warning if that option is enabled
-	if (Verbosity <= ELogVerbosity::Error || (ShowKismetScriptStackOnWarnings() && Verbosity == ELogVerbosity::Warning))
+	if (Verbosity == ELogVerbosity::Error)
 	{
-		ScriptStack = TEXT("Script call stack:\n");
-		ScriptStack += GetScriptCallstack();
-	}
-
-	if (Verbosity == ELogVerbosity::Fatal)
-	{
-		UE_LOG(LogScriptCore, Fatal, TEXT("Script Msg: %s\n%s"), Message, *ScriptStack);
-	}
-#if !NO_LOGGING
-	else if (!LogScriptCore.IsSuppressed(Verbosity))
-	{
-		// Call directly so we can pass verbosity through
-		FMsg::Logf_Internal(__FILE__, __LINE__, LogScriptCore.GetCategoryName(), Verbosity, TEXT("Script Msg: %s"), Message);
-		FMsg::Logf_Internal(__FILE__, __LINE__, LogScriptCore.GetCategoryName(), Verbosity, TEXT("%s"), *ScriptStack);
-	}	
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		UE_LOG(LogScriptCore, Fatal,TEXT("%s\n%s"), Message, *ScriptStack);
+#else
+		UE_LOG(LogScriptCore, Fatal,TEXT("%s"), Message);
 #endif
+	}
+	else
+	{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		static bool GScriptStackForScriptWarning = FParse::Param(FCommandLine::Get(),TEXT("SCRIPTSTACKONWARNINGS"));
+		UE_LOG(LogScript, Warning, TEXT("%s%s"), Message, GScriptStackForScriptWarning ? *FString::Printf(TEXT("\n%s"), *ScriptStack) : TEXT(""));
+#endif
+	}
 }
 
 void FFrame::Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const class FName& Category )
@@ -392,7 +307,7 @@ void FFrame::Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const cla
 	// Treat errors/warnings as bad
 	if (Verbosity == ELogVerbosity::Warning)
 	{
-#if !UE_BUILD_SHIPPING
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 		static bool GTreatScriptWarningsFatal = FParse::Param(FCommandLine::Get(),TEXT("FATALSCRIPTWARNINGS"));
 		if (GTreatScriptWarningsFatal)
 		{
@@ -413,14 +328,15 @@ void FFrame::Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const cla
 	}
 	else
 	{
-#if DO_BLUEPRINT_GUARD
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		static bool GScriptStackForScriptWarning = FParse::Param(FCommandLine::Get(),TEXT("SCRIPTSTACKONWARNINGS"));
 		UE_LOG(LogScript, Warning,
 			TEXT("%s\r\n\t%s\r\n\t%s:%04X%s"),
 			V,
 			*Object->GetFullName(),
 			*Node->GetFullName(),
 			Code - Node->Script.GetData(),
-			ShowKismetScriptStackOnWarnings() ? *(FString(TEXT("\r\n")) + GetStackTrace()) : TEXT("")
+			GScriptStackForScriptWarning ? *(FString(TEXT("\r\n")) + GetStackTrace()) : TEXT("")
 		);
 #endif
 	}
@@ -449,47 +365,6 @@ FString FFrame::GetStackTrace() const
 	return Result;
 }
 
-//////////////////////////////////////////////////////////////////////////
-// FScriptInstrumentationSignal
-
-FScriptInstrumentationSignal::FScriptInstrumentationSignal(EScriptInstrumentation::Type InEventType, const UObject* InContextObject, const struct FFrame& InStackFrame)
-	: EventType(InEventType)
-	, ContextObject(InContextObject)
-	, Function(InStackFrame.Node)
-	, StackFramePtr(&InStackFrame)
-	, LatentLinkId(INDEX_NONE)
-{
-}
-
-const UClass* FScriptInstrumentationSignal::GetClass() const
-{
-	return ContextObject ? ContextObject->GetClass() : nullptr;
-}
-
-const UClass* FScriptInstrumentationSignal::GetFunctionClassScope() const
-{
-	return Function->GetOuterUClass();
-}
-
-FName FScriptInstrumentationSignal::GetFunctionName() const
-{
-	return Function->GetFName();
-}
-
-int32 FScriptInstrumentationSignal::GetScriptCodeOffset() const
-{
-	int32 CodeOffset = INDEX_NONE;
-	if (EventType == EScriptInstrumentation::ResumeEvent)
-	{
-		// Resume events require the link id rather than script code offset
-		CodeOffset = LatentLinkId;
-	}
-	else if (StackFramePtr != nullptr)
-	{
-		CodeOffset = StackFramePtr->Code - StackFramePtr->Node->Script.GetData() - 1;
-	}
-	return CodeOffset;
-}
 
 /*-----------------------------------------------------------------------------
 	Global script execution functions.
@@ -634,16 +509,6 @@ IMPLEMENT_VM_FUNCTION(EX_CallMath, execCallMathFunction);
 
 void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 {
-#if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
-#endif // PER_FUNCTION_SCRIPT_STATS
-
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? this : nullptr);
-#endif
-
 	checkSlow(Function);
 
 	if (Function->FunctionFlags & FUNC_Native)
@@ -691,8 +556,8 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 			}
 
 			// Call regular native function.
-			FScopeCycleCounterUObject NativeContextScope(Stack.Object);
-			FScopeCycleCounterUObject NativeFunctionScope(Function);
+			FScopeCycleCounterUObject ContextScope(Stack.Object);
+			FScopeCycleCounterUObject FunctionScope(Function);
 
 			Function->Invoke(this, Stack, RESULT_PARAM);
 		}
@@ -864,22 +729,10 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 		return;
 	}
 
-	UFunction* Function = (UFunction*)Stack.Node;
-
-#if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
-#endif // PER_FUNCTION_SCRIPT_STATS
-
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? this : nullptr);
-#endif
-
-	int32 FunctionCallspace = GetFunctionCallspace(Function, Stack.Locals, NULL);
+	int32 FunctionCallspace = GetFunctionCallspace( (UFunction*)Stack.Node, Stack.Locals, NULL );
 	if (FunctionCallspace & FunctionCallspace::Remote)
 	{
-		CallRemoteFunction(Function, Stack.Locals, Stack.OutParms, NULL);
+		CallRemoteFunction((UFunction*)Stack.Node, Stack.Locals, Stack.OutParms, NULL);
 	}
 
 	if (FunctionCallspace & FunctionCallspace::Local)
@@ -891,14 +744,17 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 		if(FBlueprintExceptionTracker::Get().bRanaway)
 		{
 			// If we have a return property, return a zeroed value in it, to try and save execution as much as possible
-			UProperty* ReturnProp = (Function)->GetReturnProperty();
+			UProperty* ReturnProp = ((UFunction*)Stack.Node)->GetReturnProperty();
 			ClearReturnValue(ReturnProp, RESULT_PARAM);
 			return;
 		}
 		else if (++FBlueprintExceptionTracker::Get().Recurse == RECURSE_LIMIT)
 		{
+			// We've hit the recursion limit, so print out the stack, warn, and then continue with a zeroed return value.
+			UE_LOG(LogScriptCore, Log, TEXT("%s"), *Stack.GetStackTrace());
+
 			// If we have a return property, return a zeroed value in it, to try and save execution as much as possible
-			UProperty* ReturnProp = (Function)->GetReturnProperty();
+			UProperty* ReturnProp = ((UFunction*)Stack.Node)->GetReturnProperty();
 			ClearReturnValue(ReturnProp, RESULT_PARAM);
 
 			// Notify anyone who cares that we've had a fatal error, so we can shut down PIE, etc
@@ -918,14 +774,20 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 			return;
 		}
 #endif
+		FScopeCycleCounterUObject ContextScope(Stack.Object);
+		FScopeCycleCounterUObject FunctionScope((UFunction*)Stack.Node);
+
 		// Execute the bytecode
 		while (*Stack.Code != EX_Return)
 		{
 #if DO_BLUEPRINT_GUARD
 			if( FBlueprintExceptionTracker::Get().Runaway > GMaximumScriptLoopIterations )
 			{
+				// We've hit the recursion limit, so print out the stack, warn, and then continue with a zeroed return value.
+				UE_LOG(LogScriptCore, Log, TEXT("%s"), *Stack.GetStackTrace());
+
 				// If we have a return property, return a zeroed value in it, to try and save execution as much as possible
-				UProperty* ReturnProp = (Function)->GetReturnProperty();
+				UProperty* ReturnProp = ((UFunction*)Stack.Node)->GetReturnProperty();
 				ClearReturnValue(ReturnProp, RESULT_PARAM);
 
 				// Notify anyone who cares that we've had a fatal error, so we can shut down PIE, etc
@@ -967,7 +829,7 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 	}
 	else
 	{
-		UProperty* ReturnProp = (Function)->GetReturnProperty();
+		UProperty* ReturnProp = ((UFunction*)Stack.Node)->GetReturnProperty();
 		if (ReturnProp != NULL)
 		{
 			// destroy old value if necessary
@@ -994,7 +856,7 @@ bool UObject::CallFunctionByNameWithArguments(const TCHAR* Str, FOutputDevice& A
 		return false;
 	}
 	UFunction* Function = FindFunction(Message);
-	if(nullptr == Function)
+	if(NULL == Function)
 	{
 		UE_LOG(LogScriptCore, Verbose, TEXT("CallFunctionByNameWithArguments: Function not found '%s'"), Str);
 		return false;
@@ -1005,7 +867,7 @@ bool UObject::CallFunctionByNameWithArguments(const TCHAR* Str, FOutputDevice& A
 		return false;
 	}
 
-	UProperty* LastParameter = nullptr;
+	UProperty* LastParameter=NULL;
 
 	// find the last parameter
 	for ( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags&(CPF_Parm|CPF_ReturnParm)) == CPF_Parm; ++It )
@@ -1013,17 +875,18 @@ bool UObject::CallFunctionByNameWithArguments(const TCHAR* Str, FOutputDevice& A
 		LastParameter = *It;
 	}
 
+	UStrProperty* LastStringParameter = dynamic_cast<UStrProperty*>(LastParameter);
+
+
 	// Parse all function parameters.
 	uint8* Parms = (uint8*)FMemory_Alloca(Function->ParmsSize);
 	FMemory::Memzero( Parms, Function->ParmsSize );
 
-	const uint32 ExportFlags = PPF_Localized;
 	bool Failed = 0;
 	int32 NumParamsEvaluated = 0;
 	for( TFieldIterator<UProperty> It(Function); It && (It->PropertyFlags & (CPF_Parm|CPF_ReturnParm))==CPF_Parm; ++It, NumParamsEvaluated++ )
 	{
-		UProperty* PropertyParam = *It;
-		checkSlow(PropertyParam); // Fix static analysis warning
+		UProperty* propertyParam = *It;
 		if (NumParamsEvaluated == 0 && Executor)
 		{
 			UObjectPropertyBase* Op = dynamic_cast<UObjectPropertyBase*>(*It);
@@ -1035,19 +898,14 @@ bool UObject::CallFunctionByNameWithArguments(const TCHAR* Str, FOutputDevice& A
 			}
 		}
 
-		// Keep old string around in case we need to pass the whole remaining string
-		const TCHAR* RemainingStr = Str;
+		FParse::Next( &Str );
 
-		// Parse a new argument out of Str
-		FString ArgStr;
-		FParse::Token(Str, ArgStr, true);
-
-		// if ArgStr is empty but we have more params to read parse the function to see if these have defaults, if so set them
+		// if Str is empty but we have more params to read parse the function to see if these have defaults, if so set them
 		bool bFoundDefault = false;
 		bool bFailedImport = true;
-		if (!FCString::Strcmp(*ArgStr, TEXT("")))
+		if (!FCString::Strcmp(Str, TEXT("")))
 		{
-			const FName DefaultPropertyKey(*(FString(TEXT("CPP_Default_")) + PropertyParam->GetName()));
+			const FName DefaultPropertyKey(*(FString(TEXT("CPP_Default_")) + propertyParam->GetName()));
 #if WITH_EDITOR
 			const FString PropertyDefaultValue = Function->GetMetaData(DefaultPropertyKey);
 #else
@@ -1056,24 +914,33 @@ bool UObject::CallFunctionByNameWithArguments(const TCHAR* Str, FOutputDevice& A
 			if (!PropertyDefaultValue.IsEmpty()) 
 			{
 				bFoundDefault = true;
+				uint32 ExportFlags = PPF_Localized;
 
+				// if this is the last parameter of the exec function and it's a string, make sure that it accepts the remainder of the passed in value
+				if ( LastStringParameter != *It )
+				{
+					ExportFlags |= PPF_Delimited;
+				}
 				const TCHAR* Result = It->ImportText( *PropertyDefaultValue, It->ContainerPtrToValuePtr<uint8>(Parms), ExportFlags, NULL );
-				bFailedImport = (Result == nullptr);
+				bFailedImport = Result == NULL;
 			}
 		}
 
 		if (!bFoundDefault)
 		{
-			// if this is the last string property and we have remaining arguments to process, we have to assume that this
-			// is a sub-command that will be passed to another exec (like "cheat giveall weapons", for example). Therefore
-			// we need to use the whole remaining string as an argument, regardless of quotes, spaces etc.
-			if (PropertyParam == LastParameter && PropertyParam->IsA<UStrProperty>() && FCString::Strcmp(Str, TEXT("")) != 0)
-			{
-				ArgStr = RemainingStr;
-			}
+			uint32 ExportFlags = PPF_Localized;
 
-			const TCHAR* Result = It->ImportText(*ArgStr, It->ContainerPtrToValuePtr<uint8>(Parms), ExportFlags, NULL );
-			bFailedImport = (Result == nullptr);
+			// if this is the last parameter of the exec function and it's a string, make sure that it accepts the remainder of the passed in value
+			if ( LastStringParameter != *It )
+			{
+				ExportFlags |= PPF_Delimited;
+			}
+			const TCHAR* PreviousStr = Str;
+			const TCHAR* Result = It->ImportText( Str, It->ContainerPtrToValuePtr<uint8>(Parms), ExportFlags, NULL );
+			bFailedImport = (Result == NULL || Result == PreviousStr);
+			
+			// move to the next parameter
+			Str = Result;
 		}
 		
 		if( bFailedImport )
@@ -1162,35 +1029,11 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms )
 	}
 	checkSlow((Function->ParmsSize == 0) || (Parms != NULL));
 
-#if TOTAL_OVERHEAD_SCRIPT_STATS
-	FBlueprintEventTimer::FScopedVMTimer VMTime;
-#endif // TOTAL_OVERHEAD_SCRIPT_STATS
-
-#if PER_FUNCTION_SCRIPT_STATS
-	const bool bShouldTrackFunction = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject FunctionScope(bShouldTrackFunction ? Function : nullptr);
-#endif // PER_FUNCTION_SCRIPT_STATS
-
-#if STATS
-	const bool bShouldTrackObject = FThreadStats::IsCollectingData();
-	FScopeCycleCounterUObject ContextScope(bShouldTrackObject ? this : nullptr);
-#endif
-
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	bool bInstrumentScriptEvent = false;
 	if (GetClass()->HasInstrumentation())
 	{
-		// Don't instrument native events that have not been implemented/overridden in script (BP). These events will not have had any profiler data generated for them at compile time.
-		if (!Function->HasAnyFunctionFlags(FUNC_Native) || Function->GetOuter()->GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
-		{
-			if (Function->HasAnyFunctionFlags(FUNC_Event|FUNC_BlueprintEvent))
-			{
-				// Don't handle latent actions here, let the latent action manager handle them.
-				FScriptInstrumentationSignal EventInstrumentationInfo(EScriptInstrumentation::Event, this, Function);
-				FBlueprintCoreDelegates::InstrumentScriptEvent(EventInstrumentationInfo);
-				bInstrumentScriptEvent = true;
-			}
-		}
+		EScriptInstrumentationEvent EventInstrumentationInfo(EScriptInstrumentation::Event, this);
+		FBlueprintCoreDelegates::InstrumentScriptEvent(EventInstrumentationInfo);
 	}
 #endif
 
@@ -1295,6 +1138,8 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms )
 		uint8* ReturnValueAdress = bHasReturnParam ? ((uint8*)Parms + Function->ReturnValueOffset) : nullptr;
 		if (Function->FunctionFlags & FUNC_Native)
 		{
+			FScopeCycleCounterUObject ContextScope(this);
+			FScopeCycleCounterUObject FunctionScope(Function);
 			Function->Invoke(this, NewStack, ReturnValueAdress);
 		}
 		else
@@ -1321,14 +1166,11 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms )
 	}
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	if (bInstrumentScriptEvent)
+	if (GetClass()->HasInstrumentation())
 	{
-		FScriptInstrumentationSignal EventInstrumentationInfo(EScriptInstrumentation::Stop, this, Function);
+		EScriptInstrumentationEvent EventInstrumentationInfo(EScriptInstrumentation::Stop, this);
 		FBlueprintCoreDelegates::InstrumentScriptEvent(EventInstrumentationInfo);
 	}
-#if WITH_EDITORONLY_DATA
-	FBlueprintCoreDelegates::OnScriptExecutionEnd.Broadcast();
-#endif
 #endif
 
 #if DO_BLUEPRINT_GUARD
@@ -1594,7 +1436,7 @@ IMPLEMENT_VM_FUNCTION( EX_WireTracepoint, execWireTracepoint );
 void UObject::execInstrumentation( FFrame& Stack, RESULT_DECL )
 {
 #if !UE_BUILD_SHIPPING
-	const EScriptInstrumentation::Type EventType = static_cast<EScriptInstrumentation::Type>(Stack.PeekCode());
+	const EScriptInstrumentation::Type EventType = static_cast<EScriptInstrumentation::Type>(Stack.ReadInt());
 #if WITH_EDITORONLY_DATA
 	if (GIsEditor)
 	{
@@ -1608,16 +1450,10 @@ void UObject::execInstrumentation( FFrame& Stack, RESULT_DECL )
 			FBlueprintExceptionInfo WiretraceExceptionInfo(EBlueprintExceptionType::WireTracepoint);
 			FBlueprintCoreDelegates::ThrowScriptException(this, Stack, WiretraceExceptionInfo);
 		}
-		else if (EventType == EScriptInstrumentation::NodeDebugSite)
-		{
-			FBlueprintExceptionInfo TracepointExceptionInfo(EBlueprintExceptionType::Breakpoint);
-			FBlueprintCoreDelegates::ThrowScriptException(this, Stack, TracepointExceptionInfo);
-		}
 	}
 #endif
-	FScriptInstrumentationSignal InstrumentationEventInfo(EventType, this, Stack);
+	EScriptInstrumentationEvent InstrumentationEventInfo(EventType, this, Stack);
 	FBlueprintCoreDelegates::InstrumentScriptEvent(InstrumentationEventInfo);
-	Stack.SkipCode(1);
 #endif
 }
 IMPLEMENT_VM_FUNCTION( EX_InstrumentationEvent, execInstrumentation );
@@ -1841,52 +1677,6 @@ void UObject::execSwitchValue(FFrame& Stack, RESULT_DECL)
 	}
 }
 IMPLEMENT_VM_FUNCTION(EX_SwitchValue, execSwitchValue);
-
-void UObject::execArrayGetByRef(FFrame& Stack, RESULT_DECL)
-{
-	// Get variable address.
-	Stack.MostRecentPropertyAddress = NULL;
-	Stack.Step( Stack.Object, NULL ); // Evaluate variable.
-
-	if (Stack.MostRecentPropertyAddress == NULL)
-	{
-		static FBlueprintExceptionInfo ExceptionInfo(EBlueprintExceptionType::AccessViolation, LOCTEXT("ArrayGetRefException", "Attempt to assign variable through None"));
-		FBlueprintCoreDelegates::ThrowScriptException(this, Stack, ExceptionInfo);
-	}
-
-	void* ArrayAddr = Stack.MostRecentPropertyAddress;
-	UArrayProperty* ArrayProperty = ExactCast<UArrayProperty>(Stack.MostRecentProperty);
-
- 	int32 ArrayIndex;
- 	Stack.Step( Stack.Object, &ArrayIndex);
-
-	FScriptArrayHelper ArrayHelper(ArrayProperty, ArrayAddr);
-	Stack.MostRecentProperty = ArrayProperty->Inner;
-	// Add a little safety for Blueprints to not hard crash
-	if (ArrayHelper.IsValidIndex(ArrayIndex))
-	{
-		Stack.MostRecentPropertyAddress = ArrayHelper.GetRawPtr(ArrayIndex);
-
-		if (RESULT_PARAM)
-		{
-			ArrayProperty->Inner->CopyCompleteValueToScriptVM(RESULT_PARAM, ArrayHelper.GetRawPtr(ArrayIndex));
-		}
-	}
-	else
-	{
-		FBlueprintExceptionInfo ExceptionInfo(
-			EBlueprintExceptionType::AccessViolation,
-			FText::Format(
-			LOCTEXT("ArrayGetOutofBounds", "Attempted to access index {0} from array {1} of length {2}!"),
-			FText::AsNumber(ArrayIndex),
-			FText::FromString(*ArrayProperty->GetName()),
-			FText::AsNumber(ArrayHelper.Num())
-			)
-		);
-		FBlueprintCoreDelegates::ThrowScriptException(this, Stack, ExceptionInfo);
-	}
-}
-IMPLEMENT_VM_FUNCTION(EX_ArrayGetByRef, execArrayGetByRef);
 
 void UObject::execLet(FFrame& Stack, RESULT_DECL)
 {
@@ -2350,21 +2140,9 @@ IMPLEMENT_VM_FUNCTION( EX_ClearMulticastDelegate, execClearMulticastDelegate );
 
 void UObject::execIntConst( FFrame& Stack, RESULT_DECL )
 {
-	*(int32*)RESULT_PARAM = Stack.ReadInt<int32>();
+	*(int32*)RESULT_PARAM = Stack.ReadInt();
 }
 IMPLEMENT_VM_FUNCTION( EX_IntConst, execIntConst );
-
-void UObject::execInt64Const(FFrame& Stack, RESULT_DECL)
-{
-	*(int64*)RESULT_PARAM = Stack.ReadInt<int64>();
-}
-IMPLEMENT_VM_FUNCTION(EX_Int64Const, execInt64Const);
-
-void UObject::execUInt64Const(FFrame& Stack, RESULT_DECL)
-{
-	*(uint64*)RESULT_PARAM = Stack.ReadInt<uint64>();
-}
-IMPLEMENT_VM_FUNCTION(EX_UInt64Const, execUInt64Const);
 
 void UObject::execSkipOffsetConst( FFrame& Stack, RESULT_DECL )
 {
@@ -2402,54 +2180,13 @@ IMPLEMENT_VM_FUNCTION( EX_UnicodeStringConst, execUnicodeStringConst );
 
 void UObject::execTextConst( FFrame& Stack, RESULT_DECL )
 {
-	// What kind of text are we dealing with?
-	const EBlueprintTextLiteralType TextLiteralType = (EBlueprintTextLiteralType)*Stack.Code++;
-
-	switch (TextLiteralType)
-	{
-	case EBlueprintTextLiteralType::Empty:
-		{
-			*(FText*)RESULT_PARAM = FText::GetEmpty();
-		}
-		break;
-
-	case EBlueprintTextLiteralType::LocalizedText:
-		{
-			FString SourceString;
-			Stack.Step(Stack.Object, &SourceString);
-
-			FString KeyString;
-			Stack.Step(Stack.Object, &KeyString);
-			
-			FString Namespace;
-			Stack.Step(Stack.Object, &Namespace);
-
-			*(FText*)RESULT_PARAM = FInternationalization::ForUseOnlyByLocMacroAndGraphNodeTextLiterals_CreateText(*SourceString, *Namespace, *KeyString);
-		}
-		break;
-
-	case EBlueprintTextLiteralType::InvariantText:
-		{
-			FString SourceString;
-			Stack.Step(Stack.Object, &SourceString);
-
-			*(FText*)RESULT_PARAM = FText::AsCultureInvariant(MoveTemp(SourceString));
-		}
-		break;
-
-	case EBlueprintTextLiteralType::LiteralString:
-		{
-			FString SourceString;
-			Stack.Step(Stack.Object, &SourceString);
-
-			*(FText*)RESULT_PARAM = FText::FromString(MoveTemp(SourceString));
-		}
-		break;
-
-	default:
-		checkf(false, TEXT("Unknown EBlueprintTextLiteralType! Please update UObject::execTextConst to handle this type of text."));
-		break;
-	}
+	FString SourceString;
+	FString KeyString;
+	FString Namespace;
+	Stack.Step( Stack.Object, &SourceString);
+	Stack.Step( Stack.Object, &KeyString);
+	Stack.Step( Stack.Object, &Namespace);
+	*(FText*)RESULT_PARAM = FInternationalization::ForUseOnlyByLocMacroAndGraphNodeTextLiterals_CreateText(*SourceString, *Namespace, *KeyString);
 }
 IMPLEMENT_VM_FUNCTION( EX_TextConst, execTextConst );
 
@@ -2551,7 +2288,7 @@ IMPLEMENT_VM_FUNCTION( EX_TransformConst, execTransformConst );
 void UObject::execStructConst( FFrame& Stack, RESULT_DECL )
 {
 	UScriptStruct* ScriptStruct = CastChecked<UScriptStruct>(Stack.ReadObject());
-	int32 SerializedSize = Stack.ReadInt<int32>();
+	int32 SerializedSize = Stack.ReadInt();
 
 	// Temporarily disabling this check because we can't assume the serialized size
 	// will match the struct size on all platforms (like win64 vs win32 cooked)
@@ -2595,7 +2332,7 @@ IMPLEMENT_VM_FUNCTION( EX_SetArray, execSetArray );
 void UObject::execArrayConst(FFrame& Stack, RESULT_DECL)
 {
 	UProperty* InnerProperty = CastChecked<UProperty>(Stack.ReadObject());
-	int32 Num = Stack.ReadInt<int32>();
+	int32 Num = Stack.ReadInt();
 	check(RESULT_PARAM);
 	FScriptArrayHelper ArrayHelper = FScriptArrayHelper::CreateHelperFormInnerProperty(InnerProperty, RESULT_PARAM);
 	ArrayHelper.EmptyValues(Num);

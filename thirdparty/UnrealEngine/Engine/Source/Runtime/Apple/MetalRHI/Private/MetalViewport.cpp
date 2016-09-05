@@ -80,20 +80,20 @@ FMetalViewport::FMetalViewport(void* WindowHandle, uint32 InSizeX,uint32 InSizeY
 
 FMetalViewport::~FMetalViewport()
 {
-	BackBuffer.SafeRelease();	// when the rest of the engine releases it, its framebuffers will be released too (those the engine knows about)
+	BackBuffer.SafeRelease();
 	check(!IsValidRef(BackBuffer));
 }
 
 void FMetalViewport::Resize(uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen)
 {
-	FRHIResourceCreateInfo CreateInfo;
 	BackBuffer.SafeRelease();	// when the rest of the engine releases it, its framebuffers will be released too (those the engine knows about)
-	
+
+	FRHIResourceCreateInfo CreateInfo;
+	BackBuffer = (FMetalTexture2D*)(FTexture2DRHIParamRef)GDynamicRHI->RHICreateTexture2D(InSizeX, InSizeY, PF_B8G8R8A8, 1, 1, TexCreate_RenderTargetable | TexCreate_Presentable, CreateInfo);
+	BackBuffer->Surface.Viewport = this;
 #if PLATFORM_MAC // @todo zebra: ios
-	BackBuffer = (FMetalTexture2D*)(FTexture2DRHIParamRef)GDynamicRHI->RHICreateTexture2D(InSizeX, InSizeY, PF_B8G8R8A8, 1, 1, TexCreate_RenderTargetable, CreateInfo);
 	((CAMetalLayer*)View.layer).drawableSize = CGSizeMake(InSizeX, InSizeY);
 #else
-	BackBuffer = (FMetalTexture2D*)(FTexture2DRHIParamRef)GDynamicRHI->RHICreateTexture2D(InSizeX, InSizeY, PF_B8G8R8A8, 1, 1, TexCreate_RenderTargetable | TexCreate_Presentable, CreateInfo);
 	IOSAppDelegate* AppDelegate = [IOSAppDelegate GetDelegate];
 	FIOSView* GLView = AppDelegate.IOSView;
 	[GLView UpdateRenderWidth:InSizeX andHeight:InSizeY];
@@ -104,7 +104,6 @@ void FMetalViewport::Resize(uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen
 	check(FMath::TruncToInt(ScalingFactor * ViewFrame.size.width) == InSizeX &&
 		  FMath::TruncToInt(ScalingFactor * ViewFrame.size.height) == InSizeY);
 #endif
-	BackBuffer->Surface.Viewport = this;
 }
 
 id<MTLDrawable> FMetalViewport::GetDrawable()
@@ -142,9 +141,7 @@ void FMetalViewport::ReleaseDrawable()
 		[Drawable release];
 		Drawable = nil;
 	}
-#if !PLATFORM_MAC
 	BackBuffer->Surface.Texture = nil;
-#endif
 }
 
 #if PLATFORM_MAC
@@ -188,11 +185,7 @@ void FMetalRHICommandContext::RHIBeginDrawingViewport(FViewportRHIParamRef Viewp
 void FMetalDynamicRHI::RHIBeginDrawingViewport(FViewportRHIParamRef ViewportRHI, FTextureRHIParamRef RenderTargetRHI)
 {
 	FMetalViewport* Viewport = ResourceCast(ViewportRHI);
-	
-	check(Viewport);
 
-	check(Viewport);
-	
 	((FMetalDeviceContext*)Context)->BeginDrawingViewport(Viewport);
 
 	// Set the render target and viewport.

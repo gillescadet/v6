@@ -33,21 +33,21 @@ UClass* UOverlay::GetSlotClass() const
 	return UOverlaySlot::StaticClass();
 }
 
-void UOverlay::OnSlotAdded(UPanelSlot* InSlot)
+void UOverlay::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyOverlay.IsValid() )
 	{
-		CastChecked<UOverlaySlot>(InSlot)->BuildSlot(MyOverlay.ToSharedRef());
+		Cast<UOverlaySlot>(Slot)->BuildSlot(MyOverlay.ToSharedRef());
 	}
 }
 
-void UOverlay::OnSlotRemoved(UPanelSlot* InSlot)
+void UOverlay::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyOverlay.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyOverlay->RemoveSlot(Widget.ToSharedRef());
@@ -59,9 +59,9 @@ TSharedRef<SWidget> UOverlay::RebuildWidget()
 {
 	MyOverlay = SNew(SOverlay);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UOverlaySlot* TypedSlot = Cast<UOverlaySlot>(PanelSlot) )
+		if ( UOverlaySlot* TypedSlot = Cast<UOverlaySlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyOverlay.ToSharedRef());
@@ -72,6 +72,11 @@ TSharedRef<SWidget> UOverlay::RebuildWidget()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UOverlay::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.Overlay");
+}
 
 const FText UOverlay::GetPaletteCategory()
 {

@@ -63,7 +63,7 @@ class AIMODULE_API UEnvQueryGenerator_OnCircle : public UEnvQueryGenerator_Proje
 	UPROPERTY(EditAnywhere, Category=Generator)
 	FEnvTraceData TraceData;
 
-	UPROPERTY(EditAnywhere, Category=Generator, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bDefineArc:1;
 
 	virtual void PostLoad() override;

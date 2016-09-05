@@ -25,7 +25,6 @@ enum
 #include "Engine/TextureCube.h"
 
 #include "DebugSerializationFlags.h"
-#include "CookStats.h"
 
 /*------------------------------------------------------------------------------
 	Versioning for texture derived data.
@@ -39,18 +38,76 @@ enum
 
 #define TEXTURE_DERIVEDDATA_VER		TEXT("814DCC3DC72143F49509781513CB9855")
 
-#if ENABLE_COOK_STATS
-namespace TextureCookStats
-{
-	static FCookStats::FDDCResourceUsageStats UsageStats;
-	static FCookStats::FDDCResourceUsageStats StreamingMipUsageStats;
-	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
-	{
-		UsageStats.LogStats(AddStat, TEXT("Texture.Usage"), TEXT("Inline"));
-		StreamingMipUsageStats.LogStats(AddStat, TEXT("Texture.Usage"), TEXT("Streaming"));
-	});
-}
+
+// output texture building stats to Saved\Stats\Stats.csv
+#define BUILD_TEXTURE_STATS 1
+
+#if BUILD_TEXTURE_STATS
+#include "DDCStatsHelper.h"
 #endif
+
+/*------------------------------------------------------------------------------
+	Timing of derived data operations.
+------------------------------------------------------------------------------*/
+
+namespace TextureDerivedDataTimings
+{
+	enum ETimingId
+	{
+		GetMipDataTime,
+		AsyncBlockTime,
+		SyncBlockTime,
+		BuildTextureTime,
+		SerializeCookedTime,
+		SyncDoesCachedDataExist,
+		NumTimings
+	};
+
+	static FThreadSafeCounter Timings[NumTimings] = {0};
+
+	static const TCHAR* TimingStrings[NumTimings] =
+	{
+		TEXT("Get Mip Data"),
+		TEXT("Asynchronous Block"),
+		TEXT("Synchronous Loads"),
+		TEXT("Build Textures"),
+		TEXT("Serialize Cooked"),
+		TEXT("Sync Does Cached Data Exist")
+	};
+
+	void PrintTimings()
+	{
+		UE_LOG(LogTexture,Log,TEXT("--- Texture Derived Data Timings ---"));
+		for (int32 TimingIndex = 0; TimingIndex < NumTimings; ++TimingIndex)
+		{
+			UE_LOG(LogTexture,Display,TEXT("%s: %fs"), TimingStrings[TimingIndex], FPlatformTime::ToSeconds(Timings[TimingIndex].GetValue()) );
+		}
+	}
+
+	FAutoConsoleCommand DumpTimingsCommand(
+		TEXT("Tex.DerivedDataTimings"),
+		TEXT("Print timings related to texture derived data."),
+		FConsoleCommandDelegate::CreateStatic(PrintTimings)
+		);
+
+	struct FScopedMeasurement
+	{
+		ETimingId TimingId;
+		uint32 StartCycles;
+
+		explicit FScopedMeasurement(ETimingId InTimingId)
+			: TimingId(InTimingId)
+		{
+			StartCycles = FPlatformTime::Cycles();
+		}
+
+		~FScopedMeasurement()
+		{
+			uint32 TimeInCycles = FPlatformTime::Cycles() - StartCycles;
+			Timings[TimingId].Add(TimeInCycles);
+		}
+	};
+}
 
 /*------------------------------------------------------------------------------
 	Derived data key generation.
@@ -65,7 +122,6 @@ static void SerializeForKey(FArchive& Ar, const FTextureBuildSettings& Settings)
 	float TempFloat;
 	uint8 TempByte;
 	FColor TempColor;
-	FVector4 TempVector4;
 
 	TempFloat = Settings.ColorAdjustment.AdjustBrightness; Ar << TempFloat;
 	TempFloat = Settings.ColorAdjustment.AdjustBrightnessCurve; Ar << TempFloat;
@@ -84,12 +140,6 @@ static void SerializeForKey(FArchive& Ar, const FTextureBuildSettings& Settings)
 	TempByte = Settings.bSRGB ? (Settings.bSRGB | ( Settings.bUseLegacyGamma ? 0 : 0x2 )) : 0; Ar << TempByte;
 	TempByte = Settings.bPreserveBorder; Ar << TempByte;
 	TempByte = Settings.bDitherMipMapAlpha; Ar << TempByte;
-
-	if (Settings.AlphaCoverageThresholds != FVector4(0, 0, 0, 0))
-	{
-		TempVector4 = Settings.AlphaCoverageThresholds; Ar << TempVector4;
-	}
-	
 	TempByte = Settings.bComputeBokehAlpha; Ar << TempByte;
 	TempByte = Settings.bReplicateRed; Ar << TempByte;
 	TempByte = Settings.bReplicateAlpha; Ar << TempByte;
@@ -264,7 +314,6 @@ static void GetTextureBuildSettings(
 	OutBuildSettings.bUseLegacyGamma = Texture.bUseLegacyGamma;
 	OutBuildSettings.bPreserveBorder = Texture.bPreserveBorder;
 	OutBuildSettings.bDitherMipMapAlpha = Texture.bDitherMipMapAlpha;
-	OutBuildSettings.AlphaCoverageThresholds = Texture.AlphaCoverageThresholds;
 	OutBuildSettings.bComputeBokehAlpha = (Texture.LODGroup == TEXTUREGROUP_Bokeh);
 	OutBuildSettings.bReplicateAlpha = false;
 	OutBuildSettings.bReplicateRed = false;
@@ -375,19 +424,16 @@ static void GetBuildSettingsForRunningPlatform(
 
 /**
  * Stores derived data in the DDC.
- * After this returns, all bulk data from streaming (non-inline) mips will be sent separately to the DDC and the BulkData for those mips removed.
  * @param DerivedData - The data to store in the DDC.
  * @param DerivedDataKeySuffix - The key suffix at which to store derived data.
- * @return number of bytes put to the DDC (total, including all mips)
  */
-static uint32 PutDerivedDataInCache(
+static void PutDerivedDataInCache(
 	FTexturePlatformData* DerivedData,
 	const FString& DerivedDataKeySuffix
 	)
 {
 	TArray<uint8> RawDerivedData;
 	FString DerivedDataKey;
-	uint32 TotalBytesPut = 0;
 
 	// Build the key with which to cache derived data.
 	GetTextureDerivedDataKeyFromSuffix(DerivedDataKeySuffix, DerivedDataKey);
@@ -427,19 +473,15 @@ static uint32 PutDerivedDataInCache(
 
 		if (!bInline)
 		{
-			// store in the DDC, also drop the bulk data storage.
-			TotalBytesPut += Mip.StoreInDerivedDataCache(MipDerivedDataKey);
+			Mip.StoreInDerivedDataCache(MipDerivedDataKey);
 		}
 	}
 
 	// Store derived data.
-	// At this point we've stored all the non-inline data in the DDC, so this will only serialize and store the TexturePlatformData metadata and any inline mips
 	FMemoryWriter Ar(RawDerivedData, /*bIsPersistent=*/ true);
 	DerivedData->Serialize(Ar, NULL);
-	TotalBytesPut += RawDerivedData.Num();
 	GetDerivedDataCacheRef().Put(*DerivedDataKey, RawDerivedData);
 	UE_LOG(LogTexture,Verbose,TEXT("%s  Derived Data: %d bytes"),*LogString,RawDerivedData.Num());
-	return TotalBytesPut;
 }
 
 #endif // #if WITH_EDITOR
@@ -657,19 +699,10 @@ class FTextureCacheDerivedDataWorker : public FNonAbandonableTask
 	TArray<FImage> CompositeSourceMips;
 	/** Texture cache flags. */
 	uint32 CacheFlags;
-	/** Have many bytes were loaded from DDC or built (for telemetry) */
-	uint32 BytesCached = 0;
-
 	/** true if caching has succeeded. */
 	bool bSucceeded;
-	/** true if the derived data was pulled from DDC */
-	bool bLoadedFromDDC = false;
 
-	/**
-	 * Gathers information needed to build a texture. This MUST be called from the main thread. 
-	 * Usually called in the ctor when we are pretty sure we'll have to build the data from source.
-	 * Could be called in Finalize if we weren't able to successfully retrieve from the DDC. 
-	 */
+	/** Gathers information needed to build a texture. */
 	void GetBuildInfo()
 	{
 		if ( Texture.Source.HasHadBulkDataCleared() )
@@ -741,8 +774,18 @@ class FTextureCacheDerivedDataWorker : public FNonAbandonableTask
 	/** Build the texture. This function is safe to call from any thread. */
 	void BuildTexture()
 	{
+#if BUILD_TEXTURE_STATS
+		FString DerivedDataKey;
+		GetTextureDerivedDataKeyFromSuffix(KeySuffix, DerivedDataKey);
+		static const FName NAME_BuildTexture(TEXT("BuildTexture"));
+		FDDCScopeStatHelper ScopeStat(*DerivedDataKey, NAME_BuildTexture);
+#endif
+
+
 		if (SourceMips.Num())
 		{
+			TextureDerivedDataTimings::FScopedMeasurement Timer(TextureDerivedDataTimings::BuildTextureTime);
+
 			FFormatNamedArguments Args;
 			Args.Add( TEXT("TextureName"), FText::FromString( Texture.GetName() ) );
 			Args.Add( TEXT("TextureFormatName"), FText::FromString( BuildSettings.TextureFormatName.GetPlainNameString() ) );
@@ -787,10 +830,7 @@ class FTextureCacheDerivedDataWorker : public FNonAbandonableTask
 				DerivedData->NumSlices = BuildSettings.bCubemap ? 6 : 1;
 
 				// Store it in the cache.
-				// @todo: This will remove the streaming bulk data, which we immediately reload below!
-				// Should ideally avoid this redundant work, but it only happens when we actually have 
-				// to build the texture, which should only ever be once.
-				this->BytesCached = PutDerivedDataInCache(DerivedData, KeySuffix);
+				PutDerivedDataInCache(DerivedData, KeySuffix);
 			}
 
 			if (DerivedData->Mips.Num())
@@ -862,7 +902,6 @@ public:
 		, bSucceeded(false)
 	{
 		const bool bAllowAsyncBuild = (CacheFlags & ETextureCacheFlags::AllowAsyncBuild) != 0;
-		// if we think we'll need to build the texture, do the required game thread work first.
 		if (bAllowAsyncBuild)
 		{
 			GetBuildInfo();
@@ -880,11 +919,9 @@ public:
 
 		if (!bForceRebuild && GetDerivedDataCacheRef().GetSynchronous(*DerivedData->DerivedDataKey, RawDerivedData))
 		{
-			BytesCached = RawDerivedData.Num();
 			FMemoryReader Ar(RawDerivedData, /*bIsPersistent=*/ true);
 			DerivedData->Serialize(Ar, NULL);
 			bSucceeded = true;
-			// Load any streaming (not inline) mips that are necessary for our platform.
 			if (bForDDC)
 			{
 				bSucceeded = DerivedData->TryLoadMips(0,NULL);
@@ -897,7 +934,6 @@ public:
 			{
 				bSucceeded = DerivedData->AreDerivedMipsAvailable();
 			}
-			bLoadedFromDDC = true;
 		}
 		else if (SourceMips.Num())
 		{
@@ -909,25 +945,11 @@ public:
 	void Finalize()
 	{
 		check(IsInGameThread());
-		// if we couldn't get from the DDC or didn't build synchronously, then we have to build now. 
-		// This is a super edge case that should rarely happen.
 		if (!bSucceeded && SourceMips.Num() == 0)
 		{
 			GetBuildInfo();
 			BuildTexture();
 		}
-	}
-
-	/** Expose bytes cached for telemetry. */
-	uint32 GetBytesCached() const
-	{
-		return BytesCached;
-	}
-
-	/** Expose how the resource was returned for telemetry. */
-	bool WasLoadedFromDDC() const
-	{
-		return bLoadedFromDDC;
 	}
 
 	FORCEINLINE TStatId GetStatId() const
@@ -990,13 +1012,10 @@ void FTexturePlatformData::Cache(
 	}
 	else
 	{
+		TextureDerivedDataTimings::FScopedMeasurement Timer(TextureDerivedDataTimings::SyncBlockTime);
 		FTextureCacheDerivedDataWorker Worker(Compressor, this, &InTexture, InSettings, Flags);
-		{
-			COOK_STAT(auto Timer = TextureCookStats::UsageStats.TimeSyncWork());
-			Worker.DoWork();
-			Worker.Finalize();
-			COOK_STAT(Timer.AddHitOrMiss(Worker.WasLoadedFromDDC() ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, Worker.GetBytesCached()));
-		}
+		Worker.DoWork();
+		Worker.Finalize();
 	}
 }
 
@@ -1005,12 +1024,11 @@ void FTexturePlatformData::FinishCache()
 	if (AsyncTask)
 	{
 		{
-			COOK_STAT(auto Timer = TextureCookStats::UsageStats.TimeAsyncWait());
+			TextureDerivedDataTimings::FScopedMeasurement Timer(TextureDerivedDataTimings::AsyncBlockTime);
 			AsyncTask->EnsureCompletion();
-			FTextureCacheDerivedDataWorker& Worker = AsyncTask->GetTask();
-			Worker.Finalize();
-			COOK_STAT(Timer.AddHitOrMiss(Worker.WasLoadedFromDDC() ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, Worker.GetBytesCached()));
 		}
+		FTextureCacheDerivedDataWorker& Worker = AsyncTask->GetTask();
+		Worker.Finalize();
 		delete AsyncTask;
 		AsyncTask = NULL;
 	}
@@ -1068,14 +1086,8 @@ bool FTexturePlatformData::TryInlineMipData()
 		if (Mip.DerivedDataKey.IsEmpty() == false)
 		{
 			uint32 AsyncHandle = AsyncHandles[MipIndex];
-			bool bLoadedFromDDC = false;
-			{
-				COOK_STAT(auto Timer = TextureCookStats::StreamingMipUsageStats.TimeAsyncWait());
-				DDC.WaitAsynchronousCompletion(AsyncHandle);
-				bLoadedFromDDC = DDC.GetAsynchronousResults(AsyncHandle, TempData);
-				COOK_STAT(Timer.AddHitOrMiss(bLoadedFromDDC ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, TempData.Num()));
-			}
-			if (bLoadedFromDDC)
+			DDC.WaitAsynchronousCompletion(AsyncHandle);
+			if (DDC.GetAsynchronousResults(AsyncHandle, TempData))
 			{
 				int32 MipSize = 0;
 				FMemoryReader Ar(TempData, /*bIsPersistent=*/ true);
@@ -1154,7 +1166,6 @@ bool FTexturePlatformData::TryLoadMips(int32 FirstMipToLoad, void** OutMipData)
 			if (OutMipData)
 			{
 				OutMipData[MipIndex - FirstMipToLoad] = FMemory::Malloc(Mip.BulkData.GetBulkDataSize());
-				checkSlow(!Mip.BulkData.GetFilename().EndsWith(TEXT(".ubulk"))); // We want to make sure that any non-streamed mips are coming from the texture asset file, and not from an external bulk file
 				Mip.BulkData.GetCopy(&OutMipData[MipIndex - FirstMipToLoad]);
 			}
 			NumMipsCached++;
@@ -1204,49 +1215,6 @@ bool FTexturePlatformData::TryLoadMips(int32 FirstMipToLoad, void** OutMipData)
 	}
 
 	return true;
-}
-
-int32 FTexturePlatformData::GetNumNonStreamingMips() const
-{
-	if (FPlatformProperties::RequiresCookedData())
-	{
-		// We're on a cooked platform so we should only be streaming mips that were not inlined in the texture by thecooker.
-		int32 NumNonStreamingMips = Mips.Num();
-
-		for (const FTexture2DMipMap& Mip : Mips)
-		{
-			uint32 BulkDataFlags = Mip.BulkData.GetBulkDataFlags();
-			if (BulkDataFlags & BULKDATA_PayloadInSeperateFile || BulkDataFlags & BULKDATA_PayloadAtEndOfFile)
-			{
-				--NumNonStreamingMips;
-			}
-			else
-			{
-				break;
-			}
-		}
-
-		return NumNonStreamingMips;
-	}
-	else
-	{
-		check(Mips.Num() > 0);
-		int32 MipCount = Mips.Num();
-		int32 NumNonStreamingMips = 1;
-
-		// Take in to account the min resident limit.
-		NumNonStreamingMips = FMath::Max(NumNonStreamingMips, UTexture2D::GetMinTextureResidentMipCount());
-		NumNonStreamingMips = FMath::Min(NumNonStreamingMips, MipCount);
-		int32 BlockSizeX = GPixelFormats[PixelFormat].BlockSizeX;
-		int32 BlockSizeY = GPixelFormats[PixelFormat].BlockSizeY;
-		if (BlockSizeX > 1 || BlockSizeY > 1)
-		{
-			NumNonStreamingMips = FMath::Max<int32>(NumNonStreamingMips, MipCount - FPlatformMath::FloorLog2(Mips[0].SizeX / BlockSizeX));
-			NumNonStreamingMips = FMath::Max<int32>(NumNonStreamingMips, MipCount - FPlatformMath::FloorLog2(Mips[0].SizeY / BlockSizeY));
-		}
-
-		return NumNonStreamingMips;
-	}
 }
 
 #if WITH_EDITOR
@@ -1327,13 +1295,8 @@ static void SerializePlatformData(
 	// Force resident mips inline
 	if (bCooked && Ar.IsSaving())
 	{
-		int32 MinMipToInline = 0;
-			
-		if (bStreamable)
-		{
-			MinMipToInline = FMath::Max(0, NumMips - PlatformData->GetNumNonStreamingMips());
-		}
-
+		int32 MinMipToInline = bStreamable ? NumMips - UTexture2D::GetMinTextureResidentMipCount() : 0;
+		MinMipToInline = FMath::Max(MinMipToInline, 0);
 		for (int32 MipIndex = MinMipToInline; MipIndex < NumMips; ++MipIndex)
 		{
 			PlatformData->Mips[MipIndex + FirstMipToSerialize].BulkData.SetBulkDataFlags(BULKDATA_ForceInlinePayload | BULKDATA_SingleUse);
@@ -1435,6 +1398,9 @@ void FAsyncStreamDerivedMipWorker::DoWork()
 
 void UTexture2D::GetMipData(int32 FirstMipToLoad, void** OutMipData)
 {
+#if WITH_EDITOR
+	TextureDerivedDataTimings::FScopedMeasurement MipDataTimer(TextureDerivedDataTimings::GetMipDataTime);
+#endif // #if WITH_EDITOR
 	if (PlatformData->TryLoadMips(FirstMipToLoad, OutMipData) == false)
 	{
 		// Unable to load mips from the cache. Rebuild the texture and try again.
@@ -1572,6 +1538,7 @@ void UTexture::BeginCacheForCookedPlatformData( const ITargetPlatform *TargetPla
 				// if it doesn't then allow async builds
 				
 				{
+					TextureDerivedDataTimings::FScopedMeasurement Timer(TextureDerivedDataTimings::SyncDoesCachedDataExist);
 					if ( GetDerivedDataCacheRef().CachedDataProbablyExists( *DerivedDataKey ) == false )
 					{
 						CurrentCacheFlags |= ETextureCacheFlags::AllowAsyncBuild;
@@ -1718,8 +1685,7 @@ void UTexture2D::WillNeverCacheCookedPlatformDataAgain()
 		}
 	}
 
-	// Daniel: I think we should call the release source memory function all the time because this will prevent it being force loaded when the linker is destroyed
-	//if ( Source.IsBulkDataLoaded() ) 
+	if ( Source.IsBulkDataLoaded() )
 	{
 		Source.ReleaseSourceMemory();
 	}
@@ -1883,6 +1849,7 @@ void UTexture::SerializeCookedPlatformData(FArchive& Ar)
 
 
 #if WITH_EDITOR
+	TextureDerivedDataTimings::FScopedMeasurement Timer(TextureDerivedDataTimings::SerializeCookedTime);
 	if (Ar.IsCooking() && Ar.IsPersistent())
 	{
 		if (!Ar.CookingTarget()->IsServerOnly())

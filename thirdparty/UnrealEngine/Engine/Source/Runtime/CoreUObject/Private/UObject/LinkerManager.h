@@ -68,7 +68,8 @@ public:
 #if THREADSAFE_UOBJECTS
 		FScopeLock ObjectLoadersLock(&LoadersWithNewImportsCritical);
 #endif
-		OutLoaders = MoveTemp(LoadersWithNewImports);
+		OutLoaders = LoadersWithNewImports;
+		OutLoaders.Empty();
 	}
 
 	FORCEINLINE void AddLoaderWithNewImports(FLinkerLoad* LinkerLoad)

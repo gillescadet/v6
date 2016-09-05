@@ -4,12 +4,11 @@
 
 #include "FrameGrabber.h"
 #include "IMovieSceneCaptureProtocol.h"
-#include "MovieSceneCaptureProtocolSettings.h"
 
 #include "FrameGrabberProtocol.generated.h"
 
 UCLASS()
-class MOVIESCENECAPTURE_API UFrameGrabberProtocolSettings : public UMovieSceneCaptureProtocolSettings
+class MOVIESCENECAPTURE_API UFrameGrabberProtocolSettings : public UObject
 {
 public:
 	UFrameGrabberProtocolSettings(const FObjectInitializer&) : DesiredPixelFormat(PF_B8G8R8A8), RingBufferSize(3) {}
@@ -46,7 +45,7 @@ protected:
 
 	 * @return Shared pointer to a payload to associate with the frame, or nullptr
 	 */
-	virtual FFramePayloadPtr GetFramePayload(const FFrameMetrics& FrameMetrics, const ICaptureProtocolHost& Host) = 0;
+	virtual FFramePayloadPtr GetFramePayload(const FFrameMetrics& FrameMetrics, const ICaptureProtocolHost& Host) const = 0;
 
 	/**
 	 * Process a captured frame. This may be called on any thread.

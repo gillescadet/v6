@@ -66,12 +66,6 @@ void UBTNode::OnInstanceDestroyed(UBehaviorTreeComponent& OwnerComp)
 
 void UBTNode::InitializeInSubtree(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, int32& NextInstancedIndex, EBTMemoryInit::Type InitType) const
 {
-	FBTInstancedNodeMemory* SpecialMemory = GetSpecialNodeMemory<FBTInstancedNodeMemory>(NodeMemory);
-	if (SpecialMemory)
-	{
-		SpecialMemory->NodeIdx = INDEX_NONE;
-	}
-
 	if (bCreateNodeInstance)
 	{
 		// composite nodes can't be instanced!
@@ -80,22 +74,19 @@ void UBTNode::InitializeInSubtree(UBehaviorTreeComponent& OwnerComp, uint8* Node
 		UBTNode* NodeInstance = OwnerComp.NodeInstances.IsValidIndex(NextInstancedIndex) ? OwnerComp.NodeInstances[NextInstancedIndex] : NULL;
 		if (NodeInstance == NULL)
 		{
-			NodeInstance = (UBTNode*)StaticDuplicateObject(this, &OwnerComp);
+			NodeInstance = NewObject<UBTNode>(&OwnerComp, GetClass(), NAME_None, RF_NoFlags, (UObject*)(this));
 			NodeInstance->InitializeNode(GetParentNode(), GetExecutionIndex(), GetMemoryOffset(), GetTreeDepth());
 			NodeInstance->bIsInstanced = true;
 
 			OwnerComp.NodeInstances.Add(NodeInstance);
 		}
-
 		check(NodeInstance);
-		check(SpecialMemory);
-
-		SpecialMemory->NodeIdx = NextInstancedIndex;
 
 		NodeInstance->SetOwner(OwnerComp.GetOwner());
-		NodeInstance->InitializeMemory(OwnerComp, NodeMemory, InitType);
-		check(TreeAsset);
-		NodeInstance->InitializeFromAsset(*TreeAsset);
+
+		FBTInstancedNodeMemory* MyMemory = GetSpecialNodeMemory<FBTInstancedNodeMemory>(NodeMemory);
+		MyMemory->NodeIdx = NextInstancedIndex;
+
 		NodeInstance->OnInstanceCreated(OwnerComp);
 		NextInstancedIndex++;
 	}
@@ -107,10 +98,9 @@ void UBTNode::InitializeInSubtree(UBehaviorTreeComponent& OwnerComp, uint8* Node
 
 void UBTNode::CleanupInSubtree(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, EBTMemoryClear::Type CleanupType) const
 {
-	const UBTNode* NodeOb = bCreateNodeInstance ? GetNodeInstance(OwnerComp, NodeMemory) : this;
-	if (NodeOb)
+	if (!bCreateNodeInstance && !bIsInjected)
 	{
-		NodeOb->CleanupMemory(OwnerComp, NodeMemory, CleanupType);
+		CleanupMemory(OwnerComp, NodeMemory, CleanupType);
 	}
 }
 
@@ -203,91 +193,6 @@ bool UBTNode::UsesBlueprint() const
 
 #endif
 
-UGameplayTasksComponent* UBTNode::GetGameplayTasksComponent(const UGameplayTask& Task) const
-{
-	const UAITask* AITask = Cast<const UAITask>(&Task);
-	return (AITask && AITask->GetAIController()) ? AITask->GetAIController()->GetGameplayTasksComponent(Task) : Task.GetGameplayTasksComponent();
-}
-
-AActor* UBTNode::GetGameplayTaskOwner(const UGameplayTask* Task) const
-{
-	if (Task == nullptr)
-	{
-		if (IsInstanced())
-		{
-			const UBehaviorTreeComponent* BTComponent = Cast<const UBehaviorTreeComponent>(GetOuter());
-			//not having BT component for an instanced BT node is invalid!
-			check(BTComponent);
-			return BTComponent->GetAIOwner();
-		}
-		else
-		{
-			UE_LOG(LogBehaviorTree, Warning, TEXT("%s: Unable to determine default GameplayTaskOwner!"), *GetName());
-			return nullptr;
-		}
-	}
-
-	const UAITask* AITask = Cast<const UAITask>(Task);
-	if (AITask)
-	{
-		return AITask->GetAIController();
-	}
-
-	const UGameplayTasksComponent* TasksComponent = Task->GetGameplayTasksComponent();
-	return TasksComponent ? TasksComponent->GetGameplayTaskOwner(Task) : nullptr;
-}
-
-AActor* UBTNode::GetGameplayTaskAvatar(const UGameplayTask* Task) const
-{
-	if (Task == nullptr)
-	{
-		if (IsInstanced())
-		{
-			const UBehaviorTreeComponent* BTComponent = Cast<const UBehaviorTreeComponent>(GetOuter());
-			//not having BT component for an instanced BT node is invalid!
-			check(BTComponent);
-			return BTComponent->GetAIOwner();
-		}
-		else
-		{
-			UE_LOG(LogBehaviorTree, Warning, TEXT("%s: Unable to determine default GameplayTaskAvatar!"), *GetName());
-			return nullptr;
-		}
-	}
-
-	const UAITask* AITask = Cast<const UAITask>(Task);
-	if (AITask)
-	{
-		return AITask->GetAIController() ? AITask->GetAIController()->GetPawn() : nullptr;
-	}
-
-	const UGameplayTasksComponent* TasksComponent = Task->GetGameplayTasksComponent();
-	return TasksComponent ? TasksComponent->GetGameplayTaskAvatar(Task) : nullptr;
-}
-
-uint8 UBTNode::GetGameplayTaskDefaultPriority() const
-{
-	return static_cast<uint8>(EAITaskPriority::AutonomousAI);
-}
-
-void UBTNode::OnGameplayTaskInitialized(UGameplayTask& Task)
-{
-	const UAITask* AITask = Cast<const UAITask>(&Task);
-	if (AITask && (AITask->GetAIController() == nullptr))
-	{
-		// this means that the task has either been created without specifying 
-		// UAITAsk::OwnerController's value (like via BP's Construct Object node)
-		// or it has been created in C++ with inappropriate function
-		UE_LOG(LogBehaviorTree, Error, TEXT("Missing AIController in AITask %s"), *AITask->GetName());
-	}
-}
-
-UBehaviorTreeComponent* UBTNode::GetBTComponentForTask(UGameplayTask& Task) const
-{
-	UAITask* AITask = Cast<UAITask>(&Task);
-	return (AITask && AITask->GetAIController()) ? Cast<UBehaviorTreeComponent>(AITask->GetAIController()->BrainComponent) : nullptr;
-}
-
 //----------------------------------------------------------------------//
 // DEPRECATED
 //----------------------------------------------------------------------//
@@ -355,4 +260,111 @@ FString UBTNode::GetRuntimeDescription(const UBehaviorTreeComponent* OwnerComp, 
 		return GetRuntimeDescription(*OwnerComp, NodeMemory, Verbosity);
 	}
 	return TEXT("");
+}
+
+
+//----------------------------------------------------------------------//
+// UBTNode IGameplayTaskOwnerInterface
+//----------------------------------------------------------------------//
+UGameplayTasksComponent* UBTNode::GetGameplayTasksComponent(const UGameplayTask& Task) const
+{
+	const UAITask* AsAITask = Cast<const UAITask>(&Task);
+	if (AsAITask)
+	{
+		return AsAITask->GetAIController() ? AsAITask->GetAIController()->GetGameplayTasksComponent(Task) : nullptr;
+	}
+
+	return Task.GetGameplayTasksComponent();
+}
+
+void UBTNode::OnTaskInitialized(UGameplayTask& Task)
+{
+	// validate the task
+	UAITask* AsAITask = Cast<UAITask>(&Task);
+	if (AsAITask != nullptr && AsAITask->GetAIController() == nullptr)
+	{
+		// this means that the task has either been created without specifying 
+		// UAITAsk::OwnerController's value (like via BP's Construct Object node)
+		// or it has been created in C++ with inappropriate function
+		UE_LOG(LogBehaviorTree, Error, TEXT("Missing AIController in AITask %s"), *AsAITask->GetName());
+	}
+}
+
+UBehaviorTreeComponent* UBTNode::GetBTComponentForTask(UGameplayTask& Task) const
+{
+	UAITask* AsAITask = Cast<UAITask>(&Task);
+	return AsAITask && AsAITask->GetAIController() ? Cast<UBehaviorTreeComponent>(AsAITask->GetAIController()->BrainComponent) : nullptr;
+}
+
+void UBTNode::OnTaskActivated(UGameplayTask& Task)
+{
+	ensure(Task.GetTaskOwner() == this);
+}
+
+void UBTNode::OnTaskDeactivated(UGameplayTask& Task)
+{
+	ensure(Task.GetTaskOwner() == this);
+}
+
+AActor* UBTNode::GetOwnerActor(const UGameplayTask* Task) const
+{
+	if (Task == nullptr)
+	{
+		if (IsInstanced())
+		{
+			const UBehaviorTreeComponent* BTComponent = Cast<const UBehaviorTreeComponent>(GetOuter());
+			//not having BT component for an instanced BT node is invalid!
+			check(BTComponent);
+			return BTComponent->GetAIOwner();
+		}
+		else
+		{
+			UE_LOG(LogBehaviorTree, Warning, TEXT("%s: Unable to determine Owner Actor for a null GameplayTask"), *GetName());
+			return nullptr;
+		}
+	}
+
+	const UAITask* AsAITask = Cast<const UAITask>(Task);
+	if (AsAITask)
+	{
+		return AsAITask->GetAIController();
+	}
+
+	const UGameplayTasksComponent* GTComponent = Task->GetGameplayTasksComponent();
+
+	return GTComponent ? GTComponent->GetOwnerActor(Task) : nullptr;
+}
+
+AActor* UBTNode::GetAvatarActor(const UGameplayTask* Task) const
+{
+	if (Task == nullptr)
+	{
+		if (IsInstanced())
+		{
+			const UBehaviorTreeComponent* BTComponent = Cast<const UBehaviorTreeComponent>(GetOuter());
+			//not having BT component for an instanced BT node is invalid!
+			check(BTComponent);
+			return BTComponent->GetAIOwner() ? BTComponent->GetAIOwner()->GetPawn() : nullptr;
+		}
+		else
+		{
+			UE_LOG(LogBehaviorTree, Warning, TEXT("%s: Unable to determine Avatar Actor for a null GameplayTask"), *GetName());
+			return nullptr;
+		}
+	}
+
+	const UAITask* AsAITask = Cast<const UAITask>(Task);
+	if (AsAITask)
+	{
+		return AsAITask->GetAIController() ? AsAITask->GetAIController()->GetPawn() : nullptr;
+	}
+
+	const UGameplayTasksComponent* GTComponent = Task->GetGameplayTasksComponent();
+
+	return GTComponent ? GTComponent->GetOwnerActor(Task) : nullptr;
+}
+
+uint8 UBTNode::GetDefaultPriority() const
+{
+	return uint8(EAITaskPriority::AutonomousAI);
 }

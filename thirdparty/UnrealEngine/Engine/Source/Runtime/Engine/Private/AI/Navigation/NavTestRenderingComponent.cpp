@@ -5,7 +5,6 @@
 #include "AI/Navigation/NavTestRenderingComponent.h"
 #include "DynamicMeshBuilder.h"
 #include "AI/Navigation/NavigationTestingActor.h"
-#include "AI/Navigation/RecastNavMesh.h"
 #include "Debug/DebugDrawService.h"
 
 static const FColor NavMeshRenderColor_OpenSet(255,128,0,255);
@@ -59,8 +58,6 @@ public:
 		bShowBestPath = NavTestActor->bShowBestPath;
 		bShowDiff = NavTestActor->bShowDiffWithPreviousStep;
 
-		ClosestWallLocation = NavTestActor->bDrawDistanceToWall ? NavTestActor->ClosestWallLocation : FNavigationSystem::InvalidLocation;
-
 		GatherPathPoints();
 		GatherPathStep();
 	}
@@ -102,7 +99,6 @@ public:
 					const FVector ActorLocation = NavTestActor->GetActorLocation();
 					const FVector ProjectedLocation = NavTestActor->ProjectedLocation + NavMeshDrawOffset;
 					const FColor ProjectedColor = NavTestActor->bProjectedLocationValid ? FColor(0, 255, 0, 120) : FColor(255, 0, 0, 120);
-					const FColor ClosestWallColor = FColorList::Orange;
 					const FVector BoxExtent(20, 20, 20);
 
 					FMaterialRenderProxy* const ColoredMeshInstance = new(FMemStack::Get()) FColoredMaterialRenderProxy(GEngine->DebugMeshMaterial->GetRenderProxy(false), ProjectedColor);
@@ -117,11 +113,6 @@ public:
 
 					// draw query extent
 					DrawWireBox(PDI, FBox(ActorLocation - NavTestActor->QueryingExtent, ActorLocation + NavTestActor->QueryingExtent), FColor::Blue, false);
-
-					if (FNavigationSystem::IsValidLocation(ClosestWallLocation))
-					{
-						PDI->DrawLine(ClosestWallLocation, ActorLocation, ClosestWallColor, SDPG_World, 2.5);
-					}
 				}
 
 				// draw path
@@ -426,8 +417,6 @@ private:
 	TArray<int32> ClosedSetIndices;
 	TSet<FNodeDebugData> NodeDebug;
 	FSetElementId BestNodeId;
-
-	FVector ClosestWallLocation;
 
 	uint32 bShowBestPath : 1;
 	uint32 bShowNodePool : 1;

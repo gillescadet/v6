@@ -6,7 +6,6 @@
 #include "BTTaskNode.generated.h"
 
 class UBehaviorTreeComponent;
-class UBTService;
 struct FAIMessage;
 
 /** 
@@ -44,7 +43,6 @@ public:
 #if WITH_EDITOR
 	virtual FName GetNodeIconName() const override;
 #endif // WITH_EDITOR
-	virtual void OnGameplayTaskDeactivated(UGameplayTask& Task) override;
 
 	/** message observer's hook */
 	void ReceivedMessage(UBrainComponent* BrainComp, const FAIMessage& Message);
@@ -67,12 +65,13 @@ public:
 	/** helper function: finishes latent aborting */
 	void FinishLatentAbort(UBehaviorTreeComponent& OwnerComp) const;
 
+	//----------------------------------------------------------------------//
+	// UBTTaskNode IGameplayTaskOwnerInterface
+	//----------------------------------------------------------------------//
+	virtual void OnTaskDeactivated(UGameplayTask& Task) override;
+
 	/** @return true if task search should be discarded when this task is selected to execute but is already running */
 	bool ShouldIgnoreRestartSelf() const;
-
-	/** service nodes */
-	UPROPERTY()
-	TArray<UBTService*> Services;
 
 protected:
 

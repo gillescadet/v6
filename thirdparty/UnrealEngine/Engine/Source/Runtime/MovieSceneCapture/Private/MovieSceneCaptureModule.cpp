@@ -5,7 +5,6 @@
 #include "MovieSceneCaptureModule.h"
 #include "JsonObjectConverter.h"
 #include "ActiveMovieSceneCaptures.h"
-#include "SceneViewport.h"
 
 #include "Protocols/ImageSequenceProtocol.h"
 #include "Protocols/CompositionGraphCaptureProtocol.h"
@@ -68,7 +67,7 @@ private:
 		}
 		{
 			Info.DisplayName = LOCTEXT("BMPDescription", "Image Sequence (bmp)");
-			Info.SettingsClassType = UBmpImageCaptureSettings::StaticClass();
+			Info.SettingsClassType = nullptr;	// Bitmaps don't have any options
 			Info.Factory = []() -> TSharedRef<IMovieSceneCaptureProtocol> {
 				return MakeShareable(new FImageSequenceProtocol(EImageFormat::BMP));
 			};
@@ -87,16 +86,8 @@ private:
 		UGameEngine* GameEngine = Cast<UGameEngine>(GEngine);
 		if (GameEngine && StartupMovieCaptureHandle.IsValid())
 		{
-			if (!GameEngine->SceneViewport->GetClient()->GetWorld())
-			{
-				// @todo: Set exit code to EMovieSceneCaptureExitCode::WorldNotFound when we have the ability to do so
-				FPlatformMisc::RequestExit(false);
-			}
-			else
-			{
-				IMovieSceneCaptureInterface* StartupCaptureInterface = RetrieveMovieSceneInterface(StartupMovieCaptureHandle);
-				StartupCaptureInterface->Initialize(GameEngine->SceneViewport.ToSharedRef());
-			}
+			IMovieSceneCaptureInterface* StartupCaptureInterface = RetrieveMovieSceneInterface(StartupMovieCaptureHandle);
+			StartupCaptureInterface->Initialize(GameEngine->SceneViewport.ToSharedRef());
 		}
 
 		StartupMovieCaptureHandle = FMovieSceneCaptureHandle();
@@ -171,10 +162,23 @@ private:
 						return nullptr;
 					}
 
-					TSharedPtr<FJsonValue> AdditionalDataField = RootObject->TryGetField(TEXT("AdditionalData"));
-					if (AdditionalDataField.IsValid())
+					// Now deserialize the protocol data
+					auto ProtocolTypeField = RootObject->TryGetField(TEXT("ProtocolType"));
+					if (ProtocolTypeField.IsValid())
 					{
-						Capture->DeserializeJson(*AdditionalDataField->AsObject());
+						UClass* ProtocolTypeClass = FindObject<UClass>(nullptr, *ProtocolTypeField->AsString());
+						if (ProtocolTypeClass)
+						{
+							Capture->ProtocolSettings = NewObject<UMovieSceneCapture>(Capture, ProtocolTypeClass);
+							if (Capture->ProtocolSettings)
+							{
+								auto ProtocolDataField = RootObject->TryGetField(TEXT("ProtocolData"));
+								if (ProtocolDataField.IsValid())
+								{
+									FJsonObjectConverter::JsonAttributesToUStruct(ProtocolDataField->AsObject()->Values, ProtocolTypeClass, Capture->ProtocolSettings, 0, 0);
+								}
+							}
+						}
 					}
 				}
 			}

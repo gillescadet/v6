@@ -2,7 +2,6 @@
 
 #include "CoreUObjectPrivate.h"
 #include "EngineVersion.h"
-#include "EditorObjectVersion.h"
 
 FPackageFileSummary::FPackageFileSummary()
 {

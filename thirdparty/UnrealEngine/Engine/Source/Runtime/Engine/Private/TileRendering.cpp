@@ -84,24 +84,24 @@ public:
 	/** Default constructor. */
 	FTileVertexFactory()
 	{
-		FLocalVertexFactory::FDataType VertexData;
+		FLocalVertexFactory::DataType Data;
 		// position
-		VertexData.PositionComponent = FVertexStreamComponent(
+		Data.PositionComponent = FVertexStreamComponent(
 			&GTileRendererVertexBuffer,STRUCT_OFFSET(FMaterialTileVertex,Position),sizeof(FMaterialTileVertex),VET_Float3);
 		// tangents
-		VertexData.TangentBasisComponents[0] = FVertexStreamComponent(
+		Data.TangentBasisComponents[0] = FVertexStreamComponent(
 			&GTileRendererVertexBuffer,STRUCT_OFFSET(FMaterialTileVertex,TangentX),sizeof(FMaterialTileVertex),VET_PackedNormal);
-		VertexData.TangentBasisComponents[1] = FVertexStreamComponent(
+		Data.TangentBasisComponents[1] = FVertexStreamComponent(
 			&GTileRendererVertexBuffer,STRUCT_OFFSET(FMaterialTileVertex,TangentZ),sizeof(FMaterialTileVertex),VET_PackedNormal);
 		// color
-		VertexData.ColorComponent = FVertexStreamComponent(
+		Data.ColorComponent = FVertexStreamComponent(
 			&GTileRendererVertexBuffer,STRUCT_OFFSET(FMaterialTileVertex,Color),sizeof(FMaterialTileVertex),VET_Color);
 		// UVs
-		VertexData.TextureCoordinates.Add(FVertexStreamComponent(
+		Data.TextureCoordinates.Add(FVertexStreamComponent(
 			&GTileRendererVertexBuffer,STRUCT_OFFSET(FMaterialTileVertex,U),sizeof(FMaterialTileVertex),VET_Float2));
 
 		// update the data
-		SetData(VertexData);
+		SetData(Data);
 	}
 };
 TGlobalResource<FTileVertexFactory> GTileVertexFactory;
@@ -287,7 +287,7 @@ bool FCanvasTileRendererItem::Render_GameThread(const FCanvas* Canvas)
 	const FRenderTarget* CanvasRenderTarget = Canvas->GetRenderTarget();
 	FSceneViewFamily* ViewFamily = new FSceneViewFamily(FSceneViewFamily::ConstructionValues(
 		CanvasRenderTarget,
-		Canvas->GetScene(),
+		NULL,
 		FEngineShowFlags(ESFIM_Game))
 		.SetWorldTimes(CurrentWorldTime, DeltaWorldTime, CurrentRealTime)
 		.SetGammaCorrection(CanvasRenderTarget->GetDisplayGamma()));
@@ -328,28 +328,27 @@ bool FCanvasTileRendererItem::Render_GameThread(const FCanvas* Canvas)
 		DrawTileCommand,
 		FDrawTileParameters, Parameters, DrawTileParameters,
 		{
-			SCOPED_DRAW_EVENTF(RHICmdList, CanvasDrawTile, *Parameters.RenderData->MaterialRenderProxy->GetMaterial(GMaxRHIFeatureLevel)->GetFriendlyName());
-			
-			for (int32 TileIdx = 0; TileIdx < Parameters.RenderData->Tiles.Num(); TileIdx++)
-			{
-				const FRenderData::FTileInst& Tile = Parameters.RenderData->Tiles[TileIdx];
-				FTileRenderer::DrawTile(
-					RHICmdList,
-					*Parameters.View,
-					Parameters.RenderData->MaterialRenderProxy,
-					Parameters.bNeedsToSwitchVerticalAxis,
-					Tile.X, Tile.Y, Tile.SizeX, Tile.SizeY,
-					Tile.U, Tile.V, Tile.SizeU, Tile.SizeV,
-					Parameters.bIsHitTesting, Tile.HitProxyId,
-					Tile.InColor);
-			}
+		SCOPED_DRAW_EVENT(RHICmdList, CanvasDrawTile);
+		for (int32 TileIdx = 0; TileIdx < Parameters.RenderData->Tiles.Num(); TileIdx++)
+		{
+			const FRenderData::FTileInst& Tile = Parameters.RenderData->Tiles[TileIdx];
+			FTileRenderer::DrawTile(
+				RHICmdList,
+				*Parameters.View,
+				Parameters.RenderData->MaterialRenderProxy,
+				Parameters.bNeedsToSwitchVerticalAxis,
+				Tile.X, Tile.Y, Tile.SizeX, Tile.SizeY,
+				Tile.U, Tile.V, Tile.SizeU, Tile.SizeV,
+				Parameters.bIsHitTesting, Tile.HitProxyId,
+				Tile.InColor);
+		}
 
-			delete Parameters.View->Family;
-			delete Parameters.View;
-			if (Parameters.AllowedCanvasModes & FCanvas::Allow_DeleteOnRender)
-			{
-				delete Parameters.RenderData;
-			}
+		delete Parameters.View->Family;
+		delete Parameters.View;
+		if (Parameters.AllowedCanvasModes & FCanvas::Allow_DeleteOnRender)
+		{
+			delete Parameters.RenderData;
+		}
 		});
 	if (Canvas->GetAllowedModes() & FCanvas::Allow_DeleteOnRender)
 	{

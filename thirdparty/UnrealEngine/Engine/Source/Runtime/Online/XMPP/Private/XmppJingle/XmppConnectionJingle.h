@@ -60,11 +60,11 @@ public:
 	virtual FOnXmppLogingChanged& OnLoginChanged() override { return OnXmppLogingChangedDelegate; }
 	virtual FOnXmppLogoutComplete& OnLogoutComplete() override { return OnXmppLogoutCompleteDelegate; }
 
-	virtual IXmppPresencePtr Presence() override;
-	virtual IXmppPubSubPtr PubSub() override;
-	virtual IXmppMessagesPtr Messages() override;
-	virtual IXmppMultiUserChatPtr MultiUserChat() override;
-	virtual IXmppChatPtr PrivateChat() override;
+	virtual TSharedPtr<class IXmppPresence> Presence() override;
+	virtual TSharedPtr<class IXmppPubSub> PubSub() override;
+	virtual TSharedPtr<class IXmppMessages> Messages() override;
+	virtual TSharedPtr<class IXmppMultiUserChat> MultiUserChat() override;
+	virtual TSharedPtr<class IXmppChat> PrivateChat() override;
 
 	// FTickerObjectBase
 
@@ -122,19 +122,19 @@ private:
 	FOnXmppLogoutComplete OnXmppLogoutCompleteDelegate;
 
 	/** access to presence implementation */
-	TSharedPtr<class FXmppPresenceJingle, ESPMode::ThreadSafe> PresenceJingle;
+	TSharedPtr<class FXmppPresenceJingle> PresenceJingle;
 	friend class FXmppPresenceJingle;
 
 	/** access to messages implementation */
-	TSharedPtr<class FXmppMessagesJingle, ESPMode::ThreadSafe> MessagesJingle;
+	TSharedPtr<class FXmppMessagesJingle> MessagesJingle;
 	friend class FXmppMessagesJingle;
 
 	/** access to private chat implementation */
-	TSharedPtr<class FXmppChatJingle, ESPMode::ThreadSafe> ChatJingle;
+	TSharedPtr<class FXmppChatJingle> ChatJingle;
 	friend class FXmppChatJingle;
 
 	/** access to MUC implementation */
-	TSharedPtr<class FXmppMultiUserChatJingle, ESPMode::ThreadSafe> MultiUserChatJingle;
+	TSharedPtr<class FXmppMultiUserChatJingle> MultiUserChatJingle;
 	friend class FXmppMultiUserChatJingle;
 
 	/** thread that handles creating a connection and processing messages on xmpp pump */

@@ -1,8 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
-
-#include "Materials/MaterialInstanceConstant.h"
 #include "LandscapeMaterialInstanceConstant.generated.h"
 
 UCLASS(MinimalAPI)
@@ -14,9 +12,11 @@ class ULandscapeMaterialInstanceConstant : public UMaterialInstanceConstant
 	uint32 bIsLayerThumbnail:1;
 
 	UPROPERTY()
-	uint32 bDisableTessellation:1;
+	int32 DataWeightmapIndex;
 
-	virtual FMaterialResource* AllocatePermutationResource() override;
-	virtual bool HasOverridenBaseProperties() const override;
+	UPROPERTY()
+	int32 DataWeightmapSize;
 };
+
+
 

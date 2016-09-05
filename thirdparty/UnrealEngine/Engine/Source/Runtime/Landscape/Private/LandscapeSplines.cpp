@@ -6,8 +6,6 @@
 
 #include "Landscape.h"
 #include "Components/SplineMeshComponent.h"
-#include "LandscapeStreamingProxy.h"
-#include "LandscapeComponent.h"
 #include "ShaderParameterUtils.h"
 #include "StaticMeshResources.h"
 #include "LandscapeSplineProxies.h"
@@ -127,9 +125,9 @@ public:
 	{
 		// Slight Depth Bias so that the splines show up when they exactly match the target surface
 		// e.g. someone playing with splines on a newly-created perfectly-flat landscape
-		static const float DepthBias = 0.0001;
+		static const float DepthBias = -0.0001;
 
-		const FMatrix& MyLocalToWorld = GetLocalToWorld();
+		const FMatrix& LocalToWorld = GetLocalToWorld();
 
 		const FLinearColor SelectedSplineColor = GEngine->GetSelectedMaterialColor();
 		const FLinearColor SelectedControlPointSpriteColor = FLinearColor::White + (GEngine->GetSelectedMaterialColor() * GEngine->SelectionHighlightIntensityBillboards * 10); 
@@ -146,19 +144,19 @@ public:
 					const FLinearColor SegmentColor = Segment.bSelected ? SelectedSplineColor : SplineColor;
 
 					FLandscapeSplineInterpPoint OldPoint = Segment.Points[0];
-					OldPoint.Center       = MyLocalToWorld.TransformPosition(OldPoint.Center);
-					OldPoint.Left         = MyLocalToWorld.TransformPosition(OldPoint.Left);
-					OldPoint.Right        = MyLocalToWorld.TransformPosition(OldPoint.Right);
-					OldPoint.FalloffLeft  = MyLocalToWorld.TransformPosition(OldPoint.FalloffLeft);
-					OldPoint.FalloffRight = MyLocalToWorld.TransformPosition(OldPoint.FalloffRight);
+					OldPoint.Center       = LocalToWorld.TransformPosition(OldPoint.Center);
+					OldPoint.Left         = LocalToWorld.TransformPosition(OldPoint.Left);
+					OldPoint.Right        = LocalToWorld.TransformPosition(OldPoint.Right);
+					OldPoint.FalloffLeft  = LocalToWorld.TransformPosition(OldPoint.FalloffLeft);
+					OldPoint.FalloffRight = LocalToWorld.TransformPosition(OldPoint.FalloffRight);
 					for (int32 i = 1; i < Segment.Points.Num(); i++)
 					{
 						FLandscapeSplineInterpPoint NewPoint = Segment.Points[i];
-						NewPoint.Center       = MyLocalToWorld.TransformPosition(NewPoint.Center);
-						NewPoint.Left         = MyLocalToWorld.TransformPosition(NewPoint.Left);
-						NewPoint.Right        = MyLocalToWorld.TransformPosition(NewPoint.Right);
-						NewPoint.FalloffLeft  = MyLocalToWorld.TransformPosition(NewPoint.FalloffLeft);
-						NewPoint.FalloffRight = MyLocalToWorld.TransformPosition(NewPoint.FalloffRight);
+						NewPoint.Center       = LocalToWorld.TransformPosition(NewPoint.Center);
+						NewPoint.Left         = LocalToWorld.TransformPosition(NewPoint.Left);
+						NewPoint.Right        = LocalToWorld.TransformPosition(NewPoint.Right);
+						NewPoint.FalloffLeft  = LocalToWorld.TransformPosition(NewPoint.FalloffLeft);
+						NewPoint.FalloffRight = LocalToWorld.TransformPosition(NewPoint.FalloffRight);
 
 						// Draw lines from the last keypoint.
 						PDI->SetHitProxy(Segment.HitProxy);
@@ -185,12 +183,12 @@ public:
 
 				for (const FControlPointProxy& ControlPoint : ControlPoints)
 				{
-					const FVector ControlPointLocation = MyLocalToWorld.TransformPosition(ControlPoint.Location);
+					const FVector ControlPointLocation = LocalToWorld.TransformPosition(ControlPoint.Location);
 
 					// Draw Sprite
 					if (bDrawControlPointSprite)
 					{
-						const float ControlPointSpriteScale = MyLocalToWorld.GetScaleVector().X * ControlPoint.SpriteScale;
+						const float ControlPointSpriteScale = LocalToWorld.GetScaleVector().X * ControlPoint.SpriteScale;
 						const FVector ControlPointSpriteLocation = ControlPointLocation + FVector(0, 0, ControlPointSpriteScale * 0.75f);
 						const FLinearColor ControlPointSpriteColor = ControlPoint.bSelected ? SelectedControlPointSpriteColor : FLinearColor::White;
 
@@ -215,11 +213,11 @@ public:
 					if (ControlPoint.Points.Num() == 1)
 					{
 						FLandscapeSplineInterpPoint NewPoint = ControlPoint.Points[0];
-						NewPoint.Center = MyLocalToWorld.TransformPosition(NewPoint.Center);
-						NewPoint.Left   = MyLocalToWorld.TransformPosition(NewPoint.Left);
-						NewPoint.Right  = MyLocalToWorld.TransformPosition(NewPoint.Right);
-						NewPoint.FalloffLeft  = MyLocalToWorld.TransformPosition(NewPoint.FalloffLeft);
-						NewPoint.FalloffRight = MyLocalToWorld.TransformPosition(NewPoint.FalloffRight);
+						NewPoint.Center = LocalToWorld.TransformPosition(NewPoint.Center);
+						NewPoint.Left   = LocalToWorld.TransformPosition(NewPoint.Left);
+						NewPoint.Right  = LocalToWorld.TransformPosition(NewPoint.Right);
+						NewPoint.FalloffLeft  = LocalToWorld.TransformPosition(NewPoint.FalloffLeft);
+						NewPoint.FalloffRight = LocalToWorld.TransformPosition(NewPoint.FalloffRight);
 
 						// draw end for spline connection
 						PDI->DrawPoint(NewPoint.Center, ControlPointColor, 6.0f, GetDepthPriorityGroup(View));
@@ -234,19 +232,19 @@ public:
 					else if (ControlPoint.Points.Num() >= 2)
 					{
 						FLandscapeSplineInterpPoint OldPoint = ControlPoint.Points.Last();
-						//OldPoint.Left   = MyLocalToWorld.TransformPosition(OldPoint.Left);
-						OldPoint.Right  = MyLocalToWorld.TransformPosition(OldPoint.Right);
-						//OldPoint.FalloffLeft  = MyLocalToWorld.TransformPosition(OldPoint.FalloffLeft);
-						OldPoint.FalloffRight = MyLocalToWorld.TransformPosition(OldPoint.FalloffRight);
+						//OldPoint.Left   = LocalToWorld.TransformPosition(OldPoint.Left);
+						OldPoint.Right  = LocalToWorld.TransformPosition(OldPoint.Right);
+						//OldPoint.FalloffLeft  = LocalToWorld.TransformPosition(OldPoint.FalloffLeft);
+						OldPoint.FalloffRight = LocalToWorld.TransformPosition(OldPoint.FalloffRight);
 
 						for (const FLandscapeSplineInterpPoint& Point : ControlPoint.Points)
 						{
 							FLandscapeSplineInterpPoint NewPoint = Point;
-							NewPoint.Center = MyLocalToWorld.TransformPosition(NewPoint.Center);
-							NewPoint.Left   = MyLocalToWorld.TransformPosition(NewPoint.Left);
-							NewPoint.Right  = MyLocalToWorld.TransformPosition(NewPoint.Right);
-							NewPoint.FalloffLeft  = MyLocalToWorld.TransformPosition(NewPoint.FalloffLeft);
-							NewPoint.FalloffRight = MyLocalToWorld.TransformPosition(NewPoint.FalloffRight);
+							NewPoint.Center = LocalToWorld.TransformPosition(NewPoint.Center);
+							NewPoint.Left   = LocalToWorld.TransformPosition(NewPoint.Left);
+							NewPoint.Right  = LocalToWorld.TransformPosition(NewPoint.Right);
+							NewPoint.FalloffLeft  = LocalToWorld.TransformPosition(NewPoint.FalloffLeft);
+							NewPoint.FalloffRight = LocalToWorld.TransformPosition(NewPoint.FalloffRight);
 
 							PDI->SetHitProxy(ControlPoint.HitProxy);
 
@@ -427,9 +425,9 @@ FBoxSphereBounds ULandscapeSplinesComponent::CalcBounds(const FTransform& LocalT
 	{
 		// There's no such thing as an "invalid" FBoxSphereBounds (unlike FBox)
 		// try to return something that won't modify the parent bounds
-		if (GetAttachParent())
+		if (AttachParent)
 		{
-			NewBounds = FBoxSphereBounds(GetAttachParent()->Bounds.Origin, FVector::ZeroVector, 0.0f);
+			NewBounds = FBoxSphereBounds(AttachParent->Bounds.Origin, FVector::ZeroVector, 0.0f);
 		}
 		else
 		{
@@ -573,7 +571,6 @@ void ULandscapeSplinesComponent::CheckForErrors()
 	Super::CheckForErrors();
 
 	UWorld* ThisOuterWorld = GetTypedOuter<UWorld>();
-	check(ThisOuterWorld->WorldType == EWorldType::Editor);
 
 	TSet<UWorld*> OutdatedWorlds;
 	TMap<UWorld*, FForeignWorldSplineData*> ForeignWorldSplineDataMapCache;
@@ -683,7 +680,7 @@ void ULandscapeSplinesComponent::PostLoad()
 	Super::PostLoad();
 
 #if WITH_EDITOR
-	if (GIsEditor && GetWorld()->WorldType == EWorldType::Editor)
+	if (GIsEditor)
 	{
 		// Build MeshComponentForeignOwnersMap (Component->Spline) from ForeignWorldSplineDataMap (World->Spline->Component)
 		for (auto& ForeignWorldSplineDataPair : ForeignWorldSplineDataMap)
@@ -715,7 +712,7 @@ void ULandscapeSplinesComponent::PostLoad()
 	CheckSplinesValid();
 
 #if WITH_EDITOR
-	if (GIsEditor && GetWorld()->WorldType == EWorldType::Editor)
+	if (GIsEditor)
 	{
 		CheckForErrors();
 	}
@@ -779,10 +776,7 @@ bool FForeignWorldSplineData::IsEmpty()
 ULandscapeSplinesComponent* ULandscapeSplinesComponent::GetStreamingSplinesComponentByLocation(const FVector& LocalLocation, bool bCreate /* = true*/)
 {
 	ALandscapeProxy* OuterLandscape = Cast<ALandscapeProxy>(GetOwner());
-	if (OuterLandscape &&
-		// when copy/pasting this can get called with a null guid on the parent landscape
-		// this is fine, we won't have any cross-level meshes in this case anyway
-		OuterLandscape->GetLandscapeGuid().IsValid())
+	if (OuterLandscape)
 	{
 		FVector LandscapeLocalLocation = ComponentToWorld.GetRelativeTransform(OuterLandscape->LandscapeActorToWorld()).TransformPosition(LocalLocation);
 		const int32 ComponentIndexX = (LandscapeLocalLocation.X >= 0.0f) ? FMath::FloorToInt(LandscapeLocalLocation.X / OuterLandscape->ComponentSizeQuads) : FMath::CeilToInt(LandscapeLocalLocation.X / OuterLandscape->ComponentSizeQuads);
@@ -796,7 +790,7 @@ ULandscapeSplinesComponent* ULandscapeSplinesComponent::GetStreamingSplinesCompo
 				ComponentLandscapeProxy->Modify();
 				ComponentLandscapeProxy->SplineComponent = NewObject<ULandscapeSplinesComponent>(ComponentLandscapeProxy, NAME_None, RF_Transactional);
 				ComponentLandscapeProxy->SplineComponent->RelativeScale3D = RelativeScale3D;
-				ComponentLandscapeProxy->SplineComponent->AttachToComponent(ComponentLandscapeProxy->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+				ComponentLandscapeProxy->SplineComponent->AttachTo(ComponentLandscapeProxy->GetRootComponent());
 			}
 			if (ComponentLandscapeProxy->SplineComponent)
 			{
@@ -824,7 +818,7 @@ ULandscapeSplinesComponent* ULandscapeSplinesComponent::GetStreamingSplinesCompo
 				Proxy->Modify();
 				Proxy->SplineComponent = NewObject<ULandscapeSplinesComponent>(Proxy, NAME_None, RF_Transactional);
 				Proxy->SplineComponent->RelativeScale3D = RelativeScale3D;
-				Proxy->SplineComponent->AttachToComponent(Proxy->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+				Proxy->SplineComponent->AttachTo(Proxy->GetRootComponent());
 			}
 			return Proxy->SplineComponent;
 		}
@@ -836,33 +830,28 @@ ULandscapeSplinesComponent* ULandscapeSplinesComponent::GetStreamingSplinesCompo
 TArray<ULandscapeSplinesComponent*> ULandscapeSplinesComponent::GetAllStreamingSplinesComponents()
 {
 	ALandscapeProxy* OuterLandscape = Cast<ALandscapeProxy>(GetOwner());
-	if (OuterLandscape &&
-		// when copy/pasting this can get called with a null guid on the parent landscape
-		// this is fine, we won't have any cross-level meshes in this case anyway
-		OuterLandscape->GetLandscapeGuid().IsValid())
+	if (OuterLandscape)
 	{
 		ULandscapeInfo* LandscapeInfo = OuterLandscape->GetLandscapeInfo();
+		check(LandscapeInfo);
 
-		if (LandscapeInfo)
+		TArray<ULandscapeSplinesComponent*> SplinesComponents;
+		SplinesComponents.Reserve(LandscapeInfo->Proxies.Num() + 1);
+
+		ALandscape* RootLandscape = LandscapeInfo->LandscapeActor.Get();
+		if (RootLandscape && RootLandscape->SplineComponent)
 		{
-			TArray<ULandscapeSplinesComponent*> SplinesComponents;
-			SplinesComponents.Reserve(LandscapeInfo->Proxies.Num() + 1);
-
-			ALandscape* RootLandscape = LandscapeInfo->LandscapeActor.Get();
-			if (RootLandscape && RootLandscape->SplineComponent)
-			{
-				SplinesComponents.Add(RootLandscape->SplineComponent);
-			}
-			for (ALandscapeProxy* LandscapeProxy : LandscapeInfo->Proxies)
-			{
-				if (LandscapeProxy && LandscapeProxy->SplineComponent)
-				{
-					SplinesComponents.Add(LandscapeProxy->SplineComponent);
-				}
-			}
-
-			return SplinesComponents;
+			SplinesComponents.Add(RootLandscape->SplineComponent);
 		}
+		for (ALandscapeProxy* LandscapeProxy : LandscapeInfo->Proxies)
+		{
+			if (LandscapeProxy && LandscapeProxy->SplineComponent)
+			{
+				SplinesComponents.Add(LandscapeProxy->SplineComponent);
+			}
+		}
+
+		return SplinesComponents;
 	}
 
 	return {};
@@ -1437,7 +1426,7 @@ void ULandscapeSplineControlPoint::UpdateSplinePoints(bool bUpdateCollision, boo
 			MeshComponentOuterActor->Modify();
 			MeshComponent = NewObject<UControlPointMeshComponent>(MeshComponentOuterActor, NAME_None, RF_Transactional | RF_TextExportTransient);
 			MeshComponent->bSelected = bSelected;
-			MeshComponent->AttachToComponent(MeshComponentOuterSplines, FAttachmentTransformRules::KeepRelativeTransform);
+			MeshComponent->AttachTo(MeshComponentOuterSplines);
 			bComponentNeedsRegistering = true;
 
 			if (MeshComponentOuterSplines == OuterSplines)
@@ -1452,20 +1441,12 @@ void ULandscapeSplineControlPoint::UpdateSplinePoints(bool bUpdateCollision, boo
 			}
 		}
 
-		FVector MeshLocation = Location;
-		FRotator MeshRotation = Rotation;
-		if (MeshComponentOuterSplines != OuterSplines)
-		{
-			const FTransform RelativeTransform = OuterSplines->ComponentToWorld.GetRelativeTransform(MeshComponentOuterSplines->ComponentToWorld);
-			MeshLocation = RelativeTransform.TransformPosition(MeshLocation);
-		}
-
-		if (MeshComponent->RelativeLocation != MeshLocation ||
-			MeshComponent->RelativeRotation != MeshRotation ||
+		if (MeshComponent->RelativeLocation != Location ||
+			MeshComponent->RelativeRotation != Rotation ||
 			MeshComponent->RelativeScale3D != MeshScale)
 		{
 			MeshComponent->Modify();
-			MeshComponent->SetRelativeTransform(FTransform(MeshRotation, MeshLocation, MeshScale));
+			MeshComponent->SetRelativeTransform(FTransform(Rotation, Location, MeshScale));
 			MeshComponent->InvalidateLightingCache();
 		}
 
@@ -1600,15 +1581,8 @@ void ULandscapeSplineControlPoint::UpdateSplinePoints(bool bUpdateCollision, boo
 		Points.Emplace(StartLocation, LeftPos, RightPos, FalloffLeftPos, FalloffRightPos, 1.0f);
 	}
 
-	// Update bounds
+	// Update Bounds
 	Bounds = FBox(0);
-
-	// Sprite bounds
-	float SpriteScale = FMath::Clamp<float>(Width != 0 ? Width / 2 : SideFalloff / 4, 10, 1000);
-	Bounds += Location + FVector(0, 0, 0.75f * SpriteScale);
-	Bounds = Bounds.ExpandBy(SpriteScale);
-
-	// Points bounds
 	for (const FLandscapeSplineInterpPoint& Point : Points)
 	{
 		Bounds += Point.FalloffLeft;
@@ -2140,7 +2114,7 @@ void ULandscapeSplineSegment::UpdateSplinePoints(bool bUpdateCollision)
 				MeshComponentOuterActor->Modify();
 				MeshComponent = NewObject<USplineMeshComponent>(MeshComponentOuterActor, NAME_None, RF_Transactional | RF_TextExportTransient);
 				MeshComponent->bSelected = bSelected;
-				MeshComponent->AttachToComponent(MeshComponentOuterSplines, FAttachmentTransformRules::KeepRelativeTransform);
+				MeshComponent->AttachTo(MeshComponentOuterSplines);
 				if (MeshComponentOuterSplines == OuterSplines)
 				{
 					LocalMeshComponents.Add(MeshComponent);
@@ -2315,10 +2289,9 @@ void ULandscapeSplineSegment::UpdateSplinePoints(bool bUpdateCollision)
 			MeshComponent->SplineUpDir = FVector(0,0,1); // Up, to be consistent between joined meshes. We rotate it to horizontal using roll if using Z Forward X Up or X Forward Y Up
 			MeshComponent->ForwardAxis = MeshEntry->ForwardAxis;
 
-			auto* const MeshComponentOuterSplines = MeshComponent->GetAttachParent();
-			if (MeshComponentOuterSplines != OuterSplines)
+			if (MeshComponent->AttachParent != OuterSplines)
 			{
-				const FTransform RelativeTransform = OuterSplines->ComponentToWorld.GetRelativeTransform(MeshComponentOuterSplines->ComponentToWorld);
+				FTransform RelativeTransform = OuterSplines->ComponentToWorld.GetRelativeTransform(MeshComponent->AttachParent->ComponentToWorld);
 				MeshComponent->SplineParams.StartPos = RelativeTransform.TransformPosition(MeshComponent->SplineParams.StartPos);
 				MeshComponent->SplineParams.EndPos   = RelativeTransform.TransformPosition(MeshComponent->SplineParams.EndPos);
 			}

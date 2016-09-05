@@ -34,7 +34,7 @@ public:
 	}
 
 	/** conversion to "bool" returning true if the iterator is valid. */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{ 
 		return CurrentLink != nullptr;
 	}
@@ -233,6 +233,13 @@ public:
 	}
 
 
+	DEPRECATED(4.10, "This function is deprecated. Please use LinkHead.")
+	FORCEINLINE void Link(ContainerType*& Before)
+	{
+		LinkHead(Before);
+	}
+
+
 	/**
 	 * Returns whether element is currently linked.
 	 *
@@ -365,7 +372,7 @@ public:
 	{ }
 
 	/** conversion to "bool" returning true if the iterator is valid. */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{ 
 		return CurrentNode != nullptr; 
 	}

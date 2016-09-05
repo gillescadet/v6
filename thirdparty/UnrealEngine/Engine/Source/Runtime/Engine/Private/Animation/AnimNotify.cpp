@@ -14,9 +14,8 @@ UAnimNotify::UAnimNotify(const FObjectInitializer& ObjectInitializer)
 #if WITH_EDITORONLY_DATA
 	NotifyColor = FColor(255, 200, 200, 255);
 #endif // WITH_EDITORONLY_DATA
-
-	bIsNativeBranchingPoint = false;
 }
+
 
 void UAnimNotify::Notify(class USkeletalMeshComponent* MeshComp, class UAnimSequenceBase* Animation)
 {
@@ -24,11 +23,6 @@ void UAnimNotify::Notify(class USkeletalMeshComponent* MeshComp, class UAnimSequ
 	MeshContext = MeshComp;
 	Received_Notify(MeshComp, Animation);
 	MeshContext = PrevContext;
-}
-
-void UAnimNotify::BranchingPointNotify(FBranchingPointNotifyPayload& BranchingPointPayload)
-{
-	Notify(BranchingPointPayload.SkelMeshComponent, BranchingPointPayload.SequenceAsset);
 }
 
 class UWorld* UAnimNotify::GetWorld() const

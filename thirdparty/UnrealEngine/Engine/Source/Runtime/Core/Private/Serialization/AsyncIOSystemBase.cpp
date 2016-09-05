@@ -39,7 +39,6 @@ static FAutoConsoleVariableRef CVarAsyncIOBandwidthLimit(
 	);
 
 CORE_API bool GbLogAsyncLoading = false;
-CORE_API bool GbLogAsyncTiming = false;
 
 uint64 FAsyncIOSystemBase::QueueIORequest( 
 	const FString& FileName, 
@@ -53,24 +52,6 @@ uint64 FAsyncIOSystemBase::QueueIORequest(
 {
 	check(Offset != INDEX_NONE);
 	check(Dest != nullptr || Size == 0);
-
-	static bool HasCheckedCommandline = false;
-	if (!HasCheckedCommandline)
-	{
-		HasCheckedCommandline = true;
-		if ( FParse::Param(FCommandLine::Get(), TEXT("logasynctiming")))
-		{
-#if !UE_BUILD_SHIPPING
-			GbLogAsyncTiming = true;
-			UE_LOG(LogStreaming, Warning, TEXT("*** ASYNC TIMING IS ENABLED"));
-#endif
-		}
-		else if ( FParse::Param(FCommandLine::Get(), TEXT("logasync")))
-		{
-			GbLogAsyncLoading = true;
-			UE_LOG(LogStreaming, Warning, TEXT("*** ASYNC LOGGING IS ENABLED"));
-		}
-	}
 
 	FScopeLock ScopeLock(CriticalSection);
 
@@ -87,9 +68,17 @@ uint64 FAsyncIOSystemBase::QueueIORequest(
 	IORequest.CompressionFlags			= CompressionFlags;
 	IORequest.Counter					= Counter;
 	IORequest.Priority					= Priority;
-#if !UE_BUILD_SHIPPING
-	IORequest.TimeOfRequest				= GbLogAsyncTiming ? FPlatformTime::Seconds() : 0;
-#endif
+
+	static bool HasCheckedCommandline = false;
+	if (!HasCheckedCommandline)
+	{
+		HasCheckedCommandline = true;
+		if ( FParse::Param(FCommandLine::Get(), TEXT("logasync")))
+		{
+			GbLogAsyncLoading = true;
+			UE_LOG(LogStreaming, Warning, TEXT("*** ASYNC LOGGING IS ENABLED"));
+		}
+	}
 	if (GbLogAsyncLoading == true)
 	{
 		LogIORequest(TEXT("QueueIORequest"), IORequest);
@@ -135,12 +124,8 @@ uint64 FAsyncIOSystemBase::QueueDestroyHandleRequest(const FString& FileName)
 
 void FAsyncIOSystemBase::LogIORequest(const FString& Message, const FAsyncIORequest& IORequest)
 {
-	// When logging timings, ignore destroy handle requests.
-	if (!GbLogAsyncTiming || !IORequest.bIsDestroyHandleRequest)
-	{
-		FString OutputStr = FString::Printf(TEXT("ASYNC: %32s: %s\n"), *Message, *(IORequest.ToString(GbLogAsyncTiming)));
-		FPlatformMisc::LowLevelOutputDebugString(*OutputStr);
-	}
+	FString OutputStr = FString::Printf(TEXT("ASYNC: %32s: %s\n"), *Message, *(IORequest.ToString()));
+	FPlatformMisc::LowLevelOutputDebugString(*OutputStr);
 }
 
 void FAsyncIOSystemBase::InternalRead( IFileHandle* FileHandle, int64 Offset, int64 Size, void* Dest )
@@ -498,7 +483,7 @@ int32 FAsyncIOSystemBase::CancelRequests( uint64* RequestIndices, int32 NumIndic
 		for( int32 TheRequestIndex=0; TheRequestIndex<NumIndices; TheRequestIndex++ )
 		{
 			// Look for matching request index in queue.
-			const FAsyncIORequest& IORequest = OutstandingRequests[OutstandingIndex];
+			const FAsyncIORequest IORequest = OutstandingRequests[OutstandingIndex];
 			if( IORequest.RequestIndex == RequestIndices[TheRequestIndex] )
 			{
 				INC_DWORD_STAT( STAT_AsyncIO_CanceledReadCount );
@@ -590,26 +575,6 @@ int64 FAsyncIOSystemBase::MinimumReadSize()
 	return PlatformMinimumReadSize();
 }
 
-/**
-* Flush the pending logs if any.
-*/
-void FAsyncIOSystemBase::FlushLog()
-{
-	if (GbLogAsyncTiming)
-	{
-		// Move to a temp array to minimize how long the lock is active.
-		TArray<FAsyncIORequest> ProcessedLogs;
-		{
-			FScopeLock ScopeLock(CriticalSection);
-			FMemory::Memswap(&ProcessedRequestForLogs, &ProcessedLogs, sizeof(ProcessedLogs));
-		}
-
-		for (int32 i = 0; i < ProcessedLogs.Num(); ++i)
-		{
-			LogIORequest(TEXT("IOTiming"), ProcessedLogs[i]);
-		}
-	}
-}
 
 void FAsyncIOSystemBase::Exit()
 {
@@ -677,11 +642,9 @@ void FAsyncIOSystemBase::Tick()
 		}
 	}
 
-	int32 NumMergedRequests = 1;
-
 	// Copy of request.
 	FAsyncIORequest IORequest;
-	bool bIsRequestPending	= false;
+	bool			bIsRequestPending	= false;
 	{
 		FScopeLock ScopeLock( CriticalSection );
 		if( OutstandingRequests.Num() )
@@ -692,35 +655,10 @@ void FAsyncIOSystemBase::Tick()
 			{					
 				// We need to copy as we're going to remove it...
 				IORequest = OutstandingRequests[ TheRequestIndex ];
-
-#if !UE_BUILD_SHIPPING
-				// Now check if the next request follow on disk and in memory
-				// This is useful to clean the timing log, while not changing anything to timings.
-				int32 NextRequestIndex = TheRequestIndex + 1;
-				while (GbLogAsyncTiming)
-				{
-					if (OutstandingRequests.IsValidIndex(NextRequestIndex))
-					{
-						const FAsyncIORequest& NextIORequest = OutstandingRequests[NextRequestIndex];
-						if (NextIORequest.FileNameHash == IORequest.FileNameHash && 
-							NextIORequest.CompressionFlags == IORequest.CompressionFlags && 
-							NextIORequest.Offset == IORequest.Offset + IORequest.Size &&
-							(uint8*)NextIORequest.Dest == (uint8*)IORequest.Dest + IORequest.Size &&
-							NextIORequest.Counter == IORequest.Counter)
-						{
-							IORequest.Size += NextIORequest.Size;
-							++NextRequestIndex;
-							++NumMergedRequests;
-							continue;
-						}
-					}
-					break;
-				}
-#endif
 				// ...right here.
 				// NOTE: this needs to be a Remove, not a RemoveSwap because the base implementation
 				// of PlatformGetNextRequestIndex is a FIFO taking priority into account
-				OutstandingRequests.RemoveAt( TheRequestIndex, NumMergedRequests );		
+				OutstandingRequests.RemoveAt( TheRequestIndex );		
 				// We're busy. Updated inside scoped lock to ensure BlockTillAllRequestsFinished works correctly.
 				BusyWithRequest.Increment();
 				bIsRequestPending = true;
@@ -731,8 +669,6 @@ void FAsyncIOSystemBase::Tick()
 	// We only have work to do if there's a request pending.
 	if( bIsRequestPending )
 	{
-		double CurrentTime = GbLogAsyncTiming ? FPlatformTime::Seconds() : 0;
-
 		// handle a destroy handle request from the queue
 		if( IORequest.bIsDestroyHandleRequest )
 		{
@@ -776,20 +712,10 @@ void FAsyncIOSystemBase::Tick()
 		// Request fulfilled.
 		if( IORequest.Counter )
 		{
-			IORequest.Counter->Subtract(NumMergedRequests); 
+			IORequest.Counter->Decrement(); 
 		}
 		// We're done reading for now.
 		BusyWithRequest.Decrement();	
-
-#if !UE_BUILD_SHIPPING
-		if (GbLogAsyncTiming)
-		{
-			IORequest.WaitTime = CurrentTime - IORequest.TimeOfRequest;
-			IORequest.ReadTime = FPlatformTime::Seconds() - CurrentTime;
-			FScopeLock ScopeLock(CriticalSection);
-			ProcessedRequestForLogs.Push(IORequest);
-		}
-#endif
 	}
 	else
 	{

@@ -86,7 +86,6 @@ public:
 
 	//~ Begin USoundBase Interface.
 	virtual bool IsPlayable() const override;
-	virtual bool ShouldApplyInteriorVolumes() const override;
 	virtual void Parse( class FAudioDevice* AudioDevice, const UPTRINT NodeWaveInstanceHash, FActiveSound& ActiveSound, const FSoundParseParameters& ParseParams, TArray<FWaveInstance*>& WaveInstances ) override;
 	virtual float GetVolumeMultiplier() override;
 	virtual float GetPitchMultiplier() override;
@@ -129,12 +128,6 @@ public:
 
 protected:
 	bool RecursiveFindPathToNode(USoundNode* CurrentNode, const UPTRINT CurrentHash, const UPTRINT NodeHashToFind, TArray<USoundNode*>& OutPath) const;
-
-private:
-	void OnPostEngineInit();
-	void EvaluateNodes(bool bAddToRoot);
-
-	FDelegateHandle OnPostEngineInitHandle;
 
 public:
 

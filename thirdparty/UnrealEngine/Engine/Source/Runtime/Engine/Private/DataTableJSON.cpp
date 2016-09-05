@@ -5,6 +5,7 @@
 #include "Json.h"
 #include "Engine/DataTable.h"
 #include "Engine/UserDefinedStruct.h"
+#include "DataTableUtils.h"
 
 #if WITH_EDITOR
 
@@ -34,15 +35,15 @@ namespace
 	}
 }
 
-FDataTableExporterJSON::FDataTableExporterJSON(const EDataTableExportFlags InDTExportFlags, FString& OutExportText)
-	: DTExportFlags(InDTExportFlags)
+FDataTableExporterJSON::FDataTableExporterJSON(const UDataTable& InDataTable, FString& OutExportText)
+	: DataTable(&InDataTable)
 	, JsonWriter(TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR> >::Create(&OutExportText))
 	, bJsonWriterNeedsClose(true)
 {
 }
 
-FDataTableExporterJSON::FDataTableExporterJSON(const EDataTableExportFlags InDTExportFlags, TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > InJsonWriter)
-	: DTExportFlags(InDTExportFlags)
+FDataTableExporterJSON::FDataTableExporterJSON(const UDataTable& InDataTable, TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > InJsonWriter)
+	: DataTable(&InDataTable)
 	, JsonWriter(InJsonWriter)
 	, bJsonWriterNeedsClose(false)
 {
@@ -56,9 +57,9 @@ FDataTableExporterJSON::~FDataTableExporterJSON()
 	}
 }
 
-bool FDataTableExporterJSON::WriteTable(const UDataTable& InDataTable)
+bool FDataTableExporterJSON::WriteTable()
 {
-	if (!InDataTable.RowStruct)
+	if (!DataTable->RowStruct)
 	{
 		return false;
 	}
@@ -66,7 +67,7 @@ bool FDataTableExporterJSON::WriteTable(const UDataTable& InDataTable)
 	JsonWriter->WriteArrayStart();
 
 	// Iterate over rows
-	for (auto RowIt = InDataTable.RowMap.CreateConstIterator(); RowIt; ++RowIt)
+	for (auto RowIt = DataTable->RowMap.CreateConstIterator(); RowIt; ++RowIt)
 	{
 		JsonWriter->WriteObjectStart();
 		{
@@ -76,7 +77,7 @@ bool FDataTableExporterJSON::WriteTable(const UDataTable& InDataTable)
 
 			// Now the values
 			uint8* RowData = RowIt.Value();
-			WriteRow(InDataTable.RowStruct, RowData);
+			WriteRow(RowData);
 		}
 		JsonWriter->WriteObjectEnd();
 	}
@@ -86,37 +87,30 @@ bool FDataTableExporterJSON::WriteTable(const UDataTable& InDataTable)
 	return true;
 }
 
-bool FDataTableExporterJSON::WriteRow(const UScriptStruct* InRowStruct, const void* InRowData)
+bool FDataTableExporterJSON::WriteRow(const void* InRowData)
 {
-	if (!InRowStruct)
+	if (!DataTable->RowStruct)
 	{
 		return false;
 	}
 
-	return WriteStruct(InRowStruct, InRowData);
-}
-
-bool FDataTableExporterJSON::WriteStruct(const UScriptStruct* InStruct, const void* InStructData)
-{
-	for (TFieldIterator<const UProperty> It(InStruct); It; ++It)
+	for (TFieldIterator<UProperty> It(DataTable->RowStruct); It; ++It)
 	{
-		const UProperty* BaseProp = *It;
+		UProperty* BaseProp = *It;
 		check(BaseProp);
 
 		if (BaseProp->ArrayDim == 1)
 		{
-			const void* Data = BaseProp->ContainerPtrToValuePtr<void>(InStructData, 0);
-			WriteStructEntry(InStructData, BaseProp, Data);
+			const void* Data = BaseProp->ContainerPtrToValuePtr<void>(InRowData, 0);
+			WriteStructEntry(InRowData, BaseProp, Data);
 		}
 		else
 		{
-			const FString Identifier = DataTableUtils::GetPropertyExportName(BaseProp, DTExportFlags);
-
-			JsonWriter->WriteArrayStart(Identifier);
+			JsonWriter->WriteArrayStart(BaseProp->GetName());
 
 			for (int32 ArrayEntryIndex = 0; ArrayEntryIndex < BaseProp->ArrayDim; ++ArrayEntryIndex)
 			{
-				const void* Data = BaseProp->ContainerPtrToValuePtr<void>(InStructData, ArrayEntryIndex);
+				const void* Data = BaseProp->ContainerPtrToValuePtr<void>(InRowData, ArrayEntryIndex);
 				WriteArrayEntry(BaseProp, Data);
 			}
 
@@ -129,34 +123,27 @@ bool FDataTableExporterJSON::WriteStruct(const UScriptStruct* InStruct, const vo
 
 bool FDataTableExporterJSON::WriteStructEntry(const void* InRowData, const UProperty* InProperty, const void* InPropertyData)
 {
-	const FString Identifier = DataTableUtils::GetPropertyExportName(InProperty, DTExportFlags);
-
 	if (const UNumericProperty *NumProp = Cast<const UNumericProperty>(InProperty))
 	{
-		if (NumProp->IsEnum())
-		{
-			const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData, DTExportFlags);
-			JsonWriter->WriteValue(Identifier, PropertyValue);
-		}
-		else if (NumProp->IsInteger())
+		if (NumProp->IsInteger())
 		{
 			const int64 PropertyValue = NumProp->GetSignedIntPropertyValue(InPropertyData);
-			JsonWriter->WriteValue(Identifier, PropertyValue);
+			JsonWriter->WriteValue(InProperty->GetName(), PropertyValue);
 		}
 		else
 		{
 			const double PropertyValue = NumProp->GetFloatingPointPropertyValue(InPropertyData);
-			JsonWriter->WriteValue(Identifier, PropertyValue);
+			JsonWriter->WriteValue(InProperty->GetName(), PropertyValue);
 		}
 	}
 	else if (const UBoolProperty* BoolProp = Cast<const UBoolProperty>(InProperty))
 	{
 		const bool PropertyValue = BoolProp->GetPropertyValue(InPropertyData);
-		JsonWriter->WriteValue(Identifier, PropertyValue);
+		JsonWriter->WriteValue(InProperty->GetName(), PropertyValue);
 	}
 	else if (const UArrayProperty* ArrayProp = Cast<const UArrayProperty>(InProperty))
 	{
-		JsonWriter->WriteArrayStart(Identifier);
+		JsonWriter->WriteArrayStart(InProperty->GetName());
 
 		FScriptArrayHelper ArrayHelper(ArrayProp, InPropertyData);
 		for (int32 ArrayEntryIndex = 0; ArrayEntryIndex < ArrayHelper.Num(); ++ArrayEntryIndex)
@@ -167,24 +154,10 @@ bool FDataTableExporterJSON::WriteStructEntry(const void* InRowData, const UProp
 
 		JsonWriter->WriteArrayEnd();
 	}
-	else if (const UStructProperty* StructProp = Cast<const UStructProperty>(InProperty))
-	{
-		if (!!(DTExportFlags & EDataTableExportFlags::UseJsonObjectsForStructs))
-		{
-			JsonWriter->WriteObjectStart(Identifier);
-			WriteStruct(StructProp->Struct, InPropertyData);
-			JsonWriter->WriteObjectEnd();
-		}
-		else
-		{
-			const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData, DTExportFlags);
-			JsonWriter->WriteValue(Identifier, PropertyValue);
-		}
-	}
 	else
 	{
-		const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData, DTExportFlags);
-		JsonWriter->WriteValue(Identifier, PropertyValue);
+		const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InRowData);
+		JsonWriter->WriteValue(InProperty->GetName(), PropertyValue);
 	}
 
 	return true;
@@ -194,12 +167,7 @@ bool FDataTableExporterJSON::WriteArrayEntry(const UProperty* InProperty, const 
 {
 	if (const UNumericProperty *NumProp = Cast<const UNumericProperty>(InProperty))
 	{
-		if (NumProp->IsEnum())
-		{
-			const FString PropertyValue = DataTableUtils::GetPropertyValueAsString(InProperty, (uint8*)InPropertyData, DTExportFlags);
-			JsonWriter->WriteValue(PropertyValue);
-		}
-		else if (NumProp->IsInteger())
+		if (NumProp->IsInteger())
 		{
 			const int64 PropertyValue = NumProp->GetSignedIntPropertyValue(InPropertyData);
 			JsonWriter->WriteValue(PropertyValue);
@@ -215,20 +183,6 @@ bool FDataTableExporterJSON::WriteArrayEntry(const UProperty* InProperty, const 
 		const bool PropertyValue = BoolProp->GetPropertyValue(InPropertyData);
 		JsonWriter->WriteValue(PropertyValue);
 	}
-	else if (const UStructProperty* StructProp = Cast<const UStructProperty>(InProperty))
-	{
-		if (!!(DTExportFlags & EDataTableExportFlags::UseJsonObjectsForStructs))
-		{
-			JsonWriter->WriteObjectStart();
-			WriteStruct(StructProp->Struct, InPropertyData);
-			JsonWriter->WriteObjectEnd();
-		}
-		else
-		{
-			const FString PropertyValue = DataTableUtils::GetSinglePropertyValueAsString(InProperty, (uint8*)InPropertyData, DTExportFlags);
-			JsonWriter->WriteValue(PropertyValue);
-		}
-	}
 	else if (const UArrayProperty* ArrayProp = Cast<const UArrayProperty>(InProperty))
 	{
 		// Cannot nest arrays
@@ -236,7 +190,7 @@ bool FDataTableExporterJSON::WriteArrayEntry(const UProperty* InProperty, const 
 	}
 	else
 	{
-		const FString PropertyValue = DataTableUtils::GetSinglePropertyValueAsString(InProperty, (uint8*)InPropertyData, DTExportFlags);
+		const FString PropertyValue = DataTableUtils::GetSinglePropertyValueAsString(InProperty, (uint8*)InPropertyData);
 		JsonWriter->WriteValue(PropertyValue);
 	}
 
@@ -302,15 +256,15 @@ bool FDataTableImporterJSON::ReadTable()
 	return true;
 }
 
-bool FDataTableImporterJSON::ReadRow(const TSharedRef<FJsonObject>& InParsedTableRowObject, const int32 InRowIdx)
+bool FDataTableImporterJSON::ReadRow(const TSharedRef<FJsonObject>& ParsedTableRowObject, const int32 RowIdx)
 {
 	// Get row name
-	FName RowName = DataTableUtils::MakeValidName(InParsedTableRowObject->GetStringField(TEXT("Name")));
+	FName RowName = DataTableUtils::MakeValidName(ParsedTableRowObject->GetStringField(TEXT("Name")));
 
 	// Check its not 'none'
 	if (RowName.IsNone())
 	{
-		ImportProblems.Add(FString::Printf(TEXT("Row '%d' missing a name."), InRowIdx));
+		ImportProblems.Add(FString::Printf(TEXT("Row '%d' missing a name."), RowIdx));
 		return false;
 	}
 
@@ -334,63 +288,49 @@ bool FDataTableImporterJSON::ReadRow(const TSharedRef<FJsonObject>& InParsedTabl
 	// Add to row map
 	DataTable->RowMap.Add(RowName, RowData);
 
-	return ReadStruct(InParsedTableRowObject, DataTable->RowStruct, RowName, RowData);
-}
-
-bool FDataTableImporterJSON::ReadStruct(const TSharedRef<FJsonObject>& InParsedObject, UScriptStruct* InStruct, const FName InRowName, void* InStructData)
-{
 	// Now read in each property
-	for (TFieldIterator<UProperty> It(InStruct); It; ++It)
+	for (TFieldIterator<UProperty> It(DataTable->RowStruct); It; ++It)
 	{
 		UProperty* BaseProp = *It;
 		check(BaseProp);
 
-		const FString ColumnName = DataTableUtils::GetPropertyDisplayName(BaseProp, BaseProp->GetName());
-
-		TSharedPtr<FJsonValue> ParsedPropertyValue;
-		for (const FString& PropertyName : DataTableUtils::GetPropertyImportNames(BaseProp))
-		{
-			ParsedPropertyValue = InParsedObject->TryGetField(PropertyName);
-			if (ParsedPropertyValue.IsValid())
-			{
-				break;
-			}
-		}
-
+		const FString PropertyName = BaseProp->GetName();
+		TSharedPtr<FJsonValue> ParsedPropertyValue = ParsedTableRowObject->TryGetField(PropertyName);
 		if (!ParsedPropertyValue.IsValid())
 		{
-			ImportProblems.Add(FString::Printf(TEXT("Row '%s' is missing an entry for '%s'."), *InRowName.ToString(), *ColumnName));
+			ImportProblems.Add(FString::Printf(TEXT("Row '%s' is missing an entry for '%s'."), *RowName.ToString(), *PropertyName));
 			continue;
 		}
 
 		if (BaseProp->ArrayDim == 1)
 		{
-			void* Data = BaseProp->ContainerPtrToValuePtr<void>(InStructData, 0);
-			ReadStructEntry(ParsedPropertyValue.ToSharedRef(), InRowName, ColumnName, InStructData, BaseProp, Data);
+			void* Data = BaseProp->ContainerPtrToValuePtr<void>(RowData, 0);
+			ReadStructEntry(ParsedPropertyValue.ToSharedRef(), RowName, RowData, BaseProp, Data);
 		}
 		else
 		{
+			const FString ColumnName = DataTableUtils::GetPropertyDisplayName(BaseProp, BaseProp->GetName());
 			const TCHAR* const ParsedPropertyType = JSONTypeToString(ParsedPropertyValue->Type);
 
 			const TArray< TSharedPtr<FJsonValue> >* PropertyValuesPtr;
 			if (!ParsedPropertyValue->TryGetArray(PropertyValuesPtr))
 			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Array, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
+				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Array, got %s."), *ColumnName, *RowName.ToString(), ParsedPropertyType));
 				return false;
 			}
 
 			if (BaseProp->ArrayDim != PropertyValuesPtr->Num())
 			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is a static sized array with %d elements, but we have %d values to import"), *ColumnName, *InRowName.ToString(), BaseProp->ArrayDim, PropertyValuesPtr->Num()));
+				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is a static sized array with %d elements, but we have %d values to import"), *ColumnName, *RowName.ToString(), BaseProp->ArrayDim, PropertyValuesPtr->Num()));
 			}
 
 			for (int32 ArrayEntryIndex = 0; ArrayEntryIndex < BaseProp->ArrayDim; ++ArrayEntryIndex)
 			{
 				if (PropertyValuesPtr->IsValidIndex(ArrayEntryIndex))
 				{
-					void* Data = BaseProp->ContainerPtrToValuePtr<void>(InStructData, ArrayEntryIndex);
+					void* Data = BaseProp->ContainerPtrToValuePtr<void>(RowData, ArrayEntryIndex);
 					const TSharedPtr<FJsonValue>& PropertyValueEntry = (*PropertyValuesPtr)[ArrayEntryIndex];
-					ReadArrayEntry(PropertyValueEntry.ToSharedRef(), InRowName, ColumnName, ArrayEntryIndex, BaseProp, Data);
+					ReadArrayEntry(PropertyValueEntry.ToSharedRef(), RowName, ColumnName, ArrayEntryIndex, BaseProp, Data);
 				}
 			}
 		}
@@ -399,28 +339,19 @@ bool FDataTableImporterJSON::ReadStruct(const TSharedRef<FJsonObject>& InParsedO
 	return true;
 }
 
-bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& InParsedPropertyValue, const FName InRowName, const FString& InColumnName, const void* InRowData, UProperty* InProperty, void* InPropertyData)
+bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& ParsedPropertyValue, const FName InRowName, const void* InRowData, UProperty* InProperty, void* InPropertyData)
 {
-	const TCHAR* const ParsedPropertyType = JSONTypeToString(InParsedPropertyValue->Type);
+	const FString ColumnName = DataTableUtils::GetPropertyDisplayName(InProperty, InProperty->GetName());
+	const TCHAR* const ParsedPropertyType = JSONTypeToString(ParsedPropertyValue->Type);
 
 	if (UNumericProperty *NumProp = Cast<UNumericProperty>(InProperty))
 	{
-		FString EnumValue;
-		if (NumProp->IsEnum() && InParsedPropertyValue->TryGetString(EnumValue))
-		{
-			FString Error = DataTableUtils::AssignStringToProperty(EnumValue, InProperty, (uint8*)InRowData);
-			if (!Error.IsEmpty())
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' has invalid enum value: %s."), *InColumnName, *InRowName.ToString(), *EnumValue));
-				return false;
-			}
-		}
-		else if (NumProp->IsInteger())
+		if (NumProp->IsInteger())
 		{
 			int64 PropertyValue = 0;
-			if (!InParsedPropertyValue->TryGetNumber(PropertyValue))
+			if (!ParsedPropertyValue->TryGetNumber(PropertyValue))
 			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Integer, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
+				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Integer, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
 				return false;
 			}
 
@@ -429,9 +360,9 @@ bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& InPar
 		else
 		{
 			double PropertyValue = 0.0;
-			if (!InParsedPropertyValue->TryGetNumber(PropertyValue))
+			if (!ParsedPropertyValue->TryGetNumber(PropertyValue))
 			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Double, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
+				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Double, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
 				return false;
 			}
 
@@ -441,9 +372,9 @@ bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& InPar
 	else if (UBoolProperty* BoolProp = Cast<UBoolProperty>(InProperty))
 	{
 		bool PropertyValue = false;
-		if (!InParsedPropertyValue->TryGetBool(PropertyValue))
+		if (!ParsedPropertyValue->TryGetBool(PropertyValue))
 		{
-			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Boolean, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
+			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Boolean, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
 			return false;
 		}
 
@@ -452,61 +383,33 @@ bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& InPar
 	else if (UArrayProperty* ArrayProp = Cast<UArrayProperty>(InProperty))
 	{
 		const TArray< TSharedPtr<FJsonValue> >* PropertyValuesPtr;
-		if (!InParsedPropertyValue->TryGetArray(PropertyValuesPtr))
+		if (!ParsedPropertyValue->TryGetArray(PropertyValuesPtr))
 		{
-			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Array, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
+			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected Array, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
 			return false;
 		}
 
 		FScriptArrayHelper ArrayHelper(ArrayProp, InPropertyData);
-		ArrayHelper.EmptyValues();
 		for (const TSharedPtr<FJsonValue>& PropertyValueEntry : *PropertyValuesPtr)
 		{
 			const int32 NewEntryIndex = ArrayHelper.AddValue();
 			void* ArrayEntryData = ArrayHelper.GetRawPtr(NewEntryIndex);
-			ReadArrayEntry(PropertyValueEntry.ToSharedRef(), InRowName, InColumnName, NewEntryIndex, ArrayProp->Inner, ArrayEntryData);
-		}
-	}
-	else if (UStructProperty* StructProp = Cast<UStructProperty>(InProperty))
-	{
-		const TSharedPtr<FJsonObject>* PropertyValue = nullptr;
-		if (InParsedPropertyValue->TryGetObject(PropertyValue))
-		{
-			return ReadStruct(PropertyValue->ToSharedRef(), StructProp->Struct, InRowName, InPropertyData);
-		}
-		else
-		{
-			// If the JSON does not contain a JSON object for this struct, we try to use the backwards-compatible string deserialization, same as the "else" block below
-			FString PropertyValueString;
-			if (!InParsedPropertyValue->TryGetString(PropertyValueString))
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected String, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
-				return false;
-			}
-
-			const FString Error = DataTableUtils::AssignStringToProperty(PropertyValueString, InProperty, (uint8*)InRowData);
-			if (Error.Len() > 0)
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Problem assigning string '%s' to property '%s' on row '%s' : %s"), *PropertyValueString, *InColumnName, *InRowName.ToString(), *Error));
-				return false;
-			}
-
-			return true;
+			ReadArrayEntry(PropertyValueEntry.ToSharedRef(), InRowName, ColumnName, NewEntryIndex, ArrayProp->Inner, ArrayEntryData);
 		}
 	}
 	else
 	{
 		FString PropertyValue;
-		if (!InParsedPropertyValue->TryGetString(PropertyValue))
+		if (!ParsedPropertyValue->TryGetString(PropertyValue))
 		{
-			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected String, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
+			ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected String, got %s."), *ColumnName, *InRowName.ToString(), ParsedPropertyType));
 			return false;
 		}
 
 		const FString Error = DataTableUtils::AssignStringToProperty(PropertyValue, InProperty, (uint8*)InRowData);
 		if(Error.Len() > 0)
 		{
-			ImportProblems.Add(FString::Printf(TEXT("Problem assigning string '%s' to property '%s' on row '%s' : %s"), *PropertyValue, *InColumnName, *InRowName.ToString(), *Error));
+			ImportProblems.Add(FString::Printf(TEXT("Problem assigning string '%s' to property '%s' on row '%s' : %s"), *PropertyValue, *ColumnName, *InRowName.ToString(), *Error));
 			return false;
 		}
 	}
@@ -514,26 +417,16 @@ bool FDataTableImporterJSON::ReadStructEntry(const TSharedRef<FJsonValue>& InPar
 	return true;
 }
 
-bool FDataTableImporterJSON::ReadArrayEntry(const TSharedRef<FJsonValue>& InParsedPropertyValue, const FName InRowName, const FString& InColumnName, const int32 InArrayEntryIndex, UProperty* InProperty, void* InPropertyData)
+bool FDataTableImporterJSON::ReadArrayEntry(const TSharedRef<FJsonValue>& ParsedPropertyValue, const FName InRowName, const FString& InColumnName, const int32 InArrayEntryIndex, UProperty* InProperty, void* InPropertyData)
 {
-	const TCHAR* const ParsedPropertyType = JSONTypeToString(InParsedPropertyValue->Type);
+	const TCHAR* const ParsedPropertyType = JSONTypeToString(ParsedPropertyValue->Type);
 
 	if (UNumericProperty *NumProp = Cast<UNumericProperty>(InProperty))
 	{
-		FString EnumValue;
-		if (NumProp->IsEnum() && InParsedPropertyValue->TryGetString(EnumValue))
-		{
-			FString Error = DataTableUtils::AssignStringToProperty(EnumValue, InProperty, (uint8*)InPropertyData);
-			if (!Error.IsEmpty())
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Entry %d on property '%s' on row '%s' has invalid enum value: %s."), InArrayEntryIndex, *InColumnName, *InRowName.ToString(), *EnumValue));
-				return false;
-			}
-		}
-		else if(NumProp->IsInteger())
+		if (NumProp->IsInteger())
 		{
 			int64 PropertyValue = 0;
-			if (!InParsedPropertyValue->TryGetNumber(PropertyValue))
+			if (!ParsedPropertyValue->TryGetNumber(PropertyValue))
 			{
 				ImportProblems.Add(FString::Printf(TEXT("Entry %d on property '%s' on row '%s' is the incorrect type. Expected Integer, got %s."), InArrayEntryIndex, *InColumnName, *InRowName.ToString(), ParsedPropertyType));
 				return false;
@@ -544,7 +437,7 @@ bool FDataTableImporterJSON::ReadArrayEntry(const TSharedRef<FJsonValue>& InPars
 		else
 		{
 			double PropertyValue = 0.0;
-			if (!InParsedPropertyValue->TryGetNumber(PropertyValue))
+			if (!ParsedPropertyValue->TryGetNumber(PropertyValue))
 			{
 				ImportProblems.Add(FString::Printf(TEXT("Entry %d on property '%s' on row '%s' is the incorrect type. Expected Double, got %s."), InArrayEntryIndex, *InColumnName, *InRowName.ToString(), ParsedPropertyType));
 				return false;
@@ -556,7 +449,7 @@ bool FDataTableImporterJSON::ReadArrayEntry(const TSharedRef<FJsonValue>& InPars
 	else if (UBoolProperty* BoolProp = Cast<UBoolProperty>(InProperty))
 	{
 		bool PropertyValue = false;
-		if (!InParsedPropertyValue->TryGetBool(PropertyValue))
+		if (!ParsedPropertyValue->TryGetBool(PropertyValue))
 		{
 			ImportProblems.Add(FString::Printf(TEXT("Entry %d on property '%s' on row '%s' is the incorrect type. Expected Boolean, got %s."), InArrayEntryIndex, *InColumnName, *InRowName.ToString(), ParsedPropertyType));
 			return false;
@@ -569,37 +462,10 @@ bool FDataTableImporterJSON::ReadArrayEntry(const TSharedRef<FJsonValue>& InPars
 		// Cannot nest arrays
 		return false;
 	}
-	else if (UStructProperty* StructProp = Cast<UStructProperty>(InProperty))
-	{
-		const TSharedPtr<FJsonObject>* PropertyValue = nullptr;
-		if (InParsedPropertyValue->TryGetObject(PropertyValue))
-		{
-			return ReadStruct(PropertyValue->ToSharedRef(), StructProp->Struct, InRowName, InPropertyData);
-		}
-		else
-		{
-			// If the JSON does not contain a JSON object for this struct, we try to use the backwards-compatible string deserialization, same as the "else" block below
-			FString PropertyValueString;
-			if (!InParsedPropertyValue->TryGetString(PropertyValueString))
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Property '%s' on row '%s' is the incorrect type. Expected String, got %s."), *InColumnName, *InRowName.ToString(), ParsedPropertyType));
-				return false;
-			}
-
-			const FString Error = DataTableUtils::AssignStringToSingleProperty(PropertyValueString, InProperty, (uint8*)InPropertyData);
-			if (Error.Len() > 0)
-			{
-				ImportProblems.Add(FString::Printf(TEXT("Problem assigning string '%s' to entry %d on property '%s' on row '%s' : %s"), InArrayEntryIndex, *PropertyValueString, *InColumnName, *InRowName.ToString(), *Error));
-				return false;
-			}
-
-			return true;
-		}
-	}
 	else
 	{
 		FString PropertyValue;
-		if (!InParsedPropertyValue->TryGetString(PropertyValue))
+		if (!ParsedPropertyValue->TryGetString(PropertyValue))
 		{
 			ImportProblems.Add(FString::Printf(TEXT("Entry %d on property '%s' on row '%s' is the incorrect type. Expected String, got %s."), InArrayEntryIndex, *InColumnName, *InRowName.ToString(), ParsedPropertyType));
 			return false;

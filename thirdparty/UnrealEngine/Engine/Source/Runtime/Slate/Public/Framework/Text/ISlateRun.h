@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
+#if WITH_FANCY_TEXT
+
 #include "TextLayout.h"
 
 class SLATE_API ISlateRun : public IRun
@@ -13,3 +15,5 @@ public:
 
 	virtual void ArrangeChildren( const TSharedRef< ILayoutBlock >& Block, const FGeometry& AllottedGeometry, FArrangedChildren& ArrangedChildren ) const = 0;
 };
+
+#endif //WITH_FANCY_TEXT

@@ -55,11 +55,6 @@ void UAITask::InitAITask(AAIController& AIOwner, IGameplayTaskOwnerInterface& In
 	}
 }
 
-void UAITask::InitAITask(AAIController& AIOwner, IGameplayTaskOwnerInterface& InTaskOwner)
-{
-	InitAITask(AIOwner, InTaskOwner, InTaskOwner.GetGameplayTaskDefaultPriority());
-}
-
 void UAITask::RequestAILogicLocking()
 {
 	AddClaimedResource<UAIResource_Logic>();

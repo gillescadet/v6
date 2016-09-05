@@ -50,16 +50,6 @@ public:
 	virtual void PersistText() = 0;
 
 	/**
-	 * Get the global history revision associated with this text instance.
-	 */
-	virtual uint16 GetGlobalHistoryRevision() const = 0;
-
-	/**
-	 * Get the local history revision associated with this text instance.
-	 */
-	virtual uint16 GetLocalHistoryRevision() const = 0;
-
-	/**
 	 * Assign a new history object to this instance.
 	 * @note: There is no RTTI on these types, so it is your responsibility to make sure that the history object you're assigning is of the correct type!
 	 */

@@ -24,11 +24,10 @@ void UEnvQueryGenerator_ProjectedPoints::ProjectAndFilterNavPoints(TArray<FNavLo
 		NavData = FEQSHelpers::FindNavigationDataForQuery(QueryInstance);
 	}
 
-	const UObject* Querier = QueryInstance.Owner.Get();
-	if (NavData && Querier)
+	if (NavData)
 	{
 		FEQSHelpers::ETraceMode Mode = (ProjectionData.TraceMode == EEnvQueryTrace::Navigation) ? FEQSHelpers::ETraceMode::Discard : FEQSHelpers::ETraceMode::Keep;
-		FEQSHelpers::RunNavProjection(*NavData, *Querier, ProjectionData, Points, Mode);
+		FEQSHelpers::RunNavProjection(*NavData, ProjectionData, Points, Mode);
 	}
 
 	if (ProjectionData.TraceMode == EEnvQueryTrace::Geometry)

@@ -41,8 +41,6 @@ struct CORE_API FApplePlatformTime : public FGenericPlatformTime
 		uint64 Cycles = mach_absolute_time();
 		return Cycles;
 	}
-
-	static FCPUTime GetCPUTime();
 };
 
 typedef FApplePlatformTime FPlatformTime;

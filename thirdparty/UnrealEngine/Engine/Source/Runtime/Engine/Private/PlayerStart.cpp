@@ -54,7 +54,7 @@ APlayerStart::APlayerStart(const FObjectInitializer& ObjectInitializer)
 			ArrowComponent->bTreatAsASprite = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Navigation;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Navigation;
-			ArrowComponent->SetupAttachment(GetCapsuleComponent());
+			ArrowComponent->AttachParent = GetCapsuleComponent();
 			ArrowComponent->bIsScreenSizeScaled = true;
 		}
 	}

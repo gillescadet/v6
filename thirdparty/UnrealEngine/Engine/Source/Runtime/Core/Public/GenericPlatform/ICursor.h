@@ -7,7 +7,7 @@
 
 struct FVector2D;
 
-#if PLATFORM_WINDOWS || PLATFORM_XBOXONE
+#if PLATFORM_WINDOWS || PLATFORM_XBOXONE || PLATFORM_WINRT
 	struct tagRECT;
 	typedef struct tagRECT RECT;
 #else

@@ -26,11 +26,6 @@
 /** The global center for all deferred lighting activities. */
 FCompositionLighting GCompositionLighting;
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Composition BeforeBasePass"), Stat_GPU_CompositionBeforeBasePass, STATGROUP_GPU);
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Composition PreLighting"), Stat_GPU_CompositionPreLighting, STATGROUP_GPU);
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Composition LpvIndirect"), Stat_GPU_CompositionLpvIndirect, STATGROUP_GPU);
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Composition PostLighting"), Stat_GPU_CompositionPostLighting, STATGROUP_GPU);
-
 // -------------------------------------------------------
 
 static TAutoConsoleVariable<float> CVarSSSScale(
@@ -45,25 +40,29 @@ static TAutoConsoleVariable<float> CVarSSSScale(
 	TEXT(">1: scale scatter radius up (for testing)"),
 	ECVF_Scalability | ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarAmbientOcclusionLevels(
+	TEXT("r.AmbientOcclusionLevels"),
+	-1,
+	TEXT("Defines how many mip levels are using during the ambient occlusion calculation. This is useful when tweaking the algorithm.\n")
+	TEXT("<0: decide based on the quality setting in the postprocess settings/volume and r.AmbientOcclusionMaxQuality (default)\n")
+	TEXT(" 0: none (disable AmbientOcclusion)\n")
+	TEXT(" 1: one\n")
+	TEXT(" 2: two (costs extra performance, soft addition)\n")
+	TEXT(" 3: three (larger radius cost less but can flicker)"),
+	ECVF_Scalability | ECVF_RenderThreadSafe);
+
 static TAutoConsoleVariable<int32> CVarSSSHalfRes(
 	TEXT("r.SSS.HalfRes"),
 	1,
 	TEXT(" 0: full quality (not optimized, as reference)\n")
 	TEXT(" 1: parts of the algorithm runs in half resolution which is lower quality but faster (default)"),
-	ECVF_RenderThreadSafe | ECVF_Scalability);
+	ECVF_RenderThreadSafe  | ECVF_Scalability);
 
-static TAutoConsoleVariable<int32> CVarSubsurfaceScattering(
-	TEXT("r.SubsurfaceScattering"),
-	1,
-	TEXT(" 0: disabled\n")
-	TEXT(" 1: enabled (default)"),
-	ECVF_RenderThreadSafe | ECVF_Scalability);
-
-bool IsAmbientCubemapPassRequired(const FSceneView& View)
+static bool IsAmbientCubemapPassRequired(FPostprocessContext& Context)
 {
-	FScene* Scene = (FScene*)View.Family->Scene;
+	FScene* Scene = (FScene*)Context.View.Family->Scene;
 
-	return View.FinalPostProcessSettings.ContributingCubemaps.Num() != 0 && !IsAnyForwardShadingEnabled(View.GetShaderPlatform());
+	return Context.View.FinalPostProcessSettings.ContributingCubemaps.Num() != 0 && !IsSimpleDynamicLightingEnabled();
 }
 
 bool IsLpvIndirectPassRequired(const FViewInfo& View)
@@ -93,58 +92,63 @@ bool IsLpvIndirectPassRequired(const FViewInfo& View)
 	return false;
 }
 
-static bool IsReflectionEnvironmentActive(const FSceneView& View)
+static bool IsReflectionEnvironmentActive(FPostprocessContext& Context)
 {
-	FScene* Scene = (FScene*)View.Family->Scene;
+	FScene* Scene = (FScene*)Context.View.Family->Scene;
 
 	// LPV & Screenspace Reflections : Reflection Environment active if either LPV (assumed true if this was called), Reflection Captures or SSR active
 
-	bool IsReflectingEnvironment = View.Family->EngineShowFlags.ReflectionEnvironment;
+	bool IsReflectingEnvironment = Context.View.Family->EngineShowFlags.ReflectionEnvironment;
 	bool HasReflectionCaptures = (Scene->ReflectionSceneData.RegisteredReflectionCaptures.Num() > 0);
-	bool HasSSR = View.Family->EngineShowFlags.ScreenSpaceReflections;
+	bool HasSSR = Context.View.Family->EngineShowFlags.ScreenSpaceReflections;
 
-	return (Scene->GetFeatureLevel() == ERHIFeatureLevel::SM5 && IsReflectingEnvironment && (HasReflectionCaptures || HasSSR) && !IsAnyForwardShadingEnabled(View.GetShaderPlatform()));
+	return (Scene->GetFeatureLevel() == ERHIFeatureLevel::SM5 && IsReflectingEnvironment && (HasReflectionCaptures || HasSSR) && !IsSimpleDynamicLightingEnabled());
 }
 
-static bool IsSkylightActive(const FViewInfo& View)
+static bool IsSkylightActive(FPostprocessContext& Context)
 {
-	FScene* Scene = (FScene*)View.Family->Scene;
+	FScene* Scene = (FScene*)Context.View.Family->Scene;
 	return Scene->SkyLight 
 		&& Scene->SkyLight->ProcessedTexture
-		&& View.Family->EngineShowFlags.SkyLighting;
+		&& Context.View.Family->EngineShowFlags.SkyLighting;
+}
+
+static bool IsBasePassAmbientOcclusionRequired(FPostprocessContext& Context)
+{
+	// the BaseAO pass is only worth with some AO
+	return Context.View.FinalPostProcessSettings.AmbientOcclusionStaticFraction >= 1 / 100.0f && !IsSimpleDynamicLightingEnabled();
 }
 
 // @return 0:off, 0..3
-uint32 ComputeAmbientOcclusionPassCount(const FViewInfo& View)
+static uint32 ComputeAmbientOcclusionPassCount(FPostprocessContext& Context)
 {
 	// 0:off / 1 / 2 / 3
 	uint32 Ret = 0;
 
 	bool bEnabled = true;
 
-	if (!IsLpvIndirectPassRequired(View))
+	if(!IsLpvIndirectPassRequired(Context.View))
 	{
-		bEnabled = View.FinalPostProcessSettings.AmbientOcclusionIntensity > 0
-			&& View.Family->EngineShowFlags.Lighting
-			&& View.FinalPostProcessSettings.AmbientOcclusionRadius >= 0.1f
-			&& !View.Family->UseDebugViewPS()
-			&& (FSSAOHelper::IsBasePassAmbientOcclusionRequired(View) || IsAmbientCubemapPassRequired(View) || IsReflectionEnvironmentActive(View) || IsSkylightActive(View) || View.Family->EngineShowFlags.VisualizeBuffer)
-			&& !IsAnyForwardShadingEnabled(View.GetShaderPlatform());
+		bEnabled = Context.View.FinalPostProcessSettings.AmbientOcclusionIntensity > 0 
+			&& Context.View.FinalPostProcessSettings.AmbientOcclusionRadius >= 0.1f 
+			&& !Context.View.Family->EngineShowFlags.ShaderComplexity 
+			&& (IsBasePassAmbientOcclusionRequired(Context) || IsAmbientCubemapPassRequired(Context) || IsReflectionEnvironmentActive(Context) || IsSkylightActive(Context) || Context.View.Family->EngineShowFlags.VisualizeBuffer )
+			&& !IsSimpleDynamicLightingEnabled();
 	}
 
-	if (bEnabled)
+	if(bEnabled)
 	{
 		// usually in the range 0..100
-		float QualityPercent = FSSAOHelper::GetAmbientOcclusionQualityRT(View);
+		float QualityPercent = GetAmbientOcclusionQualityRT(Context.View);
 
 		// don't expose 0 as the lowest quality should still render
 		Ret = 1 +
 			(QualityPercent > 70.0f) +
 			(QualityPercent > 35.0f);
 
-		int32 CVarLevel = FSSAOHelper::GetNumAmbientOcclusionLevels();
+		int32 CVarLevel = CVarAmbientOcclusionLevels.GetValueOnRenderThread();
 
-		if (CVarLevel >= 0)
+		if(CVarLevel >= 0)
 		{
 			// cvar can override (for scalability or to profile/test)
 			Ret = CVarLevel;
@@ -174,70 +178,50 @@ static FRenderingCompositeOutputRef AddPostProcessingAmbientOcclusion(FRHIComman
 	FRenderingCompositePass* AmbientOcclusionInMip1 = 0;
 	FRenderingCompositePass* AmbientOcclusionInMip2 = 0;
 	FRenderingCompositePass* AmbientOcclusionPassMip1 = 0; 
-	FRenderingCompositePass* AmbientOcclusionPassMip2 = 0;
+	FRenderingCompositePass* AmbientOcclusionPassMip2 = 0; 
 
-	FRenderingCompositePass* HZBInput = Context.Graph.RegisterPass(new FRCPassPostProcessInput(const_cast<FViewInfo&>(Context.View).HZB));
+	// generate input in half, quarter, .. resolution
+
+	if(Levels >= 2)
 	{
-		// generate input in half, quarter, .. resolution
-		ESSAOType DownResAOType = FSSAOHelper::IsAmbientOcclusionCompute(Context.View) ? ESSAOType::ECS : ESSAOType::EPS;
-		if (Levels >= 2)
-		{
-			AmbientOcclusionInMip1 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusionSetup());
-			AmbientOcclusionInMip1->SetInput(ePId_Input0, Context.SceneDepth);
-		}
+		AmbientOcclusionInMip1 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusionSetup());
+		AmbientOcclusionInMip1->SetInput(ePId_Input0, Context.SceneDepth);
+	}
 
-		if (Levels >= 3)
-		{
-			AmbientOcclusionInMip2 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusionSetup());
-			AmbientOcclusionInMip2->SetInput(ePId_Input1, FRenderingCompositeOutputRef(AmbientOcclusionInMip1, ePId_Output0));
-		}		
+	if(Levels >= 3)
+	{
+		AmbientOcclusionInMip2 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusionSetup());
+		AmbientOcclusionInMip2->SetInput(ePId_Input1, FRenderingCompositeOutputRef(AmbientOcclusionInMip1, ePId_Output0));
+	}
 
-		// upsample from lower resolution
+	FRenderingCompositePass* HZBInput = Context.Graph.RegisterPass( new FRCPassPostProcessInput( const_cast< FViewInfo& >( Context.View ).HZB ) );
 
-		if (Levels >= 3)
-		{
-			AmbientOcclusionPassMip2 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View, DownResAOType));
-			AmbientOcclusionPassMip2->SetInput(ePId_Input0, AmbientOcclusionInMip2);
-			AmbientOcclusionPassMip2->SetInput(ePId_Input1, AmbientOcclusionInMip2);
-			AmbientOcclusionPassMip2->SetInput(ePId_Input3, HZBInput);
-		}
+	// upsample from lower resolution
 
-		if (Levels >= 2)
-		{
-			AmbientOcclusionPassMip1 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View, DownResAOType));
-			AmbientOcclusionPassMip1->SetInput(ePId_Input0, AmbientOcclusionInMip1);
-			AmbientOcclusionPassMip1->SetInput(ePId_Input1, AmbientOcclusionInMip1);
-			AmbientOcclusionPassMip1->SetInput(ePId_Input2, AmbientOcclusionPassMip2);
-			AmbientOcclusionPassMip1->SetInput(ePId_Input3, HZBInput);
-		}
+	if(Levels >= 3)
+	{
+		AmbientOcclusionPassMip2 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View));
+		AmbientOcclusionPassMip2->SetInput(ePId_Input0, AmbientOcclusionInMip2);
+		AmbientOcclusionPassMip2->SetInput(ePId_Input1, AmbientOcclusionInMip2);
+		AmbientOcclusionPassMip2->SetInput(ePId_Input3, HZBInput);
+	}
+
+	if(Levels >= 2)
+	{
+		AmbientOcclusionPassMip1 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View));
+		AmbientOcclusionPassMip1->SetInput(ePId_Input0, AmbientOcclusionInMip1);
+		AmbientOcclusionPassMip1->SetInput(ePId_Input1, AmbientOcclusionInMip1);
+		AmbientOcclusionPassMip1->SetInput(ePId_Input2, AmbientOcclusionPassMip2);
+		AmbientOcclusionPassMip1->SetInput(ePId_Input3, HZBInput);
 	}
 
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-	FRenderingCompositePass* GBufferA = nullptr;
-	
+	FRenderingCompositePass* GBufferA = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(SceneContext.GBufferA));
+
 	// finally full resolution
-	ESSAOType FullResAOType = ESSAOType::EPS;
-	{
-		if(FSSAOHelper::IsAmbientOcclusionCompute(Context.View))
-		{
-			if(FSSAOHelper::IsAmbientOcclusionAsyncCompute(Context.View, Levels))
-			{
-				FullResAOType = ESSAOType::EAsyncCS;
-			}
-			else
-			{
-				FullResAOType = ESSAOType::ECS;
-			}
-		}
-	}
 
-	if (FullResAOType != ESSAOType::EAsyncCS)
-	{
-		GBufferA = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessInput(SceneContext.GBufferA));
-	}
-
-	FRenderingCompositePass* AmbientOcclusionPassMip0 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View, FullResAOType, false));
+	FRenderingCompositePass* AmbientOcclusionPassMip0 = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessAmbientOcclusion(Context.View, false));
 	AmbientOcclusionPassMip0->SetInput(ePId_Input0, GBufferA);
 	AmbientOcclusionPassMip0->SetInput(ePId_Input1, AmbientOcclusionInMip1);
 	AmbientOcclusionPassMip0->SetInput(ePId_Input2, AmbientOcclusionPassMip1);
@@ -256,6 +240,14 @@ static FRenderingCompositeOutputRef AddPostProcessingAmbientOcclusion(FRHIComman
 	Context.FinalOutput = FRenderingCompositeOutputRef(AmbientOcclusionPassMip0);
 
 	SceneContext.bScreenSpaceAOIsValid = true;
+
+	if(IsBasePassAmbientOcclusionRequired(Context))
+	{
+		FRenderingCompositePass* Pass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessBasePassAO());
+		Pass->AddDependency(Context.FinalOutput);
+
+		Context.FinalOutput = FRenderingCompositeOutputRef(Pass);
+	}
 
 	return FRenderingCompositeOutputRef(AmbientOcclusionPassMip0);
 }
@@ -287,7 +279,6 @@ void FCompositionLighting::ProcessBeforeBasePass(FRHICommandListImmediate& RHICm
 		// The graph setup should be finished before this line ----------------------------------------
 
 		SCOPED_DRAW_EVENT(RHICmdList, CompositionBeforeBasePass);
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_CompositionBeforeBasePass);
 
 		CompositeContext.Process(Context.FinalOutput.GetPass(), TEXT("Composition_BeforeBasePass"));
 	}
@@ -342,24 +333,12 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 
 		FRenderingCompositeOutputRef AmbientOcclusion;
 
-		uint32 SSAOLevels = ComputeAmbientOcclusionPassCount(Context.View);
-		if (SSAOLevels)
+		if(uint32 Levels = ComputeAmbientOcclusionPassCount(Context))
 		{
-			if(!FSSAOHelper::IsAmbientOcclusionAsyncCompute(Context.View, SSAOLevels))
-			{
-				AmbientOcclusion = AddPostProcessingAmbientOcclusion(RHICmdList, Context, SSAOLevels);
-			}
-
-			if (FSSAOHelper::IsBasePassAmbientOcclusionRequired(Context.View))
-			{
-				FRenderingCompositePass* Pass = Context.Graph.RegisterPass(new(FMemStack::Get()) FRCPassPostProcessBasePassAO());
-				Pass->AddDependency(Context.FinalOutput);
-
-				Context.FinalOutput = FRenderingCompositeOutputRef(Pass);
-			}
+			AmbientOcclusion = AddPostProcessingAmbientOcclusion(RHICmdList, Context, Levels);
 		}
 
-		if (IsAmbientCubemapPassRequired(Context.View))
+		if(IsAmbientCubemapPassRequired(Context))
 		{
 			AddPostProcessingAmbientCubemap(Context, AmbientOcclusion);
 		}
@@ -367,7 +346,6 @@ void FCompositionLighting::ProcessAfterBasePass(FRHICommandListImmediate& RHICmd
 		// The graph setup should be finished before this line ----------------------------------------
 
 		SCOPED_DRAW_EVENT(RHICmdList, LightCompositionTasks_PreLighting);
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_CompositionPreLighting);
 
 		TRefCountPtr<IPooledRenderTarget>& SceneColor = SceneContext.GetSceneColor();
 
@@ -402,7 +380,6 @@ void FCompositionLighting::ProcessLpvIndirect(FRHICommandListImmediate& RHICmdLi
 	// The graph setup should be finished before this line ----------------------------------------
 
 	SCOPED_DRAW_EVENT(RHICmdList, CompositionLpvIndirect);
-	SCOPED_GPU_STAT(RHICmdList, Stat_GPU_CompositionLpvIndirect);
 
 	// we don't replace the final element with the scenecolor because this is what those passes should do by themself
 
@@ -414,6 +391,11 @@ void FCompositionLighting::ProcessAfterLighting(FRHICommandListImmediate& RHICmd
 	check(IsInRenderingThread());
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
+	
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapDiffuse);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapNormal);
+	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, SceneContext.ReflectiveShadowMapDepth);
+
 	{
 		FMemMark Mark(FMemStack::Get());
 		FRenderingCompositePassContext CompositeContext(RHICmdList, View);
@@ -423,13 +405,11 @@ void FCompositionLighting::ProcessAfterLighting(FRHICommandListImmediate& RHICmd
 		// Screen Space Subsurface Scattering
 		{
 			float Radius = CVarSSSScale.GetValueOnRenderThread();
-			bool bSimpleDynamicLighting = IsAnyForwardShadingEnabled(View.GetShaderPlatform());
-			bool bScreenSpaceSubsurfacePassNeeded = (View.ShadingModelMaskInView & (1 << MSM_SubsurfaceProfile)) != 0;
-			bool bSubsurfaceAllowed = CVarSubsurfaceScattering.GetValueOnRenderThread() == 1;
 
-			if (bScreenSpaceSubsurfacePassNeeded 
-				&& !bSimpleDynamicLighting 
-				&& bSubsurfaceAllowed)
+			bool bSimpleDynamicLighting = IsSimpleDynamicLightingEnabled();
+
+			bool bScreenSpaceSubsurfacePassNeeded = (View.ShadingModelMaskInView & (1 << MSM_SubsurfaceProfile)) != 0;
+			if (bScreenSpaceSubsurfacePassNeeded && !bSimpleDynamicLighting)
 			{
 				bool bHalfRes = CVarSSSHalfRes.GetValueOnRenderThread() != 0;
 				bool bSingleViewportMode = View.Family->Views.Num() == 1;
@@ -466,7 +446,6 @@ void FCompositionLighting::ProcessAfterLighting(FRHICommandListImmediate& RHICmd
 		// The graph setup should be finished before this line ----------------------------------------
 
 		SCOPED_DRAW_EVENT(RHICmdList, CompositionAfterLighting);
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_CompositionPostLighting);
 
 		// we don't replace the final element with the scenecolor because this is what those passes should do by themself
 
@@ -479,83 +458,5 @@ void FCompositionLighting::ProcessAfterLighting(FRHICommandListImmediate& RHICmd
 		// The RT should be released as early as possible to allow sharing of that memory for other purposes.
 		// This becomes even more important with some limited VRam (XBoxOne).
 		SceneContext.SetLightAttenuation(0);
-	}
-}
-
-bool FCompositionLighting::CanProcessAsyncSSAO(TArray<FViewInfo>& Views)
-{
-	bool bAnyAsyncSSAO = true;
-	for (int32 i = 0; i < Views.Num(); ++i)
-	{
-		uint32 Levels = ComputeAmbientOcclusionPassCount(Views[i]);
-		if (!FSSAOHelper::IsAmbientOcclusionAsyncCompute(Views[i], Levels))
-		{
-			bAnyAsyncSSAO = false;
-			break;
-		}
-	}
-	return bAnyAsyncSSAO;
-}
-
-void FCompositionLighting::PrepareAsyncSSAO(FRHICommandListImmediate& RHICmdList, TArray<FViewInfo>& Views)
-{
-	//clear out last frame's fence.
-	ensureMsgf(AsyncSSAOFence == nullptr, TEXT("Old AsyncCompute SSAO fence has not been cleared."));
-
-	static FName AsyncSSAOFenceName(TEXT("AsyncSSAOFence"));
-	AsyncSSAOFence = RHICmdList.CreateComputeFence(AsyncSSAOFenceName);
-
-	//Grab the async compute commandlist.
-	FRHIAsyncComputeCommandListImmediate& RHICmdListComputeImmediate = FRHICommandListExecutor::GetImmediateAsyncComputeCommandList();
-	RHICmdListComputeImmediate.SetAsyncComputeBudget(FSSAOHelper::GetAmbientOcclusionAsyncComputeBudget());
-}
-
-void FCompositionLighting::ProcessAsyncSSAO(FRHICommandListImmediate& RHICmdList, TArray<FViewInfo>& Views)
-{
-	check(IsInRenderingThread());
-	PrepareAsyncSSAO(RHICmdList, Views);
-
-	// so that the passes can register themselves to the graph
-	for (int32 i = 0; i < Views.Num(); ++i)
-	{
-		FViewInfo& View = Views[i];
-		FMemMark Mark(FMemStack::Get());
-		FRenderingCompositePassContext CompositeContext(RHICmdList, View);
-
-		// Add the passes we want to add to the graph (commenting a line means the pass is not inserted into the graph) ----------		
-		uint32 Levels = ComputeAmbientOcclusionPassCount(View);		
-		if (FSSAOHelper::IsAmbientOcclusionAsyncCompute(View, Levels))
-		{
-			FPostprocessContext Context(RHICmdList, CompositeContext.Graph, View);
-
-			FRenderingCompositeOutputRef AmbientOcclusion = AddPostProcessingAmbientOcclusion(RHICmdList, Context, Levels);
-			Context.FinalOutput = FRenderingCompositeOutputRef(AmbientOcclusion);			
-
-			// The graph setup should be finished before this line ----------------------------------------
-			CompositeContext.Process(Context.FinalOutput.GetPass(), TEXT("Composition_ProcessAsyncSSAO"));
-		}		
-	}
-	FinishAsyncSSAO(RHICmdList);
-}
-
-void FCompositionLighting::FinishAsyncSSAO(FRHICommandListImmediate& RHICmdList)
-{
-	if (AsyncSSAOFence)
-	{
-		//Grab the async compute commandlist.
-		FRHIAsyncComputeCommandListImmediate& RHICmdListComputeImmediate = FRHICommandListExecutor::GetImmediateAsyncComputeCommandList();
-
-		RHICmdListComputeImmediate.SetAsyncComputeBudget(EAsyncComputeBudget::EAll_4);
-		RHICmdListComputeImmediate.TransitionResources(EResourceTransitionAccess::EReadable, EResourceTransitionPipeline::EComputeToGfx, nullptr, 0, AsyncSSAOFence);
-		FRHIAsyncComputeCommandListImmediate::ImmediateDispatch(RHICmdListComputeImmediate);		
-	}
-}
-
-void FCompositionLighting::GfxWaitForAsyncSSAO(FRHICommandListImmediate& RHICmdList)
-{
-	if (AsyncSSAOFence)
-	{
-		RHICmdList.WaitComputeFence(AsyncSSAOFence);
-		AsyncSSAOFence = nullptr;
 	}
 }

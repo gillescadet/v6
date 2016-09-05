@@ -39,17 +39,6 @@ enum class EMouseCaptureMode : uint8
 	CaptureDuringRightMouseDown,
 };
 
-UENUM()
-enum class EMouseLockMode : uint8
-{
-	/** Do not lock the mouse cursor to the viewport */
-	DoNotLock,
-	/** Only lock the mouse cursor to the viewport when the mouse is captured */
-	LockOnCapture,
-	/** Always lock the mouse cursor to the viewport */
-	LockAlways,
-};
-
 /** Type of tick we wish to perform on the level */
 enum ELevelTick
 {
@@ -210,11 +199,8 @@ public:
 	uint8 bRunOnAnyThread:1;
 
 private:
-	/** If true, means that this tick function is in the master array of tick functions */
+	/** If true, means that this tick function is in the master array of tick functions **/
 	uint8 bRegistered:1;
-
-	/** Cache whether this function was rescheduled as an interval function during StartParallel */
-	uint8 bWasInterval:1;
 
 	enum class ETickState : uint8
 	{
@@ -351,8 +337,9 @@ private:
 	 * Queues a tick function for execution from the game thread
 	 * @param TickContext - context to tick in
 	 * @param StackForCycleDetection - Stack For Cycle Detection
+	 * @param bWasInterval - true if this was an interval tick
 	 */
-	void QueueTickFunctionParallel(const struct FTickContext& TickContext, TArray<FTickFunction*, TInlineAllocator<8> >& StackForCycleDetection);
+	void QueueTickFunctionParallel(const struct FTickContext& TickContext, TArray<FTickFunction*, TInlineAllocator<8> >& StackForCycleDetection, bool bWasInterval);
 
 	/** 
 	 * Logs the prerequisites
@@ -528,11 +515,7 @@ namespace ENetworkFailure
 		/** The server needs to upgrade their game */
 		OutdatedServer,
 		/** There was an error during connection to the game */
-		PendingConnectionFailure,
-		/** NetGuid mismatch */
-		NetGuidMismatch,
-		/** Network checksum mismatch */
-		NetChecksumMismatch
+		PendingConnectionFailure
 	};
 }
 
@@ -561,40 +544,8 @@ namespace ENetworkFailure
 			return TEXT("OutdatedServer");
 		case PendingConnectionFailure:
 			return TEXT("PendingConnectionFailure");
-		case NetGuidMismatch:
-			return TEXT("NetGuidMismatch");
-		case NetChecksumMismatch:
-			return TEXT("NetChecksumMismatch");
 		}
 		return TEXT("Unknown ENetworkFailure error occurred.");
-	}
-}
-
-UENUM()
-namespace ENetworkLagState
-{
-	enum Type
-	{
-		/** The net driver is operating normally or it is not possible to tell if it is lagging */
-		NotLagging,
-		/** The net driver is in the process of timing out all of the client connections */
-		Lagging
-	};
-}
-
-
-namespace ENetworkLagState
-{
-	inline const TCHAR* ToString(ENetworkLagState::Type LagType)
-	{
-		switch (LagType)
-		{
-			case NotLagging:
-				return TEXT("NotLagging");
-			case Lagging:
-				return TEXT("Lagging");
-		}
-		return TEXT("Unknown lag type occurred.");
 	}
 }
 
@@ -906,23 +857,11 @@ enum EViewModeIndex
 
 	VMI_CollisionPawn = 15, 
 	VMI_CollisionVisibility = 16, 
-	//VMI_UNUSED = 17,
+	VMI_VertexDensities = 17,
 	/** Colored according to the current LOD index. */
 	VMI_LODColoration = 18,
 	/** Colored according to the quad coverage. */
-	VMI_QuadOverdraw = 19,
-	/** Visualize the accuracy of the CPU primitive distance when compared with the GPU value. */
-	VMI_PrimitiveDistanceAccuracy = 20,
-	/** Visualize the accuracy of the CPU mesh texture coordinate size when compared to the GPU value. */
-	VMI_MeshTexCoordSizeAccuracy = 21,
-	/** Colored according to shader complexity, including quad overdraw. */
-	VMI_ShaderComplexityWithQuadOverdraw = 22,
-	/** Colored according to the current HLOD index. */
-	VMI_HLODColoration = 23,
-	/** Group item for LOD and HLOD coloration*/
-	VMI_GroupLODColoration = 24,
-	/** Visualize the accuracy of CPU material texture coordinate scales when compared to the GPU values. */
-	VMI_MaterialTexCoordScalesAccuracy = 25,
+	VMI_QuadComplexity = 19,
 
 	VMI_Max UMETA(Hidden),
 

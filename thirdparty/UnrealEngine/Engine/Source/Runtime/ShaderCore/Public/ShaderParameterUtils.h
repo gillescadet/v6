@@ -25,7 +25,7 @@ void SetShaderValue(
 	uint32 ElementIndex = 0
 	)
 {
-	static_assert(!TIsPointer<ParameterType>::Value, "Passing by value is not valid.");
+	static_assert(!TIsPointerType<ParameterType>::Value, "Passing by value is not valid.");
 
 	const uint32 AlignedTypeSize = Align(sizeof(ParameterType),ShaderArrayElementAlignBytes);
 	const int32 NumBytesToSet = FMath::Min<int32>(sizeof(ParameterType),Parameter.GetNumBytes() - ElementIndex * AlignedTypeSize);
@@ -54,7 +54,7 @@ void SetShaderValueOnContext(
 	uint32 ElementIndex = 0
 	)
 {
-	static_assert(!TIsPointer<ParameterType>::Value, "Passing by value is not valid.");
+	static_assert(!TIsPointerType<ParameterType>::Value, "Passing by value is not valid.");
 
 	const uint32 AlignedTypeSize = Align(sizeof(ParameterType), ShaderArrayElementAlignBytes);
 	const int32 NumBytesToSet = FMath::Min<int32>(sizeof(ParameterType), Parameter.GetNumBytes() - ElementIndex * AlignedTypeSize);
@@ -96,9 +96,9 @@ void SetShaderValue(
  * NOTE: Shader should be the param ref type, NOT the param type, since Shader is passed by value. 
  * Otherwise AddRef/ReleaseRef will be called many times.
  */
-template<typename ShaderRHIParamRef,class ParameterType, typename TRHICmdList>
+template<typename ShaderRHIParamRef,class ParameterType>
 void SetShaderValueArray(
-	TRHICmdList& RHICmdList,
+	FRHICommandList& RHICmdList,
 	ShaderRHIParamRef Shader,
 	const FShaderParameter& Parameter,
 	const ParameterType* Values,
@@ -125,9 +125,9 @@ void SetShaderValueArray(
 }
 
 /** Specialization of the above for C++ bool type. */
-template<typename ShaderRHIParamRef, typename TRHICmdList>
+template<typename ShaderRHIParamRef>
 void SetShaderValueArray(
-	TRHICmdList& RHICmdList,
+	FRHICommandList& RHICmdList, 
 	ShaderRHIParamRef Shader,
 	const FShaderParameter& Parameter,
 	const bool* Values,

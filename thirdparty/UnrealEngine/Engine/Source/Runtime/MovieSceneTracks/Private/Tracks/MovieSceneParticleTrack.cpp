@@ -12,11 +12,7 @@
 
 UMovieSceneParticleTrack::UMovieSceneParticleTrack( const FObjectInitializer& ObjectInitializer )
 	: Super( ObjectInitializer )
-{
-#if WITH_EDITORONLY_DATA
-	TrackTint = FColor(255,255,255,160);
-#endif
-}
+{ }
 
 
 TSharedPtr<IMovieSceneTrackInstance> UMovieSceneParticleTrack::CreateInstance()
@@ -91,7 +87,7 @@ UMovieSceneSection* UMovieSceneParticleTrack::CreateNewSection()
 }
 
 #if WITH_EDITORONLY_DATA
-FText UMovieSceneParticleTrack::GetDefaultDisplayName() const
+FText UMovieSceneParticleTrack::GetDisplayName() const
 {
 	return LOCTEXT("DisplayName", "Particle System");
 }

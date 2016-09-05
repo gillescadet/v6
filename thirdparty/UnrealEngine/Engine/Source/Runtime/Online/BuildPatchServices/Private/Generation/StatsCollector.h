@@ -25,8 +25,7 @@ namespace BuildPatchServices
 
 	public:
 		static uint64 GetCycles();
-		static double CyclesToSeconds(uint64 Cycles);
-		static uint64 SecondsToCycles(double Seconds);
+		static double CyclesToSeconds(const uint64 Cycles);
 		static void AccumulateTimeBegin(uint64& TempValue);
 		static void AccumulateTimeEnd(volatile int64* Stat, uint64& TempValue);
 		static void Accumulate(volatile int64* Stat, int64 Amount);
@@ -60,39 +59,5 @@ namespace BuildPatchServices
 	private:
 		uint64 TempTime;
 		volatile int64* Stat;
-	};
-
-	class FStatsParallelScopeTimer
-	{
-	public:
-		FStatsParallelScopeTimer(volatile int64* InStaticTempValue, volatile int64* InTimerStat, volatile int64* InCounterStat)
-			: TempTime(InStaticTempValue)
-			, TimerStat(InTimerStat)
-			, CounterStat(InCounterStat)
-		{
-			int64 OldValue = FPlatformAtomics::InterlockedAdd(CounterStat, 1);
-			if (OldValue == 0)
-			{
-				FPlatformAtomics::InterlockedExchange(TempTime, FStatsCollector::GetCycles());
-			}
-		}
-		~FStatsParallelScopeTimer()
-		{
-			int64 CurrTempTime = *TempTime;
-			int64 OldValue = FPlatformAtomics::InterlockedAdd(CounterStat, -1);
-			if (OldValue == 1)
-			{
-				FPlatformAtomics::InterlockedAdd(TimerStat, FStatsCollector::GetCycles() - CurrTempTime);
-			}
-		}
-		int64 GetCurrentTime() const
-		{
-			return (*TimerStat) + ((*CounterStat) > 0 ? FStatsCollector::GetCycles() - (*TempTime) : 0);
-		}
-
-	private:
-		volatile int64* TempTime;
-		volatile int64* TimerStat;
-		volatile int64* CounterStat;
 	};
 }

@@ -34,20 +34,6 @@ public:
 	 */
 	static UMovieSceneSection* FindNearestSectionAtTime( const TArray<UMovieSceneSection*>& Sections, float Time );
 
-	/*
-	 * Fix up consecutive sections so that there are no gaps
-	 * 
-	 * @param Sections All the sections
-	 * @param Section The section that was modified 
-	 * @param bDelete Was this a deletion?
-	 */
-	static void FixupConsecutiveSections(TArray<UMovieSceneSection*>& Sections, UMovieSceneSection& Section, bool bDelete);
-
-	/*
- 	 * Sort consecutive sections so that they are in order based on start time
- 	 */
-	static void SortConsecutiveSections(TArray<UMovieSceneSection*>& Sections);
-
 	/**
 	 * Get the scene component from the runtime object
 	 *
@@ -56,23 +42,7 @@ public:
 	 */	
 	static USceneComponent* SceneComponentFromRuntimeObject(UObject* Object);
 
-	/**
-	 * Get the active camera component from the actor 
-	 *
-	 * @param InActor The actor to look for the camera component on
-	 * @return The active camera component
-	 */
-	static UCameraComponent* CameraComponentFromActor(const AActor* InActor);
-
-	/**
-	 * Find and return camera component from the runtime object
-	 *
-	 * @param Object The object to get the camera component for
-	 * @return The found camera component
-	 */	
-	static UCameraComponent* CameraComponentFromRuntimeObject(UObject* RuntimeObject);
-
-	/**
+	/*
 	 * Set the runtime object movable
 	 *
 	 * @param Object The object to set the mobility for
@@ -102,13 +72,12 @@ public:
 	/**
 	 * Calls the setter function for a specific runtime object or if the setter function does not exist, the property is set directly
 	 *
-	 * @param InRuntimeObject The runtime object whose function to call
-	 * @param PropertyValue The new value to assign to the property (if bound to property)
-	 * @param FunctionParams Parameters to pass to the function (if bound to function)
+	 * @param InRuntimeObject	The runtime object whose function to call
+	 * @param FunctionParams	Parameters to pass to the function
 	 */
 	template <typename ValueType>
 	void 
-	CallFunction( UObject* InRuntimeObject, void* PropertyValue, void* FunctionParams )
+	CallFunction( UObject* InRuntimeObject, void* FunctionParams )
 	{
 		FPropertyAndFunction PropAndFunction = RuntimeObjectToFunctionMap.FindRef(InRuntimeObject);
 		if(PropAndFunction.Function)
@@ -117,17 +86,9 @@ public:
 		}
 		else
 		{
-			ValueType* NewValue = (ValueType*)(PropertyValue);
+			ValueType* NewValue = (ValueType*)(FunctionParams);
 			SetCurrentValue<ValueType>(InRuntimeObject, *NewValue);
 		}
-	}
-
-	/** For backwards compatibility. */
-	template <typename ValueType>
-	void 
-	CallFunction( UObject* InRuntimeObject, void* PropertyValue )
-	{
-		CallFunction<ValueType>(InRuntimeObject, PropertyValue, PropertyValue);
 	}
 
 	/**
@@ -135,14 +96,7 @@ public:
 	 *
 	 * @param InRuntimeObjects	The objects to rebuild mappings for
 	 */
-	void UpdateBindings( const TArray<TWeakObjectPtr<UObject>>& InRuntimeObjects );
-
-	/**
-	 * Rebuilds the property and function mappings for a single runtime object
-	 *
-	 * @param InRuntimeObject	The object to rebuild mappings for
-	 */
-	void UpdateBinding( const TWeakObjectPtr<UObject>& InRuntimeObject );
+	void UpdateBindings( const TArray<UObject*>& InRuntimeObjects );
 
 	/**
 	 * Gets the UProperty that is bound to the track instance
@@ -194,18 +148,6 @@ public:
 				*Val = InValue;
 			}
 		}
-	}
-
-	/** @return the property path that this binding was initialized from */
-	const FString& GetPropertyPath() const
-	{
-		return PropertyPath;
-	}
-
-	/** @return the property name that this binding was initialized from */
-	const FName& GetPropertyName() const
-	{
-		return PropertyName;
 	}
 
 private:

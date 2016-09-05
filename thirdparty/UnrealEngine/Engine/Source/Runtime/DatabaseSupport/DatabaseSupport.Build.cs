@@ -8,7 +8,7 @@ namespace UnrealBuildTool.Rules
 		{
 			if ((UEBuildConfiguration.bIncludeADO == true) || (UEBuildConfiguration.bCompileAgainstEngine == true))
 			{
-				AddEngineThirdPartyPrivateStaticDependencies(Target, "ADO");
+				AddThirdPartyPrivateStaticDependencies(Target, "ADO");
 				bBuildLocallyWithSNDBS = true;
 			}
 			

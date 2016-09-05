@@ -48,6 +48,7 @@ public:
 TGlobalResource<FDistortionVertexDeclaration> GDistortionVertexDeclaration;
 
 /** Encapsulates the post processing vertex shader. */
+template <bool bTimeWarp>
 class FPostProcessHMDVS : public FGlobalShader
 {
 	DECLARE_SHADER_TYPE(FPostProcessHMDVS, Global);
@@ -65,6 +66,12 @@ class FPostProcessHMDVS : public FGlobalShader
 		return true;
 	}
 
+	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("USE_TIMEWARP"), uint32(bTimeWarp ? 1 : 0));
+	}
+
 	/** Default constructor. */
 	FPostProcessHMDVS() {}
 
@@ -76,6 +83,12 @@ public:
 	{
 		EyeToSrcUVScale.Bind(Initializer.ParameterMap, TEXT("EyeToSrcUVScale"));
 		EyeToSrcUVOffset.Bind(Initializer.ParameterMap, TEXT("EyeToSrcUVOffset"));
+
+		if (bTimeWarp)
+		{
+			EyeRotationStart.Bind(Initializer.ParameterMap, TEXT("EyeRotationStart"));
+			EyeRotationEnd.Bind(Initializer.ParameterMap, TEXT("EyeRotationEnd"));
+		}
 	}
 
 	void SetVS(const FRenderingCompositePassContext& Context)
@@ -90,6 +103,14 @@ public:
 		GEngine->HMDDevice->GetEyeRenderParams_RenderThread(Context, EyeToSrcUVScaleValue, EyeToSrcUVOffsetValue);
 		SetShaderValue(Context.RHICmdList, ShaderRHI, EyeToSrcUVScale, EyeToSrcUVScaleValue);
 		SetShaderValue(Context.RHICmdList, ShaderRHI, EyeToSrcUVOffset, EyeToSrcUVOffsetValue);
+
+		if (bTimeWarp)
+		{
+			FMatrix startM, endM;
+			GEngine->HMDDevice->GetTimewarpMatrices_RenderThread(Context, startM, endM);
+			SetShaderValue(Context.RHICmdList, ShaderRHI, EyeRotationStart, startM);
+			SetShaderValue(Context.RHICmdList, ShaderRHI, EyeRotationEnd, endM);
+		}
 	}
 
 	// FShader interface.
@@ -97,13 +118,18 @@ public:
 	{
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << EyeToSrcUVScale << EyeToSrcUVOffset;
+		if (bTimeWarp)
+		{
+			Ar << EyeRotationStart << EyeRotationEnd;
+		}
 		return bShaderHasOutdatedParameters;
 	}
 };
 
-IMPLEMENT_SHADER_TYPE(, FPostProcessHMDVS, TEXT("PostProcessHMD"), TEXT("MainVS"), SF_Vertex);
+IMPLEMENT_SHADER_TYPE(template<>, FPostProcessHMDVS<false>, TEXT("PostProcessHMD"), TEXT("MainVS"), SF_Vertex);
 
 /** Encapsulates the post processing HMD distortion and correction pixel shader. */
+template <bool bTimeWarp>
 class FPostProcessHMDPS : public FGlobalShader
 {
 	DECLARE_SHADER_TYPE(FPostProcessHMDPS, Global);
@@ -146,9 +172,15 @@ public:
 		Ar << PostprocessParameter << DeferredParameters;
 		return bShaderHasOutdatedParameters;
 	}
+
+	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Platform, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("USE_TIMEWARP"), uint32(bTimeWarp ? 1 : 0));
+	}
 };
 
-IMPLEMENT_SHADER_TYPE(, FPostProcessHMDPS, TEXT("PostProcessHMD"), TEXT("MainPS"), SF_Pixel);
+IMPLEMENT_SHADER_TYPE(template<>, FPostProcessHMDPS<false>, TEXT("PostProcessHMD"), TEXT("MainPS"), SF_Pixel);
 
 void FRCPassPostProcessHMD::Process(FRenderingCompositePassContext& Context)
 {
@@ -187,8 +219,8 @@ void FRCPassPostProcessHMD::Process(FRenderingCompositePassContext& Context)
 	check(GEngine->HMDDevice.IsValid());
 
 	{
-		TShaderMapRef<FPostProcessHMDVS> VertexShader(Context.GetShaderMap());
-		TShaderMapRef<FPostProcessHMDPS> PixelShader(Context.GetShaderMap());
+		TShaderMapRef<FPostProcessHMDVS<false> > VertexShader(Context.GetShaderMap());
+		TShaderMapRef<FPostProcessHMDPS<false> > PixelShader(Context.GetShaderMap());
 		static FGlobalBoundShaderState BoundShaderState;
 		
 		SetGlobalBoundShaderState(Context.RHICmdList, Context.GetFeatureLevel(), BoundShaderState, GDistortionVertexDeclaration.VertexDeclarationRHI, *VertexShader, *PixelShader);

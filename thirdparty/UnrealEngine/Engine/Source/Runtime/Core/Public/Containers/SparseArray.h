@@ -4,9 +4,7 @@
 
 #include "Containers/Array.h"
 #include "Containers/BitArray.h"
-#include "Templates/MemoryOps.h"
-#include "Templates/IsTriviallyCopyConstructible.h"
-#include "Templates/IsTriviallyDestructible.h"
+#include "MemoryOps.h"
 
 
 // Forward declarations.
@@ -175,7 +173,7 @@ public:
 	/** Removes Count elements from the array, starting from Index. */
 	void RemoveAt(int32 Index,int32 Count = 1)
 	{
-		if (!TIsTriviallyDestructible<ElementType>::Value)
+		if (TTypeTraits<ElementType>::NeedsDestructor)
 		{
 			for (int32 It = Index, ItCount = Count; ItCount; ++It, --ItCount)
 			{
@@ -216,7 +214,7 @@ public:
 	void Empty(int32 ExpectedNumElements = 0)
 	{
 		// Destruct the allocated elements.
-		if( !TIsTriviallyDestructible<ElementType>::Value )
+		if( TTypeTraits<ElementType>::NeedsDestructor )
 		{
 			for(TIterator It(*this);It;++It)
 			{
@@ -236,7 +234,7 @@ public:
 	void Reset()
 	{
 		// Destruct the allocated elements.
-		if( !TIsTriviallyDestructible<ElementType>::Value )
+		if( TTypeTraits<ElementType>::NeedsDestructor )
 		{
 			for(TIterator It(*this);It;++It)
 			{
@@ -561,7 +559,7 @@ public:
 			AllocationFlags = InCopy.AllocationFlags;
 
 			// Determine whether we need per element construction or bulk copy is fine
-			if (!TIsTriviallyCopyConstructible<ElementType>::Value)
+			if (TTypeTraits<ElementType>::NeedsCopyConstructor)
 			{
 				      FElementOrFreeListLink* SrcData  = (FElementOrFreeListLink*)Data.GetData();
 				const FElementOrFreeListLink* DestData = (FElementOrFreeListLink*)InCopy.Data.GetData();
@@ -670,7 +668,7 @@ private:
 		FORCEINLINE friend bool operator!=(const TBaseIterator& Lhs, const TBaseIterator& Rhs) { return Lhs.BitArrayIt != Rhs.BitArrayIt || &Lhs.Array != &Rhs.Array; }
 
 		/** conversion to "bool" returning true if the iterator is valid. */
-		FORCEINLINE explicit operator bool() const
+		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 		{ 
 			return !!BitArrayIt; 
 		}
@@ -769,7 +767,7 @@ public:
 		FORCEINLINE int32 GetIndex() const { return BitArrayIt.GetIndex(); }
 		
 		/** conversion to "bool" returning true if the iterator is valid. */
-		FORCEINLINE explicit operator bool() const
+		FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 		{ 
 			return !!BitArrayIt; 
 		}

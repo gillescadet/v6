@@ -54,14 +54,7 @@ void FPhysCommandHandler::ExecuteCommands()
 		case PhysCommand::DeleteSimEventCallback:
 		{
 			physx::PxSimulationEventCallback * SimEventCallback = Command.Pointer.SimEventCallback;
-			if (FPhysScene::SimEventCallbackFactory.IsValid())
-			{
-				FPhysScene::SimEventCallbackFactory->Destroy(SimEventCallback);
-			}
-			else
-			{
-				delete SimEventCallback;
-			}
+			delete SimEventCallback;
 			break;
 		}
 		case PhysCommand::DeleteCPUDispatcher:

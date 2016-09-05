@@ -12,7 +12,6 @@
 #include "DynamicMeshBuilder.h"
 #include "Engine/CollisionProfile.h"
 #include "EngineUtils.h"
-#include "Materials/MaterialInstanceConstant.h"
 
 namespace
 {
@@ -47,9 +46,9 @@ public:
 	{}
 
 	// FMaterialRenderProxy interface.
-	virtual const class FMaterial* GetMaterial(ERHIFeatureLevel::Type InFeatureLevel) const
+	virtual const class FMaterial* GetMaterial(ERHIFeatureLevel::Type FeatureLevel) const
 	{
-		return Parent->GetMaterial(InFeatureLevel);
+		return Parent->GetMaterial(FeatureLevel);
 	}
 	virtual bool GetVectorValue(const FName ParameterName, FLinearColor* OutValue, const FMaterialRenderContext& Context) const
 	{
@@ -416,6 +415,7 @@ ALandscapeGizmoActor::ALandscapeGizmoActor(const FObjectInitializer& ObjectIniti
 
 	USceneComponent* SceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent0"));
 	RootComponent = SceneComponent;
+	RootComponent->Mobility = EComponentMobility::Static;
 
 #if WITH_EDITORONLY_DATA
 	bEditable = false;
@@ -647,9 +647,9 @@ void ALandscapeGizmoActiveActor::SetTargetLandscape(ULandscapeInfo* LandscapeInf
 		MarginZ = TargetLandscapeInfo->DrawScale.Z * 3;
 		Width = Height = TargetLandscapeInfo->DrawScale.X * (TargetLandscapeInfo->ComponentSizeQuads+1);
 
-		float NewLengthZ;
-		FVector NewLocation = TargetLandscapeInfo->GetLandscapeCenterPos(NewLengthZ);
-		SetLength(NewLengthZ);
+		float LengthZ;
+		FVector NewLocation = TargetLandscapeInfo->GetLandscapeCenterPos(LengthZ);
+		SetLength(LengthZ);
 		SetActorLocation( NewLocation, false );
 		SetActorRotation(FRotator::ZeroRotator);
 	}
@@ -687,9 +687,9 @@ void ALandscapeGizmoActiveActor::FitToSelection()
 			float ScaleXY = TargetLandscapeInfo->DrawScale.X;
 			Width = ScaleXY * (MaxX - MinX + 1) / (GetRootComponent()->RelativeScale3D.X);
 			Height = ScaleXY * (MaxY - MinY + 1) / (GetRootComponent()->RelativeScale3D.Y);
-			float NewLengthZ;
-			FVector NewLocation = TargetLandscapeInfo->GetLandscapeCenterPos(NewLengthZ, MinX, MinY, MaxX, MaxY);
-			SetLength(NewLengthZ);
+			float LengthZ;
+			FVector NewLocation = TargetLandscapeInfo->GetLandscapeCenterPos(LengthZ, MinX, MinY, MaxX, MaxY);
+			SetLength(LengthZ);
 			SetActorLocation(NewLocation, false);
 			SetActorRotation(FRotator::ZeroRotator);
 			// Reset Z render scale values...

@@ -98,13 +98,6 @@ uint32 SMeshWidget::AddMesh(USlateVectorArtData& InMeshData)
 	return RenderData.Num()-1;
 }
 
-uint32 SMeshWidget::AddMeshWithInstancing(USlateVectorArtData& InMeshData, int32 InitialBufferSize)
-{
-	const uint32 NewMeshId = AddMesh(InMeshData);
-	EnableInstancing(NewMeshId, InitialBufferSize);
-	return NewMeshId;
-}
-
 
 UMaterialInstanceDynamic* SMeshWidget::ConvertToMID(uint32 MeshId)
 {
@@ -234,29 +227,28 @@ FVector2D SMeshWidget::ComputeDesiredSize(float) const
 }
 
 
+
+
 void SMeshWidget::AddReferencedObjects(FReferenceCollector& Collector)
 {
 	for (const FRenderData& SomeRenderData : RenderData)
 	{
 		if (SomeRenderData.Brush.IsValid())
 		{
-			SomeRenderData.Brush->AddReferencedObjects(Collector);
+			UObject* ResourceObject = SomeRenderData.Brush->GetResourceObject();
+			Collector.AddReferencedObject(ResourceObject);
 		}
 	}
 }
 
 
 void SMeshWidget::PushUpdate(uint32 VectorArtId, const SMeshWidget& Widget, const FVector2D& Position, float Scale, uint32 BaseAddress)
-{
-	PushUpdate(VectorArtId, Widget, Position, Scale, static_cast<float>(BaseAddress));
-}
 
-void SMeshWidget::PushUpdate(uint32 VectorArtId, const SMeshWidget& Widget, const FVector2D& Position, float Scale, float OptionalFloat /*= 0*/)
 {
 	FSlateVectorArtInstanceData Data;
 	Data.SetPosition(Position);
 	Data.SetScale(Scale);
-	Data.SetBaseAddress(OptionalFloat);
+	Data.SetBaseAddress(BaseAddress);
 
 	{
 		TSharedPtr<FSlateInstanceBufferUpdate> PerInstaceUpdate = Widget.BeginPerInstanceBufferUpdateConst(VectorArtId);

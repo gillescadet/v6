@@ -16,12 +16,12 @@ struct ENGINE_API FOverlapInfo
 	FOverlapInfo()
 	{}
 
-	explicit FOverlapInfo(const FHitResult& InSweepResult)
+	FOverlapInfo(const FHitResult& InSweepResult)
 		: bFromSweep(true), OverlapInfo(InSweepResult)
 	{
 	}
 
-	explicit FOverlapInfo(class UPrimitiveComponent* InComponent, int32 InBodyIndex = INDEX_NONE);
+	FOverlapInfo(class UPrimitiveComponent* InComponent, int32 InBodyIndex = INDEX_NONE);
 	
 	int32 GetBodyIndex() const { return OverlapInfo.Item;  }
 
@@ -34,9 +34,6 @@ struct ENGINE_API FOverlapInfo
 	  * If bFromSweep is false only FHitResult::Component, FHitResult::Actor, FHitResult::Item are valid as this is really just an FOverlapResult*/
 	FHitResult OverlapInfo;
 };
-
-// All added members of FOverlapInfo are PODs.
-template<> struct TIsPODType<FOverlapInfo> { enum { Value = TIsPODType<FHitResult>::Value }; };
 
 /** Detail mode for scene component rendering. */
 UENUM()
@@ -58,8 +55,6 @@ enum ERelativeTransformSpace
 	RTS_Actor,
 	/** Component space transform. */
 	RTS_Component,
-	/** Parent bone space transform */
-	RTS_ParentBoneSpace,
 };
 
 //
@@ -83,7 +78,7 @@ FORCEINLINE void operator&=(EMoveComponentFlags& Dest,EMoveComponentFlags Arg)		
 FORCEINLINE void operator|=(EMoveComponentFlags& Dest,EMoveComponentFlags Arg)					{ Dest = EMoveComponentFlags(Dest | Arg); }
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPhysicsVolumeChanged, class APhysicsVolume*, NewVolume);
-DECLARE_EVENT_ThreeParams(USceneComponent, FTransformUpdated, USceneComponent* /*UpdatedComponent*/, EUpdateTransformFlags /*UpdateTransformFlags*/, ETeleportType /*Teleport*/);
+
 
 /**
  * A SceneComponent has a transform and supports attachment, but has no rendering or collision capabilities.
@@ -94,33 +89,32 @@ UCLASS(ClassGroup=(Utility, Common), BlueprintType, hideCategories=(Trigger, Phy
 class ENGINE_API USceneComponent : public UActorComponent
 {
 	GENERATED_BODY()
-
 public:
 
 	/** The name to use for the default scene root variable */
-	static FName GetDefaultSceneRootVariableName();
+	static const FName& GetDefaultSceneRootVariableName();
 
 	/**
 	 * UObject constructor that takes an ObjectInitializer
 	 */
 	USceneComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+public:
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** What we are currently attached to. If valid, RelativeLocation etc. are used relative to this object */
-private:
-	UPROPERTY(ReplicatedUsing = OnRep_AttachParent)
-	USceneComponent* AttachParent;
+	UPROPERTY(ReplicatedUsing=OnRep_AttachParent)
+	class USceneComponent* AttachParent;
 
 	/** List of child SceneComponents that are attached to us. */
 	UPROPERTY(Replicated, transient)
-	TArray<USceneComponent*> AttachChildren;
+	TArray< USceneComponent* > AttachChildren;
 
 	/** Optional socket name on AttachParent that we are attached to. */
-	UPROPERTY(ReplicatedUsing = OnRep_AttachSocketName)
+	UPROPERTY(ReplicatedUsing=OnRep_AttachSocketName)
 	FName AttachSocketName;
 
-public:
 	DEPRECATED(4.11, "SceneComponent no longer supports custom locations.")
 	uint32 bRequiresCustomLocation:1;
 
@@ -149,7 +143,7 @@ public:
 	uint32 bVisible:1;
 
 	/** Whether to hide the primitive in game, if the primitive is Visible. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Rendering)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category=Rendering)
 	uint32 bHiddenInGame:1;
 
 	/**
@@ -226,7 +220,7 @@ public:
 	UPROPERTY()
 	FVector RelativeTranslation_DEPRECATED;
 
-	/** How often this component is allowed to move, used to make various optimizations. Only safe to set in constructor. */
+	/** How often this component is allowed to move, used to make various optimizations. Only safe to set in constructor, use SetMobility() during runtime. */
 	UPROPERTY(Category = Mobility, EditAnywhere, BlueprintReadOnly)
 	TEnumAsByte<EComponentMobility::Type> Mobility;
 
@@ -236,8 +230,8 @@ public:
 
 private:
 
-	uint8 bNetUpdateTransform:1;
-	uint8 bNetUpdateAttachment:1;
+	bool bNetUpdateTransform;
+	bool bNetUpdateAttachment;
 	FName NetOldAttachSocketName;
 	USceneComponent *NetOldAttachParent;
 
@@ -252,8 +246,6 @@ private:
 
 	UFUNCTION()
 	void OnRep_Visibility(bool OldValue);
-
-protected:
 
 	virtual void PreNetReceive() override;
 	virtual void PostNetReceive() override;
@@ -537,11 +529,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Physics")
 	virtual bool IsAnySimulatingPhysics() const;
 
-public:
-
-	/** Get the SceneComponents that are attached to this component. */
-	const TArray<USceneComponent*>& GetAttachChildren() const;
-
 	/** Get the SceneComponent we are attached to. */
 	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
 	USceneComponent* GetAttachParent() const;
@@ -552,7 +539,7 @@ public:
 
 	/** Gets all parent components up to and including the root component */
 	UFUNCTION(BlueprintCallable, Category="Components")
-	void GetParentComponents(TArray<USceneComponent*>& Parents) const;
+	void GetParentComponents(TArray<class USceneComponent*>& Parents) const;
 
 	/** Gets the number of attached children components */
 	UFUNCTION(BlueprintCallable, Category="Components")
@@ -560,7 +547,7 @@ public:
 
 	/** Gets the attached child component at the specified location */
 	UFUNCTION(BlueprintCallable, Category="Components")
-	USceneComponent* GetChildComponent(int32 ChildIndex) const;
+	class USceneComponent* GetChildComponent(int32 ChildIndex) const;
 
 	/** 
 	 * Gets all the attached child components
@@ -570,18 +557,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components")
 	void GetChildrenComponents(bool bIncludeAllDescendants, TArray<USceneComponent*>& Children) const;
 
-	/** 
-	* Initializes desired Attach Parent and SocketName to be attached to when the component is registered.
-	* Generally intended to be called from its Owning Actor's constructor and should be preferred over AttachToComponent when
-	* a component is not registered.
-	* @param  InParent				Parent to attach to.
-	* @param  InSocketName			Optional socket to attach to on the parent.
-	*/
-	void SetupAttachment(USceneComponent* InParent, FName InSocketName = NAME_None);
-
-	/** Backwards compatibility: Used to convert old-style EAttachLocation to new-style EAttachmentRules */
-	static void ConvertAttachLocation(EAttachLocation::Type InAttachLocation, EAttachmentRule& InOutLocationRule, EAttachmentRule& InOutRotationRule, EAttachmentRule& InOutScaleRule);
-
 	/**
 	 * Attach this component to another scene component, optionally at a named socket. It is valid to call this on components whether or not they have been Registered.
 	 * @param  InParent				Parent to attach to.
@@ -590,8 +565,7 @@ public:
 	 * @param  bWeldSimulatedBodies Whether to weld together simulated physics bodies.
 	 * @return True if attachment is successful (or already attached to requested parent/socket), false if attachment is rejected and there is no change in AttachParent.
 	 */
-	DEPRECATED(4.12, "This function is deprecated, please use AttachToComponent instead.")
-	bool AttachTo(USceneComponent* InParent, FName InSocketName = NAME_None, EAttachLocation::Type AttachType = EAttachLocation::KeepRelativeOffset, bool bWeldSimulatedBodies = false);
+	 bool AttachTo(class USceneComponent* InParent, FName InSocketName = NAME_None, EAttachLocation::Type AttachType = EAttachLocation::KeepRelativeOffset, bool bWeldSimulatedBodies = false);
 
 	/**
 	 * Attach this component to another scene component, optionally at a named socket. It is valid to call this on components whether or not they have been Registered.
@@ -599,62 +573,21 @@ public:
 	 * @param  InSocketName			Optional socket to attach to on the parent.
 	 * @param  AttachType			How to handle transform when attaching (Keep relative offset, keep world position, etc).
 	 * @param  bWeldSimulatedBodies Whether to weld together simulated physics bodies.
-	 * @return True if attachment is successful (or already attached to requested parent/socket), false if attachment is rejected and there is no change in AttachParent.
 	*/
-	UFUNCTION(BlueprintCallable, Category = "Utilities|Transformation", meta = (DisplayName = "AttachTo (Deprecated)", AttachType = "KeepRelativeOffset"))
-	bool K2_AttachTo(USceneComponent* InParent, FName InSocketName = NAME_None, EAttachLocation::Type AttachType = EAttachLocation::KeepRelativeOffset, bool bWeldSimulatedBodies = true);
-
-	/**
-	* Attach this component to another scene component, optionally at a named socket. It is valid to call this on components whether or not they have been Registered, however from
-	* constructor or when not registered it is preferable to use SetupAttachment.
-	* @param  Parent				Parent to attach to.
-	* @param  AttachmentRules		How to handle transforms & welding when attaching.
-	* @param  SocketName			Optional socket to attach to on the parent.
-	* @return True if attachment is successful (or already attached to requested parent/socket), false if attachment is rejected and there is no change in AttachParent.
-	*/
-	bool AttachToComponent(USceneComponent* InParent, const FAttachmentTransformRules& AttachmentRules, FName InSocketName = NAME_None );
-
-	/**
-	* Attach this component to another scene component, optionally at a named socket. It is valid to call this on components whether or not they have been Registered.
-	* @param  Parent					Parent to attach to.
-	* @param  SocketName				Optional socket to attach to on the parent.
-	* @param  LocationRule				How to handle translation when attaching.
-	* @param  RotationRule				How to handle rotation when attaching.
-	* @param  ScaleRule					How to handle scale when attaching.
-	* @param  bWeldSimulatedBodies		Whether to weld together simulated physics bodies.
-	* @return True if attachment is successful (or already attached to requested parent/socket), false if attachment is rejected and there is no change in AttachParent.
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Utilities|Transformation", meta = (DisplayName = "AttachToComponent", bWeldSimulatedBodies=true))
-	bool K2_AttachToComponent(USceneComponent* Parent, FName SocketName, EAttachmentRule LocationRule, EAttachmentRule RotationRule, EAttachmentRule ScaleRule, bool bWeldSimulatedBodies);
+	UFUNCTION(BlueprintCallable, Category = "Utilities|Transformation", meta = (DisplayName = "AttachTo", AttachType = "KeepRelativeOffset"))
+	void K2_AttachTo(class USceneComponent* InParent, FName InSocketName = NAME_None, EAttachLocation::Type AttachType = EAttachLocation::KeepRelativeOffset, bool bWeldSimulatedBodies = true);
 
 	/** Zeroes out the relative transform of the component, and calls AttachTo(). Useful for attaching directly to a scene component or socket location  */
-	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction, DeprecationMessage = "Use AttachToComponent instead"), Category="Utilities|Transformation")
-	bool SnapTo(USceneComponent* InParent, FName InSocketName = NAME_None);
+	UFUNCTION(BlueprintCallable, meta=(DeprecatedFunction, DeprecationMessage = "Use AttachTo with EAttachLocation::SnapToTarget option instead"), Category="Utilities|Transformation")
+	void SnapTo(class USceneComponent* InParent, FName InSocketName = NAME_None);
 
 	/** 
-	 * Detach this component from whatever it is attached to. Automatically unwelds components that are welded together (See WeldTo)
-	 * @param bMaintainWorldPosition	If true, update the relative location of the component to keep its world position the same
-	 * @param bCallModify				If true, call Modify() on the component and the current attach parent component
+	 *	Detach this component from whatever it is attached to. Automatically unwelds components that are welded together (See WeldTo)
+	 *   @param bMaintainWorldTransform	If true, update the relative location/rotation of the component to keep its world position the same *	
 	 */
-	DEPRECATED(4.12, "This function is deprecated, please use DetachFromComponent instead.")
-	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation", meta = (DisplayName = "DetachFromParent (Deprecated)"))
+	UFUNCTION(BlueprintCallable, Category="Utilities|Transformation")
 	virtual void DetachFromParent(bool bMaintainWorldPosition = false, bool bCallModify = true);
 
-	/** 
-	 * Detach this component from whatever it is attached to. Automatically unwelds components that are welded together (See WeldTo)
-	 * @param LocationRule				How to handle translations when detaching.
-	 * @param RotationRule				How to handle rotation when detaching.
-	 * @param ScaleRule					How to handle scales when detaching.
-	 * @param bCallModify				If true, call Modify() on the component and the current attach parent component
-	 */
-	UFUNCTION(BlueprintCallable, meta = (DisplayName = "DetachFromComponent"), Category = "Utilities|Transformation")
-	void K2_DetachFromComponent(EDetachmentRule LocationRule = EDetachmentRule::KeepRelative, EDetachmentRule RotationRule = EDetachmentRule::KeepRelative, EDetachmentRule ScaleRule = EDetachmentRule::KeepRelative, bool bCallModify = true);
-
-	/** 
-	 * Detach this component from whatever it is attached to. Automatically unwelds components that are welded together (See WeldTo)
-	 * @param DetachmentRules			How to handle transforms & modification when detaching.
-	 */
-	virtual void DetachFromComponent(const FDetachmentTransformRules& DetachmentRules);
 
 	/** 
 	 * Gets the names of all the sockets on the component.
@@ -751,8 +684,6 @@ public:
 	UPROPERTY(BlueprintAssignable, Category=PhysicsVolume, meta=(DisplayName="Physics Volume Changed"))
 	FPhysicsVolumeChanged PhysicsVolumeChangedDelegate;
 
-	FTransformUpdated TransformUpdated;
-
 	//~ Begin ActorComponent Interface
 	virtual void OnRegister() override;
 	/** Return true if CreateRenderState() should be called */
@@ -760,9 +691,9 @@ public:
 	{
 		return true;
 	}
-	virtual void UpdateComponentToWorld(EUpdateTransformFlags UpdateTransformFlags = EUpdateTransformFlags::None, ETeleportType Teleport = ETeleportType::None) override final
+	virtual void UpdateComponentToWorld(bool bSkipPhysicsMove = false, ETeleportType Teleport = ETeleportType::None) override final
 	{
-		UpdateComponentToWorldWithParent(GetAttachParent(), GetAttachSocketName(), UpdateTransformFlags, RelativeRotationCache.RotatorToQuat(RelativeRotation), Teleport);
+		UpdateComponentToWorldWithParent(AttachParent, AttachSocketName, bSkipPhysicsMove, RelativeRotationCache.RotatorToQuat(RelativeRotation), Teleport);
 	}
 	virtual void DestroyComponent(bool bPromoteChildren = false) override;
 	virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
@@ -794,15 +725,15 @@ protected:
 	 */
 	bool InternalSetWorldLocationAndRotation(FVector NewLocation, const FQuat& NewQuat, bool bNoPhysics = false, ETeleportType Teleport = ETeleportType::None);
 
-	virtual void OnUpdateTransform(EUpdateTransformFlags UpdateTransformFlags, ETeleportType Teleport = ETeleportType::None);
+	virtual void OnUpdateTransform(bool bSkipPhysicsMove, ETeleportType Teleport = ETeleportType::None);
 
 	/** Check if mobility is set to non-static. If it's static we trigger a PIE warning and return true*/
 	bool CheckStaticMobilityAndWarn(const FText& ActionText) const;
 
 private:
 
-	void PropagateTransformUpdate(bool bTransformChanged, EUpdateTransformFlags UpdateTransformFlags = EUpdateTransformFlags::None, ETeleportType Teleport = ETeleportType::None);
-	void UpdateComponentToWorldWithParent(USceneComponent* Parent, FName SocketName, EUpdateTransformFlags UpdateTransformFlags, const FQuat& RelativeRotationQuat, ETeleportType Teleport = ETeleportType::None);
+	void PropagateTransformUpdate(bool bTransformChanged, bool bSkipPhysicsMove = false, ETeleportType Teleport = ETeleportType::None);
+	void UpdateComponentToWorldWithParent(USceneComponent* Parent, FName SocketName, bool bSkipPhysicsMove, const FQuat& RelativeRotationQuat, ETeleportType Teleport = ETeleportType::None);
 
 
 public:
@@ -856,7 +787,6 @@ private:
 	void EndScopedMovementUpdate(class FScopedMovementUpdate& ScopedUpdate);
 
 	friend class FScopedMovementUpdate;
-	friend class FScopedPreventAttachedComponentMove;
 
 #if WITH_EDITORONLY_DATA
 protected:
@@ -917,7 +847,7 @@ public:
 	}
 
 	/** Update transforms of any components attached to this one. */
-	void UpdateChildTransforms(EUpdateTransformFlags UpdateTransformFlags = EUpdateTransformFlags::None, ETeleportType Teleport = ETeleportType::None);
+	void UpdateChildTransforms(bool bSkipPhysicsMove = false, ETeleportType Teleport = ETeleportType::None);
 
 	/** Calculate the bounds of the component. Default behavior is a bounding box/sphere of zero size. */
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const;
@@ -995,14 +925,14 @@ protected:
 		If Parent is not passed in we use the component's AttachParent*/
 	FORCEINLINE FTransform CalcNewComponentToWorld(const FTransform& NewRelativeTransform, const USceneComponent* Parent = NULL, FName SocketName = NAME_None) const
 	{
-		SocketName = Parent ? SocketName : GetAttachSocketName();
-		Parent = Parent ? Parent : GetAttachParent();
+		SocketName = Parent ? SocketName : AttachSocketName;
+		Parent = Parent ? Parent : AttachParent;
 		if (Parent)
 		{
 			const bool bGeneral = bAbsoluteLocation || bAbsoluteRotation || bAbsoluteScale;
 			if (!bGeneral)
 			{
-				return NewRelativeTransform * Parent->GetSocketTransform(GetAttachSocketName());
+				return NewRelativeTransform * Parent->GetSocketTransform(AttachSocketName);
 			}
 			
 			return CalcNewComponentToWorld_GeneralCase(NewRelativeTransform, Parent, SocketName);
@@ -1093,19 +1023,19 @@ public:
 	virtual ECollisionChannel GetCollisionObjectType() const;
 
 	/** Compares the CollisionObjectType of each component against the Response of the other, to see what kind of response we should generate */
-	ECollisionResponse GetCollisionResponseToComponent(USceneComponent* OtherComponent) const;
+	ECollisionResponse GetCollisionResponseToComponent(class USceneComponent* OtherComponent) const;
 
 	/** Set how often this component is allowed to move during runtime. Causes a component re-register if the component is already registered */
 	virtual void SetMobility(EComponentMobility::Type NewMobility);
 
-	/** Walks up the attachment chain from this SceneComponent and returns the SceneComponent at the top. If AttachParent is NULL, returns this. */
-	USceneComponent* GetAttachmentRoot() const;
+	/** Walks up the attachment chain from this SceneComponent and returns the SceneComponent at the top. this->Attachparent is NULL, returns this. */
+	class USceneComponent* GetAttachmentRoot() const;
 	
-	/** Walks up the attachment chain from this SceneComponent and returns the top-level actor it's attached to.  Returns Owner if unattached. */
-	AActor* GetAttachmentRootActor() const;
+	/** Walks up the attachment chain from this SceneComponent and returns the top-level actor it's attached to.  Returns NULL if unattached. */
+	class AActor* GetAttachmentRootActor() const;
 
 	/** Walks up the attachment chain to see if this component is attached to the supplied component. If TestComp == this, returns false.*/
-	bool IsAttachedTo(USceneComponent* TestComp) const;
+	bool IsAttachedTo(class USceneComponent* TestComp) const;
 
 	/**
 	 * Find the world-space location and rotation of the given named socket.
@@ -1156,43 +1086,11 @@ protected:
 	{
 		return (IsOwnerRunningUserConstructionScript()) || !(IsRegistered() && (Mobility == EComponentMobility::Static || (!bIgnoreStationary && Mobility == EComponentMobility::Stationary)));
 	}
-public:
-	/** Determines whether or not the component can have its mobility set to static */
-	virtual const bool CanHaveStaticMobility() const { return true; }
-
-private:
-
-	friend struct FDirectAttachChildrenAccessor;
-};
-
-/** 
-  * Struct to allow direct access to the AttachChildren array for a handful of cases that will require more work than can be done  
-  * immediately to fix up in light of the privatization steps
-  */
-struct FDirectAttachChildrenAccessor
-{
-private:
-	static TArray<USceneComponent*>& Get(USceneComponent* Component)
-	{ 
-		return Component->AttachChildren;
-	}
-
-	friend class UChildActorComponent;
-	friend class FBlueprintThumbnailScene;
-	friend class FClassThumbnailScene;
-	friend class FComponentEditorUtils;
-	friend class FBlueprintCompileReinstancer;
-	friend struct FResetSceneComponentAfterCopy;
 };
 
 
 //////////////////////////////////////////////////////////////////////////
 // USceneComponent inlines
-
-FORCEINLINE const TArray<USceneComponent*>& USceneComponent::GetAttachChildren() const
-{
-	return AttachChildren;
-}
 
 FORCEINLINE USceneComponent* USceneComponent::GetAttachParent() const
 {
@@ -1353,7 +1251,7 @@ public:
 	
 	typedef TArray<struct FHitResult, TInlineAllocator<2>> TBlockingHitArray;
 
-	FScopedMovementUpdate( USceneComponent* Component, EScopedUpdate::Type ScopeBehavior = EScopedUpdate::DeferredUpdates );
+	FScopedMovementUpdate( class USceneComponent* Component, EScopedUpdate::Type ScopeBehavior = EScopedUpdate::DeferredUpdates );
 	~FScopedMovementUpdate();
 
 	enum class EHasMovedTransformOption
@@ -1431,7 +1329,7 @@ private:
 
 private:
 
-	USceneComponent* Owner;
+	class USceneComponent* Owner;
 	FScopedMovementUpdate* OuterDeferredScope;
 	uint32 bDeferUpdates:1;
 	uint32 bHasMoved:1;
@@ -1442,9 +1340,9 @@ private:
 	FRotator InitialRelativeRotation;
 	FVector InitialRelativeScale;
 
-	int32 FinalOverlapCandidatesIndex;		// If not INDEX_NONE, overlaps at this index and beyond in PendingOverlaps are at the final destination
-	TArray<FOverlapInfo> PendingOverlaps;	// All overlaps encountered during the scope of moves.
-	TBlockingHitArray BlockingHits;			// All blocking hits encountered during the scope of moves.
+	int32 FinalOverlapCandidatesIndex;
+	TArray<FOverlapInfo> PendingOverlaps;
+	TBlockingHitArray BlockingHits;
 
 	friend class USceneComponent;
 };
@@ -1506,6 +1404,8 @@ FORCEINLINE_DEBUGGABLE void FScopedMovementUpdate::ForceOverlapUpdate()
 	CurrentOverlapState = EOverlapState::eForceUpdate;
 	FinalOverlapCandidatesIndex = INDEX_NONE;
 }
+
+
 
 FORCEINLINE_DEBUGGABLE class FScopedMovementUpdate* USceneComponent::GetCurrentScopedMovement() const
 {

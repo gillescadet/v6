@@ -63,19 +63,9 @@ bool UUserWidget::Initialize()
 
 		// Only do this if this widget is of a blueprint class
 		UWidgetBlueprintGeneratedClass* BGClass = Cast<UWidgetBlueprintGeneratedClass>(GetClass());
-		if (BGClass != nullptr)
+		if ( BGClass != nullptr )
 		{
-			//TODO NickD: This is a hack, and should be undone later
-			UWidgetBlueprintGeneratedClass* SuperBGClass = Cast<UWidgetBlueprintGeneratedClass>(BGClass->GetSuperClass());
-			const bool bNoRootWidget = (nullptr == BGClass->WidgetTree) || (nullptr == BGClass->WidgetTree->RootWidget);
-			if (bNoRootWidget && SuperBGClass)
-			{
-				SuperBGClass->InitializeWidget(this);
-			}
-			else
-			{
-				BGClass->InitializeWidget(this);
-			}
+			BGClass->InitializeWidget(this);
 		}
 		else
 		{
@@ -251,73 +241,42 @@ UWorld* UUserWidget::GetWorld() const
 	return nullptr;
 }
 
-UUMGSequencePlayer* UUserWidget::GetOrAddPlayer(const UWidgetAnimation* InAnimation)
+void UUserWidget::PlayAnimation( const UWidgetAnimation* InAnimation, float StartAtTime, int32 NumberOfLoops, EUMGSequencePlayMode::Type PlayMode)
 {
-	if (InAnimation)
+	FScopedNamedEvent NamedEvent(FColor::Emerald, "Widget::PlayAnim");
+
+	if( InAnimation )
 	{
 		// @todo UMG sequencer - Restart animations which have had Play called on them?
 		UUMGSequencePlayer** FoundPlayer = ActiveSequencePlayers.FindByPredicate(
 			[&](const UUMGSequencePlayer* Player)
-		{
-			return Player->GetAnimation() == InAnimation;
-		});
+			{
+				return Player->GetAnimation() == InAnimation;
+			});
 
-		if (!FoundPlayer)
+		if( !FoundPlayer )
 		{
 			UUMGSequencePlayer* NewPlayer = NewObject<UUMGSequencePlayer>(this);
-			ActiveSequencePlayers.Add(NewPlayer);
+			ActiveSequencePlayers.Add( NewPlayer );
 
-			NewPlayer->OnSequenceFinishedPlaying().AddUObject(this, &UUserWidget::OnAnimationFinishedPlaying);
+			NewPlayer->OnSequenceFinishedPlaying().AddUObject( this, &UUserWidget::OnAnimationFinishedPlaying );
 
-			NewPlayer->InitSequencePlayer(*InAnimation, *this);
+			NewPlayer->InitSequencePlayer( *InAnimation, *this );
 
-			return NewPlayer;
+			NewPlayer->Play( StartAtTime, NumberOfLoops, PlayMode );
 		}
 		else
 		{
-			return *FoundPlayer;
+			( *FoundPlayer )->Play( StartAtTime, NumberOfLoops, PlayMode );
 		}
-	}
 
-	return nullptr;
-}
+		TSharedPtr<SWidget> CachedWidget = GetCachedWidget();
+		if ( CachedWidget.IsValid() )
+		{
+			CachedWidget->Invalidate(EInvalidateWidget::LayoutAndVolatility);
+		}
 
-void UUserWidget::Invalidate()
-{
-	TSharedPtr<SWidget> CachedWidget = GetCachedWidget();
-	if (CachedWidget.IsValid())
-	{
-		CachedWidget->Invalidate(EInvalidateWidget::LayoutAndVolatility);
-	}
-}
-
-void UUserWidget::PlayAnimation( const UWidgetAnimation* InAnimation, float StartAtTime, int32 NumberOfLoops, EUMGSequencePlayMode::Type PlayMode, float PlaybackSpeed)
-{
-	FScopedNamedEvent NamedEvent(FColor::Emerald, "Widget::PlayAnimation");
-
-	UUMGSequencePlayer* Player = GetOrAddPlayer(InAnimation);
-	if (Player)
-	{
-		Player->Play(StartAtTime, NumberOfLoops, PlayMode, PlaybackSpeed);
-
-		Invalidate();
-
-		OnAnimationStarted(InAnimation);
-	}
-}
-
-void UUserWidget::PlayAnimationTo(const UWidgetAnimation* InAnimation, float StartAtTime, float EndAtTime, int32 NumberOfLoops, EUMGSequencePlayMode::Type PlayMode, float PlaybackSpeed)
-{
-	FScopedNamedEvent NamedEvent(FColor::Emerald, "Widget::PlayAnimationTo");
-
-	UUMGSequencePlayer* Player = GetOrAddPlayer(InAnimation);
-	if (Player)
-	{
-		Player->PlayTo(StartAtTime, EndAtTime, NumberOfLoops, PlayMode, PlaybackSpeed);
-
-		Invalidate();
-
-		OnAnimationStarted(InAnimation);
+		OnAnimationStarted( InAnimation );
 	}
 }
 
@@ -352,20 +311,6 @@ float UUserWidget::PauseAnimation(const UWidgetAnimation* InAnimation)
 	return 0;
 }
 
-float UUserWidget::GetAnimationCurrentTime(const UWidgetAnimation* InAnimation) const
-{
-	if (InAnimation)
-	{
-		const UUMGSequencePlayer*const* FoundPlayer = ActiveSequencePlayers.FindByPredicate([&](const UUMGSequencePlayer* Player) { return Player->GetAnimation() == InAnimation; });
-		if (FoundPlayer)
-		{
-			return (float)(*FoundPlayer)->GetTimeCursorPosition();
-		}
-	}
-
-	return 0;
-}
-
 bool UUserWidget::IsAnimationPlaying(const UWidgetAnimation* InAnimation) const
 {
 	if (InAnimation)
@@ -385,11 +330,6 @@ bool UUserWidget::IsAnimationPlaying(const UWidgetAnimation* InAnimation) const
 	return false;
 }
 
-bool UUserWidget::IsAnyAnimationPlaying() const
-{
-	return ActiveSequencePlayers.Num() > 0;
-}
-
 void UUserWidget::SetNumLoopsToPlay(const UWidgetAnimation* InAnimation, int32 InNumLoopsToPlay)
 {
 	if (InAnimation)
@@ -399,32 +339,6 @@ void UUserWidget::SetNumLoopsToPlay(const UWidgetAnimation* InAnimation, int32 I
 		if (FoundPlayer)
 		{
 			(*FoundPlayer)->SetNumLoopsToPlay(InNumLoopsToPlay);
-		}
-	}
-}
-
-void UUserWidget::SetPlaybackSpeed(const UWidgetAnimation* InAnimation, float PlaybackSpeed)
-{
-	if (InAnimation)
-	{
-		UUMGSequencePlayer** FoundPlayer = ActiveSequencePlayers.FindByPredicate([&](const UUMGSequencePlayer* Player) { return Player->GetAnimation() == InAnimation; });
-
-		if (FoundPlayer)
-		{
-			(*FoundPlayer)->SetPlaybackSpeed(PlaybackSpeed);
-		}
-	}
-}
-
-void UUserWidget::ReverseAnimation(const UWidgetAnimation* InAnimation)
-{
-	if (InAnimation)
-	{
-		UUMGSequencePlayer** FoundPlayer = ActiveSequencePlayers.FindByPredicate([&](const UUMGSequencePlayer* Player) { return Player->GetAnimation() == InAnimation; });
-
-		if (FoundPlayer)
-		{
-			(*FoundPlayer)->Reverse();
 		}
 	}
 }
@@ -627,13 +541,6 @@ void UUserWidget::AddToScreen(ULocalPlayer* Player, int32 ZOrder)
 {
 	if ( !FullScreenWidget.IsValid() )
 	{
-		if ( UPanelWidget* ParentPanel = GetParent() )
-		{
-			FMessageLog("PIE").Error(FText::Format(LOCTEXT("WidgetAlreadyHasParent", "The widget '{0}' already has a parent widget.  It can't also be added to the viewport!"),
-				FText::FromString(GetClass()->GetName())));
-			return;
-		}
-
 		// First create and initialize the variable so that users calling this function twice don't
 		// attempt to add the widget to the viewport again.
 		TSharedRef<SConstraintCanvas> FullScreenCanvas = SNew(SConstraintCanvas);
@@ -857,9 +764,9 @@ void UUserWidget::RemoveObsoleteBindings(const TArray<FName>& NamedSlots)
 	}
 }
 
-void UUserWidget::PreSave(const class ITargetPlatform* TargetPlatform)
+void UUserWidget::PreSave()
 {
-	Super::PreSave(TargetPlatform);
+	Super::PreSave();
 
 	// Remove bindings that are no longer contained in the class.
 	if ( UWidgetBlueprintGeneratedClass* BGClass = Cast<UWidgetBlueprintGeneratedClass>(GetClass()) )
@@ -869,6 +776,11 @@ void UUserWidget::PreSave(const class ITargetPlatform* TargetPlatform)
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UUserWidget::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.UserWidget");
+}
 
 const FText UUserWidget::GetPaletteCategory()
 {
@@ -950,7 +862,11 @@ void UUserWidget::TickActionsAndAnimation(const FGeometry& MyGeometry, float InD
 	// If we're no longer playing animations invalidate layout so that we recache the volatility of the widget.
 	if ( bWasPlayingAnimation && IsPlayingAnimation() == false )
 	{
-		Invalidate();
+		TSharedPtr<SWidget> CachedWidget = GetCachedWidget();
+		if ( CachedWidget.IsValid() )
+		{
+			CachedWidget->Invalidate(EInvalidateWidget::LayoutAndVolatility);
+		}
 	}
 
 	UWorld* World = GetWorld();
@@ -966,7 +882,17 @@ void UUserWidget::ListenForInputAction( FName ActionName, TEnumAsByte< EInputEve
 {
 	if ( !InputComponent )
 	{
-		InitializeInputComponent();
+		if ( APlayerController* Controller = GetOwningPlayer() )
+		{
+			InputComponent = NewObject< UInputComponent >( this, NAME_None, RF_Transient );
+			InputComponent->bBlockInput = bStopAction;
+			InputComponent->Priority = Priority;
+			Controller->PushInputComponent( InputComponent );
+		}
+		else
+		{
+			FMessageLog("PIE").Info(FText::Format(LOCTEXT("NoInputListeningWithoutPlayerController", "Unable to listen to input actions without a player controller in {0}."), FText::FromName(GetClass()->GetFName())));
+		}
 	}
 
 	if ( InputComponent )
@@ -998,15 +924,12 @@ void UUserWidget::StopListeningForAllInputActions()
 {
 	if ( InputComponent )
 	{
-		for ( int32 ExistingIndex = InputComponent->GetNumActionBindings() - 1; ExistingIndex >= 0; --ExistingIndex )
+		if ( APlayerController* Controller = GetOwningPlayer() )
 		{
-			InputComponent->RemoveActionBinding( ExistingIndex );
+			Controller->PopInputComponent( InputComponent );
 		}
 
-		UnregisterInputComponent();
-
 		InputComponent->ClearActionBindings();
-		InputComponent->MarkPendingKill();
 		InputComponent = nullptr;
 	}
 }
@@ -1028,28 +951,6 @@ bool UUserWidget::IsListeningForInputAction( FName ActionName ) const
 	}
 
 	return bResult;
-}
-
-void UUserWidget::RegisterInputComponent()
-{
-	if ( InputComponent )
-	{
-		if ( APlayerController* Controller = GetOwningPlayer() )
-		{
-			Controller->PushInputComponent(InputComponent);
-		}
-	}
-}
-
-void UUserWidget::UnregisterInputComponent()
-{
-	if ( InputComponent )
-	{
-		if ( APlayerController* Controller = GetOwningPlayer() )
-		{
-			Controller->PopInputComponent(InputComponent);
-		}
-	}
 }
 
 void UUserWidget::SetInputActionPriority( int32 NewPriority )
@@ -1075,21 +976,6 @@ void UUserWidget::OnInputAction( FOnInputAction Callback )
 	if ( GetIsEnabled() )
 	{
 		Callback.ExecuteIfBound();
-	}
-}
-
-void UUserWidget::InitializeInputComponent()
-{
-	if ( APlayerController* Controller = GetOwningPlayer() )
-	{
-		InputComponent = NewObject< UInputComponent >( this, NAME_None, RF_Transient );
-		InputComponent->bBlockInput = bStopAction;
-		InputComponent->Priority = Priority;
-		Controller->PushInputComponent( InputComponent );
-	}
-	else
-	{
-		FMessageLog("PIE").Info(FText::Format(LOCTEXT("NoInputListeningWithoutPlayerController", "Unable to listen to input actions without a player controller in {0}."), FText::FromName(GetClass()->GetFName())));
 	}
 }
 

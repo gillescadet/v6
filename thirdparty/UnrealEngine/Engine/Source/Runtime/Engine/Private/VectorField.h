@@ -93,8 +93,6 @@ public:
 	uint32 bTileY : 1;
 	/** Tile vector field in z axis? */
 	uint32 bTileZ : 1;
-	/** Use fix delta time in the simulation? */
-	uint32 bUseFixDT : 1;
 
 	/** Default constructor. */
 	FVectorFieldInstance()
@@ -108,7 +106,6 @@ public:
 		, bTileX(false)
 		, bTileY(false)
 		, bTileZ(false)
-		, bUseFixDT(false)
 		, bInstancedResource(false)
 	{
 	}

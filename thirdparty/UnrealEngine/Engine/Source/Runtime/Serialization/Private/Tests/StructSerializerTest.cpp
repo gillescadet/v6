@@ -8,7 +8,6 @@
 #include "StructSerializer.h"
 #include "StructSerializerTestTypes.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 /* Internal helpers
  *****************************************************************************/
@@ -104,5 +103,3 @@ bool FJsonStructSerializerTest::RunTest( const FString& Parameters )
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

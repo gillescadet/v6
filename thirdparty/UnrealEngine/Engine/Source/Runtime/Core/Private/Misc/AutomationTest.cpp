@@ -6,50 +6,9 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogAutomationTest, Warning, All);
 
-FString FAutomationTestInfo::GetTestAsString() const
-{
-	return FString::Printf(TEXT("%s,%s,%i,%d,%s,%s,%i"), *DisplayName, *TestName, TestFlags, NumParticipantsRequired, *TestParameter, *SourceFile, SourceFileLine);
-}
-
-void FAutomationTestInfo::ParseStringInfo(const FString& InTestInfo)
-{
-	//Split New Test Name into string array
-	TArray<FString> Pieces;
-	InTestInfo.ParseIntoArray(Pieces, TEXT(","), false);
-
-	// We should always have at least 3 parameters
-	check(Pieces.Num() >= 3);
-
-	DisplayName = Pieces[0];
-	TestName = Pieces[1];
-	TestFlags = uint8(FCString::Atoi(*Pieces[2]));
-
-	NumParticipantsRequired = FCString::Atoi(*Pieces[3]);
-
-	// Optional Parameters
-	if ( Pieces.Num() >= 5 )
-	{
-		TestParameter = Pieces[4];
-	}
-
-	if ( Pieces.Num() >= 6 )
-	{
-		SourceFile = Pieces[5];
-	}
-
-	if ( Pieces.Num() >= 7 )
-	{
-		SourceFileLine = FCString::Atoi(*Pieces[6]);
-	}
-}
-
 
 void FAutomationTestFramework::FAutomationTestFeedbackContext::Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const class FName& Category )
 {
-	if (FAutomationTestFramework::GetInstance().CachedContext)
-	{
-		FAutomationTestFramework::GetInstance().CachedContext->Serialize(V, Verbosity, Category);
-	}
 	//ignore 
 	if (!IsRunningCommandlet() && (Verbosity == ELogVerbosity::SetColor))
 	{
@@ -212,10 +171,10 @@ bool FAutomationTestFramework::RunSmokeTests()
 
 			double EndTime = FPlatformTime::Seconds();
 			double TimeForTest = static_cast<float>(EndTime - SmokeTestStartTime);
-			if (TimeForTest > 2.0f)
+			if (TimeForTest > 1.0f)
 			{
 				//force a failure if a smoke test takes too long
-				UE_LOG(LogAutomationTest, Warning, TEXT("Smoke tests took > 2s to run: %.2fs"), (float)TimeForTest);
+				UE_LOG(LogAutomationTest, Warning, TEXT("Smoke tests took > 1s to run: %.2fs"), (float)TimeForTest);
 			}
 
 			FAutomationTestFramework::DumpAutomationTestExecutionInfo( OutExecutionInfoMap );
@@ -811,7 +770,7 @@ void FAutomationTestBase::GenerateTestNames(TArray<FAutomationTestInfo>& TestInf
 		}
 
 		// Add the test info to our collection
-		FAutomationTestInfo NewTestInfo(CompleteBeautifiedNames, CompleteTestName, GetTestFlags(), GetRequiredDeviceNum(), ParameterNames[ParameterIndex], GetFileName(), GetFileLine());
+		FAutomationTestInfo NewTestInfo( CompleteBeautifiedNames, CompleteTestName, GetTestFlags(), GetRequiredDeviceNum(), ParameterNames[ParameterIndex] );
 		
 		TestInfo.Add( NewTestInfo );
 	}

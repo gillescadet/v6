@@ -149,7 +149,7 @@ FSoundConcurrencyManager::~FSoundConcurrencyManager()
 
 FActiveSound* FSoundConcurrencyManager::CreateNewActiveSound(const FActiveSound& NewActiveSound)
 {
-	check(NewActiveSound.GetSound());
+	check(NewActiveSound.Sound);
 	
 	// If there are no concurrency settings associated then there is no limit on this sound
 	const FSoundConcurrencySettings* Concurrency = NewActiveSound.GetSoundConcurrencySettingsToApply();
@@ -236,33 +236,32 @@ FActiveSound* FSoundConcurrencyManager::ResolveConcurrency(const FActiveSound& N
 			break;
 
 			case EMaxConcurrentResolutionRule::StopLowestPriority:
-			case EMaxConcurrentResolutionRule::StopLowestPriorityThenPreventNew:
 			{
+				// Find the current lowest priority sound.
+				FActiveSound* Oldest = nullptr;
 				for (FActiveSound* CurrSound : ActiveSounds)
 				{
-					// This will find oldest and oldest lowest priority sound in the group
-					if (SoundToStop == nullptr 
-						|| (CurrSound->GetPriority() < SoundToStop->GetPriority())
-						|| (CurrSound->GetPriority() == SoundToStop->GetPriority() && CurrSound->PlaybackTime > SoundToStop->PlaybackTime))
+					if (SoundToStop == nullptr || CurrSound->GetPriority() < SoundToStop->GetPriority())
 					{
 						SoundToStop = CurrSound;
+						
+					}
+					if (Oldest == nullptr || CurrSound->PlaybackTime > SoundToStop->PlaybackTime)
+					{
+						Oldest = CurrSound;
 					}
 				}
 
-				if (SoundToStop)
+				// Only stop any sounds if the *lowest* priority is lower than the incoming NewActiveSound
+				if (SoundToStop->GetPriority() > NewActiveSound.GetPriority())
 				{
-					// Only stop any sounds if the *lowest* priority is lower than the incoming NewActiveSound
-					if (SoundToStop->GetPriority() > NewActiveSound.GetPriority())
-					{
-						SoundToStop = nullptr;
-					}
-					else if (Concurrency->ResolutionRule == EMaxConcurrentResolutionRule::StopLowestPriorityThenPreventNew 
-						&& SoundToStop->GetPriority() == NewActiveSound.GetPriority())
-					{
-						SoundToStop = nullptr;
-					}
+					SoundToStop = nullptr;
 				}
-
+				// If all sounds are the same priority, then stop the oldest sound
+				else if (SoundToStop->GetPriority() == NewActiveSound.GetPriority())
+				{
+					SoundToStop = Oldest;
+				}
 			}
 			break;
 
@@ -284,12 +283,12 @@ FActiveSound* FSoundConcurrencyManager::ResolveConcurrency(const FActiveSound& N
 		if (SoundToStop == nullptr)
 		{
 			// If we didn't find any sound to stop, then we're not going to play this sound, so 
-			// immediately do the playback complete notify
+			// immediatley do the playback complete notify
 			bCanPlay = false;
 
-			if (NewActiveSound.GetAudioComponentID() > 0)
+			if (UAudioComponent* AudioComponent = NewActiveSound.GetAudioComponent())
 			{
-				UAudioComponent::PlaybackCompleted(NewActiveSound.GetAudioComponentID(), true);
+				AudioComponent->PlaybackCompleted(true);
 			}
 		}
 	}
@@ -342,12 +341,12 @@ FActiveSound* FSoundConcurrencyManager::ResolveConcurrency(const FActiveSound& N
 
 FActiveSound* FSoundConcurrencyManager::HandleConcurrencyEvaluationOverride(const FActiveSound& NewActiveSound)
 {
-	check(NewActiveSound.GetSound());
+	check(NewActiveSound.Sound);
 	const FSoundConcurrencySettings* ConcurrencySettings = NewActiveSound.GetSoundConcurrencySettingsToApply();
 	check(ConcurrencySettings);
 
-	const uint32 OwnerObjectID = NewActiveSound.GetOwnerID();
-	FSoundObjectID SoundObjectID = NewActiveSound.GetSound()->GetUniqueID();
+	uint32 OwnerObjectID = NewActiveSound.TryGetOwnerID();
+	FSoundObjectID SoundObjectID = NewActiveSound.Sound->GetUniqueID();
 
 	FActiveSound* ActiveSound = nullptr;
 
@@ -415,11 +414,11 @@ FActiveSound* FSoundConcurrencyManager::HandleConcurrencyEvaluationOverride(cons
 
 FActiveSound* FSoundConcurrencyManager::HandleConcurrencyEvaluation(const FActiveSound& NewActiveSound)
 {
-	check(NewActiveSound.GetSound());
+	check(NewActiveSound.Sound);
 	const FSoundConcurrencySettings* ConcurrencySettings = NewActiveSound.GetSoundConcurrencySettingsToApply();
 	check(ConcurrencySettings);
 
-	const uint32 OwnerObjectID = NewActiveSound.GetOwnerID();
+	uint32 OwnerObjectID = NewActiveSound.TryGetOwnerID();
 	FConcurrencyObjectID ConcurrencyObjectID = NewActiveSound.GetSoundConcurrencyObjectID();
 	check(ConcurrencyObjectID != 0);
 

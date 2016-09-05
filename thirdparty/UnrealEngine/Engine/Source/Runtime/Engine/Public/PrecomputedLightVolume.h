@@ -4,14 +4,14 @@
 	PrecomputedLightVolume.h: Declarations for precomputed light volumes.
 =============================================================================*/
 
-#pragma once
+#ifndef __PRECOMPUTEDLIGHTVOLUME_H__
+#define __PRECOMPUTEDLIGHTVOLUME_H__
 
 #include "GenericOctree.h"
 #include "GenericOctreePublic.h"
 
 /** Incident radiance stored for a point. */
-template <int32 SHOrder>
-class TVolumeLightingSample
+class FVolumeLightingSample
 {
 public:
 	/** World space position of the sample. */
@@ -25,7 +25,7 @@ public:
 	 * For low quality lightmaps, diffuse GI and static and stationary light direct lighting is contained in the sample, with the exception of the stationary directional light. 
 	 * @todo - quantize to reduce memory cost
 	 */
-	TSHVectorRGB<SHOrder> Lighting;
+	FSHVectorRGB2 Lighting;
 
 	/** BentNormal occlusion of the sky, packed into an FColor.  This is only valid in the high quality lightmap data. */
 	FColor PackedSkyBentNormal;
@@ -33,16 +33,13 @@ public:
 	/** Shadow factor for the stationary directional light. */
 	float DirectionalLightShadowing;
 
-	TVolumeLightingSample() :
+	FVolumeLightingSample() :
 		Position(FVector(0, 0, 0)),
 		Radius(0),
 		PackedSkyBentNormal(FColor(127, 127, 255)),
 		DirectionalLightShadowing(1)
 	{
 	}
-
-	TVolumeLightingSample(const TVolumeLightingSample<2>& Other);
-	TVolumeLightingSample(const TVolumeLightingSample<3>& Other);
 
 	void SetPackedSkyBentNormal(FVector InSkyBentNormal)
 	{
@@ -54,11 +51,9 @@ public:
 		return FVector(PackedSkyBentNormal.R / 255.0f * 2.0f - 1.0f, PackedSkyBentNormal.G / 255.0f * 2.0f - 1.0f, PackedSkyBentNormal.B / 255.0f * 2.0f - 1.0f);
 	}
 
-	friend FArchive& operator<<(FArchive& Ar, TVolumeLightingSample<SHOrder>& Sample);
+	friend FArchive& operator<<(FArchive& Ar, FVolumeLightingSample& Sample);
 };
 
-typedef TVolumeLightingSample<3> FVolumeLightingSample;
-typedef TVolumeLightingSample<2> FVolumeLightingSample2Band;
 struct FLightVolumeOctreeSemantics
 {
 	enum { MaxElementsPerLeaf = 4 };
@@ -121,7 +116,7 @@ public:
 		const FVector& Position, 
 		float& AccumulatedWeight,
 		float& AccumulatedDirectionalLightShadowing,
-		FSHVectorRGB3& AccumulatedIncidentRadiance,
+		FSHVectorRGB2& AccumulatedIncidentRadiance,
 		FVector& SkyBentNormal) const;
 	
 	/** Interpolates incident radiance to Position. */
@@ -131,7 +126,10 @@ public:
 		const FIntVector& DestCellDimensions,
 		const FIntVector& DestCellPosition,
 		TArray<float>& AccumulatedWeights,
-		TArray<FSHVectorRGB2>& AccumulatedIncidentRadiance) const;
+		TArray<FSHVectorRGB2>& AccumulatedIncidentRadiance,
+		FVector& AccumulatedCenterSkyBentNormal,
+		float& AccumulatedCenterDirectionalLightShadowing,
+		float& AccumulatedCenterWeight) const;
 
 	ENGINE_API void DebugDrawSamples(FPrimitiveDrawInterface* PDI, bool bDrawDirectionalShadowing) const;
 
@@ -179,3 +177,5 @@ private:
 	/** Octree used to accelerate interpolation searches. */
 	FLightVolumeOctree* OctreeForRendering;
 };
+
+#endif

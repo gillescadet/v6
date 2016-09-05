@@ -28,8 +28,6 @@ UAbilityTask_NetworkSyncPoint* UAbilityTask_NetworkSyncPoint::WaitNetSync(class 
 
 void UAbilityTask_NetworkSyncPoint::Activate()
 {
-	FScopedPredictionWindow ScopedPrediction(AbilitySystemComponent, IsPredictingClient());
-
 	if (AbilitySystemComponent)
 	{
 		if (IsPredictingClient())

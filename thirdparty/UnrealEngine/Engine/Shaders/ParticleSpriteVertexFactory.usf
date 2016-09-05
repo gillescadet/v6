@@ -69,8 +69,7 @@ struct FVertexFactoryInterpolantsVSToPS
 #endif
 
 #if USE_PARTICLE_POSITION
-	/** Cam-relative (translated) particle center and radius */
-	float4 ParticleTranslatedWorldPositionAndSize	: PARTICLE_POSITION;
+	float4 ParticlePositionAndSize	: PARTICLE_POSITION;
 #endif
 
 #if USE_PARTICLE_VELOCITY
@@ -100,8 +99,8 @@ struct FVertexFactoryIntermediates
 	float3 ParticleWorldPosition;
 	/** The position of the vertex in translated world space. */
 	float3 VertexWorldPosition;
-	/** Particle translated world space position and size. */
-	float4 TranslatedWorldPositionAndSize;
+	/** Particle (non-translated) world space position and size. */
+	float4 PositionAndSize;
 	
 #if USE_PARTICLE_LIGHTING_OFFSET
 	float3 LightingPositionOffset;
@@ -187,9 +186,9 @@ FMaterialPixelParameters GetMaterialPixelParameters(FVertexFactoryInterpolantsVS
 	#if GENERATE_SPHERICAL_PARTICLE_NORMALS && USE_PARTICLE_POSITION
 		{	
 			// can be optimized
-			float4 ScreenPosition = SvPositionToResolvedScreenPosition(SvPosition);
+			float4 ScreenPosition = SvPositionToScreenPosition(SvPosition);
 			float3 TranslatedWorldPosition = SvPositionToResolvedTranslatedWorld(SvPosition);
-			Result.TangentToWorld = GetSphericalParticleNormal(TranslatedWorldPosition, Interpolants.ParticleTranslatedWorldPositionAndSize.xyz, Interpolants.ParticleTranslatedWorldPositionAndSize.w);
+			Result.TangentToWorld = GetSphericalParticleNormal(TranslatedWorldPosition + ResolvedView.WorldCameraOrigin, Interpolants.ParticlePositionAndSize.xyz, Interpolants.ParticlePositionAndSize.w);
 		}
 	#else
 		Result.TangentToWorld = AssembleTangentToWorld(TangentToWorld0.xyz, TangentToWorld2);
@@ -210,7 +209,7 @@ FMaterialPixelParameters GetMaterialPixelParameters(FVertexFactoryInterpolantsVS
 #endif	//USE_DYNAMIC_PARAMETERS
 
 #if USE_PARTICLE_POSITION
-	Result.Particle.TranslatedWorldPositionAndSize = Interpolants.ParticleTranslatedWorldPositionAndSize;
+	Result.Particle.PositionAndSize = Interpolants.ParticlePositionAndSize;
 #endif
 
 #if USE_PARTICLE_VELOCITY
@@ -262,7 +261,7 @@ FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input,
 #endif	//USE_DYNAMIC_PARAMETERS
 
 #if USE_PARTICLE_POSITION
-	Result.Particle.TranslatedWorldPositionAndSize = Intermediates.TranslatedWorldPositionAndSize;
+	Result.Particle.PositionAndSize = Intermediates.PositionAndSize;
 #endif
 
 #if USE_PARTICLE_VELOCITY
@@ -402,9 +401,7 @@ float3x3 CalcTangentBasis(FVertexFactoryIntermediates Intermediates)
 #endif
 }
 
-// Note: C++ geometry setup behavior has to match this define
-#define SUPPORTS_PARTICLE_CUTOUTS (FEATURE_LEVEL >= FEATURE_LEVEL_SM4)
-#if SUPPORTS_PARTICLE_CUTOUTS
+#if FEATURE_LEVEL >= FEATURE_LEVEL_SM4
 
 /** Number of vertices in each SubUV frame of CutoutGeometry. */
 uint NumCutoutVerticesPerFrame;
@@ -419,7 +416,7 @@ void ComputeBillboardUVs(FVertexFactoryInput Input, out float2 UVForPosition, ou
 	// Encoding the UV flip in the sign of the size data.
 	float2 UVFlip = sign(Input.SizeRotSubImage.xy);
 
-#if SUPPORTS_PARTICLE_CUTOUTS
+#if FEATURE_LEVEL >= FEATURE_LEVEL_SM4
 	BRANCH
 	if (NumCutoutVerticesPerFrame > 0)
 	{
@@ -507,17 +504,16 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 
 #if USE_PARTICLE_POSITION
 	float ParticleRadius = .5f * min(Input.SizeRotSubImage.x, Input.SizeRotSubImage.y);
-	float3 ParticleTranslatedWorldPosition = ParticleWorldPosition.xyz + ResolvedView.PreViewTranslation.xyz;
-	Intermediates.TranslatedWorldPositionAndSize = float4(ParticleTranslatedWorldPosition, ParticleRadius);
+	Intermediates.PositionAndSize = float4(ParticleWorldPosition.xyz, ParticleRadius);
 
 #if GENERATE_SPHERICAL_PARTICLE_NORMALS
 	// Recenter the particle position for GENERATE_SPHERICAL_PARTICLE_NORMALS to use the right center.
-	Intermediates.TranslatedWorldPositionAndSize.xyz += Size.x * (SpriteVF.PivotOffset.x + .5) * Right + Size.y * (SpriteVF.PivotOffset.y + .5) * Up;
+	Intermediates.PositionAndSize.xyz += Size.x * (SpriteVF.PivotOffset.x + .5) * Right + Size.y * (SpriteVF.PivotOffset.y + .5) * Up;
 #endif
 #endif
 
 #if USE_PARTICLE_VELOCITY
-	float3 ParticleVelocity = (ParticleWorldPosition.xyz - ParticleOldWorldPosition.xyz) * SpriteVF.InvDeltaSeconds;
+	float3 ParticleVelocity = (ParticleWorldPosition - ParticleOldWorldPosition) * SpriteVF.InvDeltaSeconds;
 	Intermediates.ParticleVelocity.xyz = normalize(ParticleVelocity);
 	Intermediates.ParticleVelocity.w = length(ParticleVelocity);
 #endif
@@ -531,7 +527,7 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 #if USE_PARTICLE_LIGHTING_OFFSET
 	// Hash function based on the particle ID to generate a uniformly distributed 3d offset
 	float3 RandomParticleOffset = frac(Square(Input.OldPosition.w + 10) * float3(1361.456345, 2333.578, 3623.983)) * 2 - 1;
-	Intermediates.LightingPositionOffset = .5f * View.TranslucencyLightingVolumeInvSize[0].w * RandomParticleOffset;
+	Intermediates.LightingPositionOffset = .5f * Frame.TranslucencyLightingVolumeInvSize[0].w * RandomParticleOffset;
 #endif
 
 #if USE_PARTICLE_SIZE
@@ -555,16 +551,6 @@ float4 VertexFactoryGetRasterizedWorldPosition(FVertexFactoryInput Input, FVerte
 
 	float Radius = .5f * min(Input.SizeRotSubImage.x, Input.SizeRotSubImage.y);
 	return ReprojectPosition(TranslatedWorldPosition, Radius);
-#else
-	return TranslatedWorldPosition;
-#endif
-}
-
-float3 VertexFactoryGetPositionForVertexLighting(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float3 TranslatedWorldPosition)
-{
-#if SUPPORTS_PARTICLE_CUTOUTS && (TRANSLUCENCY_LIGHTING_VOLUMETRIC_PERVERTEX_DIRECTIONAL || TRANSLUCENCY_LIGHTING_VOLUMETRIC_PERVERTEX_NONDIRECTIONAL)
-	// Do per-vertex lighting with particle position instead of vertex position when we're using SubUV cutouts, since the vertex positions vary per-frame which would cause popping
-	return NumCutoutVerticesPerFrame > 0 ? (Intermediates.ParticleWorldPosition.xyz + ResolvedView.PreViewTranslation.xyz) : TranslatedWorldPosition;
 #else
 	return TranslatedWorldPosition;
 #endif
@@ -619,7 +605,7 @@ FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(FVertexFacto
 #endif	//USE_DYNAMIC_PARAMETERS
 
 #if USE_PARTICLE_POSITION
-	Interpolants.ParticleTranslatedWorldPositionAndSize = Intermediates.TranslatedWorldPositionAndSize;
+	Interpolants.ParticlePositionAndSize = Intermediates.PositionAndSize;
 #endif
 
 #if USE_PARTICLE_VELOCITY

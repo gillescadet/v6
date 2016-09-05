@@ -44,9 +44,6 @@ public:
 	/** Gathers descendant child widgets of a parent widget. */
 	static void GetChildWidgets(UWidget* Parent, TArray<UWidget*>& Widgets);
 
-	/** Attempts to move a constructed Widget to another tree. Returns true on a successful move. */
-	static bool TryMoveWidgetToNewTree(UWidget* Widget, UWidgetTree* DestinationTree);
-
 	/**
 	 * Iterates through all widgets including widgets contained in named slots, other than
 	 * investigating named slots, this code does not dive into foreign WidgetTrees, as would exist
@@ -123,7 +120,7 @@ public:
 	}
 
 	// UObject interface
-	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+	virtual void PreSave() override;
 	virtual void PostLoad() override;
 	// End of UObject interface
 

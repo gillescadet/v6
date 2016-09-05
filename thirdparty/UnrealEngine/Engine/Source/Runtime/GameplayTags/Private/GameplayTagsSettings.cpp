@@ -6,7 +6,8 @@
 UGameplayTagsSettings::UGameplayTagsSettings(const FObjectInitializer& ObjectInitializer)
 : Super(ObjectInitializer)
 {
-	NetIndexFirstBitSegment = 16;
+
+
 }
 
 #if WITH_EDITOR

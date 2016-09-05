@@ -148,7 +148,6 @@ int32 SDockingTabWell::OnPaint( const FPaintArgs& Args, const FGeometry& Allotte
 	// Draw active tab in front
 	if (ForegroundTab != TSharedPtr<SDockTab>())
 	{
-		checkSlow(ForegroundTabGeometry);
 		FSlateRect ChildClipRect = MyClippingRect.IntersectionWith( ForegroundTabGeometry->Geometry.GetClippingRect() );
 		const int32 CurWidgetsMaxLayerId = ForegroundTabGeometry->Widget->Paint( Args.WithNewParent(this), ForegroundTabGeometry->Geometry, ChildClipRect, OutDrawElements, MaxLayerId, InWidgetStyle, ShouldBeEnabled( bParentEnabled ) );
 		MaxLayerId = FMath::Max( MaxLayerId, CurWidgetsMaxLayerId );
@@ -406,7 +405,7 @@ EWindowZone::Type SDockingTabWell::GetWindowZoneOverride() const
 
 FReply SDockingTabWell::OnMouseButtonUp( const FGeometry& MyGeometry, const FPointerEvent& MouseEvent )
 {
-	if (this->HasMouseCapture() && TabBeingDraggedPtr.IsValid()) 
+	if (this->HasMouseCapture())
 	{
 		const TSharedRef<SDockTab> TabBeingDragged = TabBeingDraggedPtr.ToSharedRef();
 		this->TabBeingDraggedPtr.Reset();

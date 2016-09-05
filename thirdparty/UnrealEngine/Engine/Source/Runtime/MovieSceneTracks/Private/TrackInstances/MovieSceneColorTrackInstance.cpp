@@ -15,11 +15,10 @@ FMovieSceneColorTrackInstance::FMovieSceneColorTrackInstance( UMovieSceneColorTr
 }
 
 
-void FMovieSceneColorTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneColorTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
 		
 		if( ColorType == EColorType::Slate )
 		{
@@ -38,13 +37,13 @@ void FMovieSceneColorTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObjec
 				InitLinearColorMap.Add(Object, ColorValue);
 			}
 		}
-		else if( ColorType == EColorType::Color )
+		else if( ColorType == EColorType::RegularColor )
 		{
 			if (InitLinearColorMap.Find(Object) == nullptr)
 			{			
 				UProperty* Property = PropertyBindings->GetProperty(Object);
 				FColor ColorValue = PropertyBindings->GetCurrentValue<FColor>(Object);
-				FLinearColor LinearColorValue = ColorValue;
+				FLinearColor LinearColorValue = ColorValue.ReinterpretAsLinear();
 				InitLinearColorMap.Add(Object, ColorValue);
 			}
 		}
@@ -56,12 +55,10 @@ void FMovieSceneColorTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObjec
 }
 
 
-void FMovieSceneColorTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneColorTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects )
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (!IsValid(Object))
 		{
 			continue;
@@ -75,7 +72,7 @@ void FMovieSceneColorTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UOb
 				PropertyBindings->CallFunction<FSlateColor>(Object, ColorValue);
 			}
 		}
-		else if( ColorType == EColorType::Linear || ColorType == EColorType::Color )
+		else if( ColorType == EColorType::Linear || ColorType == EColorType::RegularColor )
 		{
 			//todo
 			FLinearColor* ColorValue = InitLinearColorMap.Find(Object);
@@ -94,65 +91,40 @@ void FMovieSceneColorTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UOb
 }
 
 
-void FMovieSceneColorTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieSceneColorTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for(UObject* Object : RuntimeObjects)
 	{
-		UObject* Object = ObjectPtr.Get();
-		if ( Object != nullptr )
+		if( ColorType == EColorType::Slate )
 		{
-			if ( ColorType == EColorType::Slate )
+			FSlateColor ColorValue = PropertyBindings->GetCurrentValue<FSlateColor>(Object);
+			FLinearColor LinearColor = ColorValue.GetSpecifiedColor();
+			if(ColorTrack->Eval(Position, LastPosition, LinearColor))
 			{
-				FSlateColor ColorValue = PropertyBindings->GetCurrentValue<FSlateColor>( Object );
-				FLinearColor LinearColor = ColorValue.GetSpecifiedColor();
-
-				if ( ColorTrack->Eval( UpdateData.Position, UpdateData.LastPosition, LinearColor ) )
-				{
-					FSlateColor NewColor( LinearColor );
-					PropertyBindings->CallFunction<FSlateColor>( Object, &NewColor );
-				}
+				FSlateColor NewColor(LinearColor);
+				PropertyBindings->CallFunction<FSlateColor>(Object, &NewColor);
 			}
-			else if ( ColorType == EColorType::Color )
+		}
+		else
+		{
+			FLinearColor ColorValue = ColorType == EColorType::Linear ? PropertyBindings->GetCurrentValue<FLinearColor>(Object) : PropertyBindings->GetCurrentValue<FColor>(Object).ReinterpretAsLinear();
+			if(ColorTrack->Eval(Position, LastPosition, ColorValue))
 			{
-				// We assume the color we get back is in sRGB, assigning it to a linear color will implicitly
-				// convert it to a linear color instead of using ReinterpretAsLinear which will just change the
-				// bytes into floats using divide by 255.
-				FColor SrgbColor = PropertyBindings->GetCurrentValue<FColor>( Object );
-				FLinearColor LinearColorValue = SrgbColor;
-				bool bConvertBackToSRgb = true;
-				if ( ColorTrack->Eval( UpdateData.Position, UpdateData.LastPosition, LinearColorValue ) )
+				// LightComponent's SetLightColor applies an sRGB conversion by default, so invert it here before applying the value 
+				if (ColorType == EColorType::RegularColor)
 				{
-					// Light components have to be handled specially here because their set function takes two values, the linear color
-					// and whether or not the linear color needs to be converted back to sRGB.  All other other set function cases should
-					// follow the sequencer convention of having a single parameter of the correct type, which in this case is an FColor
-					// already in sRGB format.
-					ULightComponent* LightComponent = Cast<ULightComponent>( Object );
-					if ( LightComponent != nullptr )
-					{
-						LightComponent->SetLightColor( LinearColorValue, bConvertBackToSRgb );
-					}
-					else
-					{
-						FColor SRgbColorValue = LinearColorValue.ToFColor( bConvertBackToSRgb );
-						PropertyBindings->CallFunction<FColor>( Object, &SRgbColorValue );
-					}
+					const bool sRGB = false;
+					ColorValue = FLinearColor(ColorValue.ToFColor(sRGB));
 				}
-			}
-			else
-			{
-				FLinearColor ColorValue = PropertyBindings->GetCurrentValue<FLinearColor>( Object );
 
-				if ( ColorTrack->Eval( UpdateData.Position, UpdateData.LastPosition, ColorValue ) )
-				{
-					PropertyBindings->CallFunction<FLinearColor>( Object, &ColorValue );
-				}
+				PropertyBindings->CallFunction<FLinearColor>(Object, &ColorValue);
 			}
 		}
 	}
 }
 
 
-void FMovieSceneColorTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieSceneColorTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	if( RuntimeObjects.Num() == 0 )
 	{
@@ -162,9 +134,9 @@ void FMovieSceneColorTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr
 	PropertyBindings->UpdateBindings( RuntimeObjects );
 
 	// Cache off what type of color this is. Just examine the first object since the property should be the same
-	UProperty* ColorProp = PropertyBindings->GetProperty( RuntimeObjects[0].Get() );
-	const UStructProperty* StructProp = Cast<const UStructProperty>(ColorProp);
+	UProperty* ColorProp = PropertyBindings->GetProperty( RuntimeObjects[0] );
 
+	const UStructProperty* StructProp = Cast<const UStructProperty>(ColorProp);
 	if (StructProp && StructProp->Struct)
 	{
 		FName StructName = StructProp->Struct->GetFName();
@@ -173,7 +145,7 @@ void FMovieSceneColorTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr
 
 		if( StructName == NAME_Color )
 		{
-			ColorType = EColorType::Color;
+			ColorType = EColorType::RegularColor;
 		}
 		else if( StructName == SlateColor )
 		{

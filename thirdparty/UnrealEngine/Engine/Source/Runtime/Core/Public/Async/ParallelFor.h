@@ -74,7 +74,7 @@ public:
 	}
 	static FORCEINLINE ENamedThreads::Type GetDesiredThread()
 	{
-		return ENamedThreads::AnyHiPriThreadHiPriTask;
+		return ENamedThreads::HiPri(ENamedThreads::AnyThread);
 	}
 	static FORCEINLINE ESubsequentsMode::Type GetSubsequentsMode() 
 	{ 

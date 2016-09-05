@@ -20,13 +20,9 @@ void FMaterialRelevance::SetPrimitiveViewRelevance(FPrimitiveViewRelevance& OutV
 	OutViewRelevance.bMaskedRelevance = bMasked;
 	OutViewRelevance.bDistortionRelevance = bDistortion;
 	OutViewRelevance.bSeparateTranslucencyRelevance = bSeparateTranslucency;
-	OutViewRelevance.bMobileSeparateTranslucencyRelevance = bMobileSeparateTranslucency;
 	OutViewRelevance.bNormalTranslucencyRelevance = bNormalTranslucency;
 	OutViewRelevance.ShadingModelMaskRelevance = ShadingModelMask;
 	OutViewRelevance.bUsesGlobalDistanceField = bUsesGlobalDistanceField;
-	OutViewRelevance.bUsesWorldPositionOffset = bUsesWorldPositionOffset;
-	OutViewRelevance.bDecal = bDecal;
-	OutViewRelevance.bTranslucentSurfaceLighting = bTranslucentSurfaceLighting;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -53,12 +49,6 @@ void UMaterialInterface::PostLoad()
 	PostLoadDefaultMaterials();
 }
 
-void UMaterialInterface::GetUsedTexturesAndIndices(TArray<UTexture*>& OutTextures, TArray< TArray<int32> >& OutIndices, EMaterialQualityLevel::Type QualityLevel, ERHIFeatureLevel::Type FeatureLevel) const
-{
-	GetUsedTextures(OutTextures, QualityLevel, false, FeatureLevel, false);
-	OutIndices.AddDefaulted(OutTextures.Num());
-}
-
 FMaterialRelevance UMaterialInterface::GetRelevance_Internal(const UMaterial* Material, ERHIFeatureLevel::Type InFeatureLevel) const
 {
 	if(Material)
@@ -67,33 +57,19 @@ FMaterialRelevance UMaterialInterface::GetRelevance_Internal(const UMaterial* Ma
 		const bool bIsTranslucent = IsTranslucentBlendMode((EBlendMode)GetBlendMode());
 
 		EMaterialShadingModel ShadingModel = GetShadingModel();
-		EMaterialDomain Domain = (EMaterialDomain)MaterialResource->GetMaterialDomain();
-		bool bDecal = (Domain == MD_DeferredDecal);
 
+		const bool bIsLit =  ShadingModel != MSM_Unlit;
 		// Determine the material's view relevance.
 		FMaterialRelevance MaterialRelevance;
-
 		MaterialRelevance.ShadingModelMask = 1 << ShadingModel;
-
-		if(bDecal)
-		{
-			MaterialRelevance.bDecal = bDecal;
-			// we rely on FMaterialRelevance defaults are 0
-		}
-		else
-		{
-			MaterialRelevance.bOpaque = !bIsTranslucent;
-			MaterialRelevance.bMasked = IsMasked();
-			MaterialRelevance.bDistortion = MaterialResource->IsDistorted();
-			MaterialRelevance.bSeparateTranslucency = bIsTranslucent && Material->bEnableSeparateTranslucency;
-			MaterialRelevance.bMobileSeparateTranslucency = bIsTranslucent && Material->bEnableMobileSeparateTranslucency;
-			MaterialRelevance.bNormalTranslucency = bIsTranslucent && !Material->bEnableSeparateTranslucency;
-			MaterialRelevance.bDisableDepthTest = bIsTranslucent && Material->bDisableDepthTest;		
-			MaterialRelevance.bOutputsVelocityInBasePass = Material->bOutputVelocityOnBasePass;	
-			MaterialRelevance.bUsesGlobalDistanceField = MaterialResource->UsesGlobalDistanceField_GameThread();
-			MaterialRelevance.bUsesWorldPositionOffset = MaterialResource->UsesWorldPositionOffset_GameThread();
-			MaterialRelevance.bTranslucentSurfaceLighting = bIsTranslucent && (MaterialResource->GetTranslucencyLightingMode() == TLM_SurfacePerPixelLighting);
-		}
+		MaterialRelevance.bOpaque = !bIsTranslucent;
+		MaterialRelevance.bMasked = IsMasked();
+		MaterialRelevance.bDistortion = MaterialResource->IsDistorted();
+		MaterialRelevance.bSeparateTranslucency = bIsTranslucent && Material->bEnableSeparateTranslucency;
+		MaterialRelevance.bNormalTranslucency = bIsTranslucent && !Material->bEnableSeparateTranslucency;
+		MaterialRelevance.bDisableDepthTest = bIsTranslucent && Material->bDisableDepthTest;		
+		MaterialRelevance.bOutputsVelocityInBasePass = Material->bOutputVelocityOnBasePass;	
+		MaterialRelevance.bUsesGlobalDistanceField = MaterialResource->UsesGlobalDistanceField_GameThread();
 		return MaterialRelevance;
 	}
 	else
@@ -277,37 +253,32 @@ bool DoesMaterialUseTexture(const UMaterialInterface* Material,const UTexture* C
 	return false;
 }
 
-float UMaterialInterface::GetOpacityMaskClipValue() const
+float UMaterialInterface::GetOpacityMaskClipValue(bool bIsInGameThread) const
 {
 	return 0.0f;
 }
 
-EBlendMode UMaterialInterface::GetBlendMode() const
+EBlendMode UMaterialInterface::GetBlendMode(bool bIsInGameThread) const
 {
 	return BLEND_Opaque;
 }
 
-bool UMaterialInterface::IsTwoSided() const
+bool UMaterialInterface::IsTwoSided(bool bIsInGameThread) const
 {
 	return false;
 }
 
-bool UMaterialInterface::IsDitheredLODTransition() const
+bool UMaterialInterface::IsDitheredLODTransition(bool bIsInGameThread) const
 {
 	return false;
 }
 
-bool UMaterialInterface::IsMasked() const
+bool UMaterialInterface::IsMasked(bool bIsInGameThread) const
 {
 	return false;
 }
 
-bool UMaterialInterface::IsDeferredDecal() const
-{
-	return false;
-}
-
-EMaterialShadingModel UMaterialInterface::GetShadingModel() const
+EMaterialShadingModel UMaterialInterface::GetShadingModel(bool bIsInGameThread) const
 {
 	return MSM_DefaultLit;
 }
@@ -357,7 +328,7 @@ void UMaterialInterface::UpdateMaterialRenderProxy(FMaterialRenderProxy& Proxy)
 	// no 0 pointer
 	check(&Proxy);
 
-	EMaterialShadingModel MaterialShadingModel = GetShadingModel();
+	EMaterialShadingModel MaterialShadingModel = GetShadingModel(true);
 
 	// for better performance we only update SubsurfaceProfileRT if the feature is used
 	if (MaterialShadingModel == MSM_SubsurfaceProfile)

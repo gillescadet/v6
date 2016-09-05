@@ -2,8 +2,6 @@
 
 #include "GameplayTagsModulePrivatePCH.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayTagTest, "System.GameplayTags.GameplayTag", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 #if WITH_EDITOR
@@ -49,5 +47,3 @@ bool FGameplayTagTest::RunTest(const FString& Parameters)
 	return true;
 #endif //WITH_EDITOR
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

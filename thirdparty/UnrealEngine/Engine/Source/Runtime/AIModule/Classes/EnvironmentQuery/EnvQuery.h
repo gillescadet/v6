@@ -42,9 +42,6 @@ public:
 
 	/** QueryName patching up */
 	virtual void PostLoad() override;
-#if WITH_EDITOR
-	virtual void PostDuplicate(bool bDuplicateForPIE) override;
-#endif // WITH_EDITOR
 
 	FName GetQueryName() const { return QueryName; }
 

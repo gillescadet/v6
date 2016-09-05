@@ -39,21 +39,21 @@ UClass* UScrollBox::GetSlotClass() const
 	return UScrollBoxSlot::StaticClass();
 }
 
-void UScrollBox::OnSlotAdded(UPanelSlot* InSlot)
+void UScrollBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyScrollBox.IsValid() )
 	{
-		CastChecked<UScrollBoxSlot>(InSlot)->BuildSlot(MyScrollBox.ToSharedRef());
+		Cast<UScrollBoxSlot>(Slot)->BuildSlot(MyScrollBox.ToSharedRef());
 	}
 }
 
-void UScrollBox::OnSlotRemoved(UPanelSlot* InSlot)
+void UScrollBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyScrollBox.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyScrollBox->RemoveSlot(Widget.ToSharedRef());
@@ -69,9 +69,9 @@ TSharedRef<SWidget> UScrollBox::RebuildWidget()
 		.Orientation(Orientation)
 		.ConsumeMouseWheel(ConsumeMouseWheel);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UScrollBoxSlot* TypedSlot = Cast<UScrollBoxSlot>(PanelSlot) )
+		if ( UScrollBoxSlot* TypedSlot = Cast<UScrollBoxSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyScrollBox.ToSharedRef());
@@ -130,15 +130,13 @@ void UScrollBox::ScrollToEnd()
 
 void UScrollBox::ScrollWidgetIntoView(UWidget* WidgetToFind, bool AnimateScroll)
 {
-	TSharedPtr<SWidget> SlateWidgetToFind;
-	if (WidgetToFind)
+	if ( WidgetToFind )
 	{
-		SlateWidgetToFind = WidgetToFind->GetCachedWidget();
-	}
-	if (MyScrollBox.IsValid())
-	{
-		// NOTE: Pass even if null! This, in effect, cancels a request to scroll which is necessary to avoid warnings/ensures when we request to scroll to a widget and later remove that widget!
-		MyScrollBox->ScrollDescendantIntoView(SlateWidgetToFind, AnimateScroll);
+		TSharedPtr<SWidget> SlateWidgetToFind = WidgetToFind->GetCachedWidget();
+		if ( MyScrollBox.IsValid() )
+		{
+			MyScrollBox->ScrollDescendantIntoView(SlateWidgetToFind, AnimateScroll);
+		}
 	}
 }
 
@@ -173,6 +171,11 @@ void UScrollBox::PostLoad()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UScrollBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.ScrollBox");
+}
 
 const FText UScrollBox::GetPaletteCategory()
 {

@@ -9,6 +9,7 @@ void SSearchBox::Construct( const FArguments& InArgs )
 {
 	check(InArgs._Style);
 
+	bIsActiveTimerRegistered = false;
 	OnSearchDelegate = InArgs._OnSearch;
 	OnTextChangedDelegate = InArgs._OnTextChanged;
 	OnTextCommittedDelegate = InArgs._OnTextCommitted;
@@ -28,7 +29,6 @@ void SSearchBox::Construct( const FArguments& InArgs )
 		.OnTextChanged( this, &SSearchBox::HandleTextChanged )
 		.OnTextCommitted( this, &SSearchBox::HandleTextCommitted )
 		.MinDesiredWidth( InArgs._MinDesiredWidth )
-		.OnKeyDownHandler( InArgs._OnKeyDownHandler )
 	);
 
 	// If we want to have the buttons appear to the left of the text box we have to insert the slots instead of add them
@@ -118,26 +118,28 @@ void SSearchBox::Construct( const FArguments& InArgs )
 	];
 }
 
-EActiveTimerReturnType SSearchBox::TriggerOnTextChanged( double InCurrentTime, float InDeltaTime, FText NewText )
+EActiveTimerReturnType SSearchBox::TriggerOnTextChanged( double InCurrentTime, float InDeltaTime )
 {
 	// Reset the flag first in case the delegate winds up triggering HandleTextChanged
-	ActiveTimerHandle.Reset();
+	bIsActiveTimerRegistered = false;
 
-	OnTextChangedDelegate.ExecuteIfBound( NewText );
+	OnTextChangedDelegate.ExecuteIfBound( LastPendingTextChangedValue );
 	return EActiveTimerReturnType::Stop;
 }
 
 void SSearchBox::HandleTextChanged(const FText& NewText)
 {
-	// Remove the existing registered tick if necessary
-	if ( ActiveTimerHandle.IsValid() )
+	if ( DelayChangeNotificationsWhileTyping.Get() )
 	{
-		UnRegisterActiveTimer( ActiveTimerHandle.Pin().ToSharedRef() );
-	}
+		LastPendingTextChangedValue = NewText;
 
-	if ( DelayChangeNotificationsWhileTyping.Get() && HasKeyboardFocus() )
-	{
-		ActiveTimerHandle = RegisterActiveTimer( FilterDelayAfterTyping, FWidgetActiveTimerDelegate::CreateSP( this, &SSearchBox::TriggerOnTextChanged, NewText ) );
+		// Remove the existing registered tick if necessary
+		if ( ActiveTimerHandle.IsValid() )
+		{
+			UnRegisterActiveTimer( ActiveTimerHandle.Pin().ToSharedRef() );
+		}
+		bIsActiveTimerRegistered = true;
+		ActiveTimerHandle = RegisterActiveTimer( FilterDelayAfterTyping, FWidgetActiveTimerDelegate::CreateSP( this, &SSearchBox::TriggerOnTextChanged ) );
 	}
 	else
 	{
@@ -147,8 +149,9 @@ void SSearchBox::HandleTextChanged(const FText& NewText)
 
 void SSearchBox::HandleTextCommitted(const FText& NewText, ETextCommit::Type CommitType)
 {
-	if ( ActiveTimerHandle.IsValid() )
+	if ( bIsActiveTimerRegistered && ActiveTimerHandle.IsValid() )
 	{
+		bIsActiveTimerRegistered = false;
 		UnRegisterActiveTimer( ActiveTimerHandle.Pin().ToSharedRef() );
 	}
 

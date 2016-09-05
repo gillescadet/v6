@@ -39,9 +39,7 @@ class GAMEPLAYABILITIES_API IGameplayCueInterface
 	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category="Ability|GameplayCue")
 	virtual void ForwardGameplayCueToParent();
 
-	static void DispatchBlueprintCustomHandler(AActor* Actor, UFunction* Func, EGameplayCueEvent::Type EventType, FGameplayCueParameters Parameters);
-
-	static void ClearTagToFunctionMap();
+	static void DispatchBlueprintCustomHandler(AActor* Actor, UFunction* Func, EGameplayCueEvent::Type EventType, FGameplayCueParameters Parameters);	
 
 	IGameplayCueInterface() : bForwardToParent(false) {}
 
@@ -79,9 +77,6 @@ struct FActiveGameplayCue : public FFastArraySerializerItem
 	UPROPERTY()
 	FPredictionKey PredictionKey;
 
-	UPROPERTY()
-	FGameplayCueParameters Parameters;
-
 	/** Has this been predictively removed on the client? */
 	UPROPERTY(NotReplicated)
 	bool bPredictivelyRemoved;
@@ -102,10 +97,7 @@ struct FActiveGameplayCueContainer : public FFastArraySerializer
 	UPROPERTY()
 	class UAbilitySystemComponent*	Owner;
 
-	/** Should this container only rpelicate in minimal replication mode */
-	bool bMinimalReplication;
-
-	void AddCue(const FGameplayTag& Tag, const FPredictionKey& PredictionKey, const FGameplayCueParameters& Parameters);
+	void AddCue(const FGameplayTag& Tag, const FPredictionKey& PredictionKey);
 	void RemoveCue(const FGameplayTag& Tag);
 
 	/** Marks as predictively removed so that we dont invoke remove event twice due to onrep */
@@ -116,7 +108,10 @@ struct FActiveGameplayCueContainer : public FFastArraySerializer
 	/** Does explicit check for gameplay cue tag */
 	bool HasCue(const FGameplayTag& Tag) const;
 
-	bool NetDeltaSerialize(FNetDeltaSerializeInfo & DeltaParms);
+	bool NetDeltaSerialize(FNetDeltaSerializeInfo & DeltaParms)
+	{
+		return FastArrayDeltaSerialize<FActiveGameplayCue>(GameplayCues, DeltaParms, *this);
+	}
 
 private:
 

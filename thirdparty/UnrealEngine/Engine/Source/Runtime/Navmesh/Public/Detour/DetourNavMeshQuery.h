@@ -369,7 +369,7 @@ public:
 	///	-# Call finalizeSlicedFindPath() to get the path.
 	///@{ 
 
-	/// Initializes a sliced path query.
+	/// Intializes a sliced path query.
 	///  @param[in]		startRef	The refrence id of the start polygon.
 	///  @param[in]		endRef		The reference id of the end polygon.
 	///  @param[in]		startPos	A position within the start polygon. [(x, y, z)]
@@ -474,19 +474,6 @@ public:
 	dtStatus findNearestPoly(const float* center, const float* extents,
 							 const dtQueryFilter* filter,
 							 dtPolyRef* nearestRef, float* nearestPt, const float* referencePt = 0) const;
-
-	/// Finds the polygon 2D-nearest to the specified center point.
-	///  @param[in]		center		The center of the search box. [(x, y, z)]
-	///  @param[in]		extents		The search distance along each axis. [(x, y, z)]
-	///  @param[in]		filter		The polygon filter to apply to the query.
-	///  @param[out]	nearestRef	The reference id of the nearest polygon.
-	///  @param[out]	nearestPt	The nearest point on the polygon. [opt] [(x, y, z)]
-	///  @param[in]		referencePt	If supplied replaces @param center in terms of distance measurements. [opt] [(x, y, z)]
-	/// @returns The status flags for the query.
-	dtStatus findNearestPoly2D(const float* center, const float* extents,
-							const dtQueryFilter* filter,
-							dtPolyRef* outProjectedRef, float* outProjectedPt,
-							const float* referencePt = 0) const;
 
 	/// Finds the nearest polygon containing the specified center point.
 	///  @param[in]		center		The center of the search box. [(x, y, z)]

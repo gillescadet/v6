@@ -21,10 +21,10 @@ struct FIntPoint
 
 public:
 
-	/** An integer point with zeroed values. */
+	/** An int point with zeroed values. */
 	CORE_API static const FIntPoint ZeroValue;
 
-	/** An integer point with INDEX_NONE values. */
+	/** An int point with INDEX_NONE values. */
 	CORE_API static const FIntPoint NoneValue;
 
 public:
@@ -33,144 +33,144 @@ public:
 	FIntPoint();
 
 	/**
-	 * Create and initialize a new instance with the specified coordinates.
+	 * Creates and initializes a new instance with the specified coordinates.
 	 *
 	 * @param InX The x-coordinate.
 	 * @param InY The y-coordinate.
 	 */
-	FIntPoint(int32 InX, int32 InY);
+	FIntPoint( int32 InX, int32 InY );
 
 	/**
-	 * Create and initialize a new instance to zero.
+	 * Creates and initializes a new instance to zero.
 	 *
 	 * @param EForceInit Force init enum
 	 */
-	explicit FORCEINLINE FIntPoint(EForceInit);
+	explicit FORCEINLINE FIntPoint( EForceInit );
 
 public:
 
 	/**
-	 * Get specific component of a point.
+	 * Gets specific component of a point.
 	 *
 	 * @param PointIndex Index of point component.
 	 * @return const reference to component.
 	 */
-	const int32& operator()(int32 PointIndex) const;
+	const int32& operator()( int32 PointIndex ) const;
 
 	/**
-	 * Get specific component of a point.
+	 * Gets specific component of a point.
 	 *
 	 * @param PointIndex Index of point component
 	 * @return reference to component.
 	 */
-	int32& operator()(int32 PointIndex);
+	int32& operator()( int32 PointIndex );
 
 	/**
-	 * Compare two points for equality.
+	 * Compares points for equality.
 	 *
 	 * @param Other The other int point being compared.
 	 * @return true if the points are equal, false otherwise.
 	 */
-	bool operator==(const FIntPoint& Other) const;
+	bool operator==( const FIntPoint& Other ) const;
 
 	/**
-	 * Compare two points for inequality.
+	 * Compares points for inequality.
 	 *
 	 * @param Other The other int point being compared.
 	 * @return true if the points are not equal, false otherwise.
 	 */
-	bool operator!=(const FIntPoint& Other) const;
+	bool operator!=( const FIntPoint& Other ) const;
 
 	/**
-	 * Scale this point.
+	 * Scales this point.
 	 *
 	 * @param Scale What to multiply the point by.
 	 * @return Reference to this point after multiplication.
 	 */
-	FIntPoint& operator*=(int32 Scale);
+	FIntPoint& operator*=( int32 Scale );
 
 	/**
-	 * Divide this point by a scalar.
+	 * Divides this point.
 	 *
 	 * @param Divisor What to divide the point by.
 	 * @return Reference to this point after division.
 	 */
-	FIntPoint& operator/=(int32 Divisor);
+	FIntPoint& operator/=( int32 Divisor );
 
 	/**
-	 * Add another point component-wise to this point.
+	 * Adds to this point.
 	 *
 	 * @param Other The point to add to this point.
 	 * @return Reference to this point after addition.
 	 */
-	FIntPoint& operator+=(const FIntPoint& Other);
+	FIntPoint& operator+=( const FIntPoint& Other );
 	
 	/**
-	 * Subtract another point component-wise from this point.
+	 * Subtracts from this point.
 	 *
 	 * @param Other The point to subtract from this point.
 	 * @return Reference to this point after subtraction.
 	 */
-	FIntPoint& operator-=(const FIntPoint& Other);
+	FIntPoint& operator-=( const FIntPoint& Other );
 
 	/**
-	 * Divide this point component-wise by another point.
+	 * Divides this point.
 	 *
 	 * @param Other The point to divide with.
 	 * @return Reference to this point after division.
 	 */
-	FIntPoint& operator/=(const FIntPoint& Other);
+	FIntPoint& operator/=( const FIntPoint& Other );
 
 	/**
-	 * Assign another point to this one.
+	 * Assigns another point to this one.
 	 *
 	 * @param Other The point to assign this point from.
 	 * @return Reference to this point after assignment.
 	 */
-	FIntPoint& operator=(const FIntPoint& Other);
+	FIntPoint& operator=( const FIntPoint& Other );
 
 	/**
-	 * Get the result of scaling on this point.
+	 * Gets the result of scaling on this point.
 	 *
 	 * @param Scale What to multiply the point by.
 	 * @return A new scaled int point.
 	 */
-	FIntPoint operator*(int32 Scale) const;
+	FIntPoint operator*( int32 Scale ) const;
 
 	/**
-	 * Get the result of division on this point.
+	 * Gets the result of division on this point.
 	 *
 	 * @param Divisor What to divide the point by.
 	 * @return A new divided int point.
 	 */
-	FIntPoint operator/(int32 Divisor) const;
+	FIntPoint operator/( int32 Divisor ) const;
 
 	/**
-	 * Get the result of addition on this point.
+	 * Gets the result of addition on this point.
 	 *
 	 * @param Other The other point to add to this.
 	 * @return A new combined int point.
 	 */
-	FIntPoint operator+(const FIntPoint& Other) const;
+	FIntPoint operator+( const FIntPoint& Other ) const;
 
 	/**
-	 * Get the result of subtraction from this point.
+	 * Gets the result of subtraction from this point.
 	 *
 	 * @param Other The other point to subtract from this.
 	 * @return A new subtracted int point.
 	 */
-	FIntPoint operator-(const FIntPoint& Other) const;
+	FIntPoint operator-( const FIntPoint& Other ) const;
 
 	/**
-	 * Get the result of division on this point.
+	 * Gets the result of division on this point.
 	 *
 	 * @param Other The other point to subtract from this.
 	 * @return A new subtracted int point.
 	 */
-	FIntPoint operator/(const FIntPoint& Other) const;
+	FIntPoint operator/( const FIntPoint& Other ) const;
 
 	/**
-	* Get specific component of the point.
+	* Gets specific component of the point.
 	*
 	* @param Index the index of point component
 	* @return reference to component.
@@ -178,47 +178,39 @@ public:
 	int32& operator[](int32 Index);
 
 	/**
-	* Get specific component of the point.
+	* Gets specific component of the point.
 	*
 	* @param Index the index of point component
 	* @return copy of component value.
 	*/
 	int32 operator[](int32 Index) const;
 
+	/** Gets the component-wise min of two vectors. */
+	FORCEINLINE FIntPoint ComponentMin(const FIntPoint& Other) const;
+
+	/** Gets the component-wise max of two vectors. */
+	FORCEINLINE FIntPoint ComponentMax(const FIntPoint& Other) const;
+
 public:
 
 	/**
-	 * Get the component-wise min of two points.
+	 * Gets the maximum value in the point.
 	 *
-	 * @see ComponentMax, GetMax
-	 */
-	FORCEINLINE FIntPoint ComponentMin(const FIntPoint& Other) const;
-
-	/**
-	 * Get the component-wise max of two points.
-	 *
-	 * @see ComponentMin, GetMin
-	 */
-	FORCEINLINE FIntPoint ComponentMax(const FIntPoint& Other) const;
-
-	/**
-	 * Get the larger of the point's two components.
-	 *
-	 * @return The maximum component of the point.
+	 * @return The maximum value in the point.
 	 * @see GetMin, Size, SizeSquared
 	 */
 	int32 GetMax() const;
 
 	/**
-	 * Get the smaller of the point's two components.
+	 * Gets the minimum value in the point.
 	 *
-	 * @return The minimum component of the point.
+	 * @return The minimum value in the point.
 	 * @see GetMax, Size, SizeSquared
 	 */
 	int32 GetMin() const;
 
 	/**
-	 * Get the distance of this point from (0,0).
+	 * Gets the distance of this point from (0,0).
 	 *
 	 * @return The distance of this point from (0,0).
 	 * @see GetMax, GetMin, SizeSquared
@@ -226,7 +218,7 @@ public:
 	int32 Size() const;
 
 	/**
-	 * Get the squared distance of this point from (0,0).
+	 * Gets the squared distance of this point from (0,0).
 	 *
 	 * @return The squared distance of this point from (0,0).
 	 * @see GetMax, GetMin, Size
@@ -250,8 +242,8 @@ public:
 	 * @return A new divided int point.
 	 * @see DivideAndRoundDown
 	 */
-	static FIntPoint DivideAndRoundUp(FIntPoint lhs, int32 Divisor);
-	static FIntPoint DivideAndRoundUp(FIntPoint lhs, FIntPoint Divisor);
+	static FIntPoint DivideAndRoundUp( FIntPoint lhs, int32 Divisor );
+	static FIntPoint DivideAndRoundUp( FIntPoint lhs, FIntPoint Divisor );
 
 	/**
 	 * Divide an int point and round down the result.
@@ -261,11 +253,10 @@ public:
 	 * @return A new divided int point.
 	 * @see DivideAndRoundUp
 	 */
-	static FIntPoint DivideAndRoundDown(FIntPoint lhs, int32 Divisor);
+	static FIntPoint DivideAndRoundDown( FIntPoint lhs, int32 Divisor );
 
 	/**
-	 * Get number of components point has.
-	 *
+	 * Gets number of components point has.
 	 * @return number of components point has.
 	 */
 	static int32 Num();
@@ -273,24 +264,18 @@ public:
 public:
 
 	/**
-	 * Serialize the point.
+	 * Serializes the point.
 	 *
 	 * @param Ar The archive to serialize into.
 	 * @param Point The point to serialize.
 	 * @return Reference to the Archive after serialization.
 	 */
-	friend FArchive& operator<<(FArchive& Ar, FIntPoint& Point)
+	friend FArchive& operator<<( FArchive& Ar, FIntPoint& Point )
 	{
 		return Ar << Point.X << Point.Y;
 	}
 
-	/**
-	 * Serialize the point.
-	 *
-	 * @param Ar The archive to serialize into.
-	 * @return true on success, false otherwise.
-	 */
-	bool Serialize(FArchive& Ar)
+	bool Serialize( FArchive& Ar )
 	{
 		Ar << *this;
 		return true;
@@ -304,25 +289,25 @@ public:
 FORCEINLINE FIntPoint::FIntPoint() { }
 
 
-FORCEINLINE FIntPoint::FIntPoint(int32 InX, int32 InY)
+FORCEINLINE FIntPoint::FIntPoint( int32 InX, int32 InY )
 	: X(InX)
 	, Y(InY)
 { }
 
 
-FORCEINLINE FIntPoint::FIntPoint(EForceInit)
+FORCEINLINE FIntPoint::FIntPoint( EForceInit )
 	: X(0)
 	, Y(0)
 { }
 
 
-FORCEINLINE const int32& FIntPoint::operator()(int32 PointIndex) const
+FORCEINLINE const int32& FIntPoint::operator()( int32 PointIndex ) const
 {
 	return (&X)[PointIndex];
 }
 
 
-FORCEINLINE int32& FIntPoint::operator()(int32 PointIndex)
+FORCEINLINE int32& FIntPoint::operator()( int32 PointIndex )
 {
 	return (&X)[PointIndex];
 }
@@ -334,19 +319,19 @@ FORCEINLINE int32 FIntPoint::Num()
 }
 
 
-FORCEINLINE bool FIntPoint::operator==(const FIntPoint& Other) const
+FORCEINLINE bool FIntPoint::operator==( const FIntPoint& Other ) const
 {
 	return X==Other.X && Y==Other.Y;
 }
 
 
-FORCEINLINE bool FIntPoint::operator!=(const FIntPoint& Other) const
+FORCEINLINE bool FIntPoint::operator!=( const FIntPoint& Other ) const
 {
 	return (X != Other.X) || (Y != Other.Y);
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator*=(int32 Scale)
+FORCEINLINE FIntPoint& FIntPoint::operator*=( int32 Scale )
 {
 	X *= Scale;
 	Y *= Scale;
@@ -355,7 +340,7 @@ FORCEINLINE FIntPoint& FIntPoint::operator*=(int32 Scale)
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator/=(int32 Divisor)
+FORCEINLINE FIntPoint& FIntPoint::operator/=( int32 Divisor )
 {
 	X /= Divisor;
 	Y /= Divisor;
@@ -364,7 +349,7 @@ FORCEINLINE FIntPoint& FIntPoint::operator/=(int32 Divisor)
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator+=(const FIntPoint& Other)
+FORCEINLINE FIntPoint& FIntPoint::operator+=( const FIntPoint& Other )
 {
 	X += Other.X;
 	Y += Other.Y;
@@ -373,7 +358,7 @@ FORCEINLINE FIntPoint& FIntPoint::operator+=(const FIntPoint& Other)
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator-=(const FIntPoint& Other)
+FORCEINLINE FIntPoint& FIntPoint::operator-=( const FIntPoint& Other )
 {
 	X -= Other.X;
 	Y -= Other.Y;
@@ -382,7 +367,7 @@ FORCEINLINE FIntPoint& FIntPoint::operator-=(const FIntPoint& Other)
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator/=(const FIntPoint& Other)
+FORCEINLINE FIntPoint& FIntPoint::operator/=( const FIntPoint& Other )
 {
 	X /= Other.X;
 	Y /= Other.Y;
@@ -391,7 +376,7 @@ FORCEINLINE FIntPoint& FIntPoint::operator/=(const FIntPoint& Other)
 }
 
 
-FORCEINLINE FIntPoint& FIntPoint::operator=(const FIntPoint& Other)
+FORCEINLINE FIntPoint& FIntPoint::operator=( const FIntPoint& Other )
 {
 	X = Other.X;
 	Y = Other.Y;
@@ -400,13 +385,13 @@ FORCEINLINE FIntPoint& FIntPoint::operator=(const FIntPoint& Other)
 }
 
 
-FORCEINLINE FIntPoint FIntPoint::operator*(int32 Scale) const
+FORCEINLINE FIntPoint FIntPoint::operator*( int32 Scale ) const
 {
 	return FIntPoint(*this) *= Scale;
 }
 
 
-FORCEINLINE FIntPoint FIntPoint::operator/(int32 Divisor) const
+FORCEINLINE FIntPoint FIntPoint::operator/( int32 Divisor ) const
 {
 	return FIntPoint(*this) /= Divisor;
 }
@@ -437,35 +422,35 @@ FORCEINLINE FIntPoint FIntPoint::ComponentMax(const FIntPoint& Other) const
 	return FIntPoint(FMath::Max(X, Other.X), FMath::Max(Y, Other.Y));
 }
 
-FORCEINLINE FIntPoint FIntPoint::DivideAndRoundUp(FIntPoint lhs, int32 Divisor)
+FORCEINLINE FIntPoint FIntPoint::DivideAndRoundUp( FIntPoint lhs, int32 Divisor )
 {
 	return FIntPoint(FMath::DivideAndRoundUp(lhs.X, Divisor), FMath::DivideAndRoundUp(lhs.Y, Divisor));
 }
 
-FORCEINLINE FIntPoint FIntPoint::DivideAndRoundUp(FIntPoint lhs, FIntPoint Divisor)
+FORCEINLINE FIntPoint FIntPoint::DivideAndRoundUp( FIntPoint lhs, FIntPoint Divisor )
 {
 	return FIntPoint(FMath::DivideAndRoundUp(lhs.X, Divisor.X), FMath::DivideAndRoundUp(lhs.Y, Divisor.Y));
 }	
 
-FORCEINLINE FIntPoint FIntPoint::DivideAndRoundDown(FIntPoint lhs, int32 Divisor)
+FORCEINLINE FIntPoint FIntPoint::DivideAndRoundDown( FIntPoint lhs, int32 Divisor )
 {
 	return FIntPoint(FMath::DivideAndRoundDown(lhs.X, Divisor), FMath::DivideAndRoundDown(lhs.Y, Divisor));
 }	
 
 
-FORCEINLINE FIntPoint FIntPoint::operator+(const FIntPoint& Other) const
+FORCEINLINE FIntPoint FIntPoint::operator+( const FIntPoint& Other ) const
 {
 	return FIntPoint(*this) += Other;
 }
 
 
-FORCEINLINE FIntPoint FIntPoint::operator-(const FIntPoint& Other) const
+FORCEINLINE FIntPoint FIntPoint::operator-( const FIntPoint& Other ) const
 {
 	return FIntPoint(*this) -= Other;
 }
 
 
-FORCEINLINE FIntPoint FIntPoint::operator/(const FIntPoint& Other) const
+FORCEINLINE FIntPoint FIntPoint::operator/( const FIntPoint& Other ) const
 {
 	return FIntPoint(*this) /= Other;
 }
@@ -490,9 +475,7 @@ FORCEINLINE uint32 GetTypeHash(const FIntPoint& InPoint)
 
 FORCEINLINE int32 FIntPoint::Size() const
 {
-	int64 X64 = (int64)X;
-	int64 Y64 = (int64)Y;
-	return int32(FMath::Sqrt(float(X64 * X64 + Y64 * Y64)));
+	return int32(FMath::Sqrt( float(X*X + Y*Y)));
 }
 
 FORCEINLINE int32 FIntPoint::SizeSquared() const

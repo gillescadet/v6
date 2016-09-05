@@ -210,16 +210,14 @@ public:
 	DRAG_DROP_OPERATOR_TYPE(FExternalDragOperation, FDragDropOperation)
 
 	/** Creates a new external text drag operation */
-	static TSharedRef<FExternalDragOperation> NewText( FString InText );
+	static TSharedRef<FExternalDragOperation> NewText( const FString& InText );
 	/** Creates a new external file drag operation */
-	static TSharedRef<FExternalDragOperation> NewFiles( TArray<FString> InFileNames );
-	/** Creates a new external combined drag operation */
-	static TSharedRef<FExternalDragOperation> NewOperation( FString InText, TArray<FString> InFileNames );
+	static TSharedRef<FExternalDragOperation> NewFiles( const TArray<FString>& InFileNames );
 
 	/** @return true if this is a text drag operation */
-	bool HasText() const {return !!(DragType & DragText);}
+	bool HasText() const {return DragType == DragText;}
 	/** @return true if this is a file drag operation */
-	bool HasFiles() const {return !!(DragType & DragFiles);}
+	bool HasFiles() const {return DragType == DragFiles;}
 	
 	/** @return the text from this drag operation */
 	const FString& GetText() const { ensure(HasText()); return DraggedText;}
@@ -230,12 +228,11 @@ private:
 	FString DraggedText;
 	TArray<FString> DraggedFileNames;
 
-	enum EExternalDragType
+	enum ExternalDragType
 	{
-		DragText = 1<<0,
-		DragFiles = 1<<1,
-	};
-	uint8 DragType;
+		DragText,
+		DragFiles
+	} DragType;
 };
 
 

@@ -649,7 +649,6 @@ public:
 		, bIsTouchEvent(false)
 		, GestureType(EGestureEvent::None)
 		, WheelOrGestureDelta(0.0f, 0)
-		, bIsDirectionInvertedFromDevice(false)
 	{ }
 
 	/** Events are immutable once constructed. */
@@ -673,31 +672,6 @@ public:
 		, bIsTouchEvent(false)
 		, GestureType(EGestureEvent::None)
 		, WheelOrGestureDelta(0.0f, InWheelDelta)
-		, bIsDirectionInvertedFromDevice(false)
-	{ }
-
-	FPointerEvent(
-		uint32 InUserIndex,
-		uint32 InPointerIndex,
-		const FVector2D& InScreenSpacePosition,
-		const FVector2D& InLastScreenSpacePosition,
-		const TSet<FKey>& InPressedButtons,
-		FKey InEffectingButton,
-		float InWheelDelta,
-		const FModifierKeysState& InModifierKeys
-	)
-		: FInputEvent(InModifierKeys, InUserIndex, false)
-		, ScreenSpacePosition(InScreenSpacePosition)
-		, LastScreenSpacePosition(InLastScreenSpacePosition)
-		, CursorDelta(InScreenSpacePosition - InLastScreenSpacePosition)
-		, PressedButtons(InPressedButtons)
-		, EffectingButton(InEffectingButton)
-		, PointerIndex(InPointerIndex)
-		, TouchpadIndex(0)
-		, bIsTouchEvent(false)
-		, GestureType(EGestureEvent::None)
-		, WheelOrGestureDelta(0.0f, InWheelDelta)
-		, bIsDirectionInvertedFromDevice(false)
 	{ }
 
 	/** A constructor for raw mouse events */
@@ -719,7 +693,6 @@ public:
 		, bIsTouchEvent(false)
 		, GestureType(EGestureEvent::None)
 		, WheelOrGestureDelta(0.0f, 0.0f)
-		, bIsDirectionInvertedFromDevice(false)
 	{ }
 
 	/** A constructor for touch events */
@@ -743,7 +716,6 @@ public:
 		, bIsTouchEvent(true)
 		, GestureType(EGestureEvent::None)
 		, WheelOrGestureDelta(0.0f, 0.0f)
-		, bIsDirectionInvertedFromDevice(false)
 	{ }
 
 	/** A constructor for gesture events */
@@ -753,8 +725,7 @@ public:
 		const TSet<FKey>& InPressedButtons,
 		const FModifierKeysState& InModifierKeys,
 		EGestureEvent::Type InGestureType,
-		const FVector2D& InGestureDelta,
-		bool bInIsDirectionInvertedFromDevice
+		const FVector2D& InGestureDelta
 	)
 		: FInputEvent(InModifierKeys, 0, false)
 		, ScreenSpacePosition(InScreenSpacePosition)
@@ -765,7 +736,6 @@ public:
 		, bIsTouchEvent(false)
 		, GestureType(InGestureType)
 		, WheelOrGestureDelta(InGestureDelta)
-		, bIsDirectionInvertedFromDevice(bInIsDirectionInvertedFromDevice)
 	{ }
 	
 public:
@@ -806,9 +776,6 @@ public:
 	/** @return The change in gesture value since the last gesture event of the same type. */
 	const FVector2D& GetGestureDelta() const { return WheelOrGestureDelta; }
 
-	/** @return Is the gesture delta inverted */
-	bool IsDirectionInvertedFromDevice() const { return bIsDirectionInvertedFromDevice; }
-
 	/** We override the assignment operator to allow generated code to compile with the const ref member. */
 	void operator=( const FPointerEvent& Other )
 	{
@@ -826,7 +793,6 @@ public:
 		bIsTouchEvent = Other.bIsTouchEvent;
 		GestureType = Other.GestureType;
 		WheelOrGestureDelta = Other.WheelOrGestureDelta;
-		bIsDirectionInvertedFromDevice = Other.bIsDirectionInvertedFromDevice;
 	}
 
 	SLATECORE_API virtual FText ToText() const override;
@@ -855,7 +821,6 @@ private:
 	bool bIsTouchEvent;
 	EGestureEvent::Type GestureType;
 	FVector2D WheelOrGestureDelta;
-	bool bIsDirectionInvertedFromDevice;
 	// NOTE: If you add a new member, make sure you add it to the assignment operator.
 };
 

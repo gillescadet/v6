@@ -6,12 +6,9 @@
 #include "Animation/AnimationAsset.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimNotifyQueue.h"
-#include "Engine/PoseWatch.h"
 #include "AnimInstanceProxy.generated.h"
 
 struct FAnimNode_Base;
-struct FAnimNode_SaveCachedPose;
-struct FAnimNode_SubInput;
 
 /** Proxy object passed around during animation tree update in lieu of a UAnimInstance */
 USTRUCT(meta = (DisplayName = "Native Variables"))
@@ -34,7 +31,6 @@ public:
 		, bIsBeingDebugged(false)
 #endif
 		, RootNode(nullptr)
-		, SubInstanceInputNode(nullptr)
 		, SyncGroupWriteIndex(0)
 		, RootMotionMode(ERootMotionMode::NoRootMotionExtraction)
 		, bShouldExtractRootMotion(false)
@@ -83,10 +79,6 @@ public:
 		UClass* ActualAnimClass = IAnimClassInterface::GetActualAnimClass(AnimClassInterface);
 		return ActualAnimClass ? Cast<UAnimBlueprint>(ActualAnimClass->ClassGeneratedBy) : nullptr;
 	}
-
-	// Record pose for node of ID LinkID if it is currently being watched
-	void RegisterWatchedPose(const FCompactPose& Pose, int32 LinkID);
-	void RegisterWatchedPose(const FCSPose<FCompactPose>& Pose, int32 LinkID);
 #endif
 
 	// flip sync group read/write indices
@@ -173,27 +165,15 @@ public:
 		return RequiredBones;
 	}
 
-	/** Access to LODLevel */
-	int32 GetLODLevel() const
-	{
-		return LODLevel;
-	}
-
-	/** Get the current skeleton we are using. Note that this will return nullptr outside of pre/post update */
+	/** Get the current skeleton we are using */
 	USkeleton* GetSkeleton() 
 	{ 
-		// Skeleton is only available during update/eval. If you're calling this function outside of it, it will return null. 
-		// adding ensure here so that we can catch them earlier
-		ensureAlways(Skeleton);
 		return Skeleton; 
 	}
 
-	/** Get the current skeletal mesh component we are running on. Note that this will return nullptr outside of pre/post update */
-	USkeletalMeshComponent* GetSkelMeshComponent() const
+	/** Get the current skeletal mesh component we are running on */
+	USkeletalMeshComponent* GetSkelMeshComponent() 
 	{ 
-		// Skeleton is only available during update/eval. If you're calling this function outside of it, it will return null. 
-		// adding ensure here so that we can catch them earlier
-		ensureAlways(SkeletalMeshComponent);
 		return SkeletalMeshComponent; 
 	}
 
@@ -206,8 +186,6 @@ public:
 	/** Helper function: make a tick record for a blend space */
 	void MakeBlendSpaceTickRecord(FAnimTickRecord& TickRecord, UBlendSpaceBase* BlendSpace, const FVector& BlendInput, TArray<FBlendSampleData>& BlendSampleDataCache, FBlendFilter& BlendFilter, bool bLooping, float PlayRate, float FinalBlendWeight, float& CurrentTime, FMarkerTickRecord& MarkerTickRecord) const;
 
-	/** Helper function: make a tick record for a pose asset*/
-	void MakePoseAssetTickRecord(FAnimTickRecord& TickRecord, class UPoseAsset* PoseAsset, float FinalBlendWeight) const;
 	/**
 	 * Get Slot Node Weight : this returns new Slot Node Weight, Source Weight, Original TotalNodeWeight
 	 *							this 3 values can't be derived from each other
@@ -223,11 +201,14 @@ public:
 	void SlotEvaluatePose(FName SlotNodeName, const FCompactPose& SourcePose, const FBlendedCurve& SourceCurve, float InSourceWeight, FCompactPose& BlendedPose, FBlendedCurve& BlendedCurve, float InBlendWeight, float InTotalNodeWeight);
 	
 	// Allow slot nodes to store off their weight during ticking
-	void UpdateSlotNodeWeight(FName SlotNodeName, float InLocalMontageWeight, float InNodeGlobalWeight);
+	void UpdateSlotNodeWeight(FName SlotNodeName, float Weight);
+
+	// Allow slot nodes to store off their root motion weight during ticking
+	void UpdateSlotRootMotionWeight(FName SlotNodeName, float Weight);
 
 	/** Register a named slot */
 	void RegisterSlotNodeWithAnimInstance(FName SlotNodeName);
-
+	
 	/** Check whether we have a valid root node */
 	bool HasRootNode() const
 	{ 
@@ -269,21 +250,12 @@ public:
 	 */
 	int32 GetInstanceAssetPlayerIndex(FName MachineName, FName StateName, FName InstanceName = NAME_None);
 
-	float GetRecordedMachineWeight(const int32& InMachineClassIndex) const;
-	void RecordMachineWeight(const int32& InMachineClassIndex, const float& InMachineWeight);
 
-	float GetRecordedStateWeight(const int32& InMachineClassIndex, const int32& InStateIndex) const;
-	void RecordStateWeight(const int32& InMachineClassIndex, const int32& InStateIndex, const float& InStateWeight);
-
-	bool IsSlotNodeRelevantForNotifies(FName SlotNodeName) const;
-	/** Reset any dynamics running simulation-style updates (e.g. on teleport, time skip etc.) */
-	void ResetDynamics();
 
 	/** Only restricted classes can access the protected interface */
 	friend class UAnimInstance;
 	friend class UAnimSingleNodeInstance;
 	friend class USkeletalMeshComponent;
-	friend struct FAnimNode_SubInstance;
 
 protected:
 	/** Called when our anim instance is being initialized */
@@ -293,16 +265,13 @@ protected:
 	virtual void Uninitialize(UAnimInstance* InAnimInstance);
 
 	/** Called before update so we can copy any data we need */
-	virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds);
+	virtual void PreUpdate(const UAnimInstance* InAnimInstance, float DeltaSeconds);
 
 	/** Update override point */
 	virtual void Update(float DeltaSeconds) {}
 
 	/** Updates the anim graph */
 	virtual void UpdateAnimationNode(float DeltaSeconds);
-
-	/** Called on the game thread pre-evaluate. */
-	virtual void PreEvaluateAnimation(UAnimInstance* InAnimInstance);
 
 	/** 
 	 * Evaluate override point 
@@ -314,24 +283,11 @@ protected:
 	/** Called after update so we can copy any data we need */
 	virtual void PostUpdate(UAnimInstance* InAnimInstance) const;
 
-	/** Copy any UObjects we might be using. Called Pre-update and pre-evaluate. */
-	virtual void InitializeObjects(UAnimInstance* InAnimInstance);
-
-	/** 
-	 * Clear any UObjects we might be using. Called at the end of the post-evaluate phase.
-	 * This is to ensure that objects are not used by anything apart from animation nodes.
-	 * Please make sure to call the base implementation if this is overridden.
-	 */
-	virtual void ClearObjects();
-
 	/** Calls Update(), updates the anim graph, ticks asset players */
 	void UpdateAnimation();
 
-	/** Evaluates the anim graph if Evaluate() returns false */
-	void EvaluateAnimation(FPoseContext& Output);
-
 	/** Evaluates the anim graph */
-	void EvaluateAnimationNode(FPoseContext& Output);
+	void EvaluateAnimation(FPoseContext& Output);
 
 	// @todo document
 	void SequenceAdvanceImmediate(UAnimSequenceBase* Sequence, bool bLooping, float PlayRate, float DeltaSeconds, /*inout*/ float& CurrentTime, FMarkerTickRecord& MarkerTickRecord);
@@ -370,14 +326,10 @@ protected:
 
 	// if it doesn't tick, it will keep old weight, so we'll have to clear it in the beginning of tick
 	void ClearSlotNodeWeights();
+	bool IsSlotNodeRelevantForNotifies(FName SlotNodeName) const;
 
-	/** Get global weight in AnimGraph for this slot node. 
-	 * Note: this is the weight of the node, not the weight of any potential montage it is playing. */
-	float GetSlotNodeGlobalWeight(FName SlotNodeName) const;
-
-	/** Get Global weight of any montages this slot node is playing. 
-	 * If this slot is not currently playing a montage, it will return 0. */
-	float GetSlotMontageGlobalWeight(FName SlotNodeName) const;
+	// Get the root motion weight for the montage slot
+	float GetSlotRootMotionWeight(FName SlotNodeName) const;
 
 	/** 
 	 * Recalculate Required Bones [RequiredBones]
@@ -386,7 +338,7 @@ protected:
 	void RecalcRequiredBones(USkeletalMeshComponent* Component, UObject* Asset);
 
 	/** Update the material parameters of the supplied component from this instance */
-	void UpdateCurvesToComponents(USkeletalMeshComponent* Component);
+	void UpdateCurvesToComponents(USkeletalMeshComponent* Component=nullptr);
 
 	/** Get Currently active montage evaluation state.
 		Note that there might be multiple Active at the same time. This will only return the first active one it finds. **/
@@ -399,6 +351,20 @@ protected:
 	const TArray<FMontageEvaluationState>& GetMontageEvaluationData() const { return MontageEvaluationData; }
 
 	/** Check whether we have active morph target curves */
+	bool HasMorphTargetCurves() const { return MorphTargetCurves.Num() > 0; }
+
+	/** Access the active morph target curves */
+	TMap<FName, float>& GetMorphTargetCurves() { return MorphTargetCurves; }
+
+	/** Access the active material parameter curves */
+	TMap<FName, float>& GetMaterialParameterCurves() { return MaterialParameterCurves; }
+
+	/** Check whether we have active morph target curves */
+	TArray<struct FActiveVertexAnim>& GetVertexAnims() { return VertexAnims; }
+
+	/** Adds an active vertex anim */
+	void AddVertexAnim(const FActiveVertexAnim& VertexAnim);
+
 	/** Gets the most relevant asset player in a specified state */
 	FAnimNode_AssetPlayerBase* GetRelevantAssetPlayerFromState(int32 MachineIndex, int32 StateIndex);
 
@@ -426,9 +392,6 @@ protected:
 
 	/** Get the time as a fraction of the asset length of an animation in an asset player node */
 	float GetInstanceAssetPlayerTimeFromEndFraction(int32 AssetPlayerIndex);
-
-	/** Get the blend weight of a specified state */
-	float GetInstanceMachineWeight(int32 MachineIndex);
 
 	/** Get the blend weight of a specified state */
 	float GetInstanceStateWeight(int32 MachineIndex, int32 StateIndex);
@@ -488,10 +451,11 @@ protected:
 	/** Gets the index of the state machine matching MachineName */
 	int32 GetStateMachineIndex(FName MachineName);
 
-	void GetStateMachineIndexAndDescription(FName InMachineName, int32& OutMachineIndex, const FBakedAnimationStateMachine** OutMachineDescription);
-
 	/** Initialize the root node - split into a separate function for backwards compatibility (initialization order) reasons */
 	void InitializeRootNode();
+
+	// garbage collection
+	virtual void AddReferencedObjects(FReferenceCollector& Collector);
 
 private:
 	/** Object ptr to our UAnimInstance */
@@ -500,10 +464,10 @@ private:
 	/** Our anim blueprint generated class */
 	IAnimClassInterface* AnimClassInterface;
 
-	/** Skeleton we are using, only used for comparison purposes. Note that this will be nullptr outside of pre/post update */
+	/** Skeleton we are using, only used for comparison purposes */
 	USkeleton* Skeleton;
 
-	/** Skeletal mesh component we are attached to. Note that this will be nullptr outside of pre/post update */
+	/** Skeletal mesh component we are attached to */
 	USkeletalMeshComponent* SkeletalMeshComponent;
 
 	/** The last time passed into PreUpdate() */
@@ -515,9 +479,6 @@ private:
 
 	/** Array of visited nodes this frame */
 	TArray<FAnimBlueprintDebugData::FNodeVisit> UpdatedNodesThisFrame;
-
-	/** Array of nodes to watch this frame */
-	TArray<FAnimNodePoseWatch> PoseWatchEntriesForThisFrame;
 #endif
 
 #if !NO_LOGGING
@@ -533,26 +494,11 @@ private:
 	/** Anim graph */
 	FAnimNode_Base* RootNode;
 
-	/** Subinstance input node if available */
-	FAnimNode_SubInput* SubInstanceInputNode;
-
-	/** List of saved pose nodes to process after the graph has been updated */
-	TArray<FAnimNode_SaveCachedPose*> SavedPoseQueue;
-
 	/** The list of animation assets which are going to be evaluated this frame and need to be ticked (ungrouped) */
 	TArray<FAnimTickRecord> UngroupedActivePlayerArrays[2];
 
 	/** The set of tick groups for this anim instance */
 	TArray<FAnimGroupInstance> SyncGroupArrays[2];
-
-	/** Buffers containing read/write buffers for all current machine weights */
-	TArray<float> MachineWeightArrays[2];
-
-	/** Buffers containing read/write buffers for all current state weights */
-	TArray<float> StateWeightArrays[2];
-
-	/** Map that transforms state class indices to base offsets into the weight array */
-	TMap<int32, int32> StateMachineClassIndexToWeightOffset;
 
 	// Current sync group buffer index
 	int32 SyncGroupWriteIndex;
@@ -566,9 +512,8 @@ private:
 	// Diplicate of bool result of ShouldExtractRootMotion()
 	bool bShouldExtractRootMotion;
 
-	// Read/write buffers Tracker map for slot name->weights/relevancy
-	TMap<FName, int32> SlotNameToTrackerIndex;
-	TArray<FMontageActiveSlotTracker> SlotWeightTracker[2];
+	// Tracker map for slot name->weights/relevancy
+	TMap<FName, FMontageActiveSlotTracker> SlotWeightTracker;
 
 	// Counters for synchronization
 	FGraphTraversalCounter InitializationCounter;
@@ -583,21 +528,24 @@ private:
 	/** Temporary array of bone indices required this frame. Should be subset of Skeleton and Mesh's RequiredBones */
 	FBoneContainer RequiredBones;
 
-	/** LODLevel used by RequiredBones */
-	int32 LODLevel;
-
 	/** When RequiredBones mapping has changed, AnimNodes need to update their bones caches. */
 	bool bBoneCachesInvalidated;
+
+	/** Morph Target Curves that will be used for SkeletalMeshComponent **/
+	TMap<FName, float> MorphTargetCurves;
+
+	/** Material Curves that will be used for SkeletalMeshComponent **/
+	TMap<FName, float> MaterialParameterCurves;
 
 	/** Copy of UAnimInstance::MontageInstances data used for update & evaluation */
 	TArray<FMontageEvaluationState> MontageEvaluationData;
 
+	/** Array indicating active vertex anims (by reference) generated by anim instance. */
+	TArray<struct FActiveVertexAnim> VertexAnims;
+
 	/** Delegate fired on the game thread before update occurs */
 	TArray<FAnimNode_Base*> GameThreadPreUpdateNodes;
 
-	/** All nodes that need to be reset on DynamicReset() */
-	TArray<FAnimNode_Base*> DynamicResetNodes;
-	
 	/** Native transition rules */
 	TArray<FNativeTransitionBinding> NativeTransitionBindings;
 

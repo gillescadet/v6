@@ -145,10 +145,7 @@ public:
 	 *
 	 * @param  InObject  Object this shared reference to retain a reference to
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE explicit TSharedRef( OtherType* InObject )
 		: Object( InObject )
 		, SharedReferenceCount( SharedPointerInternals::NewDefaultReferenceController( InObject ) )
@@ -162,11 +159,7 @@ public:
 	 * @param  InObject   Object this shared pointer to retain a reference to
 	 * @param  InDeleter  Deleter object used to destroy the object when it is no longer referenced.
 	 */
-	template <
-		typename OtherType,
-		typename DeleterType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType, class DeleterType >
 	FORCEINLINE TSharedRef( OtherType* InObject, DeleterType&& InDeleter )
 		: Object( InObject )
 		, SharedReferenceCount( SharedPointerInternals::NewCustomReferenceController( InObject, Forward< DeleterType >( InDeleter ) ) )
@@ -196,10 +189,7 @@ public:
 	 * @param  InRawPtrProxy  Proxy raw pointer that contains the object that the new shared reference will reference
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedRef( SharedPointerInternals::FRawPtrProxy< OtherType > const& InRawPtrProxy )
 		: Object( InRawPtrProxy.Object )
 		, SharedReferenceCount( InRawPtrProxy.ReferenceController )
@@ -219,10 +209,7 @@ public:
 	 *
 	 * @param  InSharedRef  The shared reference whose object we should create an additional reference to
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedRef( TSharedRef< OtherType, Mode > const& InSharedRef )
 		: Object( InSharedRef.Object )
 		, SharedReferenceCount( InSharedRef.SharedReferenceCount )
@@ -236,7 +223,7 @@ public:
 	 *
 	 * @param  InSharedRef  The shared reference whose object we should create an additional reference to
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedRef( TSharedRef< OtherType, Mode > const& InSharedRef, SharedPointerInternals::FStaticCastTag )
 		: Object( static_cast< ObjectType* >( InSharedRef.Object ) )
 		, SharedReferenceCount( InSharedRef.SharedReferenceCount )
@@ -250,7 +237,7 @@ public:
 	 *
 	 * @param  InSharedRef  The shared reference whose object we should create an additional reference to
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedRef( TSharedRef< OtherType, Mode > const& InSharedRef, SharedPointerInternals::FConstCastTag )
 		: Object( const_cast< ObjectType* >( InSharedRef.Object ) )
 		, SharedReferenceCount( InSharedRef.SharedReferenceCount )
@@ -264,7 +251,7 @@ public:
 	 * @param  OtherSharedRef  The shared reference whose reference count 
 	 * @param  InObject  The object pointer to use (instead of the incoming shared reference's object)
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedRef( TSharedRef< OtherType, Mode > const& OtherSharedRef, ObjectType* InObject )
 		: Object( InObject )
 		, SharedReferenceCount( OtherSharedRef.SharedReferenceCount )
@@ -312,10 +299,7 @@ public:
 	 * @param  InRawPtrProxy  Proxy object used to assign the object (see MakeShareable helper function)
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedRef& operator=( SharedPointerInternals::FRawPtrProxy< OtherType > const& InRawPtrProxy )
 	{
 		// If the following assert goes off, it means a TSharedRef was initialized from a nullptr object pointer.
@@ -404,10 +388,7 @@ private:
 	 *
 	 * @return  Reference to the object
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE explicit TSharedRef( TSharedPtr< OtherType, Mode > const& InSharedPtr )
 		: Object( InSharedPtr.Object )
 		, SharedReferenceCount( InSharedPtr.SharedReferenceCount )
@@ -417,10 +398,7 @@ private:
 		check( IsValid() );
 	}
 
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE explicit TSharedRef( TSharedPtr< OtherType, Mode >&& InSharedPtr )
 		: Object( InSharedPtr.Object )
 		, SharedReferenceCount( MoveTemp(InSharedPtr.SharedReferenceCount) )
@@ -530,10 +508,7 @@ public:
 	 *
 	 * @param  InObject  Object this shared pointer to retain a reference to
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE explicit TSharedPtr( OtherType* InObject )
 		: Object( InObject )
 		, SharedReferenceCount( SharedPointerInternals::NewDefaultReferenceController( InObject ) )
@@ -550,11 +525,7 @@ public:
 	 * @param  InObject   Object this shared pointer to retain a reference to
 	 * @param  InDeleter  Deleter object used to destroy the object when it is no longer referenced.
 	 */
-	template <
-		typename OtherType,
-		typename DeleterType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType, class DeleterType >
 	FORCEINLINE TSharedPtr( OtherType* InObject, DeleterType&& InDeleter )
 		: Object( InObject )
 		, SharedReferenceCount( SharedPointerInternals::NewCustomReferenceController( InObject, Forward< DeleterType >( InDeleter ) ) )
@@ -570,10 +541,7 @@ public:
 	 * @param  InRawPtrProxy  Proxy raw pointer that contains the object that the new shared pointer will reference
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( SharedPointerInternals::FRawPtrProxy< OtherType > const& InRawPtrProxy )
 		: Object( InRawPtrProxy.Object )
 		, SharedReferenceCount( InRawPtrProxy.ReferenceController )
@@ -589,10 +557,7 @@ public:
 	 *
 	 * @param  InSharedPtr  The shared pointer whose object we should create an additional reference to
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( TSharedPtr< OtherType, Mode > const& InSharedPtr )
 		: Object( InSharedPtr.Object )
 		, SharedReferenceCount( InSharedPtr.SharedReferenceCount )
@@ -617,10 +582,7 @@ public:
 	 * @param  InSharedRef  The shared reference that will be converted to a shared pointer
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( TSharedRef< OtherType, Mode > const& InSharedRef )
 		: Object( InSharedRef.Object )
 		, SharedReferenceCount( InSharedRef.SharedReferenceCount )
@@ -637,7 +599,7 @@ public:
 	 *
 	 * @param  InSharedPtr  The shared pointer whose object we should create an additional reference to
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( TSharedPtr< OtherType, Mode > const& InSharedPtr, SharedPointerInternals::FStaticCastTag )
 		: Object( static_cast< ObjectType* >( InSharedPtr.Object ) )
 		, SharedReferenceCount( InSharedPtr.SharedReferenceCount )
@@ -651,7 +613,7 @@ public:
 	 *
 	 * @param  InSharedPtr  The shared pointer whose object we should create an additional reference to
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( TSharedPtr< OtherType, Mode > const& InSharedPtr, SharedPointerInternals::FConstCastTag )
 		: Object( const_cast< ObjectType* >( InSharedPtr.Object ) )
 		, SharedReferenceCount( InSharedPtr.SharedReferenceCount )
@@ -665,7 +627,7 @@ public:
 	 * @param  OtherSharedPtr  The shared pointer whose reference count 
 	 * @param  InObject  The object pointer to use (instead of the incoming shared pointer's object)
 	 */
-	template <typename OtherType>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr( TSharedPtr< OtherType, Mode > const& OtherSharedPtr, ObjectType* InObject )
 		: Object( InObject )
 		, SharedReferenceCount( OtherSharedPtr.SharedReferenceCount )
@@ -715,10 +677,7 @@ public:
 	 * @param  InRawPtrProxy  Proxy object used to assign the object (see MakeShareable helper function)
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TSharedPtr& operator=( SharedPointerInternals::FRawPtrProxy< OtherType > const& InRawPtrProxy )
 	{
 		*this = TSharedPtr< ObjectType, Mode >( InRawPtrProxy );
@@ -824,10 +783,7 @@ private:
 	 * NOTE: This constructor is private to force users to be explicit when converting a weak
 	 *       pointer to a shared pointer.  Use the weak pointer's Pin() method instead!
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE explicit TSharedPtr( TWeakPtr< OtherType, Mode > const& InWeakPtr )
 		: Object( nullptr )
 		, SharedReferenceCount( InWeakPtr.WeakReferenceCount )
@@ -897,10 +853,7 @@ public:
 	 * @param  InSharedRef  The shared reference to create a weak pointer from
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr( TSharedRef< OtherType, Mode > const& InSharedRef )
 		: Object( InSharedRef.Object )
 		, WeakReferenceCount( InSharedRef.SharedReferenceCount )
@@ -911,10 +864,7 @@ public:
 	 *
 	 * @param  InSharedPtr  The shared pointer to create a weak pointer from
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr( TSharedPtr< OtherType, Mode > const& InSharedPtr )
 		: Object( InSharedPtr.Object )
 		, WeakReferenceCount( InSharedPtr.SharedReferenceCount )
@@ -926,19 +876,13 @@ public:
 	 *
 	 * @param  InWeakPtr  The weak pointer to create a weak pointer from
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr( TWeakPtr< OtherType, Mode > const& InWeakPtr )
 		: Object( InWeakPtr.Object )
 		, WeakReferenceCount( InWeakPtr.WeakReferenceCount )
 	{ }
 
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr( TWeakPtr< OtherType, Mode >&& InWeakPtr )
 		: Object( InWeakPtr.Object )
 		, WeakReferenceCount( MoveTemp(InWeakPtr.WeakReferenceCount) )
@@ -997,10 +941,7 @@ public:
 	 *
 	 * @param  InWeakPtr  The weak pointer for the object to assign
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template <typename OtherType>
 	FORCEINLINE TWeakPtr& operator=( TWeakPtr<OtherType, Mode> const& InWeakPtr )
 	{
 		Object = InWeakPtr.Pin().Get();
@@ -1008,10 +949,7 @@ public:
 		return *this;
 	}
 
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template <typename OtherType>
 	FORCEINLINE TWeakPtr& operator=( TWeakPtr<OtherType, Mode>&& InWeakPtr )
 	{
 		Object             = InWeakPtr.Object;
@@ -1026,10 +964,7 @@ public:
 	 * @param  InSharedRef  The shared reference used to assign to this weak pointer
 	 */
 	// NOTE: The following is an Unreal extension to standard shared_ptr behavior
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr& operator=( TSharedRef< OtherType, Mode > const& InSharedRef )
 	{
 		Object = InSharedRef.Object;
@@ -1042,10 +977,7 @@ public:
 	 *
 	 * @param  InSharedPtr  The shared pointer used to assign to this weak pointer
 	 */
-	template <
-		typename OtherType,
-		typename = typename TEnableIf<TPointerIsConvertibleFromTo<OtherType, ObjectType>::Value>::Type
-	>
+	template< class OtherType >
 	FORCEINLINE TWeakPtr& operator=( TSharedPtr< OtherType, Mode > const& InSharedPtr )
 	{
 		Object = InSharedPtr.Object;

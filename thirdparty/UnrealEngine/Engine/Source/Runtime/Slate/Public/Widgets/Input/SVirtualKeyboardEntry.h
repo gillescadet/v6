@@ -3,7 +3,6 @@
 #pragma once
 
 #include "IVirtualKeyboardEntry.h"
-#include "SlateScrollHelper.h"
 
 class SLATE_API SVirtualKeyboardEntry : public SLeafWidget, public IVirtualKeyboardEntry
 {
@@ -91,12 +90,12 @@ public:
 	//~ Begin IVirtualKeyboardEntry Interface
 	virtual void SetTextFromVirtualKeyboard(const FText& InNewText, ESetTextType SetTextType, ETextCommit::Type CommitType) override;
 
-	virtual FText GetText() const override
+	virtual const FText& GetText() const override
 	{
 		return Text.Get();
 	}
 
-	virtual FText GetHintText() const override
+	virtual const FText GetHintText() const override
 	{
 		return HintText.Get();
 	}

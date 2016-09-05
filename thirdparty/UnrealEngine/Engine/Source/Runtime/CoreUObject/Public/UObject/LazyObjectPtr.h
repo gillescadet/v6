@@ -237,8 +237,13 @@ public:
 	 * Construct from another lazy pointer with implicit upcasting allowed
 	 * @param Other lazy pointer to copy from
 	 */
+#if PLATFORM_COMPILER_HAS_DEFAULT_FUNCTION_TEMPLATE_ARGUMENTS
 	template<typename U, typename = typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value>::Type>
 	FORCEINLINE TLazyObjectPtr(const TLazyObjectPtr<U>& Other) :
+#else
+	template<typename U>
+	FORCEINLINE TLazyObjectPtr(const TLazyObjectPtr<U>& Other, typename TEnableIf<TPointerIsConvertibleFromTo<U, T>::Value, T*>::Type = nullptr) :
+#endif
 		FLazyObjectPtr((const FLazyObjectPtr&)Other)
 	{
 	}
@@ -368,7 +373,7 @@ public:
 	/**
 	 * Dereference lazy pointer to see if it points somewhere valid.
 	 */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{
 		return IsValid();
 	}

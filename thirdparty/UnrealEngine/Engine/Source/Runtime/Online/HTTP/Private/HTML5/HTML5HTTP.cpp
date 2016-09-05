@@ -144,22 +144,6 @@ void FHTML5HttpRequest::SetContentAsString(const FString& ContentString)
 }
 
 
-void FHTML5HttpRequest::AppendToHeader(const FString& HeaderName, const FString& AdditionalHeaderValue)
-{
-	if (!HeaderName.IsEmpty() && !AdditionalHeaderValue.IsEmpty())
-	{
-		FString* PreviousValue = Headers.Find(HeaderName);
-		FString NewValue;
-		if (PreviousValue != nullptr && !PreviousValue->IsEmpty())
-		{
-			NewValue = (*PreviousValue) + TEXT(", ");
-		}
-		NewValue += AdditionalHeaderValue;
-
-		SetHeader(HeaderName, NewValue);
-	}
-}
-
 FString FHTML5HttpRequest::GetVerb()
 {
 	return Verb;
@@ -201,15 +185,15 @@ bool IsURLEncoded(const TArray<uint8> & Payload)
 	return true;
 }
 
-void FHTML5HttpRequest::StaticReceiveCallback(void *arg, void *buffer, uint32 size, void* httpHeaders){
+void FHTML5HttpRequest::StaticReceiveCallback(void *arg, void *buffer, uint32 size){
 	UE_LOG(LogHttp, Verbose, TEXT("FHTML5HttpRequest::StaticReceiveDataCallback()"));
 
 	FHTML5HttpRequest* Request = reinterpret_cast<FHTML5HttpRequest*>(arg);
 
-	return Request->ReceiveCallback(arg, buffer, size, httpHeaders);
+	return Request->ReceiveCallback(arg, buffer, size);
 }
 
-void FHTML5HttpRequest::ReceiveCallback(void *arg, void *buffer, uint32 size, void* httpHeaders) {
+void FHTML5HttpRequest::ReceiveCallback(void *arg, void *buffer, uint32 size) {
 	UE_LOG(LogHttp, Verbose, TEXT("FHTML5HttpRequest::ReceiveDataCallback()"));
 	UE_LOG(LogHttp, Verbose, TEXT("Response size: %d"), size);
 
@@ -218,39 +202,6 @@ void FHTML5HttpRequest::ReceiveCallback(void *arg, void *buffer, uint32 size, vo
 	if (Response.IsValid())
 	{
 		Response->Payload.AddUninitialized(size);
-
-		// headers
-		FString Header(ANSI_TO_TCHAR(httpHeaders));
-		Header = Header.Replace(TEXT("\r"), TEXT(""));
-		FString HeaderChunk, HeaderLeftovers;
-		while (Header.Split(TEXT("\n"), &HeaderChunk, &HeaderLeftovers))
-		{
-			if (!HeaderChunk.IsEmpty())
-			{
-				UE_LOG(LogHttp, Verbose, TEXT("%p: Received response header '%s'."), this, *HeaderChunk);
-
-				FString HeaderKey, HeaderValue;
-				if (HeaderChunk.Split(TEXT(":"), &HeaderKey, &HeaderValue))
-				{
-					FString* PreviousValue = Response->Headers.Find(HeaderKey);
-					FString NewValue;
-					if (PreviousValue != nullptr && !PreviousValue->IsEmpty())
-					{
-						NewValue = (*PreviousValue) + TEXT(", ");
-					}
-					NewValue += HeaderValue.Trim();
-					Response->Headers.Add(HeaderKey, NewValue);
-				}
-			}
-			if (!HeaderLeftovers.IsEmpty())
-			{
-				Header = HeaderLeftovers;
-			}
-			else
-			{
-				break;
-			}
-		}
 
 		// save
 		UE_LOG(LogHttp, Verbose, TEXT("Saving payload..."));
@@ -313,43 +264,15 @@ void FHTML5HttpRequest::ProgressCallback(void* arg, int Loaded, int Total) {
 	UE_LOG(LogHttp, Verbose, TEXT("Loaded: %d, Total: %d"), Loaded, Total);
 }
 
-#if PLATFORM_HTML5_BROWSER
-extern "C" void Register_OnBeforeUnload(void *ctx, void(*callback)(void*))
-{
-	UE_Register_OnBeforeUnload(ctx,callback);
-}
-
-extern "C" void UnRegister_OnBeforeUnload(void *ctx, void(*callback)(void*))
-{
-	UE_UnRegister_OnBeforeUnload(ctx,callback);
-}
-#endif
 
 bool FHTML5HttpRequest::StartRequest()
 {
-#if ! PLATFORM_HTML5_BROWSER
 	UE_LOG(LogHttp, Verbose, TEXT("FHTML5HttpRequest::StartRequest()"));
 
 	UE_LOG(LogHttp, Verbose, TEXT("%p: URL='%s'"), this, *URL);
 	UE_LOG(LogHttp, Verbose, TEXT("%p: Verb='%s'"), this, *Verb);
 	UE_LOG(LogHttp, Verbose, TEXT("%p: Custom headers are %s"), this, Headers.Num() ? TEXT("present") : TEXT("NOT present"));
 	UE_LOG(LogHttp, Verbose, TEXT("%p: Payload size=%d"), this, RequestPayload.Num());
-#else
-	// for some reason, UE_LOG() above is crashing in the browser...
-	if( UE_LOG_ACTIVE(LogHttp, Verbose) )
-	{
-		const TCHAR* zurl = *URL;
-		const TCHAR* zverb = *Verb;
-		EM_ASM_({
-			console.log( "FHTML5HttpRequest::StartRequest()" + $0);
-
-			console.log( "- URL='" + $1 + "'");
-			console.log( "- Verb='" + $2 + "'");
-			console.log( "- Custom headers are " + $3 );
-			console.log( "- Payload size=" + $4 );
-		}, this, zurl, zverb, Headers.Num() ? TEXT("present") : TEXT("NOT present"), RequestPayload.Num());
-	}
-#endif
 
 	if (!FHttpModule::Get().IsHttpEnabled())
 	{
@@ -393,7 +316,7 @@ bool FHTML5HttpRequest::StartRequest()
 		check(!GetHeader("Content-Type").IsEmpty() || IsURLEncoded(RequestPayload));
 
 #if PLATFORM_HTML5_BROWSER
-		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "POST", (char*)RequestPayload.GetData(), RequestPayload.Num(),TCHAR_TO_ANSI(*RequestHeaders), 1, 0, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
+		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "POST", (char*)RequestPayload.GetData(), RequestPayload.Num(),TCHAR_TO_ANSI(*RequestHeaders), 0, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
 #else
 		return false;
 #endif
@@ -412,7 +335,7 @@ bool FHTML5HttpRequest::StartRequest()
 	else if (Verb == TEXT("GET"))
 	{
 #if PLATFORM_HTML5_BROWSER
-		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "GET", NULL, 0,TCHAR_TO_ANSI(*RequestHeaders), 1, 1, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
+		UE_MakeHTTPDataRequest(this, TCHAR_TO_ANSI(*URL), "GET", NULL, 0,TCHAR_TO_ANSI(*RequestHeaders), 1, StaticReceiveCallback, StaticErrorCallback, StaticProgressCallback);
 #else
 		return false;
 #endif
@@ -529,7 +452,7 @@ void FHTML5HttpRequest::FinishedRequest()
 		// No response since connection failed
 		Response = NULL;
 		// Call delegate with failure
-		OnProcessRequestComplete().ExecuteIfBound(SharedThis(this), NULL, false);
+		OnProcessRequestComplete().ExecuteIfBound(SharedThis(this),NULL,false);
 	}
 	// Remove from global list since processing is now complete
 	FHttpModule::Get().GetHttpManager().RemoveRequest(SharedThis(this));

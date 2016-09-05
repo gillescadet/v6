@@ -63,7 +63,7 @@ UNiagaraComponent* UNiagaraFunctionLibrary::SpawnEffectAttached(UNiagaraEffect* 
 			PSC->SetAsset(EffectTemplate);
 			PSC->RegisterComponentWithWorld(AttachToComponent->GetWorld());
 
-			PSC->AttachToComponent(AttachToComponent, FAttachmentTransformRules::KeepRelativeTransform, AttachPointName);
+			PSC->AttachTo(AttachToComponent, AttachPointName);
 			if (LocationType == EAttachLocation::KeepWorldPosition)
 			{
 				PSC->SetWorldLocationAndRotation(Location, Rotation);

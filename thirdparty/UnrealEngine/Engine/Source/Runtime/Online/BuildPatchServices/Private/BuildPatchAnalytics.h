@@ -9,7 +9,6 @@
 #pragma once
 
 class FHttpServiceTracker;
-struct FAnalyticsEventAttribute;
 
 /**
  * A struct to hold static fatal error flagging

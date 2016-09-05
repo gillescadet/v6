@@ -384,8 +384,6 @@ void HIDInputInterface::OnNewHIDController(IOReturn Result, IOHIDDeviceRef Devic
 			}
 
 			CFRelease(ElementsArray);
-
-			FCoreDelegates::OnControllerConnectionChange.Broadcast(true, -1, ControllerIndex);
 		}
 		else
 		{
@@ -569,7 +567,6 @@ void HIDInputInterface::HIDDeviceRemovalCallback(void* Context, IOReturn Result,
 	{
 		if(HIDInput->ControllerStates[Index].Device.DeviceRef == DeviceRef)
 		{
-			FCoreDelegates::OnControllerConnectionChange.Broadcast(false, -1, Index);
 			HIDInput->ControllerStates[Index].Device.DeviceRef = NULL;
 			break;
 		}

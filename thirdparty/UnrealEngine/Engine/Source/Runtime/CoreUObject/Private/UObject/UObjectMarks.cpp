@@ -21,7 +21,7 @@ struct FObjectMark
 	}
 	/**
 	 * Intilialization constructor
-	 * @param InMarks marks to initialize to
+	 * @param InMarks marks to intialize to
 	 */
 	FObjectMark(EObjectMark InMarks) :
 		Marks(InMarks)

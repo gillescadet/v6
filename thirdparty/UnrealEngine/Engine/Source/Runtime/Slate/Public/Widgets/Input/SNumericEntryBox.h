@@ -2,7 +2,6 @@
 
 #pragma once
 
-
 /**
  * Implementation for a box that only accepts a numeric value or that can display an undetermined value via a string
  * Supports an optional spin box for manipulating a value by dragging with the mouse
@@ -12,26 +11,18 @@ template<typename NumericType>
 class SNumericEntryBox : public SCompoundWidget
 {
 public: 
-
 	static const FLinearColor RedLabelBackgroundColor;
 	static const FLinearColor GreenLabelBackgroundColor;
 	static const FLinearColor BlueLabelBackgroundColor;
 	static const FText DefaultUndeterminedString;
 
 	/** Notification for numeric value change */
-	DECLARE_DELEGATE_OneParam(FOnValueChanged, NumericType /*NewValue*/);
+	DECLARE_DELEGATE_OneParam( FOnValueChanged, NumericType );
 
 	/** Notification for numeric value committed */
-	DECLARE_DELEGATE_TwoParams(FOnValueCommitted, NumericType /*NewValue*/, ETextCommit::Type /*CommitType*/);
-
-	/** Notification for change of undetermined values */
-	DECLARE_DELEGATE_OneParam(FOnUndeterminedValueChanged, FText /*NewValue*/ );
-
-	/** Notification for committing undetermined values */
-	DECLARE_DELEGATE_TwoParams(FOnUndeterminedValueCommitted, FText /*NewValue*/, ETextCommit::Type /*CommitType*/);
+	DECLARE_DELEGATE_TwoParams( FOnValueCommitted, NumericType, ETextCommit::Type);
 
 public:
-
 	SLATE_BEGIN_ARGS( SNumericEntryBox<NumericType> )
 		: _EditableTextBoxStyle( &FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox") )
 		, _Label()
@@ -72,7 +63,7 @@ public:
 		/** Whether or not the user should be able to change the value by dragging with the mouse cursor */
 		SLATE_ARGUMENT( bool, AllowSpin )
 		/** Delta to increment the value as the slider moves.  If not specified will determine automatically */
-		SLATE_ATTRIBUTE( NumericType, Delta )
+		SLATE_ARGUMENT( NumericType, Delta )
 		/** The minimum value that can be entered into the text edit box */
 		SLATE_ATTRIBUTE( TOptional< NumericType >, MinValue )
 		/** The maximum value that can be entered into the text edit box */
@@ -91,10 +82,6 @@ public:
 		SLATE_EVENT( FOnValueChanged, OnValueChanged )
 		/** Called whenever the text is committed.  This happens when the user presses enter or the text box loses focus. */
 		SLATE_EVENT( FOnValueCommitted, OnValueCommitted )
-		/** Called whenever the text is changed interactively by the user */
-		SLATE_EVENT( FOnUndeterminedValueChanged, OnUndeterminedValueChanged )
-		/** Called whenever the text is committed.  This happens when the user presses enter or the text box loses focus. */
-		SLATE_EVENT( FOnUndeterminedValueCommitted, OnUndeterminedValueCommitted )
 		/** Called right before the slider begins to move */
 		SLATE_EVENT( FSimpleDelegate, OnBeginSliderMovement )
 		/** Called right after the slider handle is released by the user */
@@ -113,22 +100,21 @@ public:
 	{
 		check(InArgs._EditableTextBoxStyle);
 
+		const bool bAllowSpin = InArgs._AllowSpin;
 		OnValueChanged = InArgs._OnValueChanged;
 		OnValueCommitted = InArgs._OnValueCommitted;
-		OnUndeterminedValueChanged = InArgs._OnUndeterminedValueChanged;
-		OnUndeterminedValueCommitted = InArgs._OnUndeterminedValueCommitted;
 		ValueAttribute = InArgs._Value;
 		UndeterminedString = InArgs._UndeterminedString;
 		MinDesiredValueWidth = InArgs._MinDesiredValueWidth;
+		
 		BorderImageNormal = &InArgs._EditableTextBoxStyle->BackgroundImageNormal;
 		BorderImageHovered = &InArgs._EditableTextBoxStyle->BackgroundImageHovered;
 		BorderImageFocused = &InArgs._EditableTextBoxStyle->BackgroundImageFocused;
+		TAttribute<FMargin> TextMargin = InArgs._OverrideTextMargin.IsSet() ? InArgs._OverrideTextMargin : InArgs._EditableTextBoxStyle->Padding;
+
 		Interface = InArgs._TypeInterface.IsValid() ? InArgs._TypeInterface : MakeShareable( new TDefaultNumericTypeInterface<NumericType> );
 
-		TAttribute<FMargin> TextMargin = InArgs._OverrideTextMargin.IsSet() ? InArgs._OverrideTextMargin : InArgs._EditableTextBoxStyle->Padding;
-		const bool bAllowSpin = InArgs._AllowSpin;
 		TSharedPtr<SWidget> FinalWidget;
-
 		if( bAllowSpin )
 		{
 			SAssignNew( SpinBox, SSpinBox<NumericType> )
@@ -197,6 +183,7 @@ public:
 				EditableText.ToSharedRef()
 			];
 
+
 		ChildSlot
 			[
 				SNew( SBorder )
@@ -230,8 +217,7 @@ public:
 
 private:
 
-	//~ SWidget Interface
-
+	//~ Begin SWidget Interface
 	virtual bool SupportsKeyboardFocus() const override
 	{
 		return StaticCastSharedPtr<SWidget>(EditableText)->SupportsKeyboardFocus();
@@ -272,8 +258,7 @@ private:
 
 		return FReply::Unhandled();
 	}
-
-private:
+	//~ End SWidget Interface
 
 	/**
 	 * @return the Label that should be displayed                   
@@ -296,8 +281,10 @@ private:
 		{
 			return Value.GetValue();
 		}
-
-		return 0;
+		else
+		{
+			return 0;
+		}
 	}
 
 	/**
@@ -334,13 +321,11 @@ private:
 	{
 		const auto& Value = ValueAttribute.Get();
 
-		if (Value.IsSet() || !OnUndeterminedValueChanged.IsBound())
+		// Do not sent change events if the current value cannot be determined or else next tick the spin box could be swapped in if the value becomes determined
+		// while a user is typing in the box.  This causes keyboard focus switch which is bad
+		if( Value.IsSet() == true )
 		{
 			SendChangesFromText( NewValue, false, ETextCommit::Default );
-		}
-		else
-		{
-			OnUndeterminedValueChanged.Execute(NewValue);
 		}
 	}
 
@@ -349,16 +334,7 @@ private:
 	 */
 	void OnTextCommitted( const FText& NewValue, ETextCommit::Type CommitInfo )
 	{
-		const auto& Value = ValueAttribute.Get();
-
-		if (Value.IsSet() || !OnUndeterminedValueCommitted.IsBound())
-		{
-			SendChangesFromText( NewValue, true, CommitInfo );
-		}
-		else
-		{
-			OnUndeterminedValueCommitted.Execute(NewValue, CommitInfo);
-		}
+		SendChangesFromText( NewValue, true, CommitInfo );
 	}
 
 	/**
@@ -367,7 +343,6 @@ private:
 	const FSlateBrush* GetBorderImage() const
 	{
 		TSharedPtr<const SWidget> EditingWidget;
-
 		if (SpinBox.IsValid() && SpinBox->GetVisibility() == EVisibility::Visible) 
 		{
 			EditingWidget = SpinBox;
@@ -381,13 +356,17 @@ private:
 		{
 			return BorderImageFocused;
 		}
-
-		if ( EditingWidget->IsHovered() )
+		else
 		{
-			return BorderImageHovered;
+			if ( EditingWidget->IsHovered() )
+			{
+				return BorderImageHovered;
+			}
+			else
+			{
+				return BorderImageNormal;
+			}
 		}
-
-		return BorderImageNormal;
 	}
 
 	/**
@@ -398,28 +377,24 @@ private:
 	 */
 	void SendChangesFromText( const FText& NewValue, bool bCommit, ETextCommit::Type CommitInfo )
 	{
-		if (NewValue.IsEmpty())
-		{
-			return;
-		}
-
 		// Only call the delegates if we have a valid numeric value
-		if (bCommit)
+		if( !NewValue.IsEmpty()  )
 		{
-			TOptional<NumericType> ExistingValue = ValueAttribute.Get();
-			TOptional<NumericType> NumericValue = Interface->FromString(NewValue.ToString(), ExistingValue.Get(0));
-
-			if (NumericValue.IsSet())
+			if( bCommit )
 			{
-				OnValueCommitted.ExecuteIfBound(NumericValue.GetValue(), CommitInfo );
+				TOptional<NumericType> NumericValue = Interface->FromString(NewValue.ToString());
+				if( NumericValue.IsSet() )
+				{
+					OnValueCommitted.ExecuteIfBound(NumericValue.GetValue(), CommitInfo );
+				}
 			}
-		}
-		else
-		{
-			NumericType NumericValue;
-			if (LexicalConversion::TryParseString(NumericValue, *NewValue.ToString()))
+			else
 			{
-				OnValueChanged.ExecuteIfBound( NumericValue );
+				NumericType NumericValue;
+				if( LexicalConversion::TryParseString(NumericValue, *NewValue.ToString()) )
+				{
+					OnValueChanged.ExecuteIfBound( NumericValue );
+				}
 			}
 		}
 	}
@@ -430,33 +405,30 @@ private:
 	virtual void Tick( const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime ) override
 	{
 		// Visibility toggle only matters if the spinbox is used
-		if (!SpinBox.IsValid())
+		if( SpinBox.IsValid() )
 		{
-			return;
-		}
+			const auto& Value = ValueAttribute.Get();
 
-		const auto& Value = ValueAttribute.Get();
-
-		if (Value.IsSet() == true)
-		{
-			if (SpinBox->GetVisibility() != EVisibility::Visible)
+			if( Value.IsSet() == true )
 			{
-				// Set the visibility of the spinbox to visible if we have a valid value
-				SpinBox->SetVisibility( EVisibility::Visible );
-				// The text box should be invisible
-				EditableText->SetVisibility( EVisibility::Collapsed );
+				if( SpinBox->GetVisibility() != EVisibility::Visible )
+				{
+					// Set the visibility of the spinbox to visible if we have a valid value
+					SpinBox->SetVisibility( EVisibility::Visible );
+					// The text box should be invisible
+					EditableText->SetVisibility( EVisibility::Collapsed );
+				}
 			}
-		}
-		else
-		{
-			// The value isn't set so the spinbox should be hidden and the text box shown
-			SpinBox->SetVisibility(EVisibility::Collapsed);
-			EditableText->SetVisibility(EVisibility::Visible);
+			else
+			{
+				// The value isn't set so the spinbox should be hidden and the text box shown
+				SpinBox->SetVisibility(EVisibility::Collapsed);
+				EditableText->SetVisibility(EVisibility::Visible);
+			}
 		}
 	}
 
 private:
-
 	/** Attribute for getting the label */
 	TAttribute< TOptional<FString > > LabelAttribute;
 	/** Attribute for getting the value.  If the value is not set we display the undetermined string */
@@ -469,10 +441,6 @@ private:
 	FOnValueChanged OnValueChanged;
 	/** Delegate to call when the value is committed */
 	FOnValueCommitted OnValueCommitted;
-	/** Delegate to call when an undetermined value changes */
-	FOnUndeterminedValueChanged OnUndeterminedValueChanged;
-	/** Delegate to call when an undetermined is committed */
-	FOnUndeterminedValueCommitted OnUndeterminedValueCommitted;
 	/** The undetermined string to display when needed */
 	FText UndeterminedString;
 	/** Styling: border image to draw when not hovered or focused */

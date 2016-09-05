@@ -36,12 +36,11 @@ public:
 	virtual bool RemovePath(const FString& PathToRemove) override;
 	virtual void SearchAllAssets(bool bSynchronousSearch) override;
 	virtual void ScanPathsSynchronous(const TArray<FString>& InPaths, bool bForceRescan = false) override;
-	virtual void ScanFilesSynchronous(const TArray<FString>& InFilePaths, bool bForceRescan = false) override;
 	virtual void PrioritizeSearchPath(const FString& PathToPrioritize) override;
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void SaveRegistryData(FArchive& Ar, TMap<FName, FAssetData*>& Data, TArray<FName>* InMaps = nullptr) override;
 	virtual void LoadRegistryData(FArchive& Ar, TMap<FName, FAssetData*>& Data) override;
-	virtual void LoadPackageRegistryData(FArchive& Ar, TArray<FAssetData*>& Data) const override;
+
 	DECLARE_DERIVED_EVENT( FAssetRegistry, IAssetRegistry::FPathAddedEvent, FPathAddedEvent);
 	virtual FPathAddedEvent& OnPathAdded() override { return PathAddedEvent; }
 
@@ -83,7 +82,7 @@ public:
 private:
 
 	/** Internal handler for ScanPathsSynchronous */
-	void ScanPathsAndFilesSynchronous(const TArray<FString>& InPaths, const TArray<FString>& InSpecificFiles, bool bForceRescan, EAssetDataCacheMode AssetDataCacheMode);
+	void ScanPathsSynchronous_Internal(const TArray<FString>& InPaths, bool bForceRescan, EAssetDataCacheMode AssetDataCacheMode);
 
 	/** Called every tick to when data is retrieved by the background asset search. If TickStartTime is < 0, the entire list of gathered assets will be cached. Also used in sychronous searches */
 	void AssetSearchDataGathered(const double TickStartTime, TArray<FAssetData*>& AssetResults);
@@ -173,8 +172,8 @@ private:
 	void GetSubClasses(const TArray<FName>& InClassNames, const TSet<FName>& ExcludedClassNames, TSet<FName>& SubClassNames) const;
 	void GetSubClasses_Recursive(FName InClassName, TSet<FName>& SubClassNames, const TMap<FName, TSet<FName>>& ReverseInheritanceMap, const TSet<FName>& ExcludedClassNames) const;
 
-	/** Registers the configured cooked tags blacklist to prevent blacklisted tags from being added to cooked builds. If configured, we will configure a whitelist instead to prevent non-whitelist tags */
-	void SetupCookedFilterlistTags();
+	/** Registers the configured cooked tags whitelist to prevent non-whitelisted tags from being added to cooked builds */
+	void SetupCookedTagsWhitelist();
 
 	/** Finds all class names of classes capable of generating new UClasses */
 	void CollectCodeGeneratorClasses();
@@ -204,11 +203,8 @@ private:
 	/** The map of classes to their parents, and a map of parents to their classes */
 	TMap<FName, FName> CachedInheritanceMap;
 
-	/** True if CookFilterlistTagsByClass is a whitelist. False if it is a blacklist. */
-	bool bFilterlistIsWhitelist;
-
 	/** The map of classname to tag set of tags that are allowed in cooked builds */
-	TMap<FName, TSet<FName>> CookFilterlistTagsByClass;
+	TMap<FName, TSet<FName>> CookWhitelistedTagsByClass;
 
 	/** The tree of known cached paths that assets may reside within */
 	FPathTree CachedPathTree;
@@ -271,8 +267,8 @@ private:
 	FAssetData* PreallocatedAssetDataBuffer;
 	FDependsNode* PreallocatedDependsNodeDataBuffer;
 
-	/** A set used to ignore repeated requests to synchronously scan the same folder or file multiple times */
-	TSet<FString> SynchronouslyScannedPathsAndFiles;
+	/** A set used to ignore repeated requests to synchronously scan the same folder multiple times */
+	TSet<FString> SynchronouslyScannedPaths;
 
 	/** List of all class names derived from Blueprint (including Blueprint itself) */
 	TSet<FName> ClassGeneratorNames;

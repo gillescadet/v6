@@ -138,7 +138,7 @@ void FEmptyDynamicRHI::RHIEndScene()
 
 }
 
-void FEmptyDynamicRHI::RHIPushEvent(const TCHAR* Name, FColor Color)
+void FEmptyDynamicRHI::RHIPushEvent(const TCHAR* Name)
 {
 
 }

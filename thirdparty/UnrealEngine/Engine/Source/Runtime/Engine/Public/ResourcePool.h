@@ -68,7 +68,7 @@ public:
 	/** Release a resource back into the pool.
 	 * @param Resource The resource to return to the pool
 	 */
-	void ReleasePooledResource(const ResourceType& Resource)
+	void ReleasePooledResource(ResourceType Resource)
 	{
 		FPooledResource NewEntry;
 		NewEntry.Resource = Resource;
@@ -125,8 +125,6 @@ public:
 				// Clean entries that are unlikely to be reused
 				if ((GFrameNumberRenderThread - PoolEntry.FrameFreed) > CullAfterFramesNum || bForceDrainAll)
 				{
-					Policy.FreeResource(ResourceBuckets[BucketIndex][EntryIndex].Resource);
-					
 					ResourceBuckets[BucketIndex].RemoveAtSwap(EntryIndex);
 					
 					--NumToCleanThisFrame;
@@ -174,7 +172,7 @@ public:
 	/** Constructor */
 	TRenderResourcePool() :
 		FTickableObjectRenderThread(false)
-	{
+	{		
 	}
 	
 	/** Constructor with policy argument
@@ -197,8 +195,6 @@ public:
 	 */
 	ResourceType CreatePooledResource(ResourceCreationArguments Args)
 	{
-		ensure(IsInRenderingThread());
-
 		if (IsInitialized())
 		{
 			return TResourcePool<ResourceType, ResourcePoolPolicy, ResourceCreationArguments>::CreatePooledResource(Args);
@@ -214,8 +210,6 @@ public:
 	 */
 	void ReleasePooledResource(ResourceType Resource)
 	{
-		ensure(IsInRenderingThread());
-
 		if (IsInitialized())
 		{
 			TResourcePool<ResourceType, ResourcePoolPolicy, ResourceCreationArguments>::ReleasePooledResource(Resource);
@@ -225,8 +219,6 @@ public:
 public: // From FTickableObjectRenderThread
 	virtual void Tick( float DeltaTime ) override
 	{
-		ensure(IsInRenderingThread());
-
 		TResourcePool<ResourceType, ResourcePoolPolicy, ResourceCreationArguments>::DrainPool(false);
 	}
 	

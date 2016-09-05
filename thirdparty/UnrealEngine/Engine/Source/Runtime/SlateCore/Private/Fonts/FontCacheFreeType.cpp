@@ -5,44 +5,21 @@
 
 #if WITH_FREETYPE
 
-// The total amount of memory freetype allocates internally
-DECLARE_MEMORY_STAT(TEXT("Freetype Total Allocated Memory"), STAT_SlateFreetypeAllocatedMemory, STATGROUP_SlateMemory);
-
-// The total true type memory we are using for active font faces
-DECLARE_MEMORY_STAT(TEXT("Uncompressed(in use) TTF/OTF data"), STAT_SlateRawFontDataMemory, STATGROUP_SlateMemory);
-
 namespace FreeTypeMemory
 {
 
 static void* Alloc(FT_Memory Memory, long Size)
 {
-	void* Result = FMemory::Malloc(Size);
-
-#if STATS
-	const SIZE_T ActualSize = FMemory::GetAllocSize( Result );
-	INC_DWORD_STAT_BY(STAT_SlateFreetypeAllocatedMemory, ActualSize);
-#endif
-
-	return Result;
+	return FMemory::Malloc(Size);
 }
 
 static void* Realloc(FT_Memory Memory, long CurSize, long NewSize, void* Block)
 {
-
-#if STATS
-	long DeltaNewSize = NewSize - CurSize;
-	INC_DWORD_STAT_BY(STAT_SlateFreetypeAllocatedMemory, DeltaNewSize);
-#endif
-
 	return FMemory::Realloc(Block, NewSize);
 }
 
 static void Free(FT_Memory Memory, void* Block)
-{	
-#if STATS
-	const SIZE_T ActualSize = FMemory::GetAllocSize( Block );
-	DEC_DWORD_STAT_BY(STAT_SlateFreetypeAllocatedMemory, ActualSize);
-#endif
+{
 	return FMemory::Free(Block);
 }
 
@@ -124,12 +101,9 @@ FFreeTypeLibrary::~FFreeTypeLibrary()
 FFreeTypeFace::FFreeTypeFace(const FFreeTypeLibrary* InFTLibrary, const void* InRawFontData, const int32 InRawFontDataSizeBytes)
 {
 #if WITH_FREETYPE
-	Memory.Reserve(InRawFontDataSizeBytes);
 	Memory.Append(static_cast<const uint8*>(InRawFontData), InRawFontDataSizeBytes);
-
 	FT_New_Memory_Face(InFTLibrary->GetLibrary(), Memory.GetData(), static_cast<FT_Long>(InRawFontDataSizeBytes), 0, &FTFace);
 
-	INC_DWORD_STAT_BY( STAT_SlateRawFontDataMemory, Memory.GetAllocatedSize() );
 	if (FTFace)
 	{
 		// Parse out the font attributes
@@ -149,7 +123,6 @@ FFreeTypeFace::~FFreeTypeFace()
 #if WITH_FREETYPE
 	if (FTFace)
 	{
-		DEC_DWORD_STAT_BY( STAT_SlateRawFontDataMemory, Memory.GetAllocatedSize() );
 		FT_Done_Face(FTFace);
 		Memory.Empty();
 	}

@@ -13,20 +13,20 @@ namespace ELoadingPhase
 {
 	enum Type
 	{
-		/** Loaded before the engine is fully initialized, immediately after the config system has been initialized.  Necessary only for very low-level hooks */
-		PostConfigInit,
-
-		/** Loaded before the engine is fully initialized for modules that need to hook into the loading screen before it triggers */
-		PreLoadingScreen,
-
-		/** Right before the default phase */
-		PreDefault,
-
 		/** Loaded at the default loading point during startup (during engine init, after game modules are loaded.) */
 		Default,
 
 		/** Right after the default phase */
 		PostDefault,
+
+		/** Right before the default phase */
+		PreDefault,
+
+		/** Loaded before the engine is fully initialized, immediately after the config system has been initialized.  Necessary only for very low-level hooks */
+		PostConfigInit,
+
+		/** Loaded before the engine is fully initialized for modules that need to hook into the loading screen before it triggers */
+		PreLoadingScreen,
 
 		/** After the engine has been initialized */
 		PostEngineInit,

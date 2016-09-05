@@ -7,12 +7,9 @@
 #include "MovieSceneVisibilityTrackInstance.h"
 
 
-#define LOCTEXT_NAMESPACE "MovieSceneVisibilityTrack"
-
-
-UMovieSceneVisibilityTrack::UMovieSceneVisibilityTrack(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{}
+UMovieSceneVisibilityTrack::UMovieSceneVisibilityTrack( const FObjectInitializer& ObjectInitializer )
+	: Super( ObjectInitializer )
+{ }
 
 
 UMovieSceneSection* UMovieSceneVisibilityTrack::CreateNewSection()
@@ -23,18 +20,5 @@ UMovieSceneSection* UMovieSceneVisibilityTrack::CreateNewSection()
 
 TSharedPtr<IMovieSceneTrackInstance> UMovieSceneVisibilityTrack::CreateInstance()
 {
-	return MakeShareable(new FMovieSceneVisibilityTrackInstance(*this));
+	return MakeShareable( new FMovieSceneVisibilityTrackInstance( *this ) );
 }
-
-
-#if WITH_EDITORONLY_DATA
-
-FText UMovieSceneVisibilityTrack::GetDisplayName() const
-{
-	return LOCTEXT("DisplayName", "Visibility");
-}
-
-#endif
-
-
-#undef LOCTEXT_NAMESPACE

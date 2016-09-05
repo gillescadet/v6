@@ -121,8 +121,6 @@
 
 #include "NativeWidgetHost.h"
 
-#include "InputKeySelector.h"
-
 // Slate
 #include "SObjectWidget.h"
 
@@ -134,12 +132,3 @@
 
 // Interfaces
 #include "IUMGModule.h"
-
-// Animation 
-#include "MovieScene2DTransformSection.h"
-#include "MovieScene2DTransformTrack.h"
-#include "MovieSceneMarginSection.h"
-#include "MovieSceneMarginTrack.h"
-#include "UMGSequencePlayer.h"
-#include "WidgetAnimation.h"
-#include "WidgetAnimationBinding.h"

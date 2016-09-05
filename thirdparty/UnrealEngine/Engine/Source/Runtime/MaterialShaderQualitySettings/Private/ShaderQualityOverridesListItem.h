@@ -2,28 +2,32 @@
 
 #pragma once
 
-#include "PropertyHandle.h"
+#include "ShaderQualityOverridesListItem.generated.h"
 
 // FShaderQualityOverridesListItem
 // Helper struct for FMaterialShaderQualitySettingsCustomization, contains info required to populate a material quality row.
+USTRUCT()
 struct FShaderQualityOverridesListItem
 {
 public:
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY()
 	FString RangeName;
-	
-	// Property handles for this item's each override setting for each QL
-	TMap<EMaterialQualityLevel::Type, TSharedRef<IPropertyHandle>> OverrideHandles;
-	
-	// Property handles for each QL's bEnabled flag, used to determine if this item's widgets should be enabled.
-	TMap<EMaterialQualityLevel::Type, TSharedRef<IPropertyHandle>> EnabledHandles;
+
+	UPROPERTY()
+	UBoolProperty* QualityProperty;
+
+	UPROPERTY()
+	class UShaderPlatformQualitySettings* SettingContainer;
 
 	FShaderQualityOverridesListItem() {}
 
-	FShaderQualityOverridesListItem(FString InRangeName, const TMap<EMaterialQualityLevel::Type, TSharedRef<IPropertyHandle>>& InOverrideHandles, const TMap<EMaterialQualityLevel::Type, TSharedRef<IPropertyHandle>> &InEnabledHandles)
-	: RangeName(InRangeName)
-	, OverrideHandles(InOverrideHandles)
-	, EnabledHandles(InEnabledHandles)
-	{
-	}
+	FShaderQualityOverridesListItem(FString InRangeName, UBoolProperty* InQualityProperty, UShaderPlatformQualitySettings* InSettingContainer)
+		: RangeName(InRangeName)
+		  , QualityProperty(InQualityProperty)
+		  , SettingContainer(InSettingContainer)
+	{}
+
 };
 

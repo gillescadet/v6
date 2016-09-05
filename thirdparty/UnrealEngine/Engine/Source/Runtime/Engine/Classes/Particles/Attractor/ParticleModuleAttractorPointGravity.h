@@ -23,12 +23,8 @@ class UParticleModuleAttractorPointGravity : public UParticleModuleAttractorBase
 	float Radius;
 
 	/** The strength of the point source. */
-	UPROPERTY()
-	class UDistributionFloat* Strength_DEPRECATED;
-
-	/** The strength of the point source. */
 	UPROPERTY(EditAnywhere, noclear, Category=PointGravitySource)
-	FRawDistributionFloat StrengthRaw;
+	class UDistributionFloat* Strength;
 
 	/** Initializes the default values for this property */
 	void InitializeDefaults();
@@ -38,7 +34,6 @@ class UParticleModuleAttractorPointGravity : public UParticleModuleAttractorBase
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR
 	virtual void PostInitProperties() override;
-	virtual void PostLoad() override;
 	//End UObject Interface
 
 	//Begin UParticleModule Interface

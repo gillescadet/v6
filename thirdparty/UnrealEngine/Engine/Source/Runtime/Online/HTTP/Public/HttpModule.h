@@ -168,22 +168,6 @@ public:
 		HttpDelayTime = InHttpDelayTime;
 	}
 
-	/**
-	 * @return Target tick rate of an http thread
-	 */
-	inline float GetHttpThreadTickRate() const
-	{
-		return HttpThreadTickRate;
-	}
-
-	/**
-	 * Set the target tick rate of an http thread
-	 */
-	inline void SetHttpThreadTickRate(float InHttpThreadTickRate)
-	{
-		HttpThreadTickRate = InHttpThreadTickRate;
-	}
-
 private:
 
 	// IModuleInterface
@@ -213,8 +197,6 @@ private:
 	float HttpSendTimeout;
 	/** total time to delay the request */
 	float HttpDelayTime;
-	/** Target tick rate (Hz) of HTTP thread (if applicable to platform's HTTP manager) */
-	float HttpThreadTickRate;
 	/** Max number of simultaneous connections to a specific server */
 	int32 HttpMaxConnectionsPerServer;
 	/** Max buffer size for individual http reads */

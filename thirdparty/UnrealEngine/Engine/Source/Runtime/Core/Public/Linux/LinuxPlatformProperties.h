@@ -128,9 +128,4 @@ struct FLinuxPlatformProperties
 
 		return 1.0f;
 	}
-
-	static FORCEINLINE bool AllowsCallStackDumpDuringAssert()
-	{
-		return true;
-	}
 };

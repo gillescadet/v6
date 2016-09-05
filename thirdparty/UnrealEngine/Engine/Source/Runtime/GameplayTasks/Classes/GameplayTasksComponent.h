@@ -44,8 +44,6 @@ struct FGameplayTaskEventData
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnClaimedResourcesChangeSignature, FGameplayResourceSet, NewlyClaimed, FGameplayResourceSet, FreshlyReleased);
 
-typedef TArray<UGameplayTask*>::TConstIterator FConstGameplayTaskIterator;
-
 /**
 *	The core ActorComponent for interfacing with the GameplayAbilities System
 */
@@ -68,7 +66,7 @@ protected:
 	 *	Note: this TaskEvents is assumed to be used in a single thread */
 	TArray<FGameplayTaskEventData> TaskEvents;
 
-	/** Array of currently active UGameplayTask that require ticking */
+	/** Array of currently active UAbilityTasks that require ticking */
 	UPROPERTY()
 	TArray<UGameplayTask*> TickingTasks;
 
@@ -97,6 +95,15 @@ public:
 	*	activity into consideration*/
 	virtual bool GetShouldTick() const;
 	
+	virtual UGameplayTasksComponent* GetGameplayTasksComponent(const UGameplayTask& Task) const override { return const_cast<UGameplayTasksComponent*>(this); }
+	/** Adds a task (most often an UAbilityTask) to the list of tasks to be ticked */
+	virtual void OnTaskActivated(UGameplayTask& Task) override;
+	/** Removes a task (most often an UAbilityTask) task from the list of tasks to be ticked */
+	virtual void OnTaskDeactivated(UGameplayTask& Task) override;
+
+	virtual AActor* GetOwnerActor(const UGameplayTask* Task) const override { return GetOwner(); }
+	virtual AActor* GetAvatarActor(const UGameplayTask* Task) const override;
+		
 	/** processes the task and figures out if it should get triggered instantly or wait
 	 *	based on task's RequiredResources, Priority and ResourceOverlapPolicy */
 	void AddTaskReadyForActivation(UGameplayTask& NewTask);
@@ -104,53 +111,26 @@ public:
 	void RemoveResourceConsumingTask(UGameplayTask& Task);
 	void EndAllResourceConsumingTasksOwnedBy(const IGameplayTaskOwnerInterface& TaskOwner);
 
-	bool FindAllResourceConsumingTasksOwnedBy(const IGameplayTaskOwnerInterface& TaskOwner, TArray<UGameplayTask*>& FoundTasks) const;
-	
-	/** finds first resource-consuming task of given name */
-	UGameplayTask* FindResourceConsumingTaskByName(const FName TaskInstanceName) const;
-
-	bool HasActiveTasks(UClass* TaskClass) const;
-
 	FORCEINLINE FGameplayResourceSet GetCurrentlyUsedResources() const { return CurrentlyClaimedResources; }
-
-	// BEGIN IGameplayTaskOwnerInterface
-	virtual UGameplayTasksComponent* GetGameplayTasksComponent(const UGameplayTask& Task) const { return const_cast<UGameplayTasksComponent*>(this); }
-	virtual AActor* GetGameplayTaskOwner(const UGameplayTask* Task) const override { return GetOwner(); }
-	virtual AActor* GetGameplayTaskAvatar(const UGameplayTask* Task) const override { return GetOwner(); }
-	virtual void OnGameplayTaskActivated(UGameplayTask& Task) override;
-	virtual void OnGameplayTaskDeactivated(UGameplayTask& Task) override;
-	// END IGameplayTaskOwnerInterface
 
 	UFUNCTION(BlueprintCallable, DisplayName="Run Gameplay Task", Category = "Gameplay Tasks", meta = (AutoCreateRefTerm = "AdditionalRequiredResources, AdditionalClaimedResources", AdvancedDisplay = "AdditionalRequiredResources, AdditionalClaimedResources"))
 	static EGameplayTaskRunResult K2_RunGameplayTask(TScriptInterface<IGameplayTaskOwnerInterface> TaskOwner, UGameplayTask* Task, uint8 Priority, TArray<TSubclassOf<UGameplayTaskResource> > AdditionalRequiredResources, TArray<TSubclassOf<UGameplayTaskResource> > AdditionalClaimedResources);
 
 	static EGameplayTaskRunResult RunGameplayTask(IGameplayTaskOwnerInterface& TaskOwner, UGameplayTask& Task, uint8 Priority, FGameplayResourceSet AdditionalRequiredResources, FGameplayResourceSet AdditionalClaimedResources);
 	
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && ENABLE_VISUAL_LOG
 	FString GetTickingTasksDescription() const;
 	FString GetTasksPriorityQueueDescription() const;
-	static FString GetTaskStateName(EGameplayTaskState Value);
 #endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	FConstGameplayTaskIterator GetTickingTaskIterator() const;
-	FConstGameplayTaskIterator GetPriorityQueueIterator() const;
-
 #if ENABLE_VISUAL_LOG
+	static FString GetTaskStateName(EGameplayTaskState Value);
 	void DescribeSelfToVisLog(struct FVisualLogEntry* Snapshot) const;
 #endif // ENABLE_VISUAL_LOG
 
 protected:
-	struct FEventLock
-	{
-		FEventLock(UGameplayTasksComponent* InOwner);
-		~FEventLock();
-
-	protected:
-		UGameplayTasksComponent* Owner;
-	};
-
 	void RequestTicking();
 	void ProcessTaskEvents();
-	void UpdateTaskActivations();
+	void UpdateTaskActivationFromIndex(int32 StartingIndex, FGameplayResourceSet ResourcesClaimedUpToIndex, FGameplayResourceSet ResourcesBlockedUpToIndex);
 
 	void SetCurrentlyClaimedResources(FGameplayResourceSet NewClaimedSet);
 
@@ -160,10 +140,4 @@ private:
 
 	void AddTaskToPriorityQueue(UGameplayTask& NewTask);
 	void RemoveTaskFromPriorityQueue(UGameplayTask& Task);
-
-	friend struct FEventLock;
-	int32 EventLockCounter;
-	uint32 bInEventProcessingInProgress : 1;
-
-	FORCEINLINE bool CanProcessEvents() const { return !bInEventProcessingInProgress && (EventLockCounter == 0); }
 };

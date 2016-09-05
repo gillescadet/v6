@@ -5,8 +5,6 @@
 #include "HAL/Platform.h"
 #include "HAL/PlatformMisc.h"
 #include "Misc/Build.h"
-#include "Templates/EnableIf.h"
-#include "LogVerbosity.h"
 
 
 /*----------------------------------------------------------------------------
@@ -25,20 +23,20 @@
 	#define _DebugBreakAndPromptForRemote()
 #endif // !UE_BUILD_SHIPPING
 #if DO_CHECK
-	#define checkCode( Code )		do { Code; } while ( false );
-	#define verify(expr)			{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__ ); CA_ASSUME(false); } }
-	#define check(expr)				{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__ ); CA_ASSUME(false); } }
+	#define checkCode( Code )		do { Code } while ( false );
+	#define verify(expr)			{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__ ); CA_ASSUME(expr); } }
+	#define check(expr)				{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__ ); CA_ASSUME(expr); } }
 	
 	/**
 	 * verifyf, checkf: Same as verify, check but with printf style additional parameters
 	 * Read about __VA_ARGS__ (variadic macros) on http://gcc.gnu.org/onlinedocs/gcc-3.4.4/cpp.pdf.
 	 */
-	#define verifyf(expr, format,  ...)		{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__, format, ##__VA_ARGS__); CA_ASSUME(false); } }
-	#define checkf(expr, format,  ...)		{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__, format, ##__VA_ARGS__); CA_ASSUME(false); } }
+	#define verifyf(expr, format,  ...)		{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__, format, ##__VA_ARGS__); CA_ASSUME(expr); } }
+	#define checkf(expr, format,  ...)		{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__, format, ##__VA_ARGS__); CA_ASSUME(expr); } }
 	/**
 	 * Denotes code paths that should never be reached.
 	 */
-	#define checkNoEntry()       { FDebug::LogAssertFailedMessage( "Enclosing block should never be called", __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed("Enclosing block should never be called", __FILE__, __LINE__ ); CA_ASSUME(false); }
+	#define checkNoEntry()       { FDebug::LogAssertFailedMessage( "Enclosing block should never be called", __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed("Enclosing block should never be called", __FILE__, __LINE__ ); }
 
 	/**
 	 * Denotes code paths that should not be executed more than once.
@@ -63,31 +61,31 @@
 	                            checkf( RecursionCounter##__LINE__ == 0, TEXT("Enclosing block was entered recursively") );  \
 	                            const FRecursionScopeMarker ScopeMarker##__LINE__( RecursionCounter##__LINE__ )
 
-	#define unimplemented()       { FDebug::LogAssertFailedMessage( "Unimplemented function called", __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed("Unimplemented function called", __FILE__, __LINE__); CA_ASSUME(false); }
+	#define unimplemented()       { FDebug::LogAssertFailedMessage( "Unimplemented function called", __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed("Unimplemented function called", __FILE__, __LINE__); }
 
 #else
 	#define checkCode(...)
-	#define check(expr)					{ CA_ASSUME(expr); }
-	#define checkf(expr, format, ...)	{ CA_ASSUME(expr); }
+	#define check(expr)
+	#define checkf(expr, format, ...)
 	#define checkNoEntry()
 	#define checkNoReentry()
 	#define checkNoRecursion()
-	#define verify(expr)				{ if(UNLIKELY(!(expr))){ CA_ASSUME(false); } }
-	#define verifyf(expr, format, ...)	{ if(UNLIKELY(!(expr))){ CA_ASSUME(false); } }
-	#define unimplemented()				{ CA_ASSUME(false); }
+	#define verify(expr)				{ if(UNLIKELY(!(expr))){} }
+	#define verifyf(expr, format, ...)	{ if(UNLIKELY(!(expr))){} }
+	#define unimplemented()
 #endif
 
 //
 // Check for development only.
 //
 #if DO_GUARD_SLOW
-	#define checkSlow(expr)					{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__); CA_ASSUME(false); } }
-	#define checkfSlow(expr, format, ...)	{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); CA_ASSUME(false); } }
-	#define verifySlow(expr)				{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__); CA_ASSUME(false); } }
+	#define checkSlow(expr)					{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__); CA_ASSUME(expr); } }
+	#define checkfSlow(expr, format, ...)	{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed( #expr, __FILE__, __LINE__, format, ##__VA_ARGS__ ); CA_ASSUME(expr); } }
+	#define verifySlow(expr)				{ if(UNLIKELY(!(expr))) { FDebug::LogAssertFailedMessage( #expr, __FILE__, __LINE__ ); _DebugBreakAndPromptForRemote(); FDebug::AssertFailed(#expr, __FILE__, __LINE__); } }
 #else
-	#define checkSlow(expr)					{ CA_ASSUME(expr); }
-	#define checkfSlow(expr, format, ...)	{ CA_ASSUME(expr); }
-	#define verifySlow(expr)				{ if(UNLIKELY(!(expr))) { CA_ASSUME(false); } }
+	#define checkSlow(expr)
+	#define checkfSlow(expr, format, ...)
+	#define verifySlow(expr)  if(expr){}
 #endif
 
 /**
@@ -138,17 +136,17 @@
 		}
 	}
 
-	#define ensure(           InExpression                ) (LIKELY(!!(InExpression)) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), #InExpression, __FILE__, __LINE__, TEXT("")               ) || UE4Asserts_Private::OptionallyDebugBreakAndPromptForRemoteReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), true))
-	#define ensureMsgf(       InExpression, InFormat, ... ) (LIKELY(!!(InExpression)) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), #InExpression, __FILE__, __LINE__, InFormat, ##__VA_ARGS__) || UE4Asserts_Private::OptionallyDebugBreakAndPromptForRemoteReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), true))
-	#define ensureAlways(     InExpression                ) (LIKELY(!!(InExpression)) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(true,                                          #InExpression, __FILE__, __LINE__, TEXT("")               ) || FPlatformMisc::DebugBreakAndPromptForRemoteReturningFalse(true))
-	#define ensureAlwaysMsgf( InExpression, InFormat, ... ) (LIKELY(!!(InExpression)) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(true,                                          #InExpression, __FILE__, __LINE__, InFormat, ##__VA_ARGS__) || FPlatformMisc::DebugBreakAndPromptForRemoteReturningFalse(true))
+	#define ensure(           InExpression                ) (LIKELY((InExpression) != 0) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), #InExpression, __FILE__, __LINE__, TEXT("")               ) || UE4Asserts_Private::OptionallyDebugBreakAndPromptForRemoteReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), true))
+	#define ensureMsgf(       InExpression, InFormat, ... ) (LIKELY((InExpression) != 0) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), #InExpression, __FILE__, __LINE__, InFormat, ##__VA_ARGS__) || UE4Asserts_Private::OptionallyDebugBreakAndPromptForRemoteReturningFalse(UE4Asserts_Private::TrueOnFirstCallOnly([]{}), true))
+	#define ensureAlways(     InExpression                ) (LIKELY((InExpression) != 0) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(true,                                          #InExpression, __FILE__, __LINE__, TEXT("")               ) || FPlatformMisc::DebugBreakAndPromptForRemoteReturningFalse(true))
+	#define ensureAlwaysMsgf( InExpression, InFormat, ... ) (LIKELY((InExpression) != 0) || FDebug::OptionallyLogFormattedEnsureMessageReturningFalse(true,                                          #InExpression, __FILE__, __LINE__, InFormat, ##__VA_ARGS__) || FPlatformMisc::DebugBreakAndPromptForRemoteReturningFalse(true))
 
 #else	// DO_CHECK
 
-	#define ensure(           InExpression                ) (!!(InExpression))
-	#define ensureMsgf(       InExpression, InFormat, ... ) (!!(InExpression))
-	#define ensureAlways(     InExpression                ) (!!(InExpression))
-	#define ensureAlwaysMsgf( InExpression, InFormat, ... ) (!!(InExpression))
+	#define ensure(           InExpression                ) ((InExpression) != 0)
+	#define ensureMsgf(       InExpression, InFormat, ... ) ((InExpression) != 0)
+	#define ensureAlways(     InExpression                ) ((InExpression) != 0)
+	#define ensureAlwaysMsgf( InExpression, InFormat, ... ) ((InExpression) != 0)
 
 #endif	// DO_CHECK
 
@@ -163,28 +161,29 @@ namespace UE4Asserts_Private
 
 #define ensureMsg(InExpression, InMsg) UE4Asserts_Private::DeprecatedEnsure(ensureMsgf(InExpression, InMsg))
 
-namespace UE4Asserts_Private
-{
-	// A junk function to allow us to use sizeof on a member variable which is potentially a bitfield
-	template <typename T>
-	bool GetMemberNameCheckedJunk(const T&);
-	template <typename T>
-	bool GetMemberNameCheckedJunk(const volatile T&);
-}
+// These are only for use as part of the GET_MEMBER_NAME_CHECKED macro
+template <typename T>
+bool JunkFunc(const T&);
+
+template <typename T>
+bool JunkFunc(const volatile T&);
 
 // Returns FName(TEXT("MemberName")), while statically verifying that the member exists in ClassName
 #define GET_MEMBER_NAME_CHECKED(ClassName, MemberName) \
-	((void)sizeof(UE4Asserts_Private::GetMemberNameCheckedJunk(((ClassName*)0)->MemberName)), FName(TEXT(#MemberName)))
+	((void)sizeof(JunkFunc(((ClassName*)0)->MemberName)), FName(TEXT(#MemberName)))
 
 #define GET_MEMBER_NAME_STRING_CHECKED(ClassName, MemberName) \
-	((void)sizeof(UE4Asserts_Private::GetMemberNameCheckedJunk(((ClassName*)0)->MemberName)), TEXT(#MemberName))
+	((void)sizeof(JunkFunc(((ClassName*)0)->MemberName)), TEXT(#MemberName))
 
 // Returns FName(TEXT("FunctionName")), while statically verifying that the function exists in ClassName
-#define GET_FUNCTION_NAME_CHECKED(ClassName, FunctionName) \
-	((void)sizeof(&ClassName::FunctionName), FName(TEXT(#FunctionName)))
-
-#define GET_FUNCTION_NAME_STRING_CHECKED(ClassName, FunctionName) \
-	((void)sizeof(&ClassName::FunctionName), TEXT(#FunctionName))
+// &((ClassName*)0)->FunctionName will generate 'error: cannot create a non-constant pointer to member function' on non-MSVC compilers
+#if PLATFORM_WINDOWS && !defined(__clang__)
+	#define GET_FUNCTION_NAME_CHECKED(ClassName, FunctionName) \
+		((void)sizeof(&((ClassName*)0)->FunctionName), FName(TEXT(#FunctionName)))
+#else
+	#define GET_FUNCTION_NAME_CHECKED(ClassName, FunctionName) \
+		FName(TEXT(#FunctionName))
+#endif
 
 /*----------------------------------------------------------------------------
 	Stats helpers
@@ -233,18 +232,6 @@ struct FTCharArrayTester
 	#endif
 #endif
 
-#define UE_LOG_EXPAND_IS_FATAL(Verbosity, ActiveBlock, InactiveBlock) PREPROCESSOR_JOIN(UE_LOG_EXPAND_IS_FATAL_, Verbosity)(ActiveBlock, InactiveBlock)
-
-#define UE_LOG_EXPAND_IS_FATAL_Fatal(      ActiveBlock, InactiveBlock) ActiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_Error(      ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_Warning(    ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_Display(    ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_Log(        ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_Verbose(    ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_VeryVerbose(ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_All(        ActiveBlock, InactiveBlock) InactiveBlock
-#define UE_LOG_EXPAND_IS_FATAL_SetColor(   ActiveBlock, InactiveBlock) InactiveBlock
-
 #if NO_LOGGING
 
 	struct FNoLoggingCategory {};
@@ -258,7 +245,6 @@ struct FTCharArrayTester
 			FError::LowLevelFatal(__FILE__, __LINE__, Format, ##__VA_ARGS__); \
 			_DebugBreakAndPromptForRemote(); \
 			FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
-			UE_LOG_EXPAND_IS_FATAL(Verbosity, CA_ASSUME(false);, PREPROCESSOR_NOTHING) \
 		} \
 	}
 	// Conditional logging (fatal errors only).
@@ -272,7 +258,6 @@ struct FTCharArrayTester
 				FError::LowLevelFatal(__FILE__, __LINE__, Format, ##__VA_ARGS__); \
 				_DebugBreakAndPromptForRemote(); \
 				FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
-				UE_LOG_EXPAND_IS_FATAL(Verbosity, CA_ASSUME(false);, PREPROCESSOR_NOTHING) \
 			} \
 		} \
 	}
@@ -291,37 +276,24 @@ struct FTCharArrayTester
 
 #else
 
-	namespace UE4Asserts_Private
-	{
-		template <int32 VerbosityToCheck, typename CategoryType>
-		FORCEINLINE
-			typename TEnableIf<
-				((VerbosityToCheck & ELogVerbosity::VerbosityMask) <= CategoryType::CompileTimeVerbosity &&
-				(VerbosityToCheck & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY),
-				bool>::Type
-			IsLogActive(const CategoryType& Category)
-		{
-			return !Category.IsSuppressed((ELogVerbosity::Type)VerbosityToCheck);
-		}
-
-		template <int32 VerbosityToCheck, typename CategoryType>
-		FORCEINLINE
-			typename TEnableIf<
-				!((VerbosityToCheck & ELogVerbosity::VerbosityMask) <= CategoryType::CompileTimeVerbosity &&
-				(VerbosityToCheck & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY),
-				bool>::Type
-			IsLogActive(const CategoryType& Category)
-		{
-			return false;
-		}
-	}
+	/** 
+	 * A predicate that returns true if the given logging category is active (logging) at a given verbosity level
+	 * using compile time settings only. 
+	 * @param CategoryName name of the logging category
+	 * @param Verbosity, verbosity level to test against
+	**/
+	#define UE_LOG_CHECK_COMPILEDIN_VERBOSITY(CategoryName, Verbosity) \
+		((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) <= FLogCategory##CategoryName::CompileTimeVerbosity && \
+		(ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY)
 
 	/** 
 	 * A predicate that returns true if the given logging category is active (logging) at a given verbosity level 
 	 * @param CategoryName name of the logging category
 	 * @param Verbosity, verbosity level to test against
 	**/
-	#define UE_LOG_ACTIVE(CategoryName, Verbosity) (::UE4Asserts_Private::IsLogActive<(int32)ELogVerbosity::Verbosity>(CategoryName))
+	#define UE_LOG_ACTIVE(CategoryName, Verbosity) \
+		(UE_LOG_CHECK_COMPILEDIN_VERBOSITY(CategoryName, Verbosity) && \
+		!CategoryName.IsSuppressed(ELogVerbosity::Verbosity))
 
 	#define UE_SET_LOG_VERBOSITY(CategoryName, Verbosity) \
 		CategoryName.SetVerbosity(ELogVerbosity::Verbosity);
@@ -332,73 +304,71 @@ struct FTCharArrayTester
 	 * @param Verbosity, verbosity level to test against
 	 * @param Format, format text
 	 ***/
-	#define UE_LOG(CategoryName, Verbosity, Format, ...) \
-	{ \
-		static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
-		static_assert((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) < ELogVerbosity::NumVerbosity && ELogVerbosity::Verbosity > 0, "Verbosity must be constant and in range."); \
-		CA_CONSTANT_IF((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY && (ELogVerbosity::Warning & ELogVerbosity::VerbosityMask) <= FLogCategory##CategoryName::CompileTimeVerbosity) \
+	#if USING_CODE_ANALYSIS
+		// Code analysis warnings will fire for every log statement due to comparisons against compile-time constant values, so we disable it
+		#define UE_LOG(CategoryName, Verbosity, Format, ...)
+		#define UE_CLOG(Condition, CategoryName, Verbosity, Format, ...)
+	#else
+		#define UE_LOG(CategoryName, Verbosity, Format, ...) \
 		{ \
-			UE_LOG_EXPAND_IS_FATAL(Verbosity, PREPROCESSOR_NOTHING, if (!CategoryName.IsSuppressed(ELogVerbosity::Verbosity))) \
+			static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
+			static_assert((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) < ELogVerbosity::NumVerbosity && ELogVerbosity::Verbosity > 0, "Verbosity must be constant and in range."); \
+			if (UE_LOG_CHECK_COMPILEDIN_VERBOSITY(CategoryName, Verbosity)) \
 			{ \
-				FMsg::Logf_Internal(__FILE__, __LINE__, CategoryName.GetCategoryName(), ELogVerbosity::Verbosity, Format, ##__VA_ARGS__); \
-				UE_LOG_EXPAND_IS_FATAL(Verbosity, \
-					{ \
-						_DebugBreakAndPromptForRemote(); \
-						FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
-						CA_ASSUME(false); \
-					}, \
-					PREPROCESSOR_NOTHING \
-				) \
-			} \
-		} \
-	}
-
-	/**
-	* A  macro that outputs a formatted message to the log specifically used for security events
-	* @param NetConnection, a valid UNetConnection
-	* @param SecurityEventType, a security event type (ESecurityEvent::Type)
-	* @param Format, format text
-	***/
-	#define UE_SECURITY_LOG(NetConnection, SecurityEventType, Format, ...) \
-	{ \
-		static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
-		check(NetConnection != nullptr); \
-		CA_CONSTANT_IF((ELogVerbosity::Warning & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY && (ELogVerbosity::Warning & ELogVerbosity::VerbosityMask) <= FLogCategoryLogSecurity::CompileTimeVerbosity) \
-		{ \
-			if (!LogSecurity.IsSuppressed(ELogVerbosity::Warning)) \
-			{ \
-				FString Test = FString::Printf(TEXT("%s: %s: %s"), *(NetConnection->RemoteAddressToString()), ToString(SecurityEventType), Format); \
-				FMsg::Logf_Internal(__FILE__, __LINE__, LogSecurity.GetCategoryName(), ELogVerbosity::Warning, *Test, ##__VA_ARGS__); \
-			} \
-		} \
-	}
-
-	// Conditional logging. Will only log if Condition is met.
-	#define UE_CLOG(Condition, CategoryName, Verbosity, Format, ...) \
-	{ \
-		static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
-		static_assert((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) < ELogVerbosity::NumVerbosity && ELogVerbosity::Verbosity > 0, "Verbosity must be constant and in range."); \
-		CA_CONSTANT_IF((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY && (ELogVerbosity::Warning & ELogVerbosity::VerbosityMask) <= FLogCategory##CategoryName::CompileTimeVerbosity) \
-		{ \
-			UE_LOG_EXPAND_IS_FATAL(Verbosity, PREPROCESSOR_NOTHING, if (!CategoryName.IsSuppressed(ELogVerbosity::Verbosity))) \
-			{ \
-				if (Condition) \
+				if (!CategoryName.IsSuppressed(ELogVerbosity::Verbosity)) \
 				{ \
 					FMsg::Logf_Internal(__FILE__, __LINE__, CategoryName.GetCategoryName(), ELogVerbosity::Verbosity, Format, ##__VA_ARGS__); \
-					UE_LOG_EXPAND_IS_FATAL(Verbosity, \
-						{ \
-							_DebugBreakAndPromptForRemote(); \
-							FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
-							CA_ASSUME(false); \
-						}, \
-						PREPROCESSOR_NOTHING \
-					) \
-					CA_ASSUME(true); \
+					if (ELogVerbosity::Verbosity == ELogVerbosity::Fatal) \
+					{\
+						_DebugBreakAndPromptForRemote(); \
+						FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
+					}\
 				} \
 			} \
-		} \
-	}
+		}
 
+		/**
+		* A  macro that outputs a formatted message to the log specifically used for security events
+		* @param NetConnection, a valid UNetConnection
+		* @param SecurityEventType, a security event type (ESecurityEvent::Type)
+		* @param Format, format text
+		***/
+		#define UE_SECURITY_LOG(NetConnection, SecurityEventType, Format, ...) \
+		{ \
+			static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
+			check(NetConnection != nullptr); \
+			if (UE_LOG_CHECK_COMPILEDIN_VERBOSITY(LogSecurity, Warning)) \
+			{ \
+				if (!LogSecurity.IsSuppressed(ELogVerbosity::Warning)) \
+				{ \
+				FString Test = FString::Printf(TEXT("%s: %s: %s"), *(NetConnection->RemoteAddressToString()), ToString(SecurityEventType), Format); \
+					FMsg::Logf_Internal(__FILE__, __LINE__, LogSecurity.GetCategoryName(), ELogVerbosity::Warning, *Test, ##__VA_ARGS__); \
+				} \
+			} \
+		 }
+
+		// Conditional logging. Will only log if Condition is met.
+		#define UE_CLOG(Condition, CategoryName, Verbosity, Format, ...) \
+		{ \
+			static_assert(IS_TCHAR_ARRAY(Format), "Formatting string must be a TCHAR array."); \
+			static_assert((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) < ELogVerbosity::NumVerbosity && ELogVerbosity::Verbosity > 0, "Verbosity must be constant and in range."); \
+			if (UE_LOG_CHECK_COMPILEDIN_VERBOSITY(CategoryName, Verbosity)) \
+			{ \
+				if (!CategoryName.IsSuppressed(ELogVerbosity::Verbosity)) \
+				{ \
+					if (Condition) \
+					{ \
+						FMsg::Logf_Internal(__FILE__, __LINE__, CategoryName.GetCategoryName(), ELogVerbosity::Verbosity, Format, ##__VA_ARGS__); \
+						if (ELogVerbosity::Verbosity == ELogVerbosity::Fatal) \
+						{\
+							_DebugBreakAndPromptForRemote(); \
+							FDebug::AssertFailed("", __FILE__, __LINE__, Format, ##__VA_ARGS__); \
+						}\
+					} \
+				} \
+			} \
+		}
+	#endif
 	/** 
 	 * A macro that executes some code within a scope if a given logging category is active at a given verbosity level
 	 * Also, withing the scope of the execution, the default category and verbosity is set up for the low level logging 
@@ -410,7 +380,7 @@ struct FTCharArrayTester
 	#define UE_SUPPRESS(CategoryName, Verbosity, ExecuteIfUnsuppressed) \
 	{ \
 		static_assert((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) < ELogVerbosity::NumVerbosity && ELogVerbosity::Verbosity > 0, "Verbosity must be constant and in range."); \
-		CA_CONSTANT_IF((ELogVerbosity::Verbosity & ELogVerbosity::VerbosityMask) <= ELogVerbosity::COMPILED_IN_MINIMUM_VERBOSITY && (ELogVerbosity::Warning & ELogVerbosity::VerbosityMask) <= FLogCategory##CategoryName::CompileTimeVerbosity) \
+		if (UE_LOG_CHECK_COMPILEDIN_VERBOSITY(CategoryName, Verbosity)) \
 		{ \
 			if (!CategoryName.IsSuppressed(ELogVerbosity::Verbosity)) \
 			{ \
@@ -506,7 +476,7 @@ struct FTCharArrayTester
 extern CORE_API int32 GEnsureOnNANDiagnostic;
 
 // Macro to either log an error or ensure on a NaN error.
-#if DO_CHECK && !USING_CODE_ANALYSIS
+#if DO_CHECK
 namespace UE4Asserts_Private
 {
 	CORE_API void VARARGS InternalLogNANDiagnosticMessage(const TCHAR* FormattedMsg, ...); // UE_LOG(LogCore, Error, _FormatString_, ##__VA_ARGS__);

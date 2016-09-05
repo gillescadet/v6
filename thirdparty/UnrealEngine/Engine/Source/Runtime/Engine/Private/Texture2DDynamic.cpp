@@ -59,7 +59,6 @@ void FTexture2DDynamicResource::InitRHI()
 	FRHIResourceCreateInfo CreateInfo;
 	Texture2DRHI = RHICreateTexture2D(GetSizeX(), GetSizeY(), Owner->Format, Owner->NumMips, 1, Flags, CreateInfo);
 	TextureRHI = Texture2DRHI;
-	TextureRHI->SetName(Owner->GetFName());
 	RHIUpdateTextureReference(Owner->TextureReference.TextureReferenceRHI,TextureRHI);
 }
 

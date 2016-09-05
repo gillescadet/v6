@@ -5,7 +5,6 @@
 #include "SubtitleManager.h"
 #include "SoundDefinitions.h"
 #include "Engine/Font.h"
-#include "AudioThread.h"
 
 DEFINE_LOG_CATEGORY(LogSubtitle);
 
@@ -29,29 +28,6 @@ void FSubtitleManager::KillSubtitles( PTRINT SubtitleID )
 	ActiveSubtitles.Remove( SubtitleID );
 }
 
-void FSubtitleManager::QueueSubtitles(const FQueueSubtitleParams& QueueSubtitleParams)
-{
-	check(IsInAudioThread());
-
-	DECLARE_CYCLE_STAT(TEXT("FGameThreadAudioTask.QueueSubtitles"), STAT_AudioQueueSubtitles, STATGROUP_TaskGraphTasks);
-
-	FAudioThread::RunCommandOnGameThread([QueueSubtitleParams]()
-	{
-		UAudioComponent* AudioComponent = UAudioComponent::GetAudioComponentFromID(QueueSubtitleParams.AudioComponentID);
-		if (AudioComponent && AudioComponent->OnQueueSubtitles.IsBound())
-		{
-			// intercept the subtitles if the delegate is set
-			AudioComponent->OnQueueSubtitles.ExecuteIfBound(QueueSubtitleParams.Subtitles, QueueSubtitleParams.Duration);
-		}
-		else if (UWorld* World = QueueSubtitleParams.WorldPtr.Get())
-		{
-			// otherwise, pass them on to the subtitle manager for display
-			// Subtitles are hashed based on the associated sound (wave instance).
-			FSubtitleManager::GetSubtitleManager()->QueueSubtitles( QueueSubtitleParams.WaveInstance, QueueSubtitleParams.SubtitlePriority, QueueSubtitleParams.bManualWordWrap, QueueSubtitleParams.bSingleLine, QueueSubtitleParams.Duration, QueueSubtitleParams.Subtitles, World->GetAudioTimeSeconds() );
-		}
-	}, GET_STATID(STAT_AudioQueueSubtitles));
-}
-
 /**
  * Add an array of subtitles to the active list
  * This is called from AudioComponent::Play
@@ -63,10 +39,9 @@ void FSubtitleManager::QueueSubtitles(const FQueueSubtitleParams& QueueSubtitleP
  * @param  SoundDuration - time in seconds after which the subtitles do not display
  * @param  Subtitles - TArray of lines of subtitle and time offset to play them
  */
-void FSubtitleManager::QueueSubtitles( PTRINT SubtitleID, float Priority, bool bManualWordWrap, bool bSingleLine, float SoundDuration, const TArray<FSubtitleCue>& Subtitles, float InStartTime )
+void FSubtitleManager::QueueSubtitles( PTRINT SubtitleID, float Priority, bool bManualWordWrap, bool bSingleLine, float SoundDuration, TArray<FSubtitleCue>& Subtitles, float InStartTime )
 {
 	check( GEngine );
-	check(IsInGameThread());
 
 	// No subtitles to display
 	if( !Subtitles.Num() )
@@ -74,9 +49,10 @@ void FSubtitleManager::QueueSubtitles( PTRINT SubtitleID, float Priority, bool b
 		return;
 	}
 
-	// Return when a subtitle is played with its subtitle suppressed.
-	if (Priority == 0.0f)
+	// Warn when a subtitle is played without its priority having been set.
+	if( Priority == 0.0f )
 	{
+		UE_LOG(LogSubtitle, Warning, TEXT( "Received subtitle with no priority." ) );
 		return;
 	}
 
@@ -91,7 +67,7 @@ void FSubtitleManager::QueueSubtitles( PTRINT SubtitleID, float Priority, bool b
 	FActiveSubtitle& NewSubtitle = ActiveSubtitles.Add( SubtitleID, FActiveSubtitle( 0, Priority, bManualWordWrap, bSingleLine, Subtitles ) );
 
 	// Resolve time offsets to absolute time
-	for( FSubtitleCue& Subtitle : NewSubtitle.Subtitles )
+	for( FSubtitleCue& Subtitle : Subtitles )
 	{
 		if (Subtitle.Time > SoundDuration)
 		{
@@ -103,9 +79,9 @@ void FSubtitleManager::QueueSubtitles( PTRINT SubtitleID, float Priority, bool b
 	}
 
 	// Add on a blank at the end to clear
-	FSubtitleCue& Temp = NewSubtitle.Subtitles[NewSubtitle.Subtitles.AddDefaulted()];
-	Temp.Text = FText::GetEmpty();
-	Temp.Time = InStartTime + SoundDuration;
+	FSubtitleCue* Temp = new( NewSubtitle.Subtitles ) FSubtitleCue();
+	Temp->Text = FText::GetEmpty();
+	Temp->Time = InStartTime + SoundDuration;
 }
 
 /**
@@ -242,18 +218,18 @@ void FSubtitleManager::SplitLinesToSafeZone( FCanvas* Canvas, FIntRect& Subtitle
 		Cumulative = 0.0f;
 		for( i = 0; i < Lines.Num(); i++ )
 		{
-			FSubtitleCue& Line = Subtitle.Subtitles[Subtitle.Subtitles.AddDefaulted()];
+			FSubtitleCue* Line = new( Subtitle.Subtitles ) FSubtitleCue();
 			
-			Line.Text = FText::FromString(Lines[ i ].Value);
-			Line.Time = StartTime + Cumulative;
+			Line->Text = FText::FromString(Lines[ i ].Value);
+			Line->Time = StartTime + Cumulative;
 
-			Cumulative += SecondsPerChar * Line.Text.ToString().Len();
+			Cumulative += SecondsPerChar * Line->Text.ToString().Len();
 		}
 
 		// Add in the blank terminating line
-		FSubtitleCue& Temp = Subtitle.Subtitles[Subtitle.Subtitles.AddDefaulted()];
-		Temp.Text = FText::GetEmpty();
-		Temp.Time = StartTime + SoundDuration;
+		FSubtitleCue* Temp = new( Subtitle.Subtitles ) FSubtitleCue();
+		Temp->Text = FText::GetEmpty();
+		Temp->Time = StartTime + SoundDuration;
 
 		UE_LOG(LogAudio, Log, TEXT( "Splitting subtitle:" ) );
 		for( i = 0; i < Subtitle.Subtitles.Num() - 1; i++ )

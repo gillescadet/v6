@@ -5,7 +5,7 @@
 #include "NavigationInvokerComponent.generated.h"
 
 UCLASS(ClassGroup = (Navigation), meta = (BlueprintSpawnableComponent), hidecategories = (Activation))
-class ENGINE_API UNavigationInvokerComponent : public UActorComponent
+class UNavigationInvokerComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

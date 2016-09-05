@@ -182,8 +182,10 @@ private:
 	FCriticalSection PendingFramePayloadsMutex;
 	TArray<FFramePayloadPtr> PendingFramePayloads;
 
-	/** Optional RAII shutdown functor */
-	TFunction<void()> OnShutdown;
+	/** When CaptureThisFrame is called, we issue a rendering command to ensure that the frame we capture is the frame that was actually requested.
+	 * This is required because the game thread and render thread are not necessarily in-sync
+	 */
+	FThreadSafeCounter LatentRenderCommandCount;
 
 	/** The current state of the grabber */
 	enum class EFrameGrabberState

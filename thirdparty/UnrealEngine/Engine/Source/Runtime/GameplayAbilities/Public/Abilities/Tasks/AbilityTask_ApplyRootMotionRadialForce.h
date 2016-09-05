@@ -22,7 +22,7 @@ class UAbilityTask_ApplyRootMotionRadialForce : public UAbilityTask
 
 	/** Apply force to character's movement */
 	UFUNCTION(BlueprintCallable, Category = "Ability|Tasks", meta = (HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject", BlueprintInternalUseOnly = "TRUE"))
-	static UAbilityTask_ApplyRootMotionRadialForce* ApplyRootMotionRadialForce(UObject* WorldContextObject, FName TaskInstanceName, FVector Location, AActor* LocationActor, float Strength, float Duration, float Radius, bool bIsPush, bool bIsAdditive, bool bNoZForce, UCurveFloat* StrengthDistanceFalloff, UCurveFloat* StrengthOverTime, bool bUseFixedWorldDirection, FRotator FixedWorldDirection);
+	static UAbilityTask_ApplyRootMotionRadialForce* ApplyRootMotionRadialForce(UObject* WorldContextObject, FName TaskInstanceName, FVector Location, AActor* LocationActor, float Strength, float Duration, float Radius, bool bIsPush, bool bIsAdditive, bool bNoZForce, UCurveFloat* StrengthDistanceFalloff, UCurveFloat* StrengthOverTime);
 
 	virtual void Activate() override;
 
@@ -31,6 +31,8 @@ class UAbilityTask_ApplyRootMotionRadialForce : public UAbilityTask
 
 	virtual void PreDestroyFromReplication() override;
 	virtual void OnDestroy(bool AbilityIsEnding) override;
+
+	void PreReplicatedRemove(const struct FOrionCardArray& InArray);
 
 protected:
 
@@ -77,12 +79,6 @@ protected:
 	 */
 	UPROPERTY(Replicated)
 	UCurveFloat* StrengthOverTime;
-
-	UPROPERTY(Replicated)
-	bool bUseFixedWorldDirection;
-
-	UPROPERTY(Replicated)
-	FRotator FixedWorldDirection;
 
 	uint16 RootMotionSourceID;
 	bool bIsFinished;

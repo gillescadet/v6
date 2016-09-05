@@ -33,7 +33,7 @@ ATextRenderActor::ATextRenderActor(const FObjectInitializer& ObjectInitializer)
 
 		SpriteComponent->Sprite = ConstructorStatics.TextRenderTexture.Get();
 		SpriteComponent->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
-		SpriteComponent->SetupAttachment(TextRender);
+		SpriteComponent->AttachParent = TextRender;
 		SpriteComponent->bIsScreenSizeScaled = true;
 		SpriteComponent->bAbsoluteScale = true;
 		SpriteComponent->bReceivesDecals = false;
@@ -156,7 +156,7 @@ public:
 		check(IsInRenderingThread())
 
 		// Initialize the vertex factory's stream components.
-		FDataType NewData;
+		DataType NewData;
 		NewData.PositionComponent = STRUCTMEMBER_VERTEXSTREAMCOMPONENT(VertexBuffer,FDynamicMeshVertex,Position,VET_Float3);
 		NewData.TextureCoordinates.Add(
 			FVertexStreamComponent(VertexBuffer,STRUCT_OFFSET(FDynamicMeshVertex,TextureCoordinate),sizeof(FDynamicMeshVertex),VET_Float2)
@@ -173,9 +173,9 @@ public:
 // @param It must be a valid initialized text iterator
 // @param Font 0 is silently ignored
 FVector2D ComputeTextSize(FTextIterator It, class UFont* Font,
-	float XScale, float YScale, float HorizSpacingAdjust, float VertSpacingAdjust)
+	float XScale, float YScale, float HorizSpacingAdjust)
 {
-	FVector2D Ret(0.f, 0.f);
+	FVector2D Ret(0, 0);
 
 	if(!Font)
 	{
@@ -184,7 +184,7 @@ FVector2D ComputeTextSize(FTextIterator It, class UFont* Font,
 
 	const float CharIncrement = ( (float)Font->Kerning + HorizSpacingAdjust ) * XScale;
 
-	float LineX = 0.f;
+	float LineX = 0;
 
 	const int32 PageIndex = 0;
 
@@ -215,14 +215,14 @@ FVector2D ComputeTextSize(FTextIterator It, class UFont* Font,
 			const float X		= LineX;
 			const float Y		= Char.VerticalOffset * YScale;
 			float SizeX			= Char.USize * XScale;
-			const float SizeY	= (Char.VSize + VertSpacingAdjust) * YScale;
+			const float SizeY	= Char.VSize * YScale;
 			const float U		= Char.StartU * InvTextureSize.X;
 			const float V		= Char.StartV * InvTextureSize.Y;
 			const float SizeU	= Char.USize * InvTextureSize.X;
 			const float SizeV	= Char.VSize * InvTextureSize.Y;
 
-			const float Right = X + SizeX;
-			const float Bottom = Y + SizeY;
+			float Right = X + SizeX;
+			float Bottom = Y + SizeY;
 
 			Ret.X = FMath::Max(Ret.X, Right);
 			Ret.Y = FMath::Max(Ret.Y, Bottom);
@@ -244,7 +244,7 @@ FVector2D ComputeTextSize(FTextIterator It, class UFont* Font,
 // compute the left top depending on the alignment
 static float ComputeHorizontalAlignmentOffset(FVector2D Size, EHorizTextAligment HorizontalAlignment)
 {
-	float Ret = 0.f;
+	float Ret = 0;
 
 	switch (HorizontalAlignment)
 	{
@@ -290,7 +290,7 @@ float ComputeVerticalAlignmentOffset(float SizeY, EVerticalTextAligment Vertical
 		}
 	case EVRTA_TextTop:
 		{
-			return 0.f;
+			return 0;
 		}
 	case EVRTA_TextCenter:
 		{
@@ -299,7 +299,7 @@ float ComputeVerticalAlignmentOffset(float SizeY, EVerticalTextAligment Vertical
 	default:
 		{
 			check(0);
-			return 0.f;
+			return 0;
 		}
 	}
 }
@@ -314,26 +314,25 @@ float CalculateVerticalAlignmentOffset(
 	float XScale, 
 	float YScale, 
 	float HorizSpacingAdjust,
-	float VertSpacingAdjust,
 	EVerticalTextAligment VerticalAlignment)
 {
 	check(Text);
 
 	if(!Font)
 	{
-		return 0.f;
+		return 0;
 	}
 
-	float FirstLineHeight = -1.f; // Only kept around for legacy positioning support
-	float StartY = 0.f;
+	float FirstLineHeight = -1; // Only kept around for legacy positioning support
+	float StartY = 0;
 
 	FTextIterator It(Text);
 
 	while (It.NextLine())
 	{
-		FVector2D LineSize = ComputeTextSize(It, Font, XScale, YScale, HorizSpacingAdjust, VertSpacingAdjust);
+		FVector2D LineSize = ComputeTextSize(It, Font, XScale, YScale, HorizSpacingAdjust);
 
-		if (FirstLineHeight < 0.f)
+		if (FirstLineHeight < 0)
 		{
 			FirstLineHeight = LineSize.Y;
 		}
@@ -346,7 +345,7 @@ float CalculateVerticalAlignmentOffset(
 		}
 
 		// Move Y position down to next line. If the current line is empty, move by max char height in font
-		StartY += LineSize.Y > 0.f ? LineSize.Y : Font->GetMaxCharHeight();
+		StartY += LineSize.Y > 0 ? LineSize.Y : Font->GetMaxCharHeight();
 	}
 
 	// Calculate a vertical translation to create the correct vertical alignment
@@ -392,7 +391,6 @@ private:
 	float XScale;
 	float YScale;
 	float HorizSpacingAdjust;
-	float VertSpacingAdjust;
 	EHorizTextAligment HorizontalAlignment;
 	EVerticalTextAligment VerticalAlignment;
 	bool bAlwaysRenderAsText;
@@ -406,13 +404,12 @@ FTextRenderSceneProxy::FTextRenderSceneProxy( UTextRenderComponent* Component) :
 	XScale(Component->WorldSize * Component->XScale * Component->InvDefaultSize),
 	YScale(Component->WorldSize * Component->YScale * Component->InvDefaultSize),
 	HorizSpacingAdjust(Component->HorizSpacingAdjust),
-	VertSpacingAdjust(Component->VertSpacingAdjust),
 	HorizontalAlignment(Component->HorizontalAlignment),
 	VerticalAlignment(Component->VerticalAlignment),
 	bAlwaysRenderAsText(Component->bAlwaysRenderAsText)
 {
-	WireframeColor = FLinearColor(1.f, 0.f, 0.f);
-	UMaterialInterface* EffectiveMaterial = nullptr;
+	WireframeColor = FLinearColor(1, 0, 0);
+	UMaterialInterface* EffectiveMaterial = 0;
 
 	if(Component->TextMaterial)
 	{
@@ -582,27 +579,27 @@ bool  FTextRenderSceneProxy::BuildStringMesh( TArray<FDynamicMeshVertex>& OutVer
 		return false;
 	}
 
-	float FirstLineHeight = -1.f; // Only kept around for legacy positioning support
-	float StartY = 0.f;
+	float FirstLineHeight = -1; // Only kept around for legacy positioning support
+	float StartY = 0;
 
 	const float CharIncrement = ( (float)Font->Kerning + HorizSpacingAdjust ) * XScale;
 
-	float LineX = 0.f;
+	float LineX = 0;
 
 	const int32 PageIndex = 0;
 
 	FTextIterator It(*Text.ToString());
 	while (It.NextLine())
 	{
-		FVector2D LineSize = ComputeTextSize(It, Font, XScale, YScale, HorizSpacingAdjust, VertSpacingAdjust);
+		FVector2D LineSize = ComputeTextSize(It, Font, XScale, YScale, HorizSpacingAdjust);
 		float StartX = ComputeHorizontalAlignmentOffset(LineSize, HorizontalAlignment);
 
-		if (FirstLineHeight < 0.f)
+		if (FirstLineHeight < 0)
 		{
 			FirstLineHeight = LineSize.Y;
 		}
 
-		LineX = 0.f;
+		LineX = 0;
 		int32 Ch;
 
 		while (It.NextCharacterInLine(Ch))
@@ -637,25 +634,25 @@ bool  FTextRenderSceneProxy::BuildStringMesh( TArray<FDynamicMeshVertex>& OutVer
 				const float SizeU	= Char.USize * InvTextureSize.X;
 				const float SizeV	= Char.VSize * InvTextureSize.Y;			
 
-				const float Left = X;
-				const float Top = Y;
-				const float Right = X + SizeX;
-				const float Bottom = Y + SizeY;
+				float Left = X;
+				float Top = Y;
+				float Right = X + SizeX;
+				float Bottom = Y + SizeY;
 
 				// axis choice and sign to get good alignment when placed on surface
-				const FVector4 V0(0.f, -Left, -Top, 0.f);
-				const FVector4 V1(0.f, -Right, -Top, 0.f);
-				const FVector4 V2(0.f, -Left, -Bottom, 0.f);
-				const FVector4 V3(0.f, -Right, -Bottom, 0.f);
+				FVector4 V0 = FVector4(0, -Left, -Top, 0);
+				FVector4 V1 = FVector4(0, -Right, -Top, 0);
+				FVector4 V2 = FVector4(0, -Left, -Bottom, 0);
+				FVector4 V3 = FVector4(0, -Right, -Bottom, 0);
 
-				const FVector TangentX(0.f, -1.f, 0.f);
-				const FVector TangentY(0.f, 0.f, -1.f);
-				const FVector TangentZ(1.f, 0.f, 0.f);
+				FVector TangentX(0, -1, 0);
+				FVector TangentY(0, 0, -1);
+				FVector TangentZ(1, 0, 0);
 
-				const int32 V00 = OutVertices.Add(FDynamicMeshVertex(V0, TangentX, TangentZ, FVector2D(U, V), TextRenderColor));
-				const int32 V10 = OutVertices.Add(FDynamicMeshVertex(V1, TangentX, TangentZ, FVector2D(U + SizeU, V), TextRenderColor));
-				const int32 V01 = OutVertices.Add(FDynamicMeshVertex(V2, TangentX, TangentZ, FVector2D(U, V + SizeV), TextRenderColor));
-				const int32 V11 = OutVertices.Add(FDynamicMeshVertex(V3, TangentX, TangentZ, FVector2D(U + SizeU, V + SizeV), TextRenderColor));
+				int32 V00 = OutVertices.Add(FDynamicMeshVertex(V0, TangentX, TangentZ, FVector2D(U, V), TextRenderColor));
+				int32 V10 = OutVertices.Add(FDynamicMeshVertex(V1, TangentX, TangentZ, FVector2D(U + SizeU, V), TextRenderColor));
+				int32 V01 = OutVertices.Add(FDynamicMeshVertex(V2, TangentX, TangentZ, FVector2D(U, V + SizeV), TextRenderColor));
+				int32 V11 = OutVertices.Add(FDynamicMeshVertex(V3, TangentX, TangentZ, FVector2D(U + SizeU, V + SizeV), TextRenderColor));
 
 				check(V00 < 65536);
 				check(V10 < 65536);
@@ -682,7 +679,7 @@ bool  FTextRenderSceneProxy::BuildStringMesh( TArray<FDynamicMeshVertex>& OutVer
 		}
 
 		// Move Y position down to next line. If the current line is empty, move by max char height in font
-		StartY += LineSize.Y > 0.f ? LineSize.Y : Font->GetMaxCharHeight();
+		StartY += LineSize.Y > 0 ? LineSize.Y : Font->GetMaxCharHeight();
 	}
 
 	// Avoid initializing RHI resources when no vertices are generated.
@@ -757,10 +754,9 @@ UTextRenderComponent::UTextRenderComponent(const FObjectInitializer& ObjectIniti
 
 		SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 		TextRenderColor = FColor::White;
-		XScale = 1.f;
-		YScale = 1.f;
-		HorizSpacingAdjust = 0.f;
-		VertSpacingAdjust = 0.f;
+		XScale = 1;
+		YScale = 1;
+		HorizSpacingAdjust = 0;
 		HorizontalAlignment = EHTA_Left;
 		VerticalAlignment = EVRTA_TextBottom;
 
@@ -805,7 +801,7 @@ void UTextRenderComponent::SetMaterial(int32 ElementIndex, UMaterialInterface* I
 
 UMaterialInterface* UTextRenderComponent::GetMaterial(int32 ElementIndex) const
 {
-	return (ElementIndex == 0) ? TextMaterial : nullptr;
+	return (ElementIndex == 0) ? TextMaterial : NULL;
 }
 
 bool UTextRenderComponent::ShouldRecreateProxyOnUpdateTransform() const
@@ -819,25 +815,25 @@ FBoxSphereBounds UTextRenderComponent::CalcBounds(const FTransform& LocalToWorld
 {
 	if(!Text.IsEmpty() && Font)
 	{
-		FVector2D Size(FLT_MIN, 0.f);
+		FVector2D Size(FLT_MIN, 0);
 		FVector2D LeftTop(FLT_MAX, FLT_MAX);
-		float FirstLineHeight = -1.f;
+		float FirstLineHeight = -1;
 
 		FTextIterator It(*Text.ToString());
 
-		const float AdjustedXScale = WorldSize * XScale * InvDefaultSize;
-		const float AdjustedYScale = WorldSize * YScale * InvDefaultSize;
+		float AdjustedXScale = WorldSize * XScale * InvDefaultSize;
+		float AdjustedYScale = WorldSize * YScale * InvDefaultSize;
 
 		while (It.NextLine())
 		{
-			const FVector2D LineSize = ComputeTextSize(It, Font, AdjustedXScale, AdjustedYScale, HorizSpacingAdjust, VertSpacingAdjust);
-			const float LineLeft = ComputeHorizontalAlignmentOffset(LineSize, HorizontalAlignment);
+			FVector2D LineSize = ComputeTextSize(It, Font, AdjustedXScale, AdjustedYScale, HorizSpacingAdjust);
+			float LineLeft = ComputeHorizontalAlignmentOffset(LineSize, HorizontalAlignment);
 
 			Size.X = FMath::Max(LineSize.X, Size.X);
-			Size.Y += LineSize.Y > 0.f ? LineSize.Y : Font->GetMaxCharHeight();
+			Size.Y += LineSize.Y > 0 ? LineSize.Y : Font->GetMaxCharHeight();
 			LeftTop.X = FMath::Min(LeftTop.X, LineLeft);
 
-			if (FirstLineHeight < 0.f)
+			if (FirstLineHeight < 0)
 			{
 				FirstLineHeight = LineSize.Y;
 			}
@@ -847,7 +843,7 @@ FBoxSphereBounds UTextRenderComponent::CalcBounds(const FTransform& LocalToWorld
 		}
 
 		LeftTop.Y = ComputeVerticalAlignmentOffset(Size.Y, VerticalAlignment, FirstLineHeight);
-		const FBox LocalBox(FVector(0.f, -LeftTop.X, -LeftTop.Y), FVector(0.f, -(LeftTop.X + Size.X), -(LeftTop.Y + Size.Y)));
+		FBox LocalBox(FVector(0, -LeftTop.X, -LeftTop.Y), FVector(0, -(LeftTop.X + Size.X), -(LeftTop.Y + Size.Y)));
 
 		FBoxSphereBounds Ret(LocalBox.TransformBy(LocalToWorld));
 
@@ -867,18 +863,18 @@ FMatrix UTextRenderComponent::GetRenderMatrix() const
 	// Adjust LocalToWorld transform to account for vertical text alignment when rendering.
 	if(!Text.IsEmpty() && Font)
 	{
-		float SizeY = 0.f;
-		float FirstLineHeight = -1.f;
-		const float AdjustedXScale = WorldSize * XScale * InvDefaultSize;
-		const float AdjustedYScale = WorldSize * YScale * InvDefaultSize;
+		float SizeY = 0;
+		float FirstLineHeight = -1;
+		float AdjustedXScale = WorldSize * XScale * InvDefaultSize;
+		float AdjustedYScale = WorldSize * YScale * InvDefaultSize;
 
 		FTextIterator It(*Text.ToString());
 		while (It.NextLine())
 		{
-			const FVector2D LineSize = ComputeTextSize(It, Font, AdjustedXScale, AdjustedYScale, HorizSpacingAdjust, VertSpacingAdjust);
-			SizeY += LineSize.Y > 0.f ? LineSize.Y : Font->GetMaxCharHeight();
+			FVector2D LineSize = ComputeTextSize(It, Font, AdjustedXScale, AdjustedYScale, HorizSpacingAdjust);
+			SizeY += LineSize.Y > 0 ? LineSize.Y : Font->GetMaxCharHeight();
 
-			if (FirstLineHeight < 0.f)
+			if (FirstLineHeight < 0)
 			{
 				FirstLineHeight = LineSize.Y;
 			}
@@ -889,8 +885,8 @@ FMatrix UTextRenderComponent::GetRenderMatrix() const
 
 		// Calculate a vertical translation to create the correct vertical alignment
 		FMatrix VerticalTransform = FMatrix::Identity;
-		const float VerticalAlignmentOffset = -ComputeVerticalAlignmentOffset(SizeY, VerticalAlignment, FirstLineHeight);
-		VerticalTransform = VerticalTransform.ConcatTranslation(FVector(0.f, 0.f, VerticalAlignmentOffset));
+		float VerticalAlignmentOffset = -ComputeVerticalAlignmentOffset(SizeY, VerticalAlignment, FirstLineHeight);
+		VerticalTransform = VerticalTransform.ConcatTranslation(FVector(0, 0, VerticalAlignmentOffset));
 
 		return VerticalTransform *  ComponentToWorld.ToMatrixWithScale();
 
@@ -941,12 +937,6 @@ void UTextRenderComponent::SetHorizontalAlignment(EHorizTextAligment Value)
 	MarkRenderStateDirty();	
 }
 
-void UTextRenderComponent::SetVerticalAlignment(EVerticalTextAligment Value)
-{
-	VerticalAlignment = Value;
-	MarkRenderStateDirty();
-}
-
 void UTextRenderComponent::SetTextRenderColor(FColor Value)
 {
 	TextRenderColor = Value;
@@ -971,12 +961,6 @@ void UTextRenderComponent::SetHorizSpacingAdjust(float Value)
 	MarkRenderStateDirty();	
 }
 
-void UTextRenderComponent::SetVertSpacingAdjust(float Value)
-{
-	VertSpacingAdjust = Value;
-	MarkRenderStateDirty();	
-}
-
 void UTextRenderComponent::SetWorldSize(float Value)
 {
 	WorldSize = Value;
@@ -985,14 +969,14 @@ void UTextRenderComponent::SetWorldSize(float Value)
 
 FVector UTextRenderComponent::GetTextLocalSize() const
 {
-	const FBoxSphereBounds TextBounds = CalcBounds(FTransform::Identity);
-	return TextBounds.GetBox().GetSize();
+	FBoxSphereBounds Bounds = CalcBounds(FTransform::Identity);
+	return Bounds.GetBox().GetSize();
 }
 
 FVector UTextRenderComponent::GetTextWorldSize() const
 {
-	const FBoxSphereBounds TextBounds = CalcBounds(ComponentToWorld);
-	return TextBounds.GetBox().GetSize();
+	FBoxSphereBounds Bounds = CalcBounds(ComponentToWorld);
+	return Bounds.GetBox().GetSize();
 }
 
 void UTextRenderComponent::PostLoad()
@@ -1001,8 +985,8 @@ void UTextRenderComponent::PostLoad()
 	// fix with its own version, use the version number closest to that CL
 	if (GetLinkerUE4Version() < VER_UE4_PACKAGE_REQUIRES_LOCALIZATION_GATHER_FLAGGING)
 	{
-		const float Offset = CalculateVerticalAlignmentOffset(*Text.ToString(), Font, XScale, YScale, HorizSpacingAdjust, VertSpacingAdjust, VerticalAlignment);
-		const FTransform RelativeTransform = GetRelativeTransform();
+		float Offset = CalculateVerticalAlignmentOffset(*Text.ToString(), Font, XScale, YScale, HorizSpacingAdjust, VerticalAlignment);
+		FTransform RelativeTransform = GetRelativeTransform();
 		FTransform CorrectionLeft = FTransform::Identity;
 		FTransform CorrectionRight = FTransform::Identity;
 		CorrectionLeft.SetTranslation(FVector(0.0f, 0.0f, -Offset));

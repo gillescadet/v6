@@ -26,8 +26,7 @@ UTextureRenderTarget::UTextureRenderTarget(const FObjectInitializer& ObjectIniti
 
 FTextureRenderTargetResource* UTextureRenderTarget::GetRenderTargetResource()
 {
-	check(IsInRenderingThread() || 
-		(IsInParallelRenderingThread() && (!Resource || Resource->IsInitialized()))); // we allow this in parallel, but only if the resource is initialized...otherwise it might be a race on intialization
+	check( IsInRenderingThread() );
 	FTextureRenderTargetResource* Result = NULL;
 	if( Resource &&
 		Resource->IsInitialized() )
@@ -72,8 +71,6 @@ bool FTextureRenderTargetResource::IsSupportedFormat( EPixelFormat Format )
 	case PF_A16B16G16R16:
 	case PF_FloatRGB:
 	case PF_FloatRGBA: // for exporting materials to .obj/.mtl
-	case PF_A2B10G10R10: //Pixel inspector for normal buffer
-	case PF_DepthStencil: //Pixel inspector for depth and stencil buffer
 		return true;
 	default:
 		return false;

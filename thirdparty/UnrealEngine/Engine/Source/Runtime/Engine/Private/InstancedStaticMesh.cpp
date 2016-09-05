@@ -7,12 +7,10 @@
 #include "EnginePrivate.h"
 #include "NavigationSystemHelpers.h"
 #include "AI/Navigation/NavCollision.h"
-#include "AI/NavigationOctree.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "InstancedStaticMesh.h"
 #include "../../Renderer/Private/ScenePrivate.h"
 #include "PhysicsSerializer.h"
-#include "PhysicsEngine/BodySetup.h"
 
 const int32 InstancedStaticMeshMaxTexCoord = 8;
 
@@ -74,14 +72,14 @@ void FStaticMeshInstanceBuffer::Init(UInstancedStaticMeshComponent* InComponent,
 	bool bUseRemapTable = InComponent->PerInstanceSMData.Num() == InComponent->InstanceReorderTable.Num();
 
 	int32 NumRealInstances = InComponent->PerInstanceSMData.Num();
-	int32 NumRenderInstances = InComponent->GetNumRenderInstances();
+	int32 NumRemoved = InComponent->RemovedInstances.Num();
 
 	// Allocate the vertex data storage type.
 	AllocateData();
 
 	SetupCPUAccess(InComponent);
 
-	NumInstances = NumRenderInstances;
+	NumInstances = NumRealInstances + NumRemoved;
 	InstanceData->AllocateInstances(NumInstances);
 
 	// Setup our random number generator such that random values are generated consistently for any
@@ -92,16 +90,12 @@ void FStaticMeshInstanceBuffer::Init(UInstancedStaticMeshComponent* InComponent,
 	{
 		const FInstancedStaticMeshInstanceData& Instance = InComponent->PerInstanceSMData[InstanceIndex];
 		const int32 DestInstanceIndex = bUseRemapTable ? InComponent->InstanceReorderTable[InstanceIndex] : InstanceIndex;
-		if (DestInstanceIndex != INDEX_NONE)
-		{
-			InstanceData->SetInstance(DestInstanceIndex, Instance.Transform, RandomStream.GetFraction(), Instance.LightmapUVBias, Instance.ShadowmapUVBias);
-		}
+		InstanceData->SetInstance(DestInstanceIndex, Instance.Transform, RandomStream.GetFraction(), Instance.LightmapUVBias, Instance.ShadowmapUVBias);
 	}
 
 	SetPerInstanceEditorData(InComponent, InHitProxies);
 
 	// Hide any removed instances
-	int32 NumRemoved = InComponent->RemovedInstances.Num();
 	if (NumRemoved)
 	{
 		check(bUseRemapTable);
@@ -147,10 +141,7 @@ void FStaticMeshInstanceBuffer::SetPerInstanceEditorData(UInstancedStaticMeshCom
 			// Record if the instance is selected
 			bool bSelected = InstanceIndex < InComponent->SelectedInstances.Num() && InComponent->SelectedInstances[InstanceIndex];
 			const int32 DestInstanceIndex = bUseRemapTable ? InComponent->InstanceReorderTable[InstanceIndex] : InstanceIndex;
-			if (DestInstanceIndex != INDEX_NONE)
-			{
-				InstanceData->SetInstanceEditorData(DestInstanceIndex, HitProxyColor, bSelected);
-			}
+			InstanceData->SetInstanceEditorData(DestInstanceIndex, HitProxyColor, bSelected);
 		}
 	}
 #endif
@@ -222,7 +213,7 @@ void FInstancedStaticMeshVertexFactory::Copy(const FInstancedStaticMeshVertexFac
 	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
 		FInstancedStaticMeshVertexFactoryCopyData,
 		FInstancedStaticMeshVertexFactory*,VertexFactory,this,
-		const FDataType*,DataCopy,&Other.Data,
+		const DataType*,DataCopy,&Other.Data,
 	{
 		VertexFactory->Data = *DataCopy;
 	});
@@ -322,7 +313,7 @@ void FInstancedStaticMeshVertexFactory::InitRHI()
 	}
 
 	// we don't need per-vertex shadow or lightmap rendering
-	InitDeclaration(Elements);
+	InitDeclaration(Elements,Data);
 }
 
 
@@ -345,45 +336,26 @@ void FInstancedStaticMeshRenderData::InitStaticMeshVertexFactories(
 	{
 		const FStaticMeshLODResources* RenderData = &InstancedRenderData->LODModels[LODIndex];
 						
-		FInstancedStaticMeshVertexFactory::FDataType Data;
+		FInstancedStaticMeshVertexFactory::DataType Data;
 		Data.PositionComponent = FVertexStreamComponent(
 			&RenderData->PositionVertexBuffer,
 			STRUCT_OFFSET(FPositionVertex,Position),
 			RenderData->PositionVertexBuffer.GetStride(),
 			VET_Float3
 			);
-
-		uint32 TangentXOffset = 0;
-		uint32 TangetnZOffset = 0;
-		uint32 UVsBaseOffset = 0;
-
-		SELECT_STATIC_MESH_VERTEX_TYPE(
-			RenderData->VertexBuffer.GetUseHighPrecisionTangentBasis(),
-			RenderData->VertexBuffer.GetUseFullPrecisionUVs(),
-			RenderData->VertexBuffer.GetNumTexCoords(),
-			{
-				TangentXOffset = STRUCT_OFFSET(VertexType, TangentX);
-				TangetnZOffset = STRUCT_OFFSET(VertexType, TangentZ);
-				UVsBaseOffset = STRUCT_OFFSET(VertexType, UVs);
-			});
-
 		Data.TangentBasisComponents[0] = FVertexStreamComponent(
 			&RenderData->VertexBuffer,
-			TangentXOffset,
+			STRUCT_OFFSET(FStaticMeshFullVertex,TangentX),
 			RenderData->VertexBuffer.GetStride(),
-			RenderData->VertexBuffer.GetUseHighPrecisionTangentBasis() ?
-				TStaticMeshVertexTangentTypeSelector<EStaticMeshVertexTangentBasisType::HighPrecision>::VertexElementType : 
-				TStaticMeshVertexTangentTypeSelector<EStaticMeshVertexTangentBasisType::Default>::VertexElementType
+			VET_PackedNormal
 			);
-
 		Data.TangentBasisComponents[1] = FVertexStreamComponent(
 			&RenderData->VertexBuffer,
-			TangetnZOffset,
+			STRUCT_OFFSET(FStaticMeshFullVertex,TangentZ),
 			RenderData->VertexBuffer.GetStride(),
-			RenderData->VertexBuffer.GetUseHighPrecisionTangentBasis() ?
-				TStaticMeshVertexTangentTypeSelector<EStaticMeshVertexTangentBasisType::HighPrecision>::VertexElementType : 
-				TStaticMeshVertexTangentTypeSelector<EStaticMeshVertexTangentBasisType::Default>::VertexElementType
+			VET_PackedNormal
 			);
+
 
 		if( RenderData->ColorVertexBuffer.GetNumVertices() > 0 )
 		{
@@ -396,48 +368,73 @@ void FInstancedStaticMeshRenderData::InitStaticMeshVertexFactories(
 		}
 
 		Data.TextureCoordinates.Empty();
-
-		uint32 UVSizeInBytes = RenderData->VertexBuffer.GetUseFullPrecisionUVs() ?
-			sizeof(TStaticMeshVertexUVsTypeSelector<EStaticMeshVertexUVType::HighPrecision>::UVsTypeT) : sizeof(TStaticMeshVertexUVsTypeSelector<EStaticMeshVertexUVType::Default>::UVsTypeT);
-
-		EVertexElementType UVDoubleWideVertexElementType = RenderData->VertexBuffer.GetUseFullPrecisionUVs() ?
-			VET_Float4 : VET_Half4;
-
-		EVertexElementType UVVertexElementType = RenderData->VertexBuffer.GetUseFullPrecisionUVs() ?
-			VET_Float2 : VET_Half2;
-
 		// Only bind InstancedStaticMeshMaxTexCoord, even if the mesh has more.
 		int32 NumTexCoords = FMath::Min<int32>((int32)RenderData->VertexBuffer.GetNumTexCoords(), InstancedStaticMeshMaxTexCoord);
+		if( !RenderData->VertexBuffer.GetUseFullPrecisionUVs() )
+		{
+			int32 UVIndex;
+			for (UVIndex = 0; UVIndex < NumTexCoords - 1; UVIndex += 2)
+			{
+				Data.TextureCoordinates.Add(FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat16UVs<MAX_STATIC_TEXCOORDS>, UVs) + sizeof(FVector2DHalf)* UVIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Half4
+					));
+			}
+			// possible last UV channel if we have an odd number
+			if( UVIndex < NumTexCoords )
+			{
+				Data.TextureCoordinates.Add(FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat16UVs<MAX_STATIC_TEXCOORDS>,UVs) + sizeof(FVector2DHalf) * UVIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Half2
+					));
+			}
 
-		int32 UVIndex;
-		for (UVIndex = 0; UVIndex < NumTexCoords - 1; UVIndex += 2)
-		{
-			Data.TextureCoordinates.Add(FVertexStreamComponent(
-				&RenderData->VertexBuffer,
-				UVsBaseOffset + UVSizeInBytes * UVIndex,
-				RenderData->VertexBuffer.GetStride(),
-				UVDoubleWideVertexElementType
-				));
+			if (Parent->LightMapCoordinateIndex >= 0 && Parent->LightMapCoordinateIndex < NumTexCoords)
+			{
+				Data.LightMapCoordinateComponent = FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat16UVs<MAX_STATIC_TEXCOORDS>, UVs) + sizeof(FVector2DHalf)* Parent->LightMapCoordinateIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Half2
+					);
+			}
 		}
-		// possible last UV channel if we have an odd number
-		if( UVIndex < NumTexCoords )
+		else
 		{
-			Data.TextureCoordinates.Add(FVertexStreamComponent(
-				&RenderData->VertexBuffer,
-				UVsBaseOffset + UVSizeInBytes * UVIndex,
-				RenderData->VertexBuffer.GetStride(),
-				UVVertexElementType
-				));
-		}
+			int32 UVIndex;
+			for (UVIndex = 0; UVIndex < NumTexCoords - 1; UVIndex += 2)
+			{
+				Data.TextureCoordinates.Add(FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat32UVs<MAX_STATIC_TEXCOORDS>, UVs) + sizeof(FVector2D)* UVIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Float4
+					));
+			}
+			// possible last UV channel if we have an odd number
+			if (UVIndex < NumTexCoords)
+			{
+				Data.TextureCoordinates.Add(FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat32UVs<MAX_STATIC_TEXCOORDS>,UVs) + sizeof(FVector2D) * UVIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Float2
+					));
+			}
 
-		if (Parent->LightMapCoordinateIndex >= 0 && Parent->LightMapCoordinateIndex < NumTexCoords)
-		{
-			Data.LightMapCoordinateComponent = FVertexStreamComponent(
-				&RenderData->VertexBuffer,
-				UVsBaseOffset + UVSizeInBytes * Parent->LightMapCoordinateIndex,
-				RenderData->VertexBuffer.GetStride(),
-				UVVertexElementType
-				);
+			if (Parent->LightMapCoordinateIndex >= 0 && Parent->LightMapCoordinateIndex < NumTexCoords)
+			{
+				Data.LightMapCoordinateComponent = FVertexStreamComponent(
+					&RenderData->VertexBuffer,
+					STRUCT_OFFSET(TStaticMeshFullVertexFloat32UVs<InstancedStaticMeshMaxTexCoord>, UVs) + sizeof(FVector2D)* Parent->LightMapCoordinateIndex,
+					RenderData->VertexBuffer.GetStride(),
+					VET_Float2
+					);
+			}
 		}
 
 		if (bInstanced)
@@ -577,7 +574,6 @@ void FInstancedStaticMeshSceneProxy::GetDynamicMeshElements(const TArray<const F
 						{
 							//@todo-rco this is only supporting selection on the first element
 							MeshElement.Elements[0].UserData = PassUserData[SelectionGroupIndex];
-							MeshElement.Elements[0].bUserDataIsColorVertexBuffer = false;
 							MeshElement.bCanApplyViewModeOverrides = true;
 							MeshElement.bUseSelectionOutline = BatchRenderSelection[SelectionGroupIndex];
 							MeshElement.bUseWireframeSelectionColoring = BatchRenderSelection[SelectionGroupIndex];
@@ -625,7 +621,6 @@ void FInstancedStaticMeshSceneProxy::SetupInstancedMeshBatch(int32 LODIndex, int
 	const uint32 NumInstances = InstancedRenderData.PerInstanceRenderData->InstanceBuffer.GetNumInstances();
 	FMeshBatchElement& BatchElement0 = OutMeshBatch.Elements[0];
 	BatchElement0.UserData = (void*)&UserData_AllInstances;
-	BatchElement0.bUserDataIsColorVertexBuffer = false;
 	BatchElement0.InstancedLODIndex = LODIndex;
 	BatchElement0.UserIndex = 0;
 	BatchElement0.bIsInstancedMesh = bInstanced;
@@ -638,13 +633,13 @@ void FInstancedStaticMeshSceneProxy::SetupInstancedMeshBatch(int32 LODIndex, int
 	{
 		const uint32 MaxInstancesPerBatch = FInstancedStaticMeshVertexFactory::NumBitsForVisibilityMask();
 		const uint32 NumBatches = FMath::DivideAndRoundUp(NumInstances, MaxInstancesPerBatch);
-		uint32 InstanceIndex = BatchIndex * MaxInstancesPerBatch;
-		uint32 NumInstancesThisBatch = FMath::Min(NumInstances - InstanceIndex, MaxInstancesPerBatch);
-				
+		uint32 NumInstancesThisBatch = BatchIndex == NumBatches - 1 ? NumInstances % MaxInstancesPerBatch : MaxInstancesPerBatch;
+
+		OutMeshBatch.Elements.Reserve(NumInstancesThisBatch);
+
+		int32 InstanceIndex = BatchIndex * MaxInstancesPerBatch;
 		if (NumInstancesThisBatch > 0)
 		{
-			OutMeshBatch.Elements.Reserve(NumInstancesThisBatch);
-						
 			// BatchElement0 is already inside the array; but Reserve() might have shifted it
 			OutMeshBatch.Elements[0].UserIndex = InstanceIndex;
 			--NumInstancesThisBatch;
@@ -746,38 +741,7 @@ UInstancedStaticMeshComponent::UInstancedStaticMeshComponent(const FObjectInitia
 	BodyInstance.bSimulatePhysics = false;
 
 	PhysicsSerializer = ObjectInitializer.CreateDefaultSubobject<UPhysicsSerializer>(this, TEXT("PhysicsSerializer"));
-	bDisallowMeshPaintPerInstance = true;
 }
-
-
-int32 GetNumShapes(UBodySetup* BodySetup)
-{
-	int32 NumShapes = 1;
-	if (BodySetup)
-	{
-		NumShapes = FMath::Max(BodySetup->AggGeom.GetElementCount(), NumShapes);	//if there's no simple shapes we still have a trimesh so 1 is the min
-	}
-
-	return NumShapes;
-}
-
-int32 GetAggregateIndex(int32 BodyIndex, int32 NumShapes)
-{
-	const int32 BodiesPerBucket = AggregateMaxSize / NumShapes;
-	return BodyIndex / BodiesPerBucket;
-}
-
-int32 GetNumAggregates(int32 NumBodies, int32 NumShapes)
-{
-	if(NumShapes > AggregateMaxSize)
-	{
-		UE_LOG(LogPhysics, Warning, TEXT("Bodies inside foliage can only support up to 128 shapes (per body)"));
-	}
-	
-	const int32 BodiesPerBucket = AggregateMaxSize / NumShapes;
-	return FMath::DivideAndRoundUp<int32>(NumBodies, BodiesPerBucket);
-}
-
 
 #if WITH_EDITOR
 /** Helper class used to preserve lighting/selection state across blueprint reinstancing */
@@ -1011,7 +975,7 @@ void UInstancedStaticMeshComponent::InitInstanceBody(int32 InstanceIdx, FBodyIns
 #if WITH_PHYSX
 	// Create physics body instance.
 	// Aggregates aren't used for static objects
-	auto* Aggregate = (Mobility == EComponentMobility::Movable) ? Aggregates[GetAggregateIndex(InstanceIdx, GetNumShapes(BodySetup))] : nullptr;
+	auto* Aggregate = (Mobility == EComponentMobility::Movable) ? Aggregates[FMath::DivideAndRoundDown<int32>(InstanceIdx, AggregateMaxSize)] : nullptr;
 	InstanceBodyInstance->bAutoWeld = false;	//We don't support this for instanced meshes.
 	InstanceBodyInstance->InitBody(BodySetup, InstanceTransform, this, GetWorld()->GetPhysicsScene(), Aggregate);
 #endif //WITH_PHYSX
@@ -1035,7 +999,6 @@ void UInstancedStaticMeshComponent::CreateAllInstanceBodies()
 
 		TArray<FTransform> Transforms;
 	    Transforms.Reserve(NumBodies);
-		const int32 NumShapes = GetNumShapes(BodySetup);
     
 	    for (int32 i = 0; i < NumBodies; ++i)
 	    {
@@ -1059,7 +1022,7 @@ void UInstancedStaticMeshComponent::CreateAllInstanceBodies()
 
 				if (Mobility == EComponentMobility::Movable)
 				{
-					Instance->InitBody(BodySetup, InstanceTM, this, PhysScene, Aggregates[GetAggregateIndex(i, NumShapes)] );
+					Instance->InitBody(BodySetup, InstanceTM, this, PhysScene);
 				}
 				else
 				{
@@ -1111,7 +1074,7 @@ void UInstancedStaticMeshComponent::ClearAllInstanceBodies()
 }
 
 
-void UInstancedStaticMeshComponent::OnCreatePhysicsState()
+void UInstancedStaticMeshComponent::CreatePhysicsState()
 {
 	check(InstanceBodies.Num() == 0);
 
@@ -1126,9 +1089,9 @@ void UInstancedStaticMeshComponent::OnCreatePhysicsState()
 	check(Aggregates.Num() == 0);
 
 	const int32 NumBodies = PerInstanceSMData.Num();
-	const int32 NumShapes = GetNumShapes(GetBodySetup());
+
 	// Aggregates aren't used for static objects
-	const int32 NumAggregates = (Mobility == EComponentMobility::Movable) ? GetNumAggregates(NumBodies, NumShapes) : 0;
+	const int32 NumAggregates = (Mobility == EComponentMobility::Movable) ? FMath::DivideAndRoundUp<int32>(NumBodies, AggregateMaxSize) : 0;
 
 	// Get the scene type from the main BodyInstance
 	const uint32 SceneType = BodyInstance.UseAsyncScene(PhysScene) ? PST_Async : PST_Sync;
@@ -1146,10 +1109,10 @@ void UInstancedStaticMeshComponent::OnCreatePhysicsState()
 	// Create all the bodies.
 	CreateAllInstanceBodies();
 
-	USceneComponent::OnCreatePhysicsState();
+	USceneComponent::CreatePhysicsState();
 }
 
-void UInstancedStaticMeshComponent::OnDestroyPhysicsState()
+void UInstancedStaticMeshComponent::DestroyPhysicsState()
 {
 	int32 PSceneIndex = INDEX_NONE;
 	for(const FBodyInstance* BI : InstanceBodies)
@@ -1169,7 +1132,7 @@ void UInstancedStaticMeshComponent::OnDestroyPhysicsState()
 		}
 	}
 
-	USceneComponent::OnDestroyPhysicsState();
+	USceneComponent::DestroyPhysicsState();
 
 	// Release all physics representations
 	ClearAllInstanceBodies();
@@ -1223,7 +1186,7 @@ FBoxSphereBounds UInstancedStaticMeshComponent::CalcBounds(const FTransform& Bou
 #if WITH_EDITOR
 void UInstancedStaticMeshComponent::GetStaticLightingInfo(FStaticLightingPrimitiveInfo& OutPrimitiveInfo, const TArray<ULightComponent*>& InRelevantLights, const FLightingBuildOptions& Options)
 {
-	if (HasValidSettingsForStaticLighting(false))
+	if (HasValidSettingsForStaticLighting())
 	{
 		// create static lighting for LOD 0
 		int32 LightMapWidth = 0;
@@ -1533,25 +1496,7 @@ bool UInstancedStaticMeshComponent::GetInstanceTransform(int32 InstanceIndex, FT
 	return true;
 }
 
-void UInstancedStaticMeshComponent::OnUpdateTransform(EUpdateTransformFlags UpdateTransformFlags, ETeleportType Teleport)
-{
-	// We are handling the physics move below, so don't handle it at higher levels
-	Super::OnUpdateTransform(UpdateTransformFlags | EUpdateTransformFlags::SkipPhysicsUpdate, Teleport);
-
-	const bool bTeleport = TeleportEnumToFlag(Teleport);
-
-	// Always send new transform to physics
-	if (bPhysicsStateCreated && !(EUpdateTransformFlags::SkipPhysicsUpdate & UpdateTransformFlags))
-	{
-		for (int32 i = 0; i < PerInstanceSMData.Num(); i++)
-		{
-			const FTransform InstanceTransform(PerInstanceSMData[i].Transform);
-			UpdateInstanceTransform(i, InstanceTransform * ComponentToWorld, /* bWorldSpace= */true, /* bMarkRenderStateDirty= */false, bTeleport);
-		}
-	}
-}
-
-bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace, bool bMarkRenderStateDirty, bool bTeleport)
+bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex, const FTransform& NewInstanceTransform, bool bWorldSpace, bool bMarkRenderStateDirty)
 {
 	if (!PerInstanceSMData.IsValidIndex(InstanceIndex))
 	{
@@ -1563,9 +1508,6 @@ bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex,
 
 	FInstancedStaticMeshInstanceData& InstanceData = PerInstanceSMData[InstanceIndex];
 
-    // TODO: Computing LocalTransform is useless when we're updating the world location for the entire mesh.
-	// Should find some way around this for performance.
-    
 	// Render data uses local transform of the instance
 	FTransform LocalTransform = bWorldSpace ? NewInstanceTransform.GetRelativeTransform(ComponentToWorld) : NewInstanceTransform;
 	InstanceData.Transform = LocalTransform.ToMatrixWithScale();
@@ -1591,7 +1533,7 @@ bool UInstancedStaticMeshComponent::UpdateInstanceTransform(int32 InstanceIndex,
 			if (InstanceBodyInstance)
 			{
 				// Update existing BodyInstance
-				InstanceBodyInstance->SetBodyTransform(WorldTransform, TeleportFlagToEnum(bTeleport));
+				InstanceBodyInstance->SetBodyTransform(WorldTransform, ETeleportType::None);
 				InstanceBodyInstance->UpdateBodyScale(WorldTransform.GetScale3D());
 			}
 			else
@@ -1635,32 +1577,6 @@ TArray<int32> UInstancedStaticMeshComponent::GetInstancesOverlappingSphere(const
 		FSphere InstanceSphere(Matrix.GetOrigin(), StaticMeshBoundsRadius * Matrix.GetScaleVector().GetMax());
 
 		if (Sphere.Intersects(InstanceSphere))
-		{
-			Result.Add(Index);
-		}
-	}
-
-	return Result;
-}
-
-TArray<int32> UInstancedStaticMeshComponent::GetInstancesOverlappingBox(const FBox& InBox, bool bBoxInWorldSpace) const
-{
-	TArray<int32> Result;
-
-	FBox Box(InBox);
-	if (bBoxInWorldSpace)
-	{
-		Box = Box.TransformBy(ComponentToWorld.Inverse());
-	}
-
-	FVector StaticMeshBoundsExtent = StaticMesh->GetBounds().BoxExtent;
-
-	for (int32 Index = 0; Index < PerInstanceSMData.Num(); Index++)
-	{
-		const FMatrix& Matrix = PerInstanceSMData[Index].Transform;
-		FBox InstanceBox(Matrix.GetOrigin() - StaticMeshBoundsExtent, Matrix.GetOrigin() + StaticMeshBoundsExtent);
-
-		if (Box.Intersect(InstanceBox))
 		{
 			Result.Add(Index);
 		}
@@ -1718,8 +1634,7 @@ void UInstancedStaticMeshComponent::SetupNewInstanceData(FInstancedStaticMeshIns
 		// Aggregates aren't used for static objects
 		if (Mobility == EComponentMobility::Movable)
 		{
-			const int32 NumShapes = GetNumShapes(GetBodySetup());
-			const int32 AggregateIndex = GetAggregateIndex(InInstanceIndex, NumShapes);
+			const int32 AggregateIndex = FMath::DivideAndRoundDown<int32>(InInstanceIndex, AggregateMaxSize);
 			if (AggregateIndex >= Aggregates.Num())
 			{
 				// Get the scene type from the main BodyInstance
@@ -1907,28 +1822,26 @@ bool UInstancedStaticMeshComponent::IsInstanceSelected(int32 InInstanceIndex) co
 void UInstancedStaticMeshComponent::SelectInstance(bool bInSelected, int32 InInstanceIndex, int32 InInstanceCount)
 {
 #if WITH_EDITOR
-	if (InInstanceCount > 0)
+	if(PerInstanceSMData.Num() != SelectedInstances.Num())
 	{
-		if (PerInstanceSMData.Num() != SelectedInstances.Num())
-		{
-			SelectedInstances.Init(false, PerInstanceSMData.Num());
-		}
-
-		check(SelectedInstances.IsValidIndex(InInstanceIndex));
-		check(SelectedInstances.IsValidIndex(InInstanceIndex + (InInstanceCount - 1)));
-
-		for (int32 InstanceIndex = InInstanceIndex; InstanceIndex < InInstanceIndex + InInstanceCount; InstanceIndex++)
-		{
-			SelectedInstances[InstanceIndex] = bInSelected;
-		}
+		SelectedInstances.Init(false, PerInstanceSMData.Num());
 	}
+
+	check(SelectedInstances.IsValidIndex(InInstanceIndex));
+	check(SelectedInstances.IsValidIndex(InInstanceIndex + (InInstanceCount - 1)));
+
+	for (int32 InstanceIndex = InInstanceIndex; InstanceIndex < InInstanceIndex + InInstanceCount; InstanceIndex++)
+	{
+		SelectedInstances[InstanceIndex] = bInSelected;
+	}
+
 	SelectionStamp++;
 #endif
 }
 
 void UInstancedStaticMeshComponent::ClearInstanceSelection()
 {
-#if WITH_EDITOR
+#if WITH_EDITOR	
 	SelectedInstances.Empty();
 	SelectionStamp++;
 #endif
@@ -2092,8 +2005,7 @@ void FInstancedStaticMeshVertexFactoryShaderParameters::SetMesh( FRHICommandList
 		{
 			const float ShortScale = 1.0f / 32767.0f;
 			auto* InstancingData = (const FInstancingUserData*)BatchElement.UserData;
-			check(InstancingData);
-
+						
 			FVector4 InstanceTransform[3];
 			FVector4 InstanceLightmapAndShadowMapUVBias;
 			FVector4 InstanceOrigin;

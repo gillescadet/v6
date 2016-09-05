@@ -7,14 +7,9 @@ public class PacketHandler : ModuleRules
 {
     public PacketHandler(TargetInfo Target)
     {
-		PrivateIncludePaths.Add("PacketHandler/Private");
-
-        PublicDependencyModuleNames.AddRange
-		(
-            new string[]
-			{
+        PublicDependencyModuleNames.AddRange(
+            new string[] {
 				"Core",
-				"CoreUObject",
                 "ReliabilityHandlerComponent",
             }
         );

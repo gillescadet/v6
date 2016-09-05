@@ -7,7 +7,7 @@
 #include "Matinee/InterpGroupInst.h"
 #include "SubtitleManager.h"
 #include "Net/UnrealNetwork.h"
-#include "Net/OnlineEngineInterface.h"
+#include "OnlineSubsystemUtils.h"
 #include "PhysicsPublic.h"
 
 #include "RenderCore.h"
@@ -27,7 +27,7 @@
 
 DEFINE_LOG_CATEGORY(LogPlayerManagement);
 
-#if !UE_BUILD_SHIPPING
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 
 static TAutoConsoleVariable<int32> CVarViewportTest(
 	TEXT("r.ViewportTest"),
@@ -37,7 +37,7 @@ static TAutoConsoleVariable<int32> CVarViewportTest(
 	TEXT("1..7: Various Configuations"),
 	ECVF_RenderThreadSafe);
 
-#endif // !UE_BUILD_SHIPPING
+#endif
 
 DECLARE_CYCLE_STAT(TEXT("CalcSceneView"), STAT_CalcSceneView, STATGROUP_Engine);
 
@@ -184,6 +184,11 @@ void ULocalPlayer::PostInitProperties()
 			StereoViewState.Allocate();
 		}
 	}
+
+	if (!HasAnyFlags(RF_ClassDefaultObject))
+	{	
+		FCoreDelegates::OnControllerConnectionChange.AddUObject(this, &ULocalPlayer::HandleControllerConnectionChange);
+	}
 }
 
 void ULocalPlayer::PlayerAdded(UGameViewportClient* InViewportClient, int32 InControllerID)
@@ -223,7 +228,7 @@ bool ULocalPlayer::SpawnPlayActor(const FString& URL,FString& OutError, UWorld* 
 		}
 
 		// Get player unique id
-		FUniqueNetIdRepl UniqueId(GetPreferredUniqueNetId());
+		TSharedPtr<const FUniqueNetId> UniqueId = GetPreferredUniqueNetId();
 
 		PlayerController = InWorld->SpawnPlayActor(this, ROLE_SimulatedProxy, PlayerURL, UniqueId, OutError, GEngine->GetGamePlayers(InWorld).Find(this));
 	}
@@ -304,6 +309,12 @@ void ULocalPlayer::SendSplitJoin()
 			bSentSplitJoin = true;
 		}
 	}
+}
+
+void ULocalPlayer::BeginDestroy()
+{
+	FCoreDelegates::OnControllerConnectionChange.RemoveAll(this);
+	Super::BeginDestroy();
 }
 
 void ULocalPlayer::FinishDestroy()
@@ -638,36 +649,44 @@ void ULocalPlayer::GetViewPoint(FMinimalViewInfo& OutViewInfo, EStereoscopicPass
 			//OutViewInfo.bConstrainAspectRatio = true;
         }
     }
-
-	for (int ViewExt = 0; ViewExt < GEngine->ViewExtensions.Num(); ViewExt++)
-	{
-		GEngine->ViewExtensions[ViewExt]->SetupViewPoint(PlayerController, OutViewInfo);
-	}
 }
 
-bool ULocalPlayer::CalcSceneViewInitOptions(
-	struct FSceneViewInitOptions& ViewInitOptions,
-	FViewport* Viewport,
+FSceneView* ULocalPlayer::CalcSceneView( class FSceneViewFamily* ViewFamily, 
+	FVector& OutViewLocation, 
+	FRotator& OutViewRotation, 
+	FViewport* Viewport, 
 	class FViewElementDrawer* ViewDrawer,
 	EStereoscopicPass StereoPass)
 {
-	QUICK_SCOPE_CYCLE_COUNTER(STAT_CalcSceneViewInitOptions);
+	SCOPE_CYCLE_COUNTER(STAT_CalcSceneView);
+
 	if ((PlayerController == NULL) || (Size.X <= 0.f) || (Size.Y <= 0.f) || (Viewport == NULL))
 	{
-		return false;
+		return NULL;
 	}
+
+	FSceneViewInitOptions ViewInitOptions;
+
 	// get the projection data
 	if (GetProjectionData(Viewport, StereoPass, /*inout*/ ViewInitOptions) == false)
 	{
 		// Return NULL if this we didn't get back the info we needed
-		return false;
+		return NULL;
 	}
-
+	
 	// return if we have an invalid view rect
 	if (!ViewInitOptions.IsValidViewRectangle())
 	{
-		return false;
+		return NULL;
 	}
+
+	// Get the viewpoint...technically doing this twice
+	// but it makes GetProjectionData better
+	FMinimalViewInfo ViewInfo;
+	GetViewPoint(ViewInfo, StereoPass);
+	
+	OutViewLocation = ViewInfo.Location;
+	OutViewRotation = ViewInfo.Rotation;
 
 	if (PlayerController->PlayerCameraManager != NULL)
 	{
@@ -675,7 +694,7 @@ bool ULocalPlayer::CalcSceneViewInitOptions(
 		if (PlayerController->PlayerCameraManager->bEnableFading)
 		{
 			ViewInitOptions.OverlayColor = PlayerController->PlayerCameraManager->FadeColor;
-			ViewInitOptions.OverlayColor.A = FMath::Clamp(PlayerController->PlayerCameraManager->FadeAmount, 0.0f, 1.0f);
+			ViewInitOptions.OverlayColor.A = FMath::Clamp(PlayerController->PlayerCameraManager->FadeAmount,0.0f,1.0f);
 		}
 
 		// Do color scaling if desired.
@@ -691,8 +710,11 @@ bool ULocalPlayer::CalcSceneViewInitOptions(
 		// Was there a camera cut this frame?
 		ViewInitOptions.bInCameraCut = PlayerController->PlayerCameraManager->bGameCameraCutThisFrame;
 	}
-
+	
 	check(PlayerController && PlayerController->GetWorld());
+
+	// Fill out the rest of the view init options
+	ViewInitOptions.ViewFamily = ViewFamily;
 	ViewInitOptions.SceneViewStateInterface = ((StereoPass != eSSP_RIGHT_EYE) ? ViewState.GetReference() : StereoViewState.GetReference());
 	ViewInitOptions.ViewActor = PlayerController->GetViewTarget();
 	ViewInitOptions.ViewElementDrawer = ViewDrawer;
@@ -702,42 +724,8 @@ bool ULocalPlayer::CalcSceneViewInitOptions(
 	ViewInitOptions.WorldToMetersScale = PlayerController->GetWorldSettings()->WorldToMeters;
 	ViewInitOptions.CursorPos = Viewport->HasMouseCapture() ? FIntPoint(-1, -1) : FIntPoint(Viewport->GetMouseX(), Viewport->GetMouseY());
 	ViewInitOptions.bOriginOffsetThisFrame = PlayerController->GetWorld()->bOriginOffsetThisFrame;
-
-	return true;
-}
-
-
-FSceneView* ULocalPlayer::CalcSceneView( class FSceneViewFamily* ViewFamily, 
-	FVector& OutViewLocation, 
-	FRotator& OutViewRotation, 
-	FViewport* Viewport, 
-	class FViewElementDrawer* ViewDrawer,
-	EStereoscopicPass StereoPass)
-{
-	SCOPE_CYCLE_COUNTER(STAT_CalcSceneView);
-
-	FSceneViewInitOptions ViewInitOptions;
-
-	if (!CalcSceneViewInitOptions(ViewInitOptions, Viewport, ViewDrawer, StereoPass))
-	{
-		return nullptr;
-	}
-
-	// Get the viewpoint...technically doing this twice
-	// but it makes GetProjectionData better
-	FMinimalViewInfo ViewInfo;
-	GetViewPoint(ViewInfo, StereoPass);
-	OutViewLocation = ViewInfo.Location;
-	OutViewRotation = ViewInfo.Rotation;
 	ViewInitOptions.bUseFieldOfViewForLOD = ViewInfo.bUseFieldOfViewForLOD;
-
-	// Fill out the rest of the view init options
-	ViewInitOptions.ViewFamily = ViewFamily;
-
-	{
-		QUICK_SCOPE_CYCLE_COUNTER(STAT_BuildHiddenComponentList);
-		PlayerController->BuildHiddenComponentList(OutViewLocation, /*out*/ ViewInitOptions.HiddenPrimitives);
-	}
+	PlayerController->BuildHiddenComponentList(OutViewLocation, /*out*/ ViewInitOptions.HiddenPrimitives);
 
 	FSceneView* const View = new FSceneView(ViewInitOptions);
 	
@@ -1030,6 +1018,27 @@ bool ULocalPlayer::HandleExitCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 	return true;
 }
 
+bool ULocalPlayer::HandlePauseCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld )
+{
+	Super::Exec(InWorld, TEXT("Pause"),Ar);
+
+	if (!InWorld->IsPaused())
+	{
+		if (ViewportClient && ViewportClient->Viewport)
+		{
+			ViewportClient->Viewport->SetUserFocus(true);
+			ViewportClient->Viewport->CaptureMouse(true);
+		}
+	}
+	else
+	{
+		FSlateApplication::Get().ResetToDefaultInputSettings();
+	}
+	
+
+	return true;
+}
+
 bool ULocalPlayer::HandleListMoveBodyCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
 	GShouldLogOutAFrameOfSetBodyTransform = true;
@@ -1157,7 +1166,7 @@ bool ULocalPlayer::HandleExecCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 
 bool ULocalPlayer::HandleToggleDrawEventsCommand( const TCHAR* Cmd, FOutputDevice& Ar )
 {
-#if WITH_PROFILEGPU
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if( GEmitDrawEvents )
 	{
 		GEmitDrawEvents = false;
@@ -1260,7 +1269,8 @@ bool ULocalPlayer::Exec(UWorld* InWorld, const TCHAR* Cmd,FOutputDevice& Ar)
 			return HandleDNCommand( Cmd, Ar );
 		}
 
-		if( FParse::Command(&Cmd,TEXT("Exit")) 
+		if( FParse::Command(&Cmd,TEXT("CloseEditorViewport")) 
+		||	FParse::Command(&Cmd,TEXT("Exit")) 
 		||	FParse::Command(&Cmd,TEXT("Quit")))
 		{
 			return HandleExitCommand( Cmd, Ar );
@@ -1277,6 +1287,10 @@ bool ULocalPlayer::Exec(UWorld* InWorld, const TCHAR* Cmd,FOutputDevice& Ar)
 			return true;
 		}
 
+		if( FParse::Command(&Cmd,TEXT("Pause") ))
+		{
+			return HandlePauseCommand( Cmd, Ar, InWorld );
+		}
 	}
 #endif // WITH_EDITOR
 
@@ -1312,14 +1326,6 @@ bool ULocalPlayer::Exec(UWorld* InWorld, const TCHAR* Cmd,FOutputDevice& Ar)
 		}
 		return true;
 	}
-	else if (FParse::Command(&Cmd, TEXT("r.ResetViewState")))
-	{
-		// Reset some state (e.g. TemporalAA index) to make rendering more deterministic (for automated screenshot verification)
-		FSceneViewStateInterface* Ref = ViewState.GetReference();
-
-		Ref->ResetViewState();
-		return true;
-	}
 #if WITH_PHYSX
 	// This will list all awake rigid bodies
 	else if( FParse::Command(&Cmd,TEXT("LISTAWAKEBODIES")) )
@@ -1348,7 +1354,7 @@ bool ULocalPlayer::Exec(UWorld* InWorld, const TCHAR* Cmd,FOutputDevice& Ar)
 	{
 		return HandleExecCommand( Cmd, Ar );
 	}
-#if WITH_PROFILEGPU
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	else if( FParse::Command(&Cmd,TEXT("TOGGLEDRAWEVENTS")) )
 	{
 		return HandleToggleDrawEventsCommand( Cmd, Ar );
@@ -1405,6 +1411,22 @@ void ULocalPlayer::ExecMacro( const TCHAR* Filename, FOutputDevice& Ar )
 	}
 }
 
+void ULocalPlayer::HandleControllerConnectionChange(bool bConnected, int32 InUserId, int32 InControllerId)
+{
+	// if this is an event for this LocalPlayer
+	if (InControllerId == ControllerId)
+	{
+		// if we lost the connection we need to flush all the keys on the PlayerInput to avoid the PC spinning in place, or firing forever, etc.
+		if (!bConnected)
+		{		
+			if (PlayerController && PlayerController->PlayerInput)
+			{
+				PlayerController->PlayerInput->FlushPressedKeys();	
+			}
+		}
+	}
+}
+
 void ULocalPlayer::SetControllerId( int32 NewControllerId )
 {
 	if ( ControllerId != NewControllerId )
@@ -1425,20 +1447,32 @@ void ULocalPlayer::SetControllerId( int32 NewControllerId )
 
 FString ULocalPlayer::GetNickname() const
 {
+	// Try to get platform identity first
+	IOnlineSubsystem* PlatformSubsystem = IOnlineSubsystem::GetByPlatform(false);
+	if (PlatformSubsystem)
+	{
+		IOnlineIdentityPtr OnlineIdentityInt = PlatformSubsystem->GetIdentityInterface();
+		if (OnlineIdentityInt.IsValid())
+		{
+			FString PlayerNickname = OnlineIdentityInt->GetPlayerNickname(ControllerId);
+			if (!PlayerNickname.IsEmpty())
+			{
+				return PlayerNickname;
+			}
+		}
+	}
+
 	UWorld* World = GetWorld();
 	if (World != NULL)
 	{
-		// Try to get platform identity first
-		FString PlatformNickname;
-		if (UOnlineEngineInterface::Get()->GetPlayerPlatformNickname(World, ControllerId, PlatformNickname))
+		IOnlineIdentityPtr OnlineIdentityInt = Online::GetIdentityInterface(World);
+		if (OnlineIdentityInt.IsValid())
 		{
-			return PlatformNickname;
-		}
-
-		auto UniqueId = GetPreferredUniqueNetId();
-		if (UniqueId.IsValid())
-		{
-			return UOnlineEngineInterface::Get()->GetPlayerNickname(World, *UniqueId);
+			auto UniqueId = GetPreferredUniqueNetId();
+			if (UniqueId.IsValid())
+			{
+				return OnlineIdentityInt->GetPlayerNickname(*UniqueId);
+			}
 		}
 	}
 
@@ -1448,12 +1482,20 @@ FString ULocalPlayer::GetNickname() const
 TSharedPtr<const FUniqueNetId> ULocalPlayer::GetUniqueNetIdFromCachedControllerId() const
 {
 	UWorld* World = GetWorld();
-	if (World != nullptr)
-	{		
-		return UOnlineEngineInterface::Get()->GetUniquePlayerId(World, ControllerId);
+	if (World != NULL)
+	{
+		IOnlineIdentityPtr OnlineIdentityInt = Online::GetIdentityInterface(World);
+		if (OnlineIdentityInt.IsValid())
+		{
+			TSharedPtr<const FUniqueNetId> UniqueId = OnlineIdentityInt->GetUniquePlayerId(ControllerId);
+			if (UniqueId.IsValid())
+			{
+				return UniqueId;
+			}
+		}
 	}
 
-	return nullptr;
+	return NULL;
 }
 
 TSharedPtr<const FUniqueNetId> ULocalPlayer::GetCachedUniqueNetId() const

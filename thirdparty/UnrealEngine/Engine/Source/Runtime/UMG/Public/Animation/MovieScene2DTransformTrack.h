@@ -18,8 +18,6 @@ class UMovieScene2DTransformTrack : public UMovieScenePropertyTrack
 
 public:
 
-	UMovieScene2DTransformTrack(const FObjectInitializer& ObjectInitializer);
-	
 	// UMovieSceneTrack interface
 
 	virtual UMovieSceneSection* CreateNewSection() override;

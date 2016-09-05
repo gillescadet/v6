@@ -61,14 +61,14 @@ void APhysicsVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		if ((EndPlayReason == EEndPlayReason::RemovedFromWorld) || (EndPlayReason == EEndPlayReason::Destroyed))
 		{
 			// Prevent UpdatePhysicsVolume() calls below from returning this component.
-			UPrimitiveComponent* VolumeBrushComponent = GetBrushComponent();
-			const bool bSavedGenerateOverlapEvents = VolumeBrushComponent->bGenerateOverlapEvents;
-			VolumeBrushComponent->bGenerateOverlapEvents = false;
+			UPrimitiveComponent* Brush = GetBrushComponent();
+			const bool bSavedGenerateOverlapEvents = Brush->bGenerateOverlapEvents;
+			Brush->bGenerateOverlapEvents = false;
 
 			// Refresh physics volume on any components touching this volume.
 			// TODO: Physics volume tracking code needs a cleanup, ideally it just uses normal begin/end overlap events,
 			// but there are subtleties with the stacking and priority rules.
-			const TArray<FOverlapInfo>& Overlaps = VolumeBrushComponent->GetOverlapInfos();
+			const TArray<FOverlapInfo>& Overlaps = Brush->GetOverlapInfos();
 			for (const FOverlapInfo& Info : Overlaps)
 			{
 				UPrimitiveComponent* OtherPrim = Info.OverlapInfo.GetComponent();
@@ -79,7 +79,7 @@ void APhysicsVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			}
 
 			// Restore saved flag, since we may stream back in.
-			VolumeBrushComponent->bGenerateOverlapEvents = bSavedGenerateOverlapEvents;
+			Brush->bGenerateOverlapEvents = bSavedGenerateOverlapEvents;
 		}
 	}
 	Super::EndPlay(EndPlayReason);
@@ -92,21 +92,9 @@ bool APhysicsVolume::IsOverlapInVolume(const class USceneComponent& TestComponen
 	if (!bPhysicsOnContact)
 	{
 		FVector ClosestPoint(0.f);
-		// If there is no primitive component as root we consider you inside the volume. This is odd, but the behavior 
-		// has existed for a long time, so keeping it this way
 		UPrimitiveComponent* RootPrimitive = Cast<UPrimitiveComponent>(GetRootComponent());
-		if (RootPrimitive)
-		{
-			float DistToCollisionSqr = -1.f;
-			if (RootPrimitive->GetSquaredDistanceToCollision(TestComponent.GetComponentLocation(), DistToCollisionSqr, ClosestPoint))
-			{
-				bInsideVolume = (DistToCollisionSqr == 0.f);
-			}
-			else
-			{
-				bInsideVolume = false;
-			}
-		}
+		const float DistToCollision = RootPrimitive ? RootPrimitive->GetDistanceToCollision(TestComponent.GetComponentLocation(), ClosestPoint) : 0.f;
+		bInsideVolume = (DistToCollision == 0.f);
 	}
 
 	return bInsideVolume;

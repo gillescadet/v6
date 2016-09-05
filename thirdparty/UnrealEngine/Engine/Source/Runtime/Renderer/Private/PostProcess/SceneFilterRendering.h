@@ -23,7 +23,6 @@
  * TextureSize                  Size in texels of the source texture
  * VertexShader					The vertex shader used for rendering
  * Flags						see EDrawRectangleFlags
- * InstanceCount				Number of instances of rectangle
  */
 extern void DrawRectangle(
 	FRHICommandList& RHICmdList,
@@ -38,8 +37,7 @@ extern void DrawRectangle(
 	FIntPoint TargetSize,
 	FIntPoint TextureSize,
 	class FShader* VertexShader,
-	EDrawRectangleFlags Flags = EDRF_Default,
-	uint32 InstanceCount = 1
+	EDrawRectangleFlags Flags = EDRF_Default
 	);
 
 extern void DrawTransformedRectangle(

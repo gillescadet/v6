@@ -19,12 +19,11 @@ UEnvQueryTest_Project::UEnvQueryTest_Project(const FObjectInitializer& ObjectIni
 
 void UEnvQueryTest_Project::RunTest(FEnvQueryInstance& QueryInstance) const
 {
-	UObject* QueryOwner = QueryInstance.Owner.Get();
-	BoolValue.BindData(QueryOwner, QueryInstance.QueryID);
+	BoolValue.BindData(QueryInstance.Owner.Get(), QueryInstance.QueryID);
 	bool bWantsProjected = BoolValue.GetValue();
 
 	UEnvQueryItemType_Point* ItemTypeCDO = QueryInstance.ItemType->GetDefaultObject<UEnvQueryItemType_Point>();
-	if (ItemTypeCDO == nullptr || QueryOwner == nullptr)
+	if (ItemTypeCDO == nullptr)
 	{
 		return;
 	}
@@ -34,7 +33,7 @@ void UEnvQueryTest_Project::RunTest(FEnvQueryInstance& QueryInstance) const
 		const ANavigationData* NavData = FEQSHelpers::FindNavigationDataForQuery(QueryInstance);
 		if (NavData)
 		{
-			FSharedConstNavQueryFilter NavigationFilter = UNavigationQueryFilter::GetQueryFilter(*NavData, QueryOwner, ProjectionData.NavigationFilter);
+			FSharedConstNavQueryFilter NavigationFilter = UNavigationQueryFilter::GetQueryFilter(*NavData, ProjectionData.NavigationFilter);
 			TArray<FNavigationProjectionWork> Workload;
 			Workload.Reserve(QueryInstance.Items.Num());
 

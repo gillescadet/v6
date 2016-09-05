@@ -4,8 +4,6 @@
 #include "EnginePrivate.h"
 #include "AutomationCommon.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
-
 DEFINE_LOG_CATEGORY_STATIC(LogNetworkAutomationTests, Log, All);
 
 
@@ -81,5 +79,3 @@ bool FMultiplayer4PlayerTest::RunTest(const FString& Parameters)
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

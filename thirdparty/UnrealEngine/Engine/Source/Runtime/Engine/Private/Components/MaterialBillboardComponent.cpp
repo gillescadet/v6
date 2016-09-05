@@ -35,41 +35,41 @@ public:
 
 	FMaterialSpriteVertexFactory()
 	{
-		FLocalVertexFactory::FDataType VertexData;
+		FLocalVertexFactory::DataType Data;
 
-		VertexData.PositionComponent = FVertexStreamComponent(
+		Data.PositionComponent = FVertexStreamComponent(
 			&GDummyMaterialSpriteVertexBuffer,
 			STRUCT_OFFSET(FMaterialSpriteVertex,Position),
 			sizeof(FMaterialSpriteVertex),
 			VET_Float3
 			);
-		VertexData.TangentBasisComponents[0] = FVertexStreamComponent(
+		Data.TangentBasisComponents[0] = FVertexStreamComponent(
 			&GDummyMaterialSpriteVertexBuffer,
 			STRUCT_OFFSET(FMaterialSpriteVertex,TangentX),
 			sizeof(FMaterialSpriteVertex),
 			VET_PackedNormal
 			);
-		VertexData.TangentBasisComponents[1] = FVertexStreamComponent(
+		Data.TangentBasisComponents[1] = FVertexStreamComponent(
 			&GDummyMaterialSpriteVertexBuffer,
 			STRUCT_OFFSET(FMaterialSpriteVertex,TangentZ),
 			sizeof(FMaterialSpriteVertex),
 			VET_PackedNormal
 			);
-		VertexData.ColorComponent = FVertexStreamComponent(
+		Data.ColorComponent = FVertexStreamComponent(
 			&GDummyMaterialSpriteVertexBuffer,
 			STRUCT_OFFSET(FMaterialSpriteVertex,Color),
 			sizeof(FMaterialSpriteVertex),
 			VET_Color
 			);
-		VertexData.TextureCoordinates.Empty();
-		VertexData.TextureCoordinates.Add(FVertexStreamComponent(
+		Data.TextureCoordinates.Empty();
+		Data.TextureCoordinates.Add(FVertexStreamComponent(
 			&GDummyMaterialSpriteVertexBuffer,
 			STRUCT_OFFSET(FMaterialSpriteVertex,TexCoords),
 			sizeof(FMaterialSpriteVertex),
 			VET_Float2
 			));
 
-		SetData(VertexData);
+		SetData(Data);
 	}
 };
 static TGlobalResource<FMaterialSpriteVertexFactory> GMaterialSpriteVertexFactory;
@@ -302,16 +302,6 @@ void UMaterialBillboardComponent::AddElement(
 
 	MarkRenderStateDirty();
 }
-
-void UMaterialBillboardComponent::SetElements(const TArray<FMaterialSpriteElement>& NewElements)
-{
-	// Replace existing array
-	Elements = NewElements;
-
-	// Indicate scene proxy needs to be updated
-	MarkRenderStateDirty();
-}
-
 
 UMaterialInterface* UMaterialBillboardComponent::GetMaterial(int32 Index) const
 {

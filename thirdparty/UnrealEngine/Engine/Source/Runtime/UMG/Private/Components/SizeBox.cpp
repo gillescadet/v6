@@ -13,7 +13,6 @@ USizeBox::USizeBox(const FObjectInitializer& ObjectInitializer)
 {
 	bIsVariable = false;
 	Visibility = ESlateVisibility::SelfHitTestInvisible;
-	MaxAspectRatio = 1;
 }
 
 void USizeBox::ReleaseSlateResources(bool bReleaseChildren)
@@ -149,25 +148,6 @@ void USizeBox::ClearMaxDesiredHeight()
 	}
 }
 
-void USizeBox::SetMaxAspectRatio(float InMaxAspectRatio)
-{
-	bOverride_MaxAspectRatio = true;
-	MaxAspectRatio = InMaxAspectRatio;
-	if ( MySizeBox.IsValid() )
-	{
-		MySizeBox->SetMaxAspectRatio(InMaxAspectRatio);
-	}
-}
-
-void USizeBox::ClearMaxAspectRatio()
-{
-	bOverride_MaxAspectRatio = false;
-	if ( MySizeBox.IsValid() )
-	{
-		MySizeBox->SetMaxAspectRatio(FOptionalSize());
-	}
-}
-
 void USizeBox::SynchronizeProperties()
 {
 	Super::SynchronizeProperties();
@@ -225,15 +205,6 @@ void USizeBox::SynchronizeProperties()
 	{
 		ClearMaxDesiredHeight();
 	}
-
-	if ( bOverride_MaxAspectRatio )
-	{
-		SetMaxAspectRatio(MaxAspectRatio);
-	}
-	else
-	{
-		ClearMaxAspectRatio();
-	}
 }
 
 UClass* USizeBox::GetSlotClass() const
@@ -241,16 +212,16 @@ UClass* USizeBox::GetSlotClass() const
 	return USizeBoxSlot::StaticClass();
 }
 
-void USizeBox::OnSlotAdded(UPanelSlot* InSlot)
+void USizeBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live slot if it already exists
 	if ( MySizeBox.IsValid() )
 	{
-		CastChecked<USizeBoxSlot>(InSlot)->BuildSlot(MySizeBox.ToSharedRef());
+		Cast<USizeBoxSlot>(Slot)->BuildSlot(MySizeBox.ToSharedRef());
 	}
 }
 
-void USizeBox::OnSlotRemoved(UPanelSlot* InSlot)
+void USizeBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MySizeBox.IsValid() )
@@ -260,6 +231,11 @@ void USizeBox::OnSlotRemoved(UPanelSlot* InSlot)
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* USizeBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.SizeBox");
+}
 
 const FText USizeBox::GetPaletteCategory()
 {

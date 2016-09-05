@@ -26,7 +26,7 @@ UMovieSceneSection* UMovieSceneSlomoTrack::CreateNewSection()
 
 #if WITH_EDITORONLY_DATA
 
-FText UMovieSceneSlomoTrack::GetDefaultDisplayName() const
+FText UMovieSceneSlomoTrack::GetDisplayName() const
 {
 	return LOCTEXT("TrackName", "Play Rate");
 }

@@ -648,15 +648,15 @@ public:
 	
 	/** Immediately stops the given shake instance and invalidates it. */
 	UFUNCTION(BlueprintCallable, Category = "Camera Shakes")
-	virtual void StopCameraShake(class UCameraShake* ShakeInstance, bool bImmediately = true);
+	virtual void StopCameraShake(class UCameraShake* ShakeInstance);
 
 	/** Stops playing CameraShake of the given class. */
 	UFUNCTION(BlueprintCallable, Category = "Camera Shakes")
-	virtual void StopAllInstancesOfCameraShake(TSubclassOf<class UCameraShake> Shake, bool bImmediately = true);
+	virtual void StopAllInstancesOfCameraShake(TSubclassOf<class UCameraShake> Shake);
 
 	/** Stops all active camera shakes on this camera. */
 	UFUNCTION(BlueprintCallable, Category = "Camera Shakes")
-	virtual void StopAllCameraShakes(bool bImmediately = true);
+	virtual void StopAllCameraShakes();
 
 	//
 	//  CameraAnim fades.

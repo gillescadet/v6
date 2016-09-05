@@ -99,7 +99,7 @@ namespace
 /**
  * Curl implementation of an HTTP request
  */
-class FCurlHttpRequest : public IHttpThreadedRequest
+class FCurlHttpRequest : public IHttpRequest
 {
 public:
 
@@ -123,7 +123,6 @@ public:
 	virtual void SetContent(const TArray<uint8>& ContentPayload) override;
 	virtual void SetContentAsString(const FString& ContentString) override;
 	virtual void SetHeader(const FString& HeaderName, const FString& HeaderValue) override;
-	virtual void AppendToHeader(const FString& HeaderName, const FString& AdditionalHeaderValue) override;
 	virtual bool ProcessRequest() override;
 	virtual FHttpRequestCompleteDelegate& OnProcessRequestComplete() override;
 	virtual FHttpRequestProgressDelegate& OnRequestProgress() override;
@@ -133,13 +132,6 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual float GetElapsedTime() override;
 	//~ End IHttpRequest Interface
-
-	//~ Begin IHttpRequestThreaded Interface
-	virtual bool StartThreadedRequest() override;
-	virtual void FinishRequest() override;
-	virtual bool IsThreadedRequestComplete() override;
-	virtual void TickThreadedRequest(float DeltaSeconds) override;
-	//~ End IHttpRequestThreaded Interface
 
 	/**
 	 * Returns libcurl's easy handle - needed for HTTP manager.
@@ -164,19 +156,11 @@ public:
 		bCompleted = true;
 		CurlCompletionResult = InCurlCompletionResult;
 	}
-	
-	/** 
-	 * Set the result for adding the easy handle to curl multi
-	 */
-	void SetAddToCurlMultiResult(CURLMcode Result)
-	{
-		CurlAddToMultiResult = Result;
-	}
 
 	/**
 	 * Constructor
 	 */
-	FCurlHttpRequest();
+	FCurlHttpRequest(CURLM * InMultiHandle);
 
 	/**
 	 * Destructor. Clean up any connection/request handles
@@ -277,11 +261,11 @@ private:
 #endif // !UE_BUILD_SHIPPING && !UE_BUILD_TEST
 
 	/**
-	 * Setup the request
+	 * Create the session connection and initiate the web request
 	 *
-	 * @return true if the request was successfully setup
+	 * @return true if the request was started
 	 */
-	bool SetupRequest();
+	bool StartRequest();
 
 	/**
 	 * Process state for a finished request that no longer needs to be ticked
@@ -294,13 +278,10 @@ private:
 	 */
 	void CleanupRequest();
 
-	/**
-	 * Trigger the request progress delegate if progress has changed
-	 */
-	void CheckProgressDelegate();
-
 private:
 
+	/** Pointer to parent multi handle that groups all individual easy handles */
+	CURLM *			MultiHandle;
 	/** Pointer to an easy handle specific to this request */
 	CURL *			EasyHandle;	
 	/** List of custom headers to be passed to CURL */
@@ -313,10 +294,12 @@ private:
 	bool			bCanceled;
 	/** Set to true when request has been completed */
 	bool			bCompleted;
-	/** Set to true if request failed to be added to curl multi */
-	CURLMcode		CurlAddToMultiResult;
 	/** Operation result code as returned by libcurl */
 	CURLcode		CurlCompletionResult;
+	/** Set to true when easy handle has been added to a multi handle */
+	bool			bEasyHandleAddedToMulti;
+	/** Number of bytes sent already */
+	uint32			BytesSent;
 	/** The response object which we will use to pair with this request */
 	TSharedPtr<class FCurlHttpResponse,ESPMode::ThreadSafe> Response;
 	/** BYTE array payload to use with the request. Typically for a POST */
@@ -333,18 +316,6 @@ private:
 	float ElapsedTime;
 	/** Elapsed time since the last received HTTP response. */
 	float TimeSinceLastResponse;
-	/** Number of bytes sent already */
-	FThreadSafeCounter BytesSent;
-	/** Last bytes read reported to progress delegate */
-	int32 LastReportedBytesRead;
-	/** Last bytes sent reported to progress delegate */
-	int32 LastReportedBytesSent;
-	/** Number of info channel messages to cache */
-	static int32 NumberOfInfoMessagesToCache;
-	/** Index of least recently cached message */
-	int32 LeastRecentlyCachedInfoMessageIndex;
-	/** Cache of info messages from libcurl */
-	TArray<FString> InfoMessageCache;
 };
 
 
@@ -402,7 +373,7 @@ private:
 	/** BYTE array to fill in as the response is read via didReceiveData */
 	TArray<uint8> Payload;
 	/** Caches how many bytes of the response we've read so far */
-	FThreadSafeCounter TotalBytesRead;
+	int32 TotalBytesRead;
 	/** Cached key/value header pairs. Parsed once request completes */
 	TMap<FString, FString> Headers;
 	/** Cached code from completed response */

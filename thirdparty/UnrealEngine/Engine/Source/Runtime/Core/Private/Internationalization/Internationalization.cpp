@@ -26,11 +26,6 @@ FInternationalization& FInternationalization::Get()
 	return *Instance;
 }
 
-bool FInternationalization::IsAvailable()
-{
-	return Instance && Instance->IsInitialized();
-}
-
 void FInternationalization::TearDown()
 {
 	if (Instance && Instance->IsInitialized())
@@ -226,19 +221,9 @@ FString& FInternationalization::Leetify(FString& SourceString)
 }
 #endif
 
-void FInternationalization::LoadAllCultureData()
-{
-	Implementation->LoadAllCultureData();
-}
-
 void FInternationalization::GetCultureNames(TArray<FString>& CultureNames) const
 {
 	Implementation->GetCultureNames(CultureNames);
-}
-
-TArray<FString> FInternationalization::GetPrioritizedCultureNames(const FString& Name)
-{
-	return Implementation->GetPrioritizedCultureNames(Name);
 }
 
 void FInternationalization::GetCulturesWithAvailableLocalization(const TArray<FString>& InLocalizationPaths, TArray< FCultureRef >& OutAvailableCultures, const bool bIncludeDerivedCultures)
@@ -314,12 +299,6 @@ void FInternationalization::GetCulturesWithAvailableLocalization(const TArray<FS
 			}
 		}
 	}
-
-	// Remove any cultures that were explicitly disabled
-	OutAvailableCultures.RemoveAll([&](const FCultureRef& InCulture) -> bool
-	{
-		return Implementation->IsCultureDisabled(InCulture->GetName());
-	});
 }
 
 FInternationalization::FInternationalization()

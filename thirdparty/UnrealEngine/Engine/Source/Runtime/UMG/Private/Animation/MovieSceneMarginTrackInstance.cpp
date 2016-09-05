@@ -5,7 +5,6 @@
 #include "MovieSceneMarginTrack.h"
 #include "MovieSceneCommonHelpers.h"
 
-
 FMovieSceneMarginTrackInstance::FMovieSceneMarginTrackInstance( UMovieSceneMarginTrack& InMarginTrack )
 {
 	MarginTrack = &InMarginTrack;
@@ -13,23 +12,19 @@ FMovieSceneMarginTrackInstance::FMovieSceneMarginTrackInstance( UMovieSceneMargi
 	PropertyBindings = MakeShareable( new FTrackInstancePropertyBindings( MarginTrack->GetPropertyName(), MarginTrack->GetPropertyPath() ) );
 }
 
-
-void FMovieSceneMarginTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieSceneMarginTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-		FMargin MarginValue = PropertyBindings->GetCurrentValue<FMargin>(Object);
-
-		if (MarginTrack->Eval(UpdateData.Position, UpdateData.LastPosition, MarginValue))
+		FMargin MarginValue = PropertyBindings->GetCurrentValue<FMargin>( Object );
+		if(MarginTrack->Eval(Position, LastPosition, MarginValue))
 		{
 			PropertyBindings->CallFunction<FMargin>(Object, &MarginValue);
 		}
 	}
 }
 
-
-void FMovieSceneMarginTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieSceneMarginTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	PropertyBindings->UpdateBindings( RuntimeObjects );
 }

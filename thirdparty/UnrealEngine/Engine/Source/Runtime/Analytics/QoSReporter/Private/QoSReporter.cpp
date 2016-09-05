@@ -4,15 +4,12 @@
 
 #include "Core.h"
 #include "Analytics.h"
-#include "IAnalyticsProvider.h"
 #include "EngineVersion.h"
 #include "QoSReporter.h"
 #if WITH_PERFCOUNTERS
 	#include "PerfCountersModule.h"
 #endif // WITH_PERFCOUNTERS
-#if WITH_ENGINE
-	#include "PerfCountersHelpers.h"
-#endif // WITH_ENGINE
+#include "PerfCountersHelpers.h"
 
 #ifndef WITH_QOSREPORTER
 	#error "WITH_QOSREPORTER should be defined in Build.cs file"
@@ -20,19 +17,15 @@
 
 bool FQoSReporter::bIsInitialized;
 TSharedPtr<IAnalyticsProvider> FQoSReporter::Analytics;
-
-namespace
-{
-	FString		StoredDeploymentName;
-};
+FGuid FQoSReporter::InstanceId;
 
 /**
 * External code should bind this delegate if QoS reporting is desired,
 * preferably in private code that won't be redistributed.
 */
-QOSREPORTER_API FAnalyticsProviderConfigurationDelegate& GetQoSOverrideConfigDelegate()
+QOSREPORTER_API FAnalytics::FProviderConfigurationDelegate& GetQoSOverrideConfigDelegate()
 {
-	static FAnalyticsProviderConfigurationDelegate Delegate;
+	static FAnalytics::FProviderConfigurationDelegate Delegate;
 	return Delegate;
 }
 
@@ -40,14 +33,14 @@ QOSREPORTER_API FAnalyticsProviderConfigurationDelegate& GetQoSOverrideConfigDel
 /**
 * Get analytics pointer
 */
-QOSREPORTER_API IAnalyticsProvider& FQoSReporter::GetProvider()
+IAnalyticsProvider& FQoSReporter::GetProvider()
 {
 	checkf(bIsInitialized && IsAvailable(), TEXT("FQoSReporter::GetProvider called outside of Initialize/Shutdown."));
 
 	return *Analytics.Get();
 }
 
-QOSREPORTER_API void FQoSReporter::Initialize()
+void FQoSReporter::Initialize()
 {
 	checkf(!bIsInitialized, TEXT("FQoSReporter::Initialize called more than once."));
 
@@ -60,7 +53,7 @@ QOSREPORTER_API void FQoSReporter::Initialize()
 	}
 
 	// Setup some default engine analytics if there is nothing custom bound
-	FAnalyticsProviderConfigurationDelegate DefaultEngineAnalyticsConfig;
+	FAnalytics::FProviderConfigurationDelegate DefaultEngineAnalyticsConfig;
 	DefaultEngineAnalyticsConfig.BindLambda(
 		[=](const FString& KeyName, bool bIsValueRequired) -> FString
 	{
@@ -68,7 +61,7 @@ QOSREPORTER_API void FQoSReporter::Initialize()
 		if (ConfigMap.Num() == 0)
 		{
 			ConfigMap.Add(TEXT("ProviderModuleName"), TEXT("QoSReporter"));
-			ConfigMap.Add(TEXT("APIKeyQoS"), FString::Printf(TEXT("%s.%s"), FApp::GetGameName(), AnalyticsBuildTypeToString(GetAnalyticsBuildType())));
+			ConfigMap.Add(TEXT("APIKeyQoS"), FString::Printf(TEXT("%s.%s"), FApp::GetGameName(), FAnalytics::ToString(FAnalytics::Get().GetBuildType())));
 		}
 
 		// Check for overrides
@@ -89,14 +82,13 @@ QOSREPORTER_API void FQoSReporter::Initialize()
 	Analytics = FAnalytics::Get().CreateAnalyticsProvider(
 		FName(*DefaultEngineAnalyticsConfig.Execute(TEXT("ProviderModuleName"), true)),
 		DefaultEngineAnalyticsConfig);
-	if (!Analytics.IsValid())
-	{
-		return;
-	}
 
-	SetBackendDeploymentName(StoredDeploymentName);
+	// add a unique id
+	InstanceId = FGuid::NewGuid();
+	FPlatformMisc::CreateGuid(InstanceId);
 
 	// check if Configs override the heartbeat interval
+	
 	float ConfigHeartbeatInterval = 0.0;
 	if (GConfig->GetFloat(TEXT("QoSReporter"), TEXT("HeartbeatInterval"), ConfigHeartbeatInterval, GEngineIni))
 	{
@@ -118,24 +110,13 @@ void FQoSReporter::Shutdown()
 	bIsInitialized = false;
 }
 
-FString FQoSReporter::GetQoSReporterInstanceId()
+FGuid FQoSReporter::GetQoSReporterInstanceId()
 {
-	if (Analytics.IsValid())
-	{
-		return Analytics->GetUserID();
-	}
-
-	return FString();
-}
-
-FString FQoSReporter::GetBackendDeploymentName()
-{
-	return StoredDeploymentName;
+	return InstanceId;
 }
 
 double FQoSReporter::ModuleInitializationTime = FPlatformTime::Seconds();
 bool FQoSReporter::bStartupEventReported = false;
-bool FQoSReporter::bCountHitches = false;
 
 void FQoSReporter::ReportStartupCompleteEvent()
 {
@@ -148,55 +129,15 @@ void FQoSReporter::ReportStartupCompleteEvent()
 	double Difference = CurrentTime - ModuleInitializationTime;
 
 	TArray<FAnalyticsEventAttribute> ParamArray;
-
 	ParamArray.Add(FAnalyticsEventAttribute(EQoSEvents::ToString(EQoSEventParam::StartupTime), Difference));
 	Analytics->RecordEvent(EQoSEvents::ToString(EQoSEventParam::StartupTime), ParamArray);
-
-	// log it so we can do basic analysis by log scraping
-	UE_LOG(LogQoSReporter, Log, TEXT("Startup complete, took %f seconds."), Difference);
 
 	bStartupEventReported = true;
 }
 
-void FQoSReporter::SetBackendDeploymentName(const FString & InDeploymentName)
-{
-	StoredDeploymentName = InDeploymentName;
-
-	if (Analytics.IsValid())
-	{
-		// abuse somewhat outdated IAnalyticsProvider API for this
-		Analytics->SetLocation(InDeploymentName);
-
-		if (InDeploymentName.Len() > 0)
-		{
-			UE_LOG(LogQoSReporter, Log, TEXT("QoSReporter has been configured for '%s' deployment."), *InDeploymentName);
-		}
-		else
-		{
-			UE_LOG(LogQoSReporter, Log, TEXT("QoSReporter has been configured without a valid deployment name."));
-		}
-	}
-	else
-	{
-		UE_LOG(LogQoSReporter, Log, TEXT("QoSReporter will be configured for '%s' deployment."), *StoredDeploymentName);
-	}
-}
-
-void FQoSReporter::EnableCountingHitches(bool bEnable)
-{
-	bCountHitches = bEnable;
-	PreviousTickTime = FPlatformTime::Seconds();	// reset the timer
-	UE_LOG(LogQoSReporter, Log, TEXT("Counting hitches in QoSReporter has been %s."), bCountHitches ? TEXT("enabled") : TEXT("disabled"));
-}
-
 double FQoSReporter::HeartbeatInterval = 300;
 double FQoSReporter::LastHeartbeatTimestamp = 0;
-double FQoSReporter::PreviousTickTime = FPlatformTime::Seconds();
-#if WITH_ENGINE
 extern ENGINE_API float GAverageFPS;
-#else
-float GAverageFPS = 0.0f;	// fake
-#endif // WITH_ENGINE
 
 void FQoSReporter::Tick()
 {
@@ -205,6 +146,7 @@ void FQoSReporter::Tick()
 		return;
 	}
 
+	static double PreviousTickTime = FPlatformTime::Seconds();
 	double CurrentTime = FPlatformTime::Seconds();
 
 	if (HeartbeatInterval > 0 && CurrentTime - LastHeartbeatTimestamp > HeartbeatInterval)
@@ -214,34 +156,19 @@ void FQoSReporter::Tick()
 	}
 
 	// detect too long pauses between ticks, unless configured to ignore them or running under debugger
-	if (!QOS_IGNORE_HITCHES && bCountHitches && !FPlatformMisc::IsDebuggerPresent())
+	if (!QOS_IGNORE_HITCHES && !FPlatformMisc::IsDebuggerPresent())
 	{
+		const double kTooLongPauseBetweenTicksInSeconds = 0.25f;	// 4 fps	- correct perfcounter name below if changing this value and make sure analytics is on the same page
 		const double DeltaBetweenTicks = CurrentTime - PreviousTickTime;
-
-		if (DeltaBetweenTicks > 0.1)
+		static int TimesHappened = 0;
+		if (DeltaBetweenTicks > kTooLongPauseBetweenTicksInSeconds)
 		{
-#if USE_SERVER_PERF_COUNTERS
-			PerfCountersIncrement(TEXT("HitchesAbove100msec"), 0, IPerfCounters::Flags::Transient);
+			++TimesHappened;
 
-			// count 250 ms
-			if (DeltaBetweenTicks > 0.25)
-			{
-				PerfCountersIncrement(TEXT("HitchesAbove250msec"), 0, IPerfCounters::Flags::Transient);
+			PerfCountersIncrement(TEXT("HitchesAbove250msec"));
 
-				if (DeltaBetweenTicks > 0.5)
-				{
-					PerfCountersIncrement(TEXT("HitchesAbove500msec"), 0, IPerfCounters::Flags::Transient);
-
-					if (DeltaBetweenTicks > 1)
-					{
-						PerfCountersIncrement(TEXT("HitchesAbove1000msec"), 0, IPerfCounters::Flags::Transient);
-					}
-				}
-			}
-#endif // USE_SERVER_PERF_COUNTERS
-
-			UE_LOG(LogQoSReporter, Log, TEXT("QoS reporter could not tick for %f sec, average FPS is %f."),
-				DeltaBetweenTicks, GAverageFPS);
+			UE_LOG(LogQoSReporter, Warning, TEXT("QoS reporter could not tick for %f sec (longer than threshold of %f sec) - happened %d time(s), average FPS is %f. Sending heartbeats might have been affected"),
+				DeltaBetweenTicks, kTooLongPauseBetweenTicksInSeconds, TimesHappened, GAverageFPS);
 		}
 	}
 
@@ -253,6 +180,9 @@ void FQoSReporter::SendHeartbeat()
 	checkf(Analytics.IsValid(), TEXT("SendHeartbeat() should not be called if Analytics provider was not configured"));
 
 	TArray<FAnalyticsEventAttribute> ParamArray;
+	ParamArray.Add(FAnalyticsEventAttribute(TEXT("Role"), GetApplicationRole()));
+	ParamArray.Add(FAnalyticsEventAttribute(TEXT("SystemId"), FPlatformMisc::GetOperatingSystemId()));
+	ParamArray.Add(FAnalyticsEventAttribute(TEXT("InstanceId"), InstanceId.ToString()));
 
 	if (IsRunningDedicatedServer())
 	{
@@ -292,14 +222,35 @@ void FQoSReporter::AddServerHeartbeatAttributes(TArray<FAnalyticsEventAttribute>
 					break;
 				default:
 					// don't write anything (supporting these requires more changes in PerfCounters API)
-					UE_LOG(LogQoSReporter, Verbose, TEXT("PerfCounter '%s' of unsupported type %d skipped"), *It.Key, static_cast<int32>(JsonValue.Format));
+					UE_LOG(LogQoSReporter, Log, TEXT("PerfCounter '%s' of unsupported type %d skipped"), *It.Key, static_cast<int32>(JsonValue.Format));
 					break;
 			}
 		}
 
-		// reset perfcounters stats here
-		UE_LOG(LogQoSReporter, Verbose, TEXT("Resetting PerfCounters - new stat period begins."));
-		PerfCounters->ResetStatsForNextPeriod();
+		// for compatibility with wash, avoid resetting if -statsport is used (temporary measure to avoid interference)
+		static bool bCheckedResettingStats = false;
+		static bool bResetStats = true;
+
+		if (!bCheckedResettingStats)
+		{
+			int32 StatsPort = -1;
+			if (FParse::Value(FCommandLine::Get(), TEXT("statsPort="), StatsPort) && StatsPort > 0)
+			{
+				bResetStats = false;
+			}
+
+			bCheckedResettingStats = true;
+		}
+		
+		if (bResetStats)
+		{
+			UE_LOG(LogQoSReporter, Verbose, TEXT("Resetting PerfCounters - new stat period begins."));
+			PerfCounters->ResetStatsForNextPeriod();
+		}
+		else
+		{
+			UE_LOG(LogQoSReporter, Verbose, TEXT("Not resetting PerfCounters, relying on wash to drive stats periods."));
+		}
 	}
 	else if (UE_SERVER)
 	{
@@ -317,3 +268,29 @@ void FQoSReporter::AddClientHeartbeatAttributes(TArray<FAnalyticsEventAttribute>
 {
 	OutArray.Add(FAnalyticsEventAttribute(TEXT("AverageFPS"), GAverageFPS));
 }
+
+/**
+ * Returns application role (server, client)
+ */
+FString FQoSReporter::GetApplicationRole()
+{
+	if (IsRunningDedicatedServer())
+	{
+		static FString DedicatedServer(TEXT("DedicatedServer"));
+		return DedicatedServer;
+	}
+	else if (IsRunningClientOnly())
+	{
+		static FString ClientOnly(TEXT("ClientOnly"));
+		return ClientOnly;
+	}
+	else if (IsRunningGame())
+	{
+		static FString StandaloneGame(TEXT("StandaloneGame"));
+		return StandaloneGame;
+	}
+
+	static FString Editor(TEXT("Editor"));
+	return Editor;
+}
+

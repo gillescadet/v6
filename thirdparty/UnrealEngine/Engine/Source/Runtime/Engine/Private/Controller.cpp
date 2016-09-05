@@ -42,7 +42,6 @@ AController::AController(const FObjectInitializer& ObjectInitializer)
 
 	bCanBeDamaged = false;
 	bAttachToPawn = false;
-	bIsPlayerController = false;
 
 	if (RootComponent)
 	{
@@ -55,6 +54,11 @@ AController::AController(const FObjectInitializer& ObjectInitializer)
 void AController::K2_DestroyActor()
 {
 	// do nothing, disallow destroying controller from Blueprints
+}
+
+bool AController::IsLocalPlayerController() const
+{
+	return false;
 }
 
 bool AController::IsLocalController() const
@@ -124,43 +128,6 @@ void AController::SetControlRotation(const FRotator& NewRotation)
 }
 
 
-void AController::SetIgnoreMoveInput(bool bNewMoveInput)
-{
-	IgnoreMoveInput = FMath::Max(IgnoreMoveInput + (bNewMoveInput ? +1 : -1), 0);
-}
-
-void AController::ResetIgnoreMoveInput()
-{
-	IgnoreMoveInput = 0;
-}
-
-bool AController::IsMoveInputIgnored() const
-{
-	return (IgnoreMoveInput > 0);
-}
-
-void AController::SetIgnoreLookInput(bool bNewLookInput)
-{
-	IgnoreLookInput = FMath::Max(IgnoreLookInput + (bNewLookInput ? +1 : -1), 0);
-}
-
-void AController::ResetIgnoreLookInput()
-{
-	IgnoreLookInput = 0;
-}
-
-bool AController::IsLookInputIgnored() const
-{
-	return (IgnoreLookInput > 0);
-}
-
-void AController::ResetIgnoreInputFlags()
-{
-	ResetIgnoreMoveInput();
-	ResetIgnoreLookInput();
-}
-
-
 void AController::AttachToPawn(APawn* InPawn)
 {
 	if (bAttachToPawn && RootComponent)
@@ -170,9 +137,9 @@ void AController::AttachToPawn(APawn* InPawn)
 			// Only attach if not already attached.
 			if (InPawn->GetRootComponent() && RootComponent->GetAttachParent() != InPawn->GetRootComponent())
 			{
-				RootComponent->DetachFromComponent(FDetachmentTransformRules::KeepRelativeTransform);
+				RootComponent->DetachFromParent(false);
 				RootComponent->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
-				RootComponent->AttachToComponent(InPawn->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+				RootComponent->AttachTo(InPawn->GetRootComponent());
 			}
 		}
 		else
@@ -186,7 +153,7 @@ void AController::DetachFromPawn()
 {
 	if (bAttachToPawn && RootComponent && RootComponent->GetAttachParent() && Cast<APawn>(RootComponent->GetAttachmentRootActor()))
 	{
-		RootComponent->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		RootComponent->DetachFromParent(true);
 	}
 }
 
@@ -610,8 +577,7 @@ APawn* AController::K2_GetPawn() const
 
 const FNavAgentProperties& AController::GetNavAgentPropertiesRef() const
 {
-	UPawnMovementComponent* MovementComponent = (Pawn ? Pawn->GetMovementComponent() : nullptr);
-	return MovementComponent ? MovementComponent->GetNavAgentPropertiesRef() : FNavAgentProperties::DefaultProperties;
+	return Pawn && Pawn->GetMovementComponent() ? Pawn->GetMovementComponent()->GetNavAgentPropertiesRef() : FNavAgentProperties::DefaultProperties;
 }
 
 FVector AController::GetNavAgentLocation() const
@@ -619,7 +585,7 @@ FVector AController::GetNavAgentLocation() const
 	return Pawn ? Pawn->GetNavAgentLocation() : FVector::ZeroVector;
 }
 
-void AController::GetMoveGoalReachTest(const AActor* MovingActor, const FVector& MoveOffset, FVector& GoalOffset, float& GoalRadius, float& GoalHalfHeight) const 
+void AController::GetMoveGoalReachTest(class AActor* MovingActor, const FVector& MoveOffset, FVector& GoalOffset, float& GoalRadius, float& GoalHalfHeight) const 
 {
 	if (Pawn)
 	{
@@ -665,7 +631,7 @@ void AController::StopMovement()
 	UPathFollowingComponent* PathFollowingComp = FindComponentByClass<UPathFollowingComponent>();
 	if (PathFollowingComp != NULL)
 	{
-		PathFollowingComp->AbortMove(*this, FPathFollowingResultFlags::MovementStop);
+		PathFollowingComp->AbortMove(TEXT("StopMovement"));
 	}
 }
 

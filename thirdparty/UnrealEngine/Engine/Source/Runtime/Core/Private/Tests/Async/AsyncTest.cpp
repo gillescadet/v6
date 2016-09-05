@@ -6,7 +6,6 @@
 #include "AutomationTest.h"
 #include "Future.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncGraphTest, "System.Core.Async.Async (Task Graph)", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncThreadedTaskTest, "System.Core.Async.Async (Thread)", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -95,5 +94,3 @@ bool FAsyncCompletionCallbackTest::RunTest(const FString& Parameters)
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

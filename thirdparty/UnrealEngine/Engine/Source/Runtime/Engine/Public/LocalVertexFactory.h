@@ -22,7 +22,7 @@ public:
 	{
 	}
 
-	struct FDataType
+	struct DataType : public FVertexFactory::DataType
 	{
 		/** The stream to read the vertex position from. */
 		FVertexStreamComponent PositionComponent;
@@ -40,9 +40,6 @@ public:
 		FVertexStreamComponent ColorComponent;
 	};
 
-	DEPRECATED(4.11, "DataType has been renamed to FDataType.")
-	typedef FDataType DataType;
-
 	/**
 	 * Should we cache the material's shadertype on this platform with this vertex factory? 
 	 */
@@ -56,7 +53,7 @@ public:
 	/**
 	 * An implementation of the interface used by TSynchronizedResource to update the resource with new data from the game thread.
 	 */
-	void SetData(const FDataType& InData);
+	void SetData(const DataType& InData);
 
 	/**
 	* Copy the data from another vertex factory
@@ -79,10 +76,8 @@ public:
 	}
 
 protected:
-	FDataType Data;
+	DataType Data;
 	int32 ColorStreamIndex;
-
-	const FDataType& GetData() const { return Data; }
 };
 
 /**

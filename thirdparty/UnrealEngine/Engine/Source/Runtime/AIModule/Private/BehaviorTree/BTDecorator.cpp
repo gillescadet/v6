@@ -18,6 +18,11 @@ UBTDecorator::UBTDecorator(const FObjectInitializer& ObjectInitializer) : Super(
 	bInverseCondition = false;
 }
 
+void UBTDecorator::InitializeDecorator(uint8 MyChildIndex)
+{
+	ChildIndex = MyChildIndex;
+}
+
 bool UBTDecorator::CalculateRawConditionValue(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) const
 {
 	return true;
@@ -80,6 +85,11 @@ void UBTDecorator::WrappedOnNodeProcessed(FBehaviorTreeSearchData& SearchData, E
 			((UBTDecorator*)NodeOb)->OnNodeProcessed(SearchData, NodeResult);
 		}		
 	}
+}
+
+const UBTNode* UBTDecorator::GetMyNode() const
+{
+	return GetParentNode() ? GetParentNode()->GetChildNode(ChildIndex) : NULL;
 }
 
 FString UBTDecorator::GetStaticDescription() const
@@ -171,9 +181,4 @@ void UBTDecorator::UpdateFlowAbortMode()
 bool UBTDecorator::CalculateRawConditionValue(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory) const
 {
 	return OwnerComp ? CalculateRawConditionValue(*OwnerComp, NodeMemory) : false;
-}
-
-void UBTDecorator::InitializeDecorator(uint8 InChildIndex)
-{
-	InitializeParentLink(InChildIndex);
 }

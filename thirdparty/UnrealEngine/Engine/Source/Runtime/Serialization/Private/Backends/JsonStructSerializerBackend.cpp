@@ -137,7 +137,7 @@ void FJsonStructSerializerBackend::WriteProperty(const FStructSerializerState& S
 
 		if (ByteProperty->IsEnum())
 		{
-			WritePropertyValue(JsonWriter, State, ByteProperty->Enum->GetEnumNameStringByValue(ByteProperty->GetPropertyValue_InContainer(State.ValueData, ArrayIndex)));
+			WritePropertyValue(JsonWriter, State, ByteProperty->Enum->GetEnumName(ByteProperty->GetPropertyValue_InContainer(State.ValueData, ArrayIndex)));
 		}
 		else
 		{
@@ -198,9 +198,7 @@ void FJsonStructSerializerBackend::WriteProperty(const FStructSerializerState& S
 	}
 	else if (State.ValueType == UTextProperty::StaticClass())
 	{
-		FString StringValue;
-		FTextStringHelper::WriteToString(StringValue, Cast<UTextProperty>(State.ValueProperty)->GetPropertyValue_InContainer(State.ValueData, ArrayIndex));
-		WritePropertyValue(JsonWriter, State, StringValue);
+		WritePropertyValue(JsonWriter, State, Cast<UTextProperty>(State.ValueProperty)->GetPropertyValue_InContainer(State.ValueData, ArrayIndex).ToString());
 	}
 
 	// classes & objects

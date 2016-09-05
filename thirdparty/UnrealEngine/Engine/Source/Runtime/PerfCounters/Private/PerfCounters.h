@@ -3,7 +3,6 @@
 #pragma once
 
 #include "PerfCountersModule.h"
-#include "ZeroLoad.h"
 
 class FSocket;
 
@@ -39,18 +38,10 @@ public:
 	virtual const TMap<FString, FJsonVariant>& GetAllCounters() override { return PerfCounterMap; }
 	virtual FString GetAllCountersAsJson() override;
 	virtual void ResetStatsForNextPeriod() override;
-	virtual TPerformanceHistogramMap& PerformanceHistograms() override { return PerformanceHistogramMap; }
-	virtual bool StartMachineLoadTracking();
-	virtual bool StopMachineLoadTracking();
-	virtual bool ReportUnplayableCondition(const FString& ConditionDescription);
 	//~ Begin IPerfCounters Interface end
 
 private:
 	
-	void TickZeroLoad(float DeltaTime);
-	void TickSocket(float DeltaTime);
-	void TickSystemCounters(float DeltaTime);
-
 	/**
 	 * Simple response structure for returning output to requestor
 	 */
@@ -111,12 +102,6 @@ private:
 	/** Unique name of this instance */
 	FString UniqueInstanceId;
 
-	/** Interval (in seconds) to update internal counters, added by the module itself, a config value */
-	float InternalCountersUpdateInterval;
-
-	/** Last time internal counters were updated */
-	float LastTimeInternalCountersUpdated;
-
 	/** Map of all known performance counters */
 	TMap<FString, FJsonVariant>  PerfCounterMap;
 
@@ -125,13 +110,5 @@ private:
 
 	/* Listen socket for outputting JSON on request */
 	FSocket* Socket;
-
-	/** Map of performance histograms. */
-	TPerformanceHistogramMap PerformanceHistogramMap;
-
-	/** Data of zero-load thread (used for measuring machine load). */
-	FZeroLoad* ZeroLoadThread;
-
-	/** Zero-load thread runnable */
-	FRunnableThread* ZeroLoadRunnable;
 };
+

@@ -45,11 +45,11 @@ UParticleModuleVectorFieldScale::UParticleModuleVectorFieldScale(const FObjectIn
 
 void UParticleModuleVectorFieldScale::InitializeDefaults()
 {
-	if (!VectorFieldScaleRaw.IsCreated())
+	if (!VectorFieldScale)
 	{
 		UDistributionFloatConstant* DistributionVectorFieldScale = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionVectorFieldScale"));
 		DistributionVectorFieldScale->Constant = 1.0f;
-		VectorFieldScaleRaw.Distribution = DistributionVectorFieldScale;
+		VectorFieldScale = DistributionVectorFieldScale;
 	}
 }
 void UParticleModuleVectorFieldScale::PostInitProperties()
@@ -59,19 +59,6 @@ void UParticleModuleVectorFieldScale::PostInitProperties()
 	{
 		InitializeDefaults();
 	}
-}
-
-void UParticleModuleVectorFieldScale::PostLoad()
-{
-	Super::PostLoad();
-#if WITH_EDITOR
-	if (VectorFieldScale_DEPRECATED)
-	{
-		VectorFieldScaleRaw.Distribution = VectorFieldScale_DEPRECATED;
-		VectorFieldScaleRaw.Initialize();
-	}
-	VectorFieldScale_DEPRECATED = nullptr;
-#endif
 }
 
 #if WITH_EDITOR
@@ -84,7 +71,7 @@ void UParticleModuleVectorFieldScale::PostEditChangeProperty(FPropertyChangedEve
 
 void UParticleModuleVectorFieldScale::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
 {
-	EmitterInfo.VectorFieldScale.ScaleByDistribution(VectorFieldScaleRaw.Distribution);
+	EmitterInfo.VectorFieldScale.ScaleByDistribution(VectorFieldScale);
 }
 
 #if WITH_EDITOR
@@ -93,7 +80,7 @@ bool UParticleModuleVectorFieldScale::IsValidForLODLevel(UParticleLODLevel* LODL
 {
 	if (LODLevel->TypeDataModule && LODLevel->TypeDataModule->IsA(UParticleModuleTypeDataGpu::StaticClass()))
 	{
-		if(!IsDistributionAllowedOnGPU(VectorFieldScaleRaw.Distribution))
+		if(!IsDistributionAllowedOnGPU(VectorFieldScale))
 		{
 			OutErrorString = GetDistributionNotAllowedOnGPUText(StaticClass()->GetName(), "VectorFieldScale" ).ToString();
 			return false;
@@ -114,11 +101,11 @@ UParticleModuleVectorFieldScaleOverLife::UParticleModuleVectorFieldScaleOverLife
 
 void UParticleModuleVectorFieldScaleOverLife::InitializeDefaults()
 {
-	if (!VectorFieldScaleOverLifeRaw.IsCreated())
+	if (!VectorFieldScaleOverLife)
 	{
 		UDistributionFloatConstant* DistributionVectorFieldScaleOverLife = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionVectorFieldScaleOverLife"));
 		DistributionVectorFieldScaleOverLife->Constant = 1.0f;
-		VectorFieldScaleOverLifeRaw.Distribution = DistributionVectorFieldScaleOverLife;
+		VectorFieldScaleOverLife = DistributionVectorFieldScaleOverLife;
 	}
 }
 
@@ -131,19 +118,6 @@ void UParticleModuleVectorFieldScaleOverLife::PostInitProperties()
 	}
 }
 
-void UParticleModuleVectorFieldScaleOverLife::PostLoad()
-{
-	Super::PostLoad();
-#if WITH_EDITOR
-	if (VectorFieldScaleOverLife_DEPRECATED)
-	{
-		VectorFieldScaleOverLifeRaw.Distribution = VectorFieldScaleOverLife_DEPRECATED;
-		VectorFieldScaleOverLifeRaw.Initialize();
-	}
-	VectorFieldScaleOverLife_DEPRECATED = nullptr;
-#endif
-}
-
 #if WITH_EDITOR
 void UParticleModuleVectorFieldScaleOverLife::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -154,7 +128,7 @@ void UParticleModuleVectorFieldScaleOverLife::PostEditChangeProperty(FPropertyCh
 
 void UParticleModuleVectorFieldScaleOverLife::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
 {
-	EmitterInfo.VectorFieldScaleOverLife.ScaleByDistribution(VectorFieldScaleOverLifeRaw.Distribution);
+	EmitterInfo.VectorFieldScaleOverLife.ScaleByDistribution(VectorFieldScaleOverLife);
 }
 
 #if WITH_EDITOR
@@ -163,7 +137,7 @@ bool UParticleModuleVectorFieldScaleOverLife::IsValidForLODLevel(UParticleLODLev
 {
 	if (LODLevel->TypeDataModule && LODLevel->TypeDataModule->IsA(UParticleModuleTypeDataGpu::StaticClass()))
 	{
-		if(!IsDistributionAllowedOnGPU(VectorFieldScaleOverLifeRaw.Distribution))
+		if(!IsDistributionAllowedOnGPU(VectorFieldScaleOverLife))
 		{
 			OutErrorString = GetDistributionNotAllowedOnGPUText(StaticClass()->GetName(), "VectorFieldScaleOverLife" ).ToString();
 			return false;
@@ -184,7 +158,6 @@ UParticleModuleVectorFieldLocal::UParticleModuleVectorFieldLocal(const FObjectIn
 
 	Intensity = 1.0;
 	Tightness = 0.0;
-	bUseFixDT = true;
 }
 
 void UParticleModuleVectorFieldLocal::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
@@ -199,7 +172,6 @@ void UParticleModuleVectorFieldLocal::CompileModule(FParticleEmitterBuildInfo& E
 	EmitterInfo.bLocalVectorFieldTileX = bTileX;
 	EmitterInfo.bLocalVectorFieldTileY = bTileY;
 	EmitterInfo.bLocalVectorFieldTileZ = bTileZ;
-	EmitterInfo.bLocalVectorFieldUseFixDT = bUseFixDT;
 }
 
 /*------------------------------------------------------------------------------

@@ -43,21 +43,9 @@ class ENGINE_API UInputSettings
 	UPROPERTY(config, EditAnywhere, Category="MouseProperties", AdvancedDisplay)
 	float DoubleClickTime;
 
-	/** Controls if the viewport will capture the mouse on Launch of the application */
-	UPROPERTY(config, EditAnywhere, Category = "ViewportProperties")
-	bool bCaptureMouseOnLaunch;
-	
 	/** The default mouse capture mode for the game viewport */
 	UPROPERTY(config, EditAnywhere, Category = "ViewportProperties")
 	TEnumAsByte<EMouseCaptureMode> DefaultViewportMouseCaptureMode;
-
-	/** The default mouse lock state when the viewport acquires capture */
-	UPROPERTY(config)
-	bool bDefaultViewportMouseLock_DEPRECATED;
-
-	/** The default mouse lock state behavior when the viewport acquires capture */
-	UPROPERTY(config, EditAnywhere, Category = "ViewportProperties")
-	EMouseLockMode DefaultViewportMouseLockMode;
 
 	/** List of Action Mappings */
 	UPROPERTY(config, EditAnywhere, Category="Bindings")
@@ -90,7 +78,6 @@ class ENGINE_API UInputSettings
 	// UObject interface
 #if WITH_EDITOR
 	virtual void PostEditChangeChainProperty(struct FPropertyChangedChainEvent& PropertyChangedEvent) override;
-	virtual void PostReloadConfig( class UProperty* PropertyThatWasLoaded ) override;
 #endif
 
 	virtual void PostInitProperties() override;
@@ -120,6 +107,4 @@ class ENGINE_API UInputSettings
 private:
 	/** When changes are made to the default mappings, push those changes out to PlayerInput key maps */
 	void ForceRebuildKeymaps();
-
-	void PopulateAxisConfigs();
 };

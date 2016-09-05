@@ -1715,7 +1715,7 @@ static dtStatus removeVertex(dtTileCacheLogContext* ctx, dtTileCachePolyMesh& me
 	}
 	
 	// Remove vertex.
-	for (int i = (int)rem; i < (mesh.nverts - 1); ++i)
+	for (int i = (int)rem; i < mesh.nverts; ++i)
 	{
 		mesh.verts[i*3+0] = mesh.verts[(i+1)*3+0];
 		mesh.verts[i*3+1] = mesh.verts[(i+1)*3+1];
@@ -1818,6 +1818,8 @@ static dtStatus removeVertex(dtTileCacheLogContext* ctx, dtTileCachePolyMesh& me
 	if (ntris < 0)
 	{
 		ntris = -ntris;
+		if (ctx)
+			ctx->dtLog("removeVertex: triangulate() returned bad results.");
 	}
 
 	unsigned short polysStatic[MAX_REM_EDGES*MAX_VERTS_PER_POLY];
@@ -2486,23 +2488,6 @@ dtStatus dtReplaceConvexArea(dtTileCacheLayer& layer, const float* orig, const f
 			{
 				layer.areas[x + z*w] = areaId;
 			}
-		}
-	}
-
-	return DT_SUCCESS;
-}
-
-dtStatus dtReplaceArea(dtTileCacheLayer& layer, const unsigned char areaId, const unsigned char filterAreaId)
-{
-	const int w = (int)layer.header->width;
-	const int h = (int)layer.header->height;
-	const int maxIdx = w * h;
-
-	for (int i = 0; i < maxIdx; i++)
-	{
-		if (layer.areas[i] == filterAreaId)
-		{
-			layer.areas[i] = areaId;
 		}
 	}
 

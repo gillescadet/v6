@@ -68,11 +68,7 @@ void UUserDefinedEnum::PostLoad()
 {
 	Super::PostLoad();
 	FEnumEditorUtils::UpdateAfterPathChanged(this);
-
-	if (GIsEditor && !IsRunningCommandlet())
-	{
-		FEnumEditorUtils::EnsureAllDisplayNamesExist(this);
-	}
+	FEnumEditorUtils::EnsureAllDisplayNamesExist(this);
 }
 
 void UUserDefinedEnum::PostEditUndo()
@@ -116,9 +112,8 @@ FText UUserDefinedEnum::GetEnumText(int32 InIndex) const
 	return Super::GetEnumText(InIndex);
 }
 
-bool UUserDefinedEnum::SetEnums(TArray<TPair<FName, uint8>>& InNames, ECppForm InCppForm, bool bAddMaxKeyIfMissing)
+bool UUserDefinedEnum::SetEnums(TArray<TPair<FName, uint8>>& InNames, ECppForm InCppForm)
 {
-	ensure(bAddMaxKeyIfMissing);
 	if (Names.Num() > 0)
 	{
 		RemoveNamesFromMasterList();

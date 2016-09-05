@@ -50,8 +50,6 @@ public:
 	virtual FPooledRenderTargetDesc ComputeOutputDesc(EPassOutputId InPassOutputId) const override;
 };
 
-void RenderScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& SSROutput, TRefCountPtr<IPooledRenderTarget>& VelocityRT);
+void ScreenSpaceReflections(FRHICommandListImmediate& RHICmdList, FViewInfo& View, TRefCountPtr<IPooledRenderTarget>& SSROutput);
 
-bool ShouldRenderScreenSpaceReflections(const FViewInfo& View);
-
-bool IsSSRTemporalPassRequired(const FViewInfo& View, bool bCheckSSREnabled = true);
+bool DoScreenSpaceReflections(const FViewInfo& View);

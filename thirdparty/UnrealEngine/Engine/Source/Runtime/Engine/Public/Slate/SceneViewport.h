@@ -1,7 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 
-#pragma once
+#ifndef __SLATE_VIEWPORT_H__
+#define __SLATE_VIEWPORT_H__
 
 #include "SlateCore.h"
 
@@ -156,13 +157,7 @@ public:
 	 * @param NewSizeY		The new height of the viewport
 	 * @param NewWindowMode	 What window mode should the viewport be resized to
 	 */
-	virtual void ResizeFrame(uint32 NewSizeX,uint32 NewSizeY,EWindowMode::Type NewWindowMode) override;
-
-	DEPRECATED(4.13, "The version of FSceneViewport::ResizeFrame that takes a position is deprecated (the position was never used). Please use the version that doesn't take a position instead.")
-	void ResizeFrame(uint32 NewSizeX, uint32 NewSizeY, EWindowMode::Type NewWindowMode, int32, int32)
-	{
-		ResizeFrame(NewSizeX, NewSizeY, NewWindowMode);
-	}
+	virtual void ResizeFrame(uint32 NewSizeX,uint32 NewSizeY,EWindowMode::Type NewWindowMode,int32 InPosX, int32 InPosY ) override;
 
 	/**
 	 *	Sets the Viewport resize delegate.
@@ -178,7 +173,7 @@ public:
 	*/
 	void SetPlayInEditorGetsMouseControl(const bool bGetsMouseControl)
 	{
-		bShouldCaptureMouseOnActivate = bGetsMouseControl;
+		bPlayInEditorGetsMouseControl = bGetsMouseControl;
 	}
 
 	void SetPlayInEditorIsSimulate(const bool bIsSimulate)
@@ -220,7 +215,6 @@ public:
 	virtual FReply OnFocusReceived( const FFocusEvent& InFocusEvent ) override;
 	virtual void OnFocusLost( const FFocusEvent& InFocusEvent ) override;
 	virtual void OnViewportClosed() override;
-	virtual TWeakPtr<SWidget> GetWidget() override;
 	virtual FReply OnViewportActivated(const FWindowActivateEvent& InActivateEvent) override;
 	virtual void OnViewportDeactivated(const FWindowActivateEvent& InActivateEvent) override;
 	virtual FIntPoint GetSize() const override { return GetSizeXY(); }
@@ -260,13 +254,7 @@ private:
 	 * @param NewSizeY		 The new height of the viewport
 	 * @param NewWindowMode	 What window mode should the viewport be resized to
 	 */
-	virtual void ResizeViewport( uint32 NewSizeX,uint32 NewSizeY,EWindowMode::Type NewWindowMode );
-
-	DEPRECATED(4.13, "The version of FSceneViewport::ResizeViewport that takes a position is deprecated (the position was never used). Please use the version that doesn't take a position instead.")
-	void ResizeViewport(uint32 NewSizeX, uint32 NewSizeY, EWindowMode::Type NewWindowMode, int32, int32)
-	{
-		ResizeViewport(NewSizeX, NewSizeY, NewWindowMode);
-	}
+	virtual void ResizeViewport( uint32 NewSizeX,uint32 NewSizeY,EWindowMode::Type NewWindowMode,int32 InPosX, int32 InPosY );
 
 	/**
 	 * Called from slate when input is finished for this frame, and we should process any accumulated mouse data.
@@ -313,13 +301,6 @@ private:
 
 	void WindowRenderTargetUpdate(FSlateRenderer* Renderer, SWindow* Window);
 
-	/** @return Returns true if we should always render to a separate render target (rather than rendering directly to the
-	    viewport backbuffer, taking into account any temporary requirements of head-mounted displays */
-	bool UseSeparateRenderTarget() const
-	{
-		return bUseSeparateRenderTarget || bForceSeparateRenderTarget;
-	}
-
 private:
 	/** An intermediate reply state that is reset whenever an input event is generated */
 	FReply CurrentReplyState;
@@ -353,12 +334,12 @@ private:
 	bool bRequiresVsync;
 	/** true if this viewport renders to a separate render target.  false to render directly to the windows back buffer */
 	bool bUseSeparateRenderTarget;
-	/** True if we should force use of a separate render target because the HMD needs it. */
-	bool bForceSeparateRenderTarget;
 	/** Whether or not we are currently resizing */
 	bool bIsResizing;
 	/** Delegate that is fired off in ResizeFrame after ResizeViewport */
 	FOnSceneViewportResize OnSceneViewportResizeDel;
+	/** Whether a PIE viewport should take mouse control on startup */
+	bool bPlayInEditorGetsMouseControl;
 	/** Whether the PIE viewport is currently in simulate in editor mode */
 	bool bPlayInEditorIsSimulate;
 	/** Whether or not the cursor is hidden when the viewport captures the mouse */
@@ -381,3 +362,6 @@ private:
 	int32 CurrentBufferedTargetIndex;
 	int32 NextBufferedTargetIndex;
 };
+
+
+#endif

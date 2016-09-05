@@ -1,7 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "AIModulePrivate.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "EnvironmentQuery/EnvQuery.h"
 #include "EnvironmentQuery/EQSTestingPawn.h"
 #include "EnvironmentQuery/EnvQueryTypes.h"
@@ -41,11 +40,11 @@ AEQSTestingPawn::AEQSTestingPawn(const FObjectInitializer& ObjectInitializer)
 	EdRenderComp = CreateEditorOnlyDefaultSubobject<UEQSRenderingComponent>(TEXT("EQSRender"));
 	if (HasAnyFlags(RF_ClassDefaultObject) == false)
 	{
-		UArrowComponent* ArrowComp = FindComponentByClass<UArrowComponent>();
-		if (ArrowComp != NULL)
+		UArrowComponent* ArrowComponent = FindComponentByClass<UArrowComponent>();
+		if (ArrowComponent != NULL)
 		{
-			ArrowComp->SetRelativeScale3D(FVector(2, 2, 2));
-			ArrowComp->bIsScreenSizeScaled = true;
+			ArrowComponent->SetRelativeScale3D(FVector(2, 2, 2));
+			ArrowComponent->bIsScreenSizeScaled = true;
 		}
 
 		UBillboardComponent* SpriteComponent = CreateEditorOnlyDefaultSubobject<UBillboardComponent>(TEXT("Sprite"));
@@ -71,7 +70,7 @@ AEQSTestingPawn::AEQSTestingPawn(const FObjectInitializer& ObjectInitializer)
 			//SpriteComponent->Mobility = EComponentMobility::Static;
 			SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Misc;
 			SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Misc;
-			SpriteComponent->SetupAttachment(RootComponent);
+			SpriteComponent->AttachParent = RootComponent;
 			SpriteComponent->bIsScreenSizeScaled = true;
 		}
 	}
@@ -80,11 +79,6 @@ AEQSTestingPawn::AEQSTestingPawn(const FObjectInitializer& ObjectInitializer)
 	// Default to no tick function, but if we set 'never ticks' to false (so there is a tick function) it is enabled by default
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
-
-	if (GetCharacterMovement())
-	{
-		GetCharacterMovement()->DefaultLandMovementMode = MOVE_None;
-	}
 
 #if WITH_EDITOR
 	if (HasAnyFlags(RF_ClassDefaultObject) && GetClass() == StaticClass())

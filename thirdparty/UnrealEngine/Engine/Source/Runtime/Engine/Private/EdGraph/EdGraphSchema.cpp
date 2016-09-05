@@ -274,13 +274,13 @@ namespace
 	const int32 NodeDistance = 60;
 }
 
-UEdGraphNode* FEdGraphSchemaAction_NewNode::CreateNode(class UEdGraph* ParentGraph, UEdGraphPin* FromPin, const FVector2D Location, class UEdGraphNode* InNodeTemplate)
+UEdGraphNode* FEdGraphSchemaAction_NewNode::CreateNode(class UEdGraph* ParentGraph, UEdGraphPin* FromPin, const FVector2D Location, class UEdGraphNode* NodeTemplate)
 {
 	// Duplicate template node to create new node
 	UEdGraphNode* ResultNode = NULL;
 
 #if WITH_EDITOR
-	ResultNode = DuplicateObject<UEdGraphNode>(InNodeTemplate, ParentGraph);
+	ResultNode = DuplicateObject<UEdGraphNode>(NodeTemplate, ParentGraph);
 	ResultNode->SetFlags(RF_Transactional);
 
 	ParentGraph->AddNode(ResultNode, true);
@@ -465,7 +465,23 @@ void UEdGraphSchema::TrySetDefaultObject(UEdGraphPin& Pin, UObject* NewDefaultOb
 
 void UEdGraphSchema::TrySetDefaultText(UEdGraphPin& InPin, const FText& InNewDefaultText) const
 {
-	InPin.DefaultTextValue = InNewDefaultText;
+	if(InNewDefaultText.IsEmpty())
+	{
+		InPin.DefaultTextValue = InNewDefaultText;
+	}
+	else
+	{
+#if WITH_EDITOR
+		if(InNewDefaultText.IsCultureInvariant())
+		{
+			InPin.DefaultTextValue = InNewDefaultText;
+		}
+		else
+		{
+			InPin.DefaultTextValue = FText::ChangeKey(TEXT(""), FGuid::NewGuid().ToString(), InNewDefaultText);
+		}
+#endif
+	}
 
 #if WITH_EDITOR
 	UEdGraphNode* Node = InPin.GetOwningNode();
@@ -484,10 +500,10 @@ void UEdGraphSchema::BreakNodeLinks(UEdGraphNode& TargetNode) const
 	for (TArray<UEdGraphPin*>::TIterator PinIt(TargetNode.Pins); PinIt; ++PinIt)
 	{
 		UEdGraphPin* TargetPin = *PinIt;
-		if (TargetPin != nullptr && TargetPin->SubPins.Num() == 0)
+		if (TargetPin)
 		{
 			// Keep track of which node(s) the pin's connected to
-			for (UEdGraphPin*& OtherPin : TargetPin->LinkedTo)
+			for (auto OtherPin : TargetPin->LinkedTo)
 			{
 				if (OtherPin)
 				{
@@ -535,26 +551,18 @@ void UEdGraphSchema::BreakPinLinks(UEdGraphPin& TargetPin, bool bSendsNodeNotifc
 	TargetPin.BreakAllPinLinks();
 
 #if WITH_EDITOR
-	UEdGraphNode* OwningNode = TargetPin.GetOwningNode();
 	TSet<UEdGraphNode*> NodeList;
-
 	// Notify this node
-	if (OwningNode != nullptr)
-	{
-		OwningNode->PinConnectionListChanged(&TargetPin);
-		NodeList.Add(OwningNode);
-	}
+	TargetPin.GetOwningNode()->PinConnectionListChanged(&TargetPin);
+	NodeList.Add(TargetPin.GetOwningNode());
 
 	// As well as all other nodes that were connected
 	for (TArray<UEdGraphPin*>::TIterator PinIt(OldLinkedTo); PinIt; ++PinIt)
 	{
 		UEdGraphPin* OtherPin = *PinIt;
 		UEdGraphNode* OtherNode = OtherPin->GetOwningNode();
-		if (OtherNode != nullptr)
-		{
-			OtherNode->PinConnectionListChanged(OtherPin);
-			NodeList.Add(OtherNode);
-		}
+		OtherNode->PinConnectionListChanged(OtherPin);
+		NodeList.Add(OtherNode);
 	}
 
 	if (bSendsNodeNotifcation)
@@ -566,7 +574,6 @@ void UEdGraphSchema::BreakPinLinks(UEdGraphPin& TargetPin, bool bSendsNodeNotifc
 			Node->NodeConnectionListChanged();
 		}
 	}
-	
 #endif	//#if WITH_EDITOR
 }
 
@@ -575,15 +582,11 @@ void UEdGraphSchema::BreakSinglePinLink(UEdGraphPin* SourcePin, UEdGraphPin* Tar
 	SourcePin->BreakLinkTo(TargetPin);
 
 #if WITH_EDITOR
-	// get a reference to these now as the following calls can potentially clear the OwningNode (ex: split pins in MakeArray nodes)
-	UEdGraphNode* TargetNode = TargetPin->GetOwningNode();
-	UEdGraphNode* SourceNode = SourcePin->GetOwningNode();
-	
-	TargetNode->PinConnectionListChanged(TargetPin);
-	SourceNode->PinConnectionListChanged(SourcePin);
-	
-	TargetNode->NodeConnectionListChanged();
-	SourceNode->NodeConnectionListChanged();
+	TargetPin->GetOwningNode()->PinConnectionListChanged(TargetPin);
+	SourcePin->GetOwningNode()->PinConnectionListChanged(SourcePin);
+
+	TargetPin->GetOwningNode()->NodeConnectionListChanged();
+	SourcePin->GetOwningNode()->NodeConnectionListChanged();
 #endif	//#if WITH_EDITOR
 }
 
@@ -740,7 +743,7 @@ void UEdGraphSchema::GetContextMenuActions(const UEdGraph* CurrentGraph, const U
 			}
 
 			// Called by the EditableText widget when the user types a new comment for the selected node
-			static void OnNodeCommentTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo, TWeakObjectPtr<UEdGraphNode> NodeWeakPtr)
+			static void OnNodeCommentTextCommitted(const FText& NewText, ETextCommit::Type /*CommitInfo*/, TWeakObjectPtr<UEdGraphNode> NodeWeakPtr)
 			{
 				// Apply the change to the selected actor
 				UEdGraphNode* SelectedNode = NodeWeakPtr.Get();
@@ -762,12 +765,7 @@ void UEdGraphSchema::GetContextMenuActions(const UEdGraph* CurrentGraph, const U
 					}
 				}
 
-				// Only dismiss all menus if the text was committed via some user action.
-				// ETextCommit::Default implies that focus was switched by some other means. If this is because a submenu was opened, we don't want to close all the menus as a consequence.
-				if (CommitInfo != ETextCommit::Default)
-				{
-					FSlateApplication::Get().DismissAllMenus();
-				}
+				FSlateApplication::Get().DismissAllMenus();
 			}
 		};
 

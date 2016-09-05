@@ -314,9 +314,9 @@ void UParticleModule::AutoPopulateInstanceProperties(UParticleSystemComponent* P
 			{
 				ParamType = PSPT_Scalar;
 				ParamName = DistFloatParam->ParameterName;
-				
 			}
-			else if (DistVectorParam != NULL)
+			else 
+			if (DistVectorParam != NULL)
 			{
 				ParamType = PSPT_Vector;
 				ParamName = DistVectorParam->ParameterName;
@@ -342,18 +342,6 @@ void UParticleModule::AutoPopulateInstanceProperties(UParticleSystemComponent* P
 					PSysComp->InstanceParameters[NewParamIndex].Name		= ParamName;
 					PSysComp->InstanceParameters[NewParamIndex].ParamType	= ParamType;
 					PSysComp->InstanceParameters[NewParamIndex].Actor		= NULL;
-					// Populate a Vector or Scalar using GetValue. (If we just call GetValue with no parameters we will get the default value based on the setting of the Parameter)
-					switch (ParamType)
-					{
-					case PSPT_Vector:
-						PSysComp->InstanceParameters[NewParamIndex].Vector = DistVectorParam->GetValue();
-						PSysComp->InstanceParameters[NewParamIndex].Vector_Low = DistVectorParam->MinOutput;
-						break;
-					case PSPT_Scalar:
-						PSysComp->InstanceParameters[NewParamIndex].Scalar = DistFloatParam->GetValue();
-						PSysComp->InstanceParameters[NewParamIndex].Scalar_Low = DistFloatParam->MinOutput;
-						break;
-					}
 				}
 			}
 		}
@@ -791,15 +779,8 @@ void UParticleModule::SetTransactionFlag()
 			if( (ObjectPropertyBase->PropertyClass == UDistributionFloat::StaticClass() ||
 				 ObjectPropertyBase->PropertyClass == UDistributionVector::StaticClass()) )
 			{
-				//We've deprecated all the UFloatDistribution* usage and in PostLoad we set them to nullptr. TODO: can we just remove this code instead of a null check?
-				if(UObject* Distribution = ObjectPropertyBase->GetObjectPropertyValue( ObjectPropertyBase->ContainerPtrToValuePtr<void>(this) ))
-				{
-					Distribution->SetFlags( RF_Transactional );
-				}
-				else
-				{
-					ensure(ObjectPropertyBase->HasAllPropertyFlags(CPF_Deprecated));
-				}
+				UObject* Distribution = ObjectPropertyBase->GetObjectPropertyValue( ObjectPropertyBase->ContainerPtrToValuePtr<void>(this) );
+				Distribution->SetFlags( RF_Transactional );
 			}
 		}
 		else if( UArrayProperty* ArrayProp = Cast<UArrayProperty>(Property) )
@@ -916,7 +897,7 @@ UParticleModuleSourceMovement::UParticleModuleSourceMovement(const FObjectInitia
 
 void UParticleModuleSourceMovement::InitializeDefaults()
 {
-	if (!SourceMovementScale.IsCreated())
+	if (!SourceMovementScale.Distribution)
 	{
 		UDistributionVectorConstant* DistributionSourceMovementScale = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionSourceMovementScale"));
 		DistributionSourceMovementScale->Constant = FVector(1.0f, 1.0f, 1.0f);
@@ -1053,7 +1034,7 @@ UParticleModuleRequired::UParticleModuleRequired(const FObjectInitializer& Objec
 
 void UParticleModuleRequired::InitializeDefaults()
 {
-	if (!SpawnRate.IsCreated())
+	if (!SpawnRate.Distribution)
 	{
 		SpawnRate.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("RequiredDistributionSpawnRate"));
 	}
@@ -1201,7 +1182,7 @@ UParticleModuleMeshRotation::UParticleModuleMeshRotation(const FObjectInitialize
 
 void UParticleModuleMeshRotation::InitializeDefaults()
 {
-	if (!StartRotation.IsCreated())
+	if (!StartRotation.Distribution)
 	{
 		UDistributionVectorUniform* DistributionStartRotation = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionStartRotation"));
 		DistributionStartRotation->Min = FVector(0.0f, 0.0f, 0.0f);
@@ -1316,7 +1297,7 @@ UParticleModuleMeshRotationRate::UParticleModuleMeshRotationRate(const FObjectIn
 
 void UParticleModuleMeshRotationRate::InitializeDefaults()
 {
-	if (!StartRotationRate.IsCreated())
+	if (!StartRotationRate.Distribution)
 	{
 		UDistributionVectorUniform* DistributionStartRotationRate = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionStartRotationRate"));
 		DistributionStartRotationRate->Min = FVector(0.0f, 0.0f, 0.0f);
@@ -1426,7 +1407,7 @@ UParticleModuleMeshRotationRateMultiplyLife::UParticleModuleMeshRotationRateMult
 }
 void UParticleModuleMeshRotationRateMultiplyLife::InitializeDefaults()
 {
-	if (!LifeMultiplier.IsCreated())
+	if (!LifeMultiplier.Distribution)
 	{
 		LifeMultiplier.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionLifeMultiplier"));
 	}
@@ -1502,7 +1483,7 @@ UParticleModuleMeshRotationRateOverLife::UParticleModuleMeshRotationRateOverLife
 
 void UParticleModuleMeshRotationRateOverLife::InitializeDefaults()
 {
-	if (!RotRate.IsCreated())
+	if (!RotRate.Distribution)
 	{
 		RotRate.Distribution = NewObject<UDistributionVectorConstantCurve>(this, TEXT("DistributionRotRate"));
 	}
@@ -1608,7 +1589,7 @@ UParticleModuleRotation::UParticleModuleRotation(const FObjectInitializer& Objec
 
 void UParticleModuleRotation::InitializeDefaults()
 {
-	if (!StartRotation.IsCreated())
+	if (!StartRotation.Distribution)
 	{
 		UDistributionFloatUniform* DistributionStartRotation = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionStartRotation"));
 		DistributionStartRotation->Min = 0.0f;
@@ -1694,7 +1675,7 @@ UParticleModuleRotationRate::UParticleModuleRotationRate(const FObjectInitialize
 
 void UParticleModuleRotationRate::InitializeDefaults()
 {
-	if (!StartRotationRate.IsCreated())
+	if (!StartRotationRate.Distribution)
 	{
 		StartRotationRate.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStartRotationRate"));
 	}
@@ -1805,7 +1786,7 @@ UParticleModuleRotationOverLifetime::UParticleModuleRotationOverLifetime(const F
 
 void UParticleModuleRotationOverLifetime::InitializeDefaults()
 {
-	if (!RotationOverLife.IsCreated())
+	if (!RotationOverLife.Distribution)
 	{
 		RotationOverLife.Distribution = NewObject<UDistributionFloatConstantCurve>(this, TEXT("DistributionRotOverLife"));
 	}
@@ -1872,20 +1853,10 @@ UParticleModuleSubUV::UParticleModuleSubUV(const FObjectInitializer& ObjectIniti
 
 void UParticleModuleSubUV::InitializeDefaults()
 {
-	if (!SubImageIndex.IsCreated())
+	if (!SubImageIndex.Distribution)
 	{
 		SubImageIndex.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionSubImage"));
 	}
-}
-
-void UParticleModuleSubUV::PostLoad()
-{
-	Super::PostLoad();
-
-	if (Animation)
-	{
-		Animation->ConditionalPostLoad();
-	}	
 }
 
 void UParticleModuleSubUV::PostInitProperties()
@@ -2121,7 +2092,7 @@ UParticleModuleSubUVMovie::UParticleModuleSubUVMovie(const FObjectInitializer& O
 
 void UParticleModuleSubUVMovie::InitializeDefaults()
 {
-	if (!FrameRate.IsCreated())
+	if (!FrameRate.Distribution)
 	{
 		UDistributionFloatConstant* DistributionFrameRate = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionFrameRate"));
 		DistributionFrameRate->Constant = 30.0f;
@@ -2293,7 +2264,7 @@ UParticleModuleRotationRateMultiplyLife::UParticleModuleRotationRateMultiplyLife
 
 void UParticleModuleRotationRateMultiplyLife::InitializeDefaults()
 {
-	if (!LifeMultiplier.IsCreated())
+	if (!LifeMultiplier.Distribution)
 	{
 		LifeMultiplier.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionLifeMultiplier"));
 	}
@@ -2454,11 +2425,11 @@ UParticleModuleAccelerationDrag::UParticleModuleAccelerationDrag(const FObjectIn
 
 void UParticleModuleAccelerationDrag::InitializeDefaults()
 {
-	if (!DragCoefficientRaw.IsCreated())
+	if (!DragCoefficient)
 	{
 		UDistributionFloatConstant* DistributionDragCoefficient = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionDragCoefficient"));
 		DistributionDragCoefficient->Constant = 1.0f;
-		DragCoefficientRaw.Distribution = DistributionDragCoefficient;
+		DragCoefficient = DistributionDragCoefficient;
 	}
 }
 
@@ -2471,22 +2442,9 @@ void UParticleModuleAccelerationDrag::PostInitProperties()
 	}
 }
 
-void UParticleModuleAccelerationDrag::PostLoad()
-{
-	Super::PostLoad();
-#if WITH_EDITOR
-	if(DragCoefficient_DEPRECATED)
-	{
-		DragCoefficientRaw.Distribution = DragCoefficient_DEPRECATED;
-		DragCoefficientRaw.Initialize();
-	}
-	DragCoefficient_DEPRECATED = nullptr;
-#endif
-}
-
 void UParticleModuleAccelerationDrag::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
 {
-	EmitterInfo.DragCoefficient.Initialize(DragCoefficientRaw.Distribution);
+	EmitterInfo.DragCoefficient.Initialize(DragCoefficient);
 }
 
 #if WITH_EDITOR
@@ -2498,9 +2456,9 @@ void UParticleModuleAccelerationDrag::PostEditChangeProperty(FPropertyChangedEve
 
 bool UParticleModuleAccelerationDrag::IsValidForLODLevel(UParticleLODLevel* LODLevel, FString& OutErrorString)
 {
-	if (DragCoefficientRaw.Distribution && LODLevel->TypeDataModule && LODLevel->TypeDataModule->IsA(UParticleModuleTypeDataGpu::StaticClass()))
+	if (DragCoefficient && LODLevel->TypeDataModule && LODLevel->TypeDataModule->IsA(UParticleModuleTypeDataGpu::StaticClass()))
 	{
-		if(!IsDistributionAllowedOnGPU(DragCoefficientRaw.Distribution))
+		if(!IsDistributionAllowedOnGPU(DragCoefficient))
 		{
 			OutErrorString = GetDistributionNotAllowedOnGPUText(StaticClass()->GetName(), "DragCoefficient" ).ToString();
 			return false;
@@ -2515,7 +2473,7 @@ void UParticleModuleAccelerationDrag::Update(FParticleEmitterInstance* Owner, in
 {
 	BEGIN_UPDATE_LOOP;
 	{
-		FVector Drag  = Particle.Velocity * -DragCoefficientRaw.GetValue(Particle.RelativeTime, Owner->Component);
+		FVector Drag  = Particle.Velocity * -DragCoefficient->GetValue(Particle.RelativeTime, Owner->Component);
 		Particle.Velocity		+= Drag * DeltaTime;
 		Particle.BaseVelocity	+= Drag * DeltaTime;
 	}
@@ -2532,11 +2490,11 @@ UParticleModuleAccelerationDragScaleOverLife::UParticleModuleAccelerationDragSca
 
 void UParticleModuleAccelerationDragScaleOverLife::InitializeDefaults()
 {
-	if (!DragScaleRaw.IsCreated())
+	if (!DragScale)
 	{
 		UDistributionFloatConstant* DistributionDragScale = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionDragScale"));
 		DistributionDragScale->Constant = 1.0f;
-		DragScaleRaw.Distribution = DistributionDragScale;
+		DragScale = DistributionDragScale;
 	}
 }
 
@@ -2549,22 +2507,9 @@ void UParticleModuleAccelerationDragScaleOverLife::PostInitProperties()
 	}
 }
 
-void UParticleModuleAccelerationDragScaleOverLife::PostLoad()
-{
-	Super::PostLoad();
-#if WITH_EDITOR
-	if (DragScale_DEPRECATED)
-	{
-		DragScaleRaw.Distribution = DragScale_DEPRECATED;
-		DragScaleRaw.Initialize();
-	}
-	DragScale_DEPRECATED = nullptr;
-#endif
-}
-
 void UParticleModuleAccelerationDragScaleOverLife::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
 {
-	EmitterInfo.DragScale.ScaleByDistribution(DragScaleRaw.Distribution);
+	EmitterInfo.DragScale.ScaleByDistribution(DragScale);
 }
 
 #if WITH_EDITOR
@@ -2578,7 +2523,7 @@ bool UParticleModuleAccelerationDragScaleOverLife::IsValidForLODLevel(UParticleL
 {
 	if (LODLevel->TypeDataModule && LODLevel->TypeDataModule->IsA(UParticleModuleTypeDataGpu::StaticClass()))
 	{
-		if(!IsDistributionAllowedOnGPU(DragScaleRaw.Distribution))
+		if(!IsDistributionAllowedOnGPU(DragScale))
 		{
 			OutErrorString = GetDistributionNotAllowedOnGPUText(StaticClass()->GetName(), "DragScale" ).ToString();
 			return false;
@@ -2601,11 +2546,11 @@ UParticleModuleAttractorPointGravity::UParticleModuleAttractorPointGravity(const
 
 void UParticleModuleAttractorPointGravity::InitializeDefaults()
 {
-	if (!StrengthRaw.IsCreated())
+	if (!Strength)
 	{
 		UDistributionFloatConstant* DistributionStrength = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStrength"));
 		DistributionStrength->Constant = 1.0f;
-		StrengthRaw.Distribution = DistributionStrength;
+		Strength = DistributionStrength;
 	}
 }
 
@@ -2618,24 +2563,11 @@ void UParticleModuleAttractorPointGravity::PostInitProperties()
 	}
 }
 
-void UParticleModuleAttractorPointGravity::PostLoad()
-{
-	Super::PostLoad();
-#if WITH_EDITOR
-	if (Strength_DEPRECATED)
-	{
-		StrengthRaw.Distribution = Strength_DEPRECATED;
-		StrengthRaw.Initialize();
-	}
-	Strength_DEPRECATED = nullptr;
-#endif
-}
-
 void UParticleModuleAttractorPointGravity::CompileModule(FParticleEmitterBuildInfo& EmitterInfo)
 {
 	EmitterInfo.PointAttractorPosition = Position;
 	EmitterInfo.PointAttractorRadius = Radius;
-	EmitterInfo.PointAttractorStrength.Initialize(StrengthRaw.Distribution);
+	EmitterInfo.PointAttractorStrength.Initialize(Strength);
 }
 
 #if WITH_EDITOR
@@ -2671,7 +2603,7 @@ UParticleModuleAcceleration::UParticleModuleAcceleration(const FObjectInitialize
 
 void UParticleModuleAcceleration::InitializeDefaults()
 {
-	if (!Acceleration.IsCreated())
+	if (!Acceleration.Distribution)
 	{
 		Acceleration.Distribution = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionAcceleration"));
 	}
@@ -2802,7 +2734,7 @@ UParticleModuleAccelerationOverLifetime::UParticleModuleAccelerationOverLifetime
 
 void UParticleModuleAccelerationOverLifetime::InitializeDefaults()
 {
-	if (!AccelOverLife.IsCreated())
+	if (!AccelOverLife.Distribution)
 	{
 		AccelOverLife.Distribution = NewObject<UDistributionVectorConstantCurve>(this, TEXT("DistributionAccelOverLife"));
 	}
@@ -2874,22 +2806,22 @@ UParticleModuleLight::UParticleModuleLight(const FObjectInitializer& ObjectIniti
 
 void UParticleModuleLight::InitializeDefaults()
 {
-	if (!ColorScaleOverLife.IsCreated())
+	if (!ColorScaleOverLife.Distribution)
 	{
 		ColorScaleOverLife.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionColorScaleOverLife"));
 	}
 
-	if (!BrightnessOverLife.IsCreated())
+	if (!BrightnessOverLife.Distribution)
 	{
 		BrightnessOverLife.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionBrightnessOverLife"));
 	}
 
-	if (!RadiusScale.IsCreated())
+	if (!RadiusScale.Distribution)
 	{
 		RadiusScale.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionRadiusScale"));
 	}
 
-	if (!LightExponent.IsCreated())
+	if (!LightExponent.Distribution)
 	{
 		LightExponent.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionLightExponent"));
 	}
@@ -2923,35 +2855,24 @@ bool UParticleModuleLight::CanTickInAnyThread()
 	return !bHighQualityLights && BrightnessOverLife.OkForParallel() && ColorScaleOverLife.OkForParallel() && RadiusScale.OkForParallel() && LightExponent.OkForParallel();
 }
 
-static TAutoConsoleVariable<int32> CVarParticleLightQuality(
-	TEXT("r.ParticleLightQuality"),
-	2,
-	TEXT("0: No lights. 1:Only simple lights. 2:Simple+HQ lights"),
-	ECVF_Scalability
-	);
-
 void UParticleModuleLight::SpawnEx(FParticleEmitterInstance* Owner, int32 Offset, float SpawnTime, struct FRandomStream* InRandomStream, FBaseParticle* ParticleBase)
 {
-	int32 ParticleLightQuality = CVarParticleLightQuality.GetValueOnAnyThread();
-	if (ParticleLightQuality > 0)
-	{
-		SPAWN_INIT;
-		PARTICLE_ELEMENT(FLightParticlePayload, LightData);
-		const float Brightness = BrightnessOverLife.GetValue(Particle.RelativeTime, Owner->Component, InRandomStream);
-		LightData.ColorScale = ColorScaleOverLife.GetValue(Particle.RelativeTime, Owner->Component, 0, InRandomStream) * Brightness;
-		LightData.RadiusScale = RadiusScale.GetValue(Owner->EmitterTime, Owner->Component, InRandomStream);
-		// Exponent of 0 is interpreted by renderer as inverse squared falloff
-		LightData.LightExponent = bUseInverseSquaredFalloff ? 0 : LightExponent.GetValue(Owner->EmitterTime, Owner->Component, InRandomStream);
-		const float RandomNumber = InRandomStream ? InRandomStream->GetFraction() : FMath::SRand();
-		LightData.bValid = RandomNumber < SpawnFraction;
-		LightData.bAffectsTranslucency = bAffectsTranslucency;
-		LightData.bHighQuality = bHighQualityLights;
-		LightData.LightId = 0;
+	SPAWN_INIT;
+	PARTICLE_ELEMENT(FLightParticlePayload, LightData);
+	const float Brightness = BrightnessOverLife.GetValue(Particle.RelativeTime, Owner->Component, InRandomStream);
+	LightData.ColorScale = ColorScaleOverLife.GetValue(Particle.RelativeTime, Owner->Component, 0, InRandomStream) * Brightness;
+	LightData.RadiusScale = RadiusScale.GetValue(Owner->EmitterTime, Owner->Component, InRandomStream);
+	// Exponent of 0 is interpreted by renderer as inverse squared falloff
+	LightData.LightExponent = bUseInverseSquaredFalloff ? 0 : LightExponent.GetValue(Owner->EmitterTime, Owner->Component, InRandomStream);
+	const float RandomNumber = InRandomStream ? InRandomStream->GetFraction() : FMath::SRand();
+	LightData.bValid = RandomNumber < SpawnFraction;
+	LightData.bAffectsTranslucency = bAffectsTranslucency;
+	LightData.bHighQuality = bHighQualityLights;
+	LightData.LightId = 0;
 
-		if (bHighQualityLights && ParticleLightQuality > 1)
-		{		
-			LightData.LightId = SpawnHQLight(LightData, Particle, Owner);
-		}
+	if (bHighQualityLights)
+	{		
+		LightData.LightId = SpawnHQLight(LightData, Particle, Owner);
 	}
 }
 
@@ -2982,7 +2903,7 @@ uint64 UParticleModuleLight::SpawnHQLight(const FLightParticlePayload& Payload, 
 		USceneComponent* RootComponent = HQLightContainer->GetRootComponent();
 		if (RootComponent)
 		{
-			PointLightComponent->SetupAttachment(RootComponent);
+			PointLightComponent->AttachTo(RootComponent, NAME_None, EAttachLocation::KeepRelativeOffset);
 		}			
 		PointLightComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
 		PointLightComponent->RegisterComponent();
@@ -3248,23 +3169,6 @@ FParticleEmitterInstance* UParticleModuleTypeDataBase::CreateInstance(UParticleE
 /*-----------------------------------------------------------------------------
 	UParticleModuleTypeDataMesh implementation.
 -----------------------------------------------------------------------------*/
-static TAutoConsoleVariable<int32> CVarMinDetailModeForMeshParticleMotionBlur(
-	TEXT("r.MeshParticle.MinDetailModeForMotionBlur"),
-	-1,
-	TEXT("Sets the minimum detail mode before mesh particles emit motion blur (Low  = 0, Med = 1, High = 2, Max = 3). ")
-	TEXT("Set to -1 to disable mesh particles motion blur entirely. Defaults to -1.")
-	);
-
-int32 UParticleModuleTypeDataMesh::GetCurrentDetailMode()
-{
-	return GetCachedScalabilityCVars().DetailMode;
-}
-
-int32 UParticleModuleTypeDataMesh::GetMeshParticleMotionBlurMinDetailMode()
-{
-	return CVarMinDetailModeForMeshParticleMotionBlur.GetValueOnGameThread();
-}
-
 UParticleModuleTypeDataMesh::UParticleModuleTypeDataMesh(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -3318,22 +3222,12 @@ void UParticleModuleTypeDataMesh::Serialize(FArchive& Ar)
 
 void UParticleModuleTypeDataMesh::CreateDistribution()
 {
-	if (!RollPitchYawRange.IsCreated())
+	if (!RollPitchYawRange.Distribution)
 	{
 		RollPitchYawRange.Distribution = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionRollPitchYaw"));
 	}
 }
 
-
-void UParticleModuleTypeDataMesh::PostLoad()
-{
-	Super::PostLoad();
-
-	if (Mesh != nullptr)
-	{
-		Mesh->ConditionalPostLoad();
-	}
-}
 
 
 #if WITH_EDITOR
@@ -3384,12 +3278,12 @@ UParticleModuleKillBox::UParticleModuleKillBox(const FObjectInitializer& ObjectI
 
 void UParticleModuleKillBox::InitializeDefaults()
 {
-	if (!LowerLeftCorner.IsCreated())
+	if (!LowerLeftCorner.Distribution)
 	{
 		LowerLeftCorner.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionLowerLeftCorner"));
 	}
 
-	if (!UpperRightCorner.IsCreated())
+	if (!UpperRightCorner.Distribution)
 	{
 		UpperRightCorner.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionUpperRightCorner"));
 	}
@@ -3534,7 +3428,7 @@ UParticleModuleKillHeight::UParticleModuleKillHeight(const FObjectInitializer& O
 
 void UParticleModuleKillHeight::InitializeDefaults()
 {
-	if (!Height.IsCreated())
+	if (!Height.Distribution)
 	{
 		Height.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionHeight"));
 	}
@@ -3657,7 +3551,7 @@ UParticleModuleLifetime::UParticleModuleLifetime(const FObjectInitializer& Objec
 
 void UParticleModuleLifetime::InitializeDefaults()
 {
-	if(!Lifetime.IsCreated())
+	if(!Lifetime.Distribution)
 	{
 		Lifetime.Distribution = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionLifetime"));
 	}
@@ -3807,12 +3701,12 @@ UParticleModuleAttractorLine::UParticleModuleAttractorLine(const FObjectInitiali
 
 void UParticleModuleAttractorLine::InitializeDefaults()
 {
-	if(!Strength.IsCreated())
+	if(!Strength.Distribution)
 	{
 		Strength.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStrength"));
 	}
 
-	if(!Range.IsCreated())
+	if(!Range.Distribution)
 	{
 		Range.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionRange"));
 	}
@@ -3955,12 +3849,12 @@ UParticleModuleAttractorParticle::UParticleModuleAttractorParticle(const FObject
 
 void UParticleModuleAttractorParticle::InitializeDefaults()
 {
-	if(!Range.IsCreated())
+	if(!Range.Distribution)
 	{
 		Range.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionRange"));
 	}
 
-	if(!Strength.IsCreated())
+	if(!Strength.Distribution)
 	{
 		Strength.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStrength"));
 	}
@@ -4198,17 +4092,17 @@ UParticleModuleAttractorPoint::UParticleModuleAttractorPoint(const FObjectInitia
 
 void UParticleModuleAttractorPoint::InitializeDefaults()
 {
-	if(!Position.IsCreated())
+	if(!Position.Distribution)
 	{
 		Position.Distribution = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionPosition"));
 	}
 	
-	if(!Range.IsCreated())
+	if(!Range.Distribution)
 	{
 		Range.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionRange"));
 	}
 
-	if(!Strength.IsCreated())
+	if(!Strength.Distribution)
 	{	
 		Strength.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStrength"));
 	}
@@ -4431,7 +4325,6 @@ void UParticleModuleTypeDataGpu::BeginDestroy()
 
 void UParticleModuleTypeDataGpu::Build( FParticleEmitterBuildInfo& EmitterBuildInfo )
 {
-#if WITH_EDITOR
 	FVector4Distribution Curve;
 	FComposableFloatDistribution ZeroDistribution;
 	FComposableFloatDistribution OneDistribution;
@@ -4656,7 +4549,7 @@ void UParticleModuleTypeDataGpu::Build( FParticleEmitterBuildInfo& EmitterBuildI
 	EmitterInfo.LocalVectorField.bTileX = EmitterBuildInfo.bLocalVectorFieldTileX;
 	EmitterInfo.LocalVectorField.bTileY = EmitterBuildInfo.bLocalVectorFieldTileY;
 	EmitterInfo.LocalVectorField.bTileZ = EmitterBuildInfo.bLocalVectorFieldTileZ;
-	EmitterInfo.LocalVectorField.bUseFixDT = EmitterBuildInfo.bLocalVectorFieldUseFixDT;
+
 
 	// Vector field scales.
 	FComposableFloatDistribution NormalizedVectorFieldScale(EmitterBuildInfo.VectorFieldScale);
@@ -4726,8 +4619,6 @@ void UParticleModuleTypeDataGpu::Build( FParticleEmitterBuildInfo& EmitterBuildI
 	// Collision flag.
 	EmitterInfo.bEnableCollision = EmitterBuildInfo.bEnableCollision;
 	EmitterInfo.CollisionMode = (EParticleCollisionMode::Type)EmitterBuildInfo.CollisionMode;
-#endif
-
 
 	// Create or update GPU resources.
 	if ( EmitterInfo.Resources )
@@ -4750,7 +4641,7 @@ FParticleEmitterInstance* UParticleModuleTypeDataGpu::CreateInstance(UParticleEm
 		InComponent->Template != NULL ? *InComponent->Template->GetName() : TEXT("NULL"));
 
 	FParticleEmitterInstance* Instance = NULL;
-	if (World->Scene && RHISupportsGPUParticles())
+	if (World->Scene && RHISupportsGPUParticles(World->Scene->GetFeatureLevel()))
 	{
 		check( InComponent && InComponent->FXSystem );
 		Instance = InComponent->FXSystem->CreateGPUSpriteEmitterInstance( EmitterInfo );

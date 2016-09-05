@@ -27,10 +27,7 @@ public:
 	virtual bool IsMovieCurrentlyPlaying() const override;
 	virtual bool LoadingScreenIsPrepared() const override;
 	virtual void SetupLoadingScreenFromIni() override;
-
-	virtual FOnPrepareLoadingScreen& OnPrepareLoadingScreen() override { return OnPrepareLoadingScreenDelegate; }
 	virtual FOnMoviePlaybackFinished& OnMoviePlaybackFinished() override { return OnMoviePlaybackFinishedDelegate; }
-
 	/** FTickableObjectRenderThread interface */
 	virtual void Tick( float DeltaTime ) override;
 	virtual TStatId GetStatId() const override;
@@ -39,14 +36,6 @@ public:
 	/** Callback for clicking on the viewport */
 	FReply OnLoadingScreenMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& PointerEvent);
 	FReply OnLoadingScreenKeyDown(const FGeometry& Geometry, const FKeyEvent& KeyEvent);
-
-	virtual void SetSlateOverlayWidget(TSharedPtr<SWidget> NewOverlayWidget) override;
-
-	virtual bool WillAutoCompleteWhenLoadFinishes() override;
-
-	virtual FString GetMovieName() override;
-	virtual bool IsLastMovieInPlaylist() override;
-
 
 private:
 
@@ -67,7 +56,7 @@ private:
 	EVisibility GetViewportVisibility() const;	
 	
 	/** Called via a delegate in the engine when maps start to load */
-	void OnPreLoadMap(const FString& LevelName);
+	void OnPreLoadMap();
 	
 	/** Called via a delegate in the engine when maps finish loading */
 	void OnPostLoadMap();
@@ -102,9 +91,6 @@ private:
 	
 	/** Attributes of the loading screen we are currently displaying */
 	FLoadingScreenAttributes LoadingScreenAttributes;
-
-	/** Called before a movie is queued up to play to configure the movie player accordingly. */
-	FOnPrepareLoadingScreen OnPrepareLoadingScreenDelegate;
 	
 	FOnMoviePlaybackFinished OnMoviePlaybackFinishedDelegate;
 

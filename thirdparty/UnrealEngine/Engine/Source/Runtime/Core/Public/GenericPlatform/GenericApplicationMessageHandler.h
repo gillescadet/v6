@@ -40,8 +40,6 @@ struct CORE_API FGamepadKeyNames
 	static const FName LeftThumb;
 	static const FName RightThumb;
 	static const FName SpecialLeft;
-	static const FName SpecialLeft_X;
-	static const FName SpecialLeft_Y;
 	static const FName SpecialRight;
 	static const FName FaceButtonBottom;
 	static const FName FaceButtonRight;
@@ -261,17 +259,7 @@ public:
 		return false;
 	}
 
-	virtual bool OnMouseDown( const TSharedPtr< FGenericWindow >& Window, const EMouseButtons::Type Button, const FVector2D CursorPos )
-	{
-		return false;
-	}
-
 	virtual bool OnMouseUp( const EMouseButtons::Type Button )
-	{
-		return false;
-	}
-
-	virtual bool OnMouseUp( const EMouseButtons::Type Button, const FVector2D CursorPos )
 	{
 		return false;
 	}
@@ -281,17 +269,7 @@ public:
 		return false;
 	}
 
-	virtual bool OnMouseDoubleClick( const TSharedPtr< FGenericWindow >& Window, const EMouseButtons::Type Button, const FVector2D CursorPos )
-	{
-		return false;
-	}
-
 	virtual bool OnMouseWheel( const float Delta )
-	{
-		return false;
-	}
-
-	virtual bool OnMouseWheel( const float Delta, const FVector2D CursorPos )
 	{
 		return false;
 	}
@@ -330,7 +308,7 @@ public:
     {
     }
 
-	virtual bool OnTouchGesture( EGestureEvent::Type GestureType, const FVector2D& Delta, float WheelDelta, bool bIsDirectionInvertedFromDevice )
+	virtual bool OnTouchGesture( EGestureEvent::Type GestureType, const FVector2D& Delta, float WheelDelta )
 	{
 		return false;
 	}
@@ -425,11 +403,6 @@ public:
 	}
 
 	virtual EDropEffect::Type OnDragEnterFiles( const TSharedRef< FGenericWindow >& Window, const TArray< FString >& Files )
-	{
-		return EDropEffect::None;
-	}
-
-	virtual EDropEffect::Type OnDragEnterExternal( const TSharedRef< FGenericWindow >& Window, const FString& Text, const TArray< FString >& Files )
 	{
 		return EDropEffect::None;
 	}

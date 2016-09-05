@@ -36,7 +36,7 @@ AWindDirectionalSource::AWindDirectionalSource(const FObjectInitializer& ObjectI
 			ArrowComponent->bTreatAsASprite = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Wind;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Wind;
-			ArrowComponent->SetupAttachment(Component);
+			ArrowComponent->AttachParent = Component;
 			ArrowComponent->bIsScreenSizeScaled = true;
 			ArrowComponent->bUseInEditorScaling = true;
 		}
@@ -47,7 +47,7 @@ AWindDirectionalSource::AWindDirectionalSource(const FObjectInitializer& ObjectI
 			GetSpriteComponent()->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
 			GetSpriteComponent()->SpriteInfo.Category = ConstructorStatics.ID_Wind;
 			GetSpriteComponent()->SpriteInfo.DisplayName = ConstructorStatics.NAME_Wind;
-			GetSpriteComponent()->SetupAttachment(Component);
+			GetSpriteComponent()->AttachParent = Component;
 		}
 	}
 #endif // WITH_EDITORONLY_DATA
@@ -150,20 +150,20 @@ UWindDirectionalSourceComponent::UWindDirectionalSourceComponent(const FObjectIn
 void UWindDirectionalSourceComponent::CreateRenderState_Concurrent()
 {
 	Super::CreateRenderState_Concurrent();
-	GetWorld()->Scene->AddWindSource(this);
+	World->Scene->AddWindSource(this);
 }
 
 void UWindDirectionalSourceComponent::SendRenderTransform_Concurrent()
 {
 	Super::SendRenderTransform_Concurrent();
-	GetWorld()->Scene->RemoveWindSource(this);
-	GetWorld()->Scene->AddWindSource(this);
+	World->Scene->RemoveWindSource(this);
+	World->Scene->AddWindSource(this);
 }
 
 void UWindDirectionalSourceComponent::DestroyRenderState_Concurrent()
 {
 	Super::DestroyRenderState_Concurrent();
-	GetWorld()->Scene->RemoveWindSource(this);
+	World->Scene->RemoveWindSource(this);
 }
 
 FWindSourceSceneProxy* UWindDirectionalSourceComponent::CreateSceneProxy() const

@@ -19,15 +19,11 @@ namespace OpenGLConsoleVariables
 		);
 };
 
-static const uint32 MAX_ALIGNMENT_BITS = 8;
-static const uint32 MAX_OFFSET_BITS = 32 - MAX_ALIGNMENT_BITS;
-
 struct PoolAllocation
 {
-	uint8* BasePointer;
-	uint32 SizeWithoutPadding;
-	uint32 Offset				: MAX_OFFSET_BITS;		// into the target buffer
-	uint32 AlignmentPadding		: MAX_ALIGNMENT_BITS;
+	uint8* Pointer;
+	uint32 Size;
+	uint32 Offset; // into the target buffer
 	int32 FrameRetired;
 };
 
@@ -40,25 +36,17 @@ static uint32 FrameBytes = 0;
 static uint32 FreeSpace = 0;
 static uint32 OffsetVB = 0;
 static const uint32 PerFrameMax = 1024*1024*4;
-static const uint32 MaxAlignment = 1 << MAX_ALIGNMENT_BITS;
-static const uint32 MaxOffset = 1 << MAX_OFFSET_BITS;
 
-void* GetAllocation( void* Target, uint32 Size, uint32 Offset, uint32 Alignment = 16)
+void* GetAllocation( void* Target, uint32 Size, uint32 Offset)
 {
-	check(Alignment < MaxAlignment);
-	check(Offset < MaxOffset);
-	check(FMath::IsPowerOfTwo(Alignment));
-
-	uintptr_t AlignmentSubOne = Alignment - 1;
-
 	if (FOpenGL::SupportsBufferStorage() && OpenGLConsoleVariables::bUseStagingBuffer)
 	{
 		if (PoolVB == 0)
 		{
-			FOpenGL::GenBuffers(1, &PoolVB);
-			glBindBuffer(GL_COPY_READ_BUFFER, PoolVB);
-			FOpenGL::BufferStorage(GL_COPY_READ_BUFFER, PerFrameMax * 4, NULL, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
-			PoolPointer = (uint8*)FOpenGL::MapBufferRange(GL_COPY_READ_BUFFER, 0, PerFrameMax * 4, FOpenGL::RLM_WriteOnlyPersistent);
+			FOpenGL::GenBuffers( 1, &PoolVB);
+			glBindBuffer( GL_COPY_READ_BUFFER, PoolVB);
+			FOpenGL::BufferStorage( GL_COPY_READ_BUFFER, PerFrameMax * 4, NULL, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+			PoolPointer = (uint8*)FOpenGL::MapBufferRange( GL_COPY_READ_BUFFER, 0, PerFrameMax * 4, FOpenGL::RLM_WriteOnlyPersistent );
 
 			FreeSpace = PerFrameMax * 4;
 
@@ -66,59 +54,48 @@ void* GetAllocation( void* Target, uint32 Size, uint32 Offset, uint32 Alignment 
 		}
 		check (PoolVB);
 
-		uintptr_t AllocHeadPtr = *reinterpret_cast<const uintptr_t*>(&PoolPointer) + OffsetVB;
-		uint32 AlignmentPadBytes = ((AllocHeadPtr + AlignmentSubOne) & (~AlignmentSubOne)) - AllocHeadPtr;
-		uint32 SizeWithAlignmentPad = Size + AlignmentPadBytes;
-
-		if (SizeWithAlignmentPad > PerFrameMax - FrameBytes || SizeWithAlignmentPad > FreeSpace)
+		if (Size > PerFrameMax - FrameBytes || Size > FreeSpace)
 		{
-			return nullptr;
+			return NULL;
 		}
 
-		if (SizeWithAlignmentPad > (PerFrameMax*4 - OffsetVB))
+		if (Size > (PerFrameMax*4 - OffsetVB))
 		{
 			// We're wrapping, create dummy allocation and start at the begining
 			uint32 Leftover = PerFrameMax*4 - OffsetVB;
 			PoolAllocation* Alloc = new PoolAllocation;
-			Alloc->BasePointer = 0;
+			Alloc->Pointer = 0;
 			Alloc->Offset = 0;
-			Alloc->AlignmentPadding = 0;
-			Alloc->SizeWithoutPadding = Leftover;
+			Alloc->Size = Leftover;
 			Alloc->FrameRetired = GFrameNumberRenderThread;
 
 			AllocationList.Add(Alloc);
 			OffsetVB = 0;
 			FreeSpace -= Leftover;
-
-			AllocHeadPtr = *reinterpret_cast<const uintptr_t*>(&PoolPointer) + OffsetVB;
-			AlignmentPadBytes = ((AllocHeadPtr + AlignmentSubOne) & (~AlignmentSubOne)) - AllocHeadPtr;
-			SizeWithAlignmentPad = Size + AlignmentPadBytes;
 		}
 
 		//Again check if we have room
-		if (SizeWithAlignmentPad > FreeSpace)
+		if (Size > FreeSpace)
 		{
-			return nullptr;
+			return NULL;
 		}
 
 		PoolAllocation* Alloc = new PoolAllocation;
-		Alloc->BasePointer = PoolPointer + OffsetVB;
+		Alloc->Pointer = PoolPointer + OffsetVB;
 		Alloc->Offset = Offset;
-		Alloc->AlignmentPadding = AlignmentPadBytes;
-		Alloc->SizeWithoutPadding = Size;
+		Alloc->Size = Size;
 		Alloc->FrameRetired = -1;
 
 		AllocationList.Add(Alloc);
-		AllocationMap.Add(Target, Alloc);
-		OffsetVB += SizeWithAlignmentPad;
-		FreeSpace -= SizeWithAlignmentPad;
-		FrameBytes += SizeWithAlignmentPad;
+		AllocationMap.Add(Target,Alloc);
+		OffsetVB += Size;
+		FreeSpace -= Size;
+		FrameBytes += Size;
 
-		return Alloc->BasePointer + Alloc->AlignmentPadding;
+		return Alloc->Pointer;
 
 	}
-
-	return nullptr;
+	return NULL;
 }
 
 bool RetireAllocation( FOpenGLVertexBuffer* Target)
@@ -127,12 +104,12 @@ bool RetireAllocation( FOpenGLVertexBuffer* Target)
 	{
 		PoolAllocation *Alloc = 0;
 
-		if ( AllocationMap.RemoveAndCopyValue(Target, Alloc))
+		if ( AllocationMap.RemoveAndCopyValue( Target, Alloc))
 		{
-			check(Alloc);
+			check( Alloc);
 			Target->Bind();
 
-			FOpenGL::CopyBufferSubData(GL_COPY_READ_BUFFER, GL_ARRAY_BUFFER, (Alloc->BasePointer + Alloc->AlignmentPadding) - PoolPointer, Alloc->Offset, Alloc->SizeWithoutPadding);
+			FOpenGL::CopyBufferSubData( GL_COPY_READ_BUFFER, GL_ARRAY_BUFFER, Alloc->Pointer - PoolPointer, Alloc->Offset, Alloc->Size);
 
 			Alloc->FrameRetired = GFrameNumberRenderThread;
 
@@ -159,7 +136,7 @@ void BeginFrame_VertexBufferCleanup()
 		{
 			break;
 		}
-		FreeSpace += (Alloc->SizeWithoutPadding + Alloc->AlignmentPadding);
+		FreeSpace += Alloc->Size;
 		delete Alloc;
 		NumToRetire++;
 	}

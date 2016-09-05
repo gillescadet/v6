@@ -6,7 +6,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogInternationalizationManifestObject, Log, All);
 
-FManifestContext::FManifestContext( const FManifestContext& Other ) 
+FContext::FContext( const FContext& Other ) 
 	: Key( Other.Key )
 	, SourceLocation( Other.SourceLocation )
 	, bIsOptional( Other.bIsOptional )
@@ -22,7 +22,7 @@ FManifestContext::FManifestContext( const FManifestContext& Other )
 	}
 }
 
-FManifestContext& FManifestContext::operator=( const FManifestContext& Other )
+FContext& FContext::operator=( const FContext& Other )
 {
 	if( this != &Other )
 	{
@@ -44,7 +44,7 @@ FManifestContext& FManifestContext::operator=( const FManifestContext& Other )
 	return *this;
 }
 
-bool FManifestContext::operator==( const FManifestContext& Other ) const
+bool FContext::operator==( const FContext& Other ) const
 {
 	if( Key.Equals( Other.Key, ESearchCase::CaseSensitive ) )
 	{
@@ -71,7 +71,7 @@ bool FManifestContext::operator==( const FManifestContext& Other ) const
 	return false;
 }
 
-bool FManifestContext::operator<( const FManifestContext& Other ) const
+bool FContext::operator<( const FContext& Other ) const
 {
 	int32 Result = Key.Compare( Other.Key, ESearchCase::CaseSensitive );
 
@@ -197,7 +197,7 @@ bool FLocItem::IsExactMatch( const FLocItem& Other ) const
 	return false;
 }
 
-bool FInternationalizationManifest::AddSource( const FString& Namespace, const FLocItem& Source, const FManifestContext& Context )
+bool FInternationalizationManifest::AddSource( const FString& Namespace, const FLocItem& Source, const FContext& Context )
 {
 	TSharedPtr< FManifestEntry > ExistingEntry = FindEntryByContext( Namespace, Context );
 
@@ -226,7 +226,7 @@ bool FInternationalizationManifest::AddSource( const FString& Namespace, const F
 	return true;	
 }
 
-TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( const FString& Namespace, const FLocItem& Source ) const
+TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( const FString& Namespace, const FLocItem& Source )
 {	
 	TArray< TSharedRef< FManifestEntry > > MatchingEntries;
 	EntriesBySourceText.MultiFind( Source.Text, /*OUT*/MatchingEntries );
@@ -242,7 +242,7 @@ TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( c
 	return NULL;
 }
 
-TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( const FString& Namespace, const FManifestContext& Context ) const
+TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( const FString& Namespace, const FContext& Context )
 {
 	TArray< TSharedRef< FManifestEntry > > MatchingEntries;
 	EntriesByContextId.MultiFind( Context.Key, MatchingEntries );
@@ -263,29 +263,13 @@ TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( 
 	return NULL;
 }
 
-TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByKey(const FString& Namespace, const FString& Key, const FString* SourceText) const
-{
-	TArray<TSharedRef<FManifestEntry>> MatchingEntries;
-	EntriesByContextId.MultiFind(Key, MatchingEntries);
-
-	for (const TSharedRef<FManifestEntry>& MatchingEntry : MatchingEntries)
-	{
-		if (MatchingEntry->Namespace.Equals(Namespace, ESearchCase::CaseSensitive) && (!SourceText || MatchingEntry->Source.Text.Equals(*SourceText, ESearchCase::CaseSensitive)))
-		{
-			return MatchingEntry;
-		}
-	}
-
-	return nullptr;
-}
-
 void FInternationalizationManifest::UpdateEntry(const TSharedRef<FManifestEntry>& OldEntry, TSharedRef<FManifestEntry>& NewEntry)
 {
-	for (const FManifestContext& Context : OldEntry->Contexts)
+	for (const FContext& Context : OldEntry->Contexts)
 	{
 		EntriesByContextId.RemoveSingle(Context.Key, OldEntry);
 	}
-	for (const FManifestContext& Context : NewEntry->Contexts)
+	for (const FContext& Context : NewEntry->Contexts)
 	{
 		EntriesByContextId.Add(Context.Key, NewEntry);
 	}
@@ -294,55 +278,24 @@ void FInternationalizationManifest::UpdateEntry(const TSharedRef<FManifestEntry>
 	EntriesBySourceText.Add(NewEntry->Source.Text, NewEntry);
 }
 
-FManifestContext* FManifestEntry::FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata)
+FContext* FManifestEntry::FindContext( const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata /*= NULL */ )
 {
-	return const_cast<FManifestContext*>(FindContextImpl(ContextKey, KeyMetadata));
-}
-
-const FManifestContext* FManifestEntry::FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata) const
-{
-	return FindContextImpl(ContextKey, KeyMetadata);
-}
-
-FManifestContext* FManifestEntry::FindContextByKey(const FString& ContextKey)
-{
-	return const_cast<FManifestContext*>(FindContextByKeyImpl(ContextKey));
-}
-
-const FManifestContext* FManifestEntry::FindContextByKey(const FString& ContextKey) const
-{
-	return FindContextByKeyImpl(ContextKey);
-}
-
-const FManifestContext* FManifestEntry::FindContextImpl(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata) const
-{
-	for (const FManifestContext& Context : Contexts)
+	for( auto ContextIter = Contexts.CreateIterator(); ContextIter; ++ContextIter )
 	{
-		if (Context.Key.Equals(ContextKey, ESearchCase::CaseSensitive))
+		FContext& Context = *ContextIter;
+
+		if( Context.Key.Equals( ContextKey, ESearchCase::CaseSensitive ) )
 		{
-			if (Context.KeyMetadataObj.IsValid() != KeyMetadata.IsValid())
+			if( Context.KeyMetadataObj.IsValid() != KeyMetadata.IsValid() )
 			{
 				continue;
 			}
-			else if ((!Context.KeyMetadataObj.IsValid() && !KeyMetadata.IsValid()) || (*Context.KeyMetadataObj == *KeyMetadata))
+			else if( (!Context.KeyMetadataObj.IsValid() && !KeyMetadata.IsValid()) ||
+				(*(Context.KeyMetadataObj) == *(KeyMetadata)) )
 			{
 				return &Context;
 			}
 		}
 	}
-
-	return nullptr;
-}
-
-const FManifestContext* FManifestEntry::FindContextByKeyImpl(const FString& ContextKey) const
-{
-	for (const FManifestContext& Context : Contexts)
-	{
-		if (Context.Key.Equals(ContextKey, ESearchCase::CaseSensitive))
-		{
-			return &Context;
-		}
-	}
-
-	return nullptr;
+	return NULL;
 }

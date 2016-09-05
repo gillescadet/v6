@@ -10,7 +10,8 @@
 #include "Engine/Engine.h"
 #include "Engine/DemoNetDriver.h"
 #include "Engine/LatentActionManager.h"
-#include "Engine/NetworkObjectList.h"
+#include "OnlineSubsystem.h"
+#include "OnlineSessionInterface.h"
 #include "GameFramework/OnlineSession.h"
 #include "GameFramework/PlayerState.h"
 
@@ -57,14 +58,21 @@ void UGameInstance::Init()
 {
 	ReceiveInit();
 
-	if (!IsRunningCommandlet())
+	const auto OnlineSub = IOnlineSubsystem::Get();
+	if (OnlineSub != nullptr)
 	{
-		UClass* SpawnClass = GetOnlineSessionClass();
-		OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
-		if (OnlineSession)
+		IOnlineSessionPtr SessionInt = OnlineSub->GetSessionInterface();
+		if (SessionInt.IsValid())
 		{
-			OnlineSession->RegisterOnlineDelegates();
+			SessionInt->AddOnSessionUserInviteAcceptedDelegate_Handle(FOnSessionUserInviteAcceptedDelegate::CreateUObject(this, &UGameInstance::HandleSessionUserInviteAccepted));
 		}
+	}
+
+	UClass* SpawnClass = GetOnlineSessionClass();
+	OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
+	if (OnlineSession)
+	{
+		OnlineSession->RegisterOnlineDelegates();
 	}
 }
 
@@ -72,19 +80,13 @@ void UGameInstance::Shutdown()
 {
 	ReceiveShutdown();
 
-	if (OnlineSession)
+	const auto OnlineSub = IOnlineSubsystem::Get();
+	if (OnlineSub != nullptr)
 	{
-		OnlineSession->ClearOnlineDelegates();
-		OnlineSession = nullptr;
-	}
-
-	for (int32 PlayerIdx = LocalPlayers.Num() - 1; PlayerIdx >= 0; --PlayerIdx)
-	{
-		ULocalPlayer* Player = LocalPlayers[PlayerIdx];
-
-		if (Player)
+		IOnlineSessionPtr SessionInt = OnlineSub->GetSessionInterface();
+		if (SessionInt.IsValid())
 		{
-			RemoveLocalPlayer(Player);
+			SessionInt->ClearOnSessionUserInviteAcceptedDelegate_Handle(OnSessionUserInviteAcceptedDelegateHandle);
 		}
 	}
 
@@ -383,7 +385,20 @@ bool UGameInstance::HandleOpenCommand(const TCHAR* Cmd, FOutputDevice& Ar, UWorl
 	check(WorldContext && WorldContext->World() == InWorld);
 
 	UEngine* const Engine = GetEngine();
-	return Engine->HandleOpenCommand(Cmd, Ar, InWorld);
+
+	FURL TestURL(&WorldContext->LastURL, Cmd, TRAVEL_Absolute);
+	if (TestURL.IsLocalInternal())
+	{
+		// make sure the file exists if we are opening a local file
+		if (!Engine->MakeSureMapNameIsValid(TestURL.Map))
+		{
+			Ar.Logf(TEXT("ERROR: The map '%s' does not exist."), *TestURL.Map);
+			return true;
+		}
+	}
+
+	Engine->SetClientTravel(InWorld, Cmd, TRAVEL_Absolute);
+	return true;
 }
 
 bool UGameInstance::Exec(UWorld* InWorld, const TCHAR* Cmd, FOutputDevice& Ar)
@@ -794,7 +809,7 @@ void UGameInstance::StartRecordingReplay(const FString& Name, const FString& Fri
 	}
 	else
 	{
-		UE_LOG(LogDemo, Log, TEXT( "Num Network Actors: %i" ), CurrentWorld->DemoNetDriver->GetNetworkObjectList().GetObjects().Num() );
+		UE_LOG(LogDemo, Log, TEXT( "Num Network Actors: %i" ), CurrentWorld->NetworkActors.Num() );
 	}
 }
 
@@ -881,6 +896,30 @@ TSubclassOf<UOnlineSession> UGameInstance::GetOnlineSessionClass()
 	return UOnlineSession::StaticClass();
 }
 
+
+void UGameInstance::HandleSessionUserInviteAccepted(const bool bWasSuccess, const int32 ControllerId, TSharedPtr< const FUniqueNetId > UserId, const FOnlineSessionSearchResult &	InviteResult)
+{
+	OnSessionUserInviteAccepted(bWasSuccess, ControllerId, UserId, InviteResult);
+}
+
+void UGameInstance::OnSessionUserInviteAccepted(const bool bWasSuccess, const int32 ControllerId, TSharedPtr< const FUniqueNetId > UserId, const FOnlineSessionSearchResult &	InviteResult)
+{
+	UE_LOG(LogPlayerManagement, Verbose, TEXT("OnSessionUserInviteAccepted LocalUserNum: %d bSuccess: %d"), ControllerId, bWasSuccess);
+	// Don't clear invite accept delegate
+
+	if (bWasSuccess)
+	{
+		if (InviteResult.IsValid())
+		{
+			GetOnlineSession()->OnSessionUserInviteAccepted(bWasSuccess, ControllerId, UserId, InviteResult);
+		}
+		else
+		{
+			UE_LOG(LogPlayerManagement, Warning, TEXT("Invite accept returned invalid search result."));
+		}
+	}
+}
+
 bool UGameInstance::IsDedicatedServerInstance() const
 {
 	if (IsRunningDedicatedServer())
@@ -892,9 +931,3 @@ bool UGameInstance::IsDedicatedServerInstance() const
 		return WorldContext ? WorldContext->RunAsDedicated : false;
 	}
 }
-
-void UGameInstance::NotifyPreClientTravel(const FString& PendingURL, ETravelType TravelType, bool bIsSeamlessTravel)
-{
-	OnNotifyPreClientTravel().Broadcast(PendingURL, TravelType, bIsSeamlessTravel);
-}
-

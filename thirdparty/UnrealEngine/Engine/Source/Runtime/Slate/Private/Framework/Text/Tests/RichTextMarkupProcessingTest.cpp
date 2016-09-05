@@ -2,7 +2,7 @@
 
 #include "SlatePrivatePCH.h"
 
-#if WITH_FANCY_TEXT & WITH_DEV_AUTOMATION_TESTS
+#if WITH_FANCY_TEXT
 
 #include "AutomationTest.h"
 
@@ -385,4 +385,4 @@ bool FRTFProcessingTest::RunTest (const FString& Parameters)
 
 PRAGMA_ENABLE_OPTIMIZATION
 
-#endif //WITH_FANCY_TEXT & WITH_DEV_AUTOMATION_TESTS
+#endif //WITH_FANCY_TEXT

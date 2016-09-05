@@ -6,7 +6,6 @@
 #include "LightMap.h"
 #include "ShadowMap.h"
 
-bool GDrawListsLocked = false;
 
 static TAutoConsoleVariable<float> CVarLODTemporalLag(
 	TEXT("lod.TemporalLag"),
@@ -154,22 +153,22 @@ void FSimpleElementCollector::RegisterDynamicResource(FDynamicPrimitiveResource*
 	DynamicResource->InitPrimitiveResource();
 }
 
-void FSimpleElementCollector::DrawBatchedElements(FRHICommandList& RHICmdList, const FSceneView& InView, FTexture2DRHIRef DepthTexture, EBlendModeFilter::Type Filter) const
+void FSimpleElementCollector::DrawBatchedElements(FRHICommandList& RHICmdList, const FSceneView& View, FTexture2DRHIRef DepthTexture, EBlendModeFilter::Type Filter) const
 {
 	// Mobile HDR does not execute post process, so does not need to render flipped
-	const bool bNeedToSwitchVerticalAxis = RHINeedsToSwitchVerticalAxis(InView.GetShaderPlatform()) && !bIsMobileHDR;
+	const bool bNeedToSwitchVerticalAxis = RHINeedsToSwitchVerticalAxis(View.GetShaderPlatform()) && !bIsMobileHDR;
 
 	// Draw the batched elements.
 	BatchedElements.Draw(
 		RHICmdList,
-		InView.GetFeatureLevel(),
+		View.GetFeatureLevel(),
 		bNeedToSwitchVerticalAxis,
-		InView.ViewProjectionMatrix,
-		InView.ViewRect.Width(),
-		InView.ViewRect.Height(),
-		InView.Family->EngineShowFlags.HitProxies,
+		View.ViewProjectionMatrix,
+		View.ViewRect.Width(),
+		View.ViewRect.Height(),
+		View.Family->EngineShowFlags.HitProxies,
 		1.0f,
-		&InView,
+		&View,
 		DepthTexture,
 		Filter
 		);
@@ -240,11 +239,6 @@ void FMeshElementCollector::AddMesh(int32 ViewIndex, FMeshBatch& MeshBatch)
 			*this);
 	}
 
-	for (int32 Index = 0; Index < MeshBatch.Elements.Num(); ++Index)
-	{
-		checkf(MeshBatch.Elements[Index].PrimitiveUniformBuffer || MeshBatch.Elements[Index].PrimitiveUniformBufferResource, TEXT("Missing PrimitiveUniformBuffer on MeshBatchElement %d, Material '%s'"), Index, *MeshBatch.MaterialRenderProxy->GetFriendlyName());
-	}
-
 	TArray<FMeshBatchAndRelevance,SceneRenderingAllocator>& ViewMeshBatches = *MeshBatches[ViewIndex];
 	new (ViewMeshBatches) FMeshBatchAndRelevance(MeshBatch, PrimitiveSceneProxy, FeatureLevel);	
 }
@@ -311,8 +305,8 @@ FLightMapInteraction FLightMapInteraction::Texture(
 
 float ComputeBoundsScreenSize( const FVector4& Origin, const float SphereRadius, const FSceneView& View )
 {
-	// Only need one component from a view transformation; just calculate the one we're interested in. Ignore view direction when rendering in stereo
-	const float Divisor = (View.StereoPass == eSSP_FULL) ? Dot3(Origin - View.ViewMatrices.ViewOrigin, View.ViewMatrices.ViewMatrix.GetColumn(2)) : FVector::Dist(Origin, View.ViewMatrices.ViewOrigin);
+	// Only need one component from a view transformation; just calculate the one we're interested in.
+	const float Divisor =  Dot3(Origin - View.ViewMatrices.ViewOrigin, View.ViewMatrices.ViewMatrix.GetColumn(2));
 
 	// Get projection multiple accounting for view scaling.
 	const float ScreenMultiple = FMath::Max(View.ViewRect.Width() / 2.0f * View.ViewMatrices.ProjMatrix.M[0][0],
@@ -357,19 +351,16 @@ int8 ComputeTemporalStaticMeshLOD( const FStaticMeshRenderData* RenderData, cons
 
 int8 ComputeStaticMeshLOD( const FStaticMeshRenderData* RenderData, const FVector4& Origin, const float SphereRadius, const FSceneView& View, int32 MinLOD, float FactorScale )
 {
-	if (RenderData)
+	const int32 NumLODs = MAX_STATIC_MESH_LODS;
+
+	const float ScreenSize = ComputeBoundsScreenSize(Origin, SphereRadius, View) * FactorScale;
+
+	// Walk backwards and return the first matching LOD
+	for(int32 LODIndex = NumLODs - 1 ; LODIndex >= 0 ; --LODIndex)
 	{
-		const int32 NumLODs = MAX_STATIC_MESH_LODS;
-
-		const float ScreenSize = ComputeBoundsScreenSize(Origin, SphereRadius, View) * FactorScale;
-
-		// Walk backwards and return the first matching LOD
-		for (int32 LODIndex = NumLODs - 1; LODIndex >= 0; --LODIndex)
+		if(RenderData->ScreenSize[LODIndex] > ScreenSize)
 		{
-			if (RenderData->ScreenSize[LODIndex] > ScreenSize)
-			{
-				return FMath::Max(LODIndex, MinLOD);
-			}
+			return FMath::Max(LODIndex, MinLOD);
 		}
 	}
 
@@ -381,16 +372,16 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 	FLODMask LODToRender;
 
 	// Handle forced LOD level first
-	if (ForcedLODLevel >= 0)
+	if(ForcedLODLevel >= 0)
 	{
-		int8 MinLOD = 127, MaxLOD = 0;
-		for (int32 MeshIndex = 0; MeshIndex < StaticMeshes.Num(); ++MeshIndex)
+		// Note: starting at -1 which is the default LODIndex, for cases where LODIndex didn't get set
+		int8 MaxLOD = -1;
+		for(int32 MeshIndex = 0 ; MeshIndex < StaticMeshes.Num() ; ++MeshIndex)
 		{
 			const FStaticMesh&  Mesh = StaticMeshes[MeshIndex];
-			MinLOD = FMath::Min(MinLOD, Mesh.LODIndex);
 			MaxLOD = FMath::Max(MaxLOD, Mesh.LODIndex);
 		}
-		LODToRender.SetLOD(FMath::Clamp<int8>(ForcedLODLevel, MinLOD, MaxLOD));
+		LODToRender.SetLOD(FMath::Clamp<int8>(ForcedLODLevel, 0, MaxLOD));
 	}
 	else if (View.Family->EngineShowFlags.LOD)
 	{
@@ -457,59 +448,10 @@ FLODMask ComputeLODForMeshes( const TIndirectArray<class FStaticMesh>& StaticMes
 	return LODToRender;
 }
 
-FMobileDirectionalLightShaderParameters::FMobileDirectionalLightShaderParameters()
+FFrameUniformShaderParameters::FFrameUniformShaderParameters()
+	: DirectionalLightShadowTexture(GWhiteTexture->TextureRHI)
+	, DirectionalLightShadowSampler(TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI())
 {
-	FMemory::Memzero(*this);
-
-	// light, default to black
-	DirectionalLightColor = FLinearColor::Black;
-	DirectionalLightDirection = FVector::ZeroVector;
-
-	// white texture should act like a shadowmap cleared to the farplane.
-	DirectionalLightShadowTexture = GWhiteTexture->TextureRHI;
-	DirectionalLightShadowSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-	DirectionalLightShadowTransition = 0.0f;
-	DirectionalLightShadowSize = FVector::ZeroVector;
-	for (int32 i = 0; i < MAX_MOBILE_SHADOWCASCADES; ++i)
-	{
-		DirectionalLightScreenToShadow[i].SetIdentity();
-		DirectionalLightShadowDistances[i] = 0.0f;
-	}
-}
-
-FViewUniformShaderParameters::FViewUniformShaderParameters()
-{
-	FMemory::Memzero(*this);
-
-	FTextureRHIParamRef BlackVolume = (GBlackVolumeTexture &&  GBlackVolumeTexture->TextureRHI) ? GBlackVolumeTexture->TextureRHI : GBlackTexture->TextureRHI; // for es2, this might need to be 2d
-	check(GBlackVolumeTexture);
-
-	AtmosphereTransmittanceTexture_UB = GWhiteTexture->TextureRHI;
-	AtmosphereTransmittanceTextureSampler_UB = TStaticSamplerState<SF_Bilinear>::GetRHI();
-	AtmosphereIrradianceTexture_UB = GWhiteTexture->TextureRHI;
-	AtmosphereIrradianceTextureSampler_UB = TStaticSamplerState<SF_Bilinear>::GetRHI();
-	AtmosphereInscatterTexture_UB = BlackVolume;
-	AtmosphereInscatterTextureSampler_UB = TStaticSamplerState<SF_Bilinear>::GetRHI();
-
-	PerlinNoiseGradientTexture = GWhiteTexture->TextureRHI;
-	PerlinNoiseGradientTextureSampler = TStaticSamplerState<SF_Point, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-
-	PerlinNoise3DTexture = BlackVolume;
-	PerlinNoise3DTextureSampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-
-	GlobalDistanceFieldTexture0_UB = BlackVolume;
-	GlobalDistanceFieldSampler0_UB = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-	GlobalDistanceFieldTexture1_UB = BlackVolume;
-	GlobalDistanceFieldSampler1_UB = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-	GlobalDistanceFieldTexture2_UB = BlackVolume;
-	GlobalDistanceFieldSampler2_UB = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-	GlobalDistanceFieldTexture3_UB = BlackVolume;
-	GlobalDistanceFieldSampler3_UB = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
-}
-
-FInstancedViewUniformShaderParameters::FInstancedViewUniformShaderParameters()
-{
-	FMemory::Memzero(*this);
 }
 
 void FSharedSamplerState::InitRHI()

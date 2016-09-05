@@ -30,17 +30,17 @@ namespace UAudio
 		}
 	}
 
-	bool FSoundFileDecoder::Init(const FSoundFileDecoderSettings& InSettings, int32 NumVoices)
+	bool FSoundFileDecoder::Init(const FSoundFileDecoderSettings& Settings, int32 NumVoices)
 	{
 		// Create a thread decode event to pause the decoding thread when all buffers are filled
 		ThreadDecodeEvent = FPlatformProcess::GetSynchEventFromPool(false);
 
 		// We really should be using at least a triple buffer decoder, but we may want more...
-		check(InSettings.NumDecodeBuffers >= 3);
+		check(Settings.NumDecodeBuffers >= 3);
 
 		for (int32 VoiceIndex = 0; VoiceIndex < NumVoices; ++VoiceIndex)
 		{
-			DecodeData.Add(FSoundFileDecodeData(InSettings.NumDecodeBuffers));
+			DecodeData.Add(FSoundFileDecodeData(Settings.NumDecodeBuffers));
 		}
 
 		FString DecodeThreadName = FString::Printf(TEXT("Audio Decode Thread %d"), NumDecodeThreads++);

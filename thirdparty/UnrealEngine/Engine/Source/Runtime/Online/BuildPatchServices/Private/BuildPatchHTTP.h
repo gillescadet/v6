@@ -10,8 +10,6 @@
 
 #pragma once
 
-struct FAnalyticsEventAttribute;
-
 /**
  * Implements the BuildPatchHTTP
  */

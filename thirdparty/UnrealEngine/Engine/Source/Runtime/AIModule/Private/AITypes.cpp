@@ -81,8 +81,6 @@ FString FAIResourceLock::GetLockPriorityName() const
 //----------------------------------------------------------------------//
 // FAIResources
 //----------------------------------------------------------------------//
-template<>
-FAIResCounter FAINamedID<FAIResCounter>::Counter = FAIResCounter();
 
 namespace FAIResources
 {
@@ -160,8 +158,7 @@ FAIMoveRequest::FAIMoveRequest() :
 	GoalActor(nullptr), GoalLocation(FAISystem::InvalidLocation), FilterClass(nullptr),
 	bInitialized(false), bMoveToActor(false),
 	bUsePathfinding(true), bAllowPartialPath(true), bProjectGoalOnNavigation(true),
-	bReachTestIncludesAgentRadius(true), bReachTestIncludesGoalRadius(true), bCanStrafe(false),
-	UserFlags(0)
+	bStopOnOverlap(true), bCanStrafe(false)
 {
 	AcceptanceRadius = UPathFollowingComponent::DefaultAcceptanceRadius;
 }
@@ -170,8 +167,7 @@ FAIMoveRequest::FAIMoveRequest(const AActor* InGoalActor) :
 	GoalActor(const_cast<AActor*>(InGoalActor)), GoalLocation(FAISystem::InvalidLocation), FilterClass(nullptr),
 	bInitialized(true), bMoveToActor(true),
 	bUsePathfinding(true), bAllowPartialPath(true), bProjectGoalOnNavigation(true),
-	bReachTestIncludesAgentRadius(true), bReachTestIncludesGoalRadius(true), bCanStrafe(false),
-	UserFlags(0)
+	bStopOnOverlap(true), bCanStrafe(false)
 {
 	AcceptanceRadius = UPathFollowingComponent::DefaultAcceptanceRadius;
 }
@@ -180,8 +176,7 @@ FAIMoveRequest::FAIMoveRequest(const FVector& InGoalLocation) :
 	GoalActor(nullptr), GoalLocation(InGoalLocation), FilterClass(nullptr),
 	bInitialized(true), bMoveToActor(false),
 	bUsePathfinding(true), bAllowPartialPath(true), bProjectGoalOnNavigation(true),
-	bReachTestIncludesAgentRadius(true), bReachTestIncludesGoalRadius(true), bCanStrafe(false),
-	UserFlags(0)
+	bStopOnOverlap(true), bCanStrafe(false)
 {
 	AcceptanceRadius = UPathFollowingComponent::DefaultAcceptanceRadius;
 }
@@ -222,16 +217,6 @@ FString FAIMoveRequest::ToString() const
 		bMoveToActor ? TEXT("Actor") : TEXT("Location"), bMoveToActor ? *GetNameSafe(GoalActor) : *GoalLocation.ToString(),
 		bUsePathfinding ? (bAllowPartialPath ? TEXT("partial path") : TEXT("complete path")) : TEXT("direct"),
 		*GetNameSafe(FilterClass),
-		AcceptanceRadius, bReachTestIncludesAgentRadius || (bMoveToActor && bReachTestIncludesGoalRadius) ? TEXT(" + overlap") : TEXT("")
+		AcceptanceRadius, bStopOnOverlap ? TEXT(" + overlap") : TEXT("")
 		);
-}
-
-FAIMoveRequest& FAIMoveRequest::SetStopOnOverlap(bool bStop)
-{
-	return SetReachTestIncludesAgentRadius(bStop);
-}
-
-bool FAIMoveRequest::CanStopOnOverlap() const
-{
-	return IsReachTestIncludingAgentRadius();
 }

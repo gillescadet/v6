@@ -3,9 +3,8 @@
 #pragma once
 
 /** Process exit codes */
-enum class EMovieSceneCaptureExitCode : uint32
+struct FMovieSceneCaptureExitCodes
 {
-	Base = 0xAC701000,
-	AssetNotFound,
-	WorldNotFound,
+	static const int32 Base = 0xAC701000;
+	static const int32 AssetNotFound = Base + 1;
 };

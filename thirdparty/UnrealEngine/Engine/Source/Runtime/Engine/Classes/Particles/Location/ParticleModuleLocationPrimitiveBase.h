@@ -10,7 +10,7 @@
 #include "ParticleModuleLocationPrimitiveBase.generated.h"
 
 UCLASS(editinlinenew, hidecategories=Object)
-class ENGINE_API UParticleModuleLocationPrimitiveBase : public UParticleModuleLocationBase
+class UParticleModuleLocationPrimitiveBase : public UParticleModuleLocationBase
 {
 	GENERATED_UCLASS_BODY()
 

@@ -4,7 +4,6 @@
 #include "AutomationTest.h"
 #include "Internationalization/InternationalizationMetadata.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMetadataTest, "System.Core.Misc.Internationalization Metadata", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::SmokeFilter)
 
@@ -366,5 +365,3 @@ bool FMetadataTest::RunTest( const FString& Parameters )
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

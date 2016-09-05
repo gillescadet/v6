@@ -19,24 +19,14 @@ enum ESubUVBoundingVertexCount
 	BVC_EightVertices
 };
 
-UENUM()
-enum EOpacitySourceMode
-{
-	OSM_Alpha,
-	OSM_ColorBrightness,
-	OSM_RedChannel,
-	OSM_GreenChannel,
-	OSM_BlueChannel
-};
-
 class FSubUVDerivedData
 {
 public:
 	TArray<FVector2D> BoundingGeometry;
 
-	static FString GetDDCKeyString(const FGuid& StateId, int32 SizeX, int32 SizeY, int32 Mode, float AlphaThreshold, int32 OpacitySourceMode);
+	static FString GetDDCKeyString(const FGuid& StateId, int32 SizeX, int32 SizeY, int32 Mode, float AlphaThreshold);
 	void Serialize(FArchive& Ar);
-	void Build(UTexture2D* SubUVTexture, int32 SubImages_Horizontal, int32 SubImages_Vertical, ESubUVBoundingVertexCount BoundingMode, float AlphaThreshold, EOpacitySourceMode OpacitySourceMode);
+	void Build(UTexture2D* SubUVTexture, int32 SubImages_Horizontal, int32 SubImages_Vertical, ESubUVBoundingVertexCount BoundingMode, float AlphaThreshold);
 };
 
 class FSubUVBoundingGeometryBuffer : public FVertexBuffer
@@ -89,9 +79,6 @@ class USubUVAnimation : public UObject
 	 */
 	UPROPERTY(EditAnywhere, Category=SubUV)
 	TEnumAsByte<enum ESubUVBoundingVertexCount> BoundingMode;
-
-	UPROPERTY(EditAnywhere, Category=SubUV)
-	TEnumAsByte<enum EOpacitySourceMode> OpacitySourceMode;
 
 	/** 
 	 * Alpha channel values larger than the threshold are considered occupied and will be contained in the bounding geometry.

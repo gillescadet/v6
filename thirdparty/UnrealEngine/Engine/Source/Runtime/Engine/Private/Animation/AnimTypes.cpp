@@ -4,8 +4,6 @@
 #include "AnimationUtils.h"
 #include "AnimationRuntime.h"
 #include "Animation/AnimTypes.h"
-#include "Animation/AnimNotifies/AnimNotify.h"
-#include "Animation/AnimNotifies/AnimNotifyState.h"
 
 #define NOTIFY_TRIGGER_OFFSET KINDA_SMALL_NUMBER;
 
@@ -63,12 +61,7 @@ float FAnimNotifyEvent::GetTriggerTime() const
 
 float FAnimNotifyEvent::GetEndTriggerTime() const
 {
-	if (!NotifyStateClass && (EndTriggerTimeOffset != 0.f))
-	{
-		UE_LOG(LogAnimNotify, Log, TEXT("Anim Notify %s is non state, but has an EndTriggerTimeOffset %f!"), *NotifyName.ToString(), EndTriggerTimeOffset);
-	}
-
-	return NotifyStateClass ? (GetTriggerTime() + GetDuration() + EndTriggerTimeOffset) : GetTriggerTime();
+	return GetTriggerTime() + GetDuration() + EndTriggerTimeOffset;
 }
 
 float FAnimNotifyEvent::GetDuration() const
@@ -81,12 +74,6 @@ void FAnimNotifyEvent::SetDuration(float NewDuration)
 	Duration = NewDuration;
 	EndLink.SetTime(GetTime() + Duration);
 }
-
-bool FAnimNotifyEvent::IsBranchingPoint() const
-{
-	return GetLinkedMontage() && ((MontageTickType == EMontageNotifyTickType::BranchingPoint) || (Notify && Notify->bIsNativeBranchingPoint) || (NotifyStateClass && NotifyStateClass->bIsNativeBranchingPoint));
-}
-
 
 void FAnimNotifyEvent::SetTime(float NewTime, EAnimLinkMethod::Type ReferenceFrame /*= EAnimLinkMethod::Absolute*/)
 {

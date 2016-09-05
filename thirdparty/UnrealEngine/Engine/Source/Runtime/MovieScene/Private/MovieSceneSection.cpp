@@ -4,7 +4,7 @@
 #include "MovieSceneSection.h"
 
 
-UMovieSceneSection::UMovieSceneSection(const FObjectInitializer& ObjectInitializer)
+UMovieSceneSection::UMovieSceneSection( const FObjectInitializer& ObjectInitializer )
 	: Super( ObjectInitializer )
 	, StartTime(0.0f)
 	, EndTime(0.0f)
@@ -15,33 +15,28 @@ UMovieSceneSection::UMovieSceneSection(const FObjectInitializer& ObjectInitializ
 	, bIsInfinite(false)
 { }
 
-
-bool UMovieSceneSection::TryModify(bool bAlwaysMarkDirty)
+bool
+UMovieSceneSection::TryModify(bool bAlwaysMarkDirty)
 {
 	if (IsLocked())
 	{
 		return false;
 	}
 
-	Modify(bAlwaysMarkDirty);
-
-	return true;
+	return Modify(bAlwaysMarkDirty);
 }
 
 
 const UMovieSceneSection* UMovieSceneSection::OverlapsWithSections(const TArray<UMovieSceneSection*>& Sections, int32 TrackDelta, float TimeDelta) const
 {
-	// Check overlaps with exclusive ranges so that sections can butt up against each other
 	int32 NewTrackIndex = RowIndex + TrackDelta;
-	TRange<float> NewSectionRange = TRange<float>(TRange<float>::BoundsType::Exclusive(StartTime + TimeDelta), TRange<float>::BoundsType::Exclusive(EndTime + TimeDelta));
+	TRange<float> NewSectionRange = TRange<float>(StartTime + TimeDelta, EndTime + TimeDelta);
 
 	for (const auto Section : Sections)
 	{
-		check(Section);
 		if ((this != Section) && (Section->GetRowIndex() == NewTrackIndex))
 		{
-			TRange<float> ExclusiveSectionRange = TRange<float>(TRange<float>::BoundsType::Exclusive(Section->GetRange().GetLowerBoundValue()), TRange<float>::BoundsType::Exclusive(Section->GetRange().GetUpperBoundValue()));
-			if (NewSectionRange.Overlaps(ExclusiveSectionRange))
+			if (NewSectionRange.Overlaps(Section->GetRange()))
 			{
 				return Section;
 			}
@@ -106,7 +101,7 @@ UMovieSceneSection* UMovieSceneSection::SplitSection(float SplitTime)
 		Track->Modify();
 
 		UMovieSceneSection* NewSection = DuplicateObject<UMovieSceneSection>(this, Track);
-		check(NewSection);
+		ensure(NewSection);
 
 		NewSection->SetStartTime(SplitTime);
 		NewSection->SetEndTime(SectionEndTime);
@@ -138,7 +133,6 @@ void UMovieSceneSection::TrimSection(float TrimTime, bool bTrimLeft)
 	}
 }
 
-
 void UMovieSceneSection::AddKeyToCurve(FRichCurve& InCurve, float Time, float Value, EMovieSceneKeyInterpolation Interpolation, const bool bUnwindRotation)
 {
 	if (IsTimeWithinSection(Time))
@@ -146,6 +140,7 @@ void UMovieSceneSection::AddKeyToCurve(FRichCurve& InCurve, float Time, float Va
 		if (TryModify())
 		{
 			FKeyHandle ExistingKeyHandle = InCurve.FindKey(Time);
+				
 			FKeyHandle NewKeyHandle = InCurve.UpdateOrAddKey(Time, Value, bUnwindRotation);
 
 			if (!InCurve.IsKeyHandleValid(ExistingKeyHandle) && InCurve.IsKeyHandleValid(NewKeyHandle))
@@ -156,7 +151,6 @@ void UMovieSceneSection::AddKeyToCurve(FRichCurve& InCurve, float Time, float Va
 	}
 }
 
-
 void UMovieSceneSection::SetCurveDefault(FRichCurve& InCurve, float Value)
 {
 	if (TryModify())
@@ -164,3 +158,4 @@ void UMovieSceneSection::SetCurveDefault(FRichCurve& InCurve, float Value)
 		InCurve.SetDefaultValue(Value);
 	}
 }
+

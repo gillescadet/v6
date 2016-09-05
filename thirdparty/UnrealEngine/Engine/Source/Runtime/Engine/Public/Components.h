@@ -14,11 +14,9 @@ enum { MAX_TEXCOORDS = 4, MAX_STATIC_TEXCOORDS = 8 };
 struct FStaticMeshBuildVertex
 {
 	FVector Position;
-
-	FVector TangentX;
-	FVector TangentY;
-	FVector TangentZ;
-
+	FPackedNormal TangentX;
+	FPackedNormal TangentY;
+	FPackedNormal TangentZ;
 	FVector2D UVs[MAX_STATIC_TEXCOORDS];
 	FColor Color;
 };

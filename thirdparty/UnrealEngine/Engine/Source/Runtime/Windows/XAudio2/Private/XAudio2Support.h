@@ -18,7 +18,12 @@
 #ifndef X3DAUDIO_VECTOR_IS_A_D3DVECTOR
 	#define X3DAUDIO_VECTOR_IS_A_D3DVECTOR		1
 #endif	//X3DAUDIO_VECTOR_IS_A_D3DVECTOR
-
+#ifndef XAUDIO2_SUPPORTS_SENDLIST
+	#define XAUDIO2_SUPPORTS_SENDLIST			1
+#endif	//XAUDIO2_SUPPORTS_SENDLIST
+#ifndef XAUDIO2_SUPPORTS_VOICE_POOL
+	#define XAUDIO2_SUPPORTS_VOICE_POOL			0
+#endif	//XAUDIO2_SUPPORTS_VOICE_POOL
 
 /*------------------------------------------------------------------------------------
 	XAudio2 system headers
@@ -31,116 +36,6 @@
 	#include <xaudio2.h>
 	#include <X3Daudio.h>
 #include "HideWindowsPlatformTypes.h"
-
-#if PLATFORM_WINDOWS
-#include "AllowWindowsPlatformTypes.h"
-#include <mmdeviceapi.h>
-#include <functiondiscoverykeys_devpkey.h>
-
-class FMMNotificationClient : public IMMNotificationClient
-{
-public:
-	FMMNotificationClient()
-		: Ref(1)
-	{
-		bComInitialized = FWindowsPlatformMisc::CoInitialize();
-		HRESULT Result = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IMMDeviceEnumerator), (void**)&DeviceEnumerator);
-		if (Result == S_OK)
-		{
-			DeviceEnumerator->RegisterEndpointNotificationCallback(this);
-		}
-	}
-
-	~FMMNotificationClient()
-	{
-		if (DeviceEnumerator)
-		{
-			DeviceEnumerator->UnregisterEndpointNotificationCallback(this);
-			SAFE_RELEASE(DeviceEnumerator);
-		}
-
-		if (bComInitialized)
-		{
-			FWindowsPlatformMisc::CoUninitialize();
-		}
-	}
-
-	HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDeviceId) override
-	{
-		return S_OK;
-	}
-
-	HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR pwstrDeviceId) override
-	{
-		return S_OK;
-	};
-
-	HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR pwstrDeviceId) override
-	{
-		for (IDeviceChangedListener* Listener : Listeners)
-		{
-			Listener->OnDeviceRemoved(FString(pwstrDeviceId));
-		}
-		return S_OK;
-	}
-
-	HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR pwstrDeviceId, DWORD dwNewState) override
-	{
-		if (dwNewState == DEVICE_STATE_DISABLED || dwNewState == DEVICE_STATE_UNPLUGGED || dwNewState == DEVICE_STATE_NOTPRESENT)
-		{
-			for (IDeviceChangedListener* Listener : Listeners)
-			{
-				Listener->OnDeviceRemoved(FString(pwstrDeviceId));
-			}
-		}
-		return S_OK;
-	}
-
-	HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR pwstrDeviceId, const PROPERTYKEY key)
-	{
-		return S_OK;
-	}
-
-	HRESULT STDMETHODCALLTYPE QueryInterface(const IID &, void **) override
-	{
-		return S_OK;
-	}
-
-	ULONG STDMETHODCALLTYPE AddRef() override
-	{
-		return InterlockedIncrement(&Ref);
-	}
-
-	ULONG STDMETHODCALLTYPE Release() override
-	{
-		ULONG ulRef = InterlockedDecrement(&Ref);
-		if (0 == ulRef)
-		{
-			delete this;
-		}
-		return ulRef;
-	}
-
-	void RegisterDeviceChangedListener(IDeviceChangedListener* DeviceChangedListener)
-	{
-		Listeners.Add(DeviceChangedListener);
-	}
-
-	void UnRegisterDeviceDeviceChangedListener(IDeviceChangedListener* DeviceChangedListener)
-	{
-		Listeners.Remove(DeviceChangedListener);
-	}
-
-private:
-	LONG Ref;
-	TSet<IDeviceChangedListener*> Listeners;
-	IMMDeviceEnumerator* DeviceEnumerator;
-	bool bComInitialized;
-};
-
-#include "HideWindowsPlatformTypes.h"
-#endif 
-
 
 /*------------------------------------------------------------------------------------
 	Dependencies, helpers & forward declarations.
@@ -191,24 +86,6 @@ struct FXWMABufferInfo
 	UINT32						XWMASeekDataSize;
 };
 
-typedef FAsyncRealtimeAudioTaskProxy<FXAudio2SoundBuffer> FAsyncRealtimeAudioTask;
-
-/**
-* Struct to store pending task information.
-*/
-struct FPendingAsyncTaskInfo
-{
-	FAsyncRealtimeAudioTask* RealtimeAsyncTask;
-	FAsyncRealtimeAudioTask* RealtimeAsyncHeaderParseTask;
-	FSoundBuffer* Buffer;
-
-	FPendingAsyncTaskInfo()
-		: RealtimeAsyncTask(nullptr)
-		, RealtimeAsyncHeaderParseTask(nullptr)
-		, Buffer(nullptr)
-	{}
-};
-
 /**
  * XAudio2 implementation of FSoundBuffer, containing the wave data and format information.
  */
@@ -227,15 +104,7 @@ public:
 	 * 
 	 * Frees wave data and detaches itself from audio device.
 	 */
-	~FXAudio2SoundBuffer();
-
-	//~ Begin FSoundBuffer interface
-	int32 GetSize() override;
-	int32 GetCurrentChunkIndex() const override;
-	int32 GetCurrentChunkOffset() const override;
-	bool IsRealTimeSourceReady() override;
-	void EnsureRealtimeTaskCompletion() override;
-	//~ End FSoundBuffer interface 
+	~FXAudio2SoundBuffer( void );
 
 	/** 
 	 * Set up this buffer to contain and play XMA2 data
@@ -251,11 +120,6 @@ public:
 	 * Setup a WAVEFORMATEX structure
 	 */
 	void InitWaveFormatEx( uint16 Format, USoundWave* Wave, bool bCheckPCMData );
-
-	/**
-	* Read the compressed info (i.e. parse header and open up a file handle) from the given sound wave.
-	*/
-	bool ReadCompressedInfo(USoundWave* SoundWave) override;
 
 	/**
 	 * Decompresses a chunk of compressed audio to the destination memory
@@ -328,6 +192,16 @@ public:
 	 */
 	static FXAudio2SoundBuffer* Init( FAudioDevice* AudioDevice, USoundWave* InWave, bool bForceRealtime );
 
+	/**
+	 * Returns the size of this buffer in bytes.
+	 *
+	 * @return Size in bytes
+	 */
+	int32 GetSize( void );
+
+	virtual int32 GetCurrentChunkIndex() const override;
+	virtual int32 GetCurrentChunkOffset() const override;
+
 	/** Format of the sound referenced by this buffer */
 	int32							SoundFormat;
 
@@ -341,16 +215,9 @@ public:
 	};
 
 	/** Wrapper to handle the decompression of audio codecs */
-	class ICompressedAudioInfo* DecompressionState;
-
-	/** Asynch task for parsing real-time decompressed compressed info headers */
-	FAsyncRealtimeAudioTask* RealtimeAsyncHeaderParseTask;
-
-	/** Bool indicating the that the real-time source is ready for real-time decoding. */
-	FThreadSafeBool bRealTimeSourceReady;
-
+	class ICompressedAudioInfo*		DecompressionState;
 	/** Set to true when the PCM data should be freed when the buffer is destroyed */
-	bool bDynamicResource;
+	bool						bDynamicResource;
 };
 
 /**
@@ -359,27 +226,44 @@ public:
 class FXAudio2SoundSourceCallback : public IXAudio2VoiceCallback
 {
 public:
-	FXAudio2SoundSourceCallback() {}
-	virtual ~FXAudio2SoundSourceCallback() {}
-	virtual void STDCALL OnStreamEnd() {}
-	virtual void STDCALL OnVoiceProcessingPassEnd() {}
-	virtual void STDCALL OnVoiceProcessingPassStart(UINT32) {}
-	virtual void STDCALL OnBufferStart(void* BufferContext) {}
-	virtual void STDCALL OnVoiceError(void* BufferContext, HRESULT Error) {}
+	FXAudio2SoundSourceCallback( void )
+	{
+	}
 
-	/**
-	* Function is called by xaudio2 for a playing voice every time a buffer finishes playing
-	* We use it to launch async decoding tasks and read the results of previous, finished tasks.
-	*/
-	virtual void STDCALL OnBufferEnd(void* BufferContext);
+	virtual ~FXAudio2SoundSourceCallback( void )
+	{ 
+	}
 
-	/**
-	* Function called whenever an xaudio2 voice loops on itself. Used to trigger notifications on loop.
-	*/
-	virtual void STDCALL OnLoopEnd(void* BufferContext);
+	virtual void STDCALL OnStreamEnd( void ) 
+	{ 
+	}
+
+	virtual void STDCALL OnVoiceProcessingPassEnd( void ) 
+	{
+	}
+
+	virtual void STDCALL OnVoiceProcessingPassStart( UINT32 SamplesRequired )
+	{
+	}
+
+	virtual void STDCALL OnBufferEnd( void* BufferContext )
+	{
+	}
+
+	virtual void STDCALL OnBufferStart( void* BufferContext )
+	{
+	}
+
+	virtual void STDCALL OnLoopEnd( void* BufferContext );
+
+	virtual void STDCALL OnVoiceError( void* BufferContext, HRESULT Error )
+	{
+	}
 
 	friend class FXAudio2SoundSource;
 };
+
+typedef FAsyncTask<class FAsyncRealtimeAudioTaskWorker<FXAudio2SoundBuffer>> FAsyncRealtimeAudioTask;
 
 /**
  * XAudio2 implementation of FSoundSource, the interface used to play, stop and update sources
@@ -397,12 +281,12 @@ public:
 	/**
 	 * Destructor, cleaning up voice
 	 */
-	virtual ~FXAudio2SoundSource();
+	virtual ~FXAudio2SoundSource( void );
 
 	/**
 	 * Frees existing resources. Called from destructor and therefore not virtual.
 	 */
-	void FreeResources();
+	void FreeResources( void );
 
 	/**
 	* Initializes any effects used with this source voice
@@ -410,47 +294,33 @@ public:
 	void InitializeSourceEffects(uint32 InVoiceId) override;
 
 	/**
-	* Attempts to initialize the sound source. If the source needs to decode asynchronously,
-	* this may not result in the source actually initializing, but instead it may launch
-	* an async task to parse the encoded file header and open a file handle. For ogg-vorbis
-	* synchronous file parsing can cause significant hitches.
-	*/
-	virtual bool PrepareForInitialization(FWaveInstance* InWaveInstance) override;
-
-	/**
-	* Queries if the async task has finished parsing the real-time decoded file header and if the
-	* the sound source is ready for initialization.
-	*/
-	virtual bool IsPreparedToInit() override;
-
-	/**
 	 * Initializes a source with a given wave instance and prepares it for playback.
 	 *
 	 * @param	WaveInstance	wave instance being primed for playback
 	 * @return	true if initialization was successful, false otherwise
 	 */
-	virtual bool Init(FWaveInstance* WaveInstance) override;
+	virtual bool Init( FWaveInstance* WaveInstance );
 
 	/**
 	 * Updates the source specific parameter like e.g. volume and pitch based on the associated
 	 * wave instance.	
 	 */
-	virtual void Update();
+	virtual void Update( void );
 
 	/**
 	 * Plays the current wave instance.	
 	 */
-	virtual void Play();
+	virtual void Play( void );
 
 	/**
 	 * Stops the current wave instance and detaches it from the source.	
 	 */
-	virtual void Stop();
+	virtual void Stop( void );
 
 	/**
 	 * Pauses playback of current wave instance.
 	 */
-	virtual void Pause();
+	virtual void Pause( void );
 
 	/**
 	 * Handles feeding new data to a real time decompressed sound
@@ -468,32 +338,32 @@ public:
 	 * @return	true if the wave instance/ source has finished playback and false if it is 
 	 *			currently playing or paused.
 	 */
-	virtual bool IsFinished();
+	virtual bool IsFinished( void );
 
 	/**
 	 * Create a new source voice
 	 */
-	bool CreateSource();
+	bool CreateSource( void );
 
 	/** 
 	 * Submit the relevant audio buffers to the system
 	 */
-	void SubmitPCMBuffers();
+	void SubmitPCMBuffers( void );
 
 	/** 
 	 * Submit the relevant audio buffers to the system
 	 */
-	void SubmitPCMRTBuffers();
+	void SubmitPCMRTBuffers( void );
 
 	/** 
 	 * Submit the relevant audio buffers to the system, accounting for looping modes
 	 */
-	void SubmitXMA2Buffers();
+	void SubmitXMA2Buffers( void );
 
 	/** 
 	 * Submit the relevant audio buffers to the system
 	 */
-	void SubmitXWMABuffers();
+	void SubmitXWMABuffers( void );
 
 	/**
 	 * Calculates the volume for each channel
@@ -540,9 +410,6 @@ protected:
 	/** Decompress through XAudio2Buffer, or call USoundWave procedure to generate more PCM data. Returns true/false: did audio loop? */
 	bool ReadMorePCMData(const int32 BufferIndex, EDataReadMode DataReadMode);
 
-	/** Retrieves the realtime buffer data from the given buffer index */
-	uint8* GetRealtimeBufferData(const int32 InBufferIndex, const int32 InBufferSize);
-
 	/** Returns if the source is using the default 3d spatialization. */
 	bool IsUsingHrtfSpatializer();
 
@@ -582,71 +449,39 @@ protected:
 	void RouteMonoToReverb(float ChannelVolumes[CHANNEL_MATRIX_COUNT]);
 	void RouteStereoToReverb(float ChannelVolumes[CHANNEL_MATRIX_COUNT]);
 
-	/** Owning audio device object */
-	FXAudio2Device*	AudioDevice;
-
-	/** Pointer to effects manager, which handles updating singleton effects */
-	FXAudio2EffectsManager* Effects;
+	/** Owning classes */
+	FXAudio2Device*				AudioDevice;
+	FXAudio2EffectsManager*		Effects;
 
 	/** Cached subclass version of Buffer (which the base class has) */
-	FXAudio2SoundBuffer* XAudio2Buffer;
-
+	FXAudio2SoundBuffer*		XAudio2Buffer;
 	/** XAudio2 source voice associated with this source. */
-	IXAudio2SourceVoice* Source;
-
+	IXAudio2SourceVoice*		Source;
 	/** The max channels in the voice's effect chain. This is used to classify a pool for IXAudio2SourceVoice. */
-	int32 MaxEffectChainChannels;
+	int32						MaxEffectChainChannels;
 
-	/** Asynchronous task for real time audio decoding, created from main thread */
+	/** Asynchronous task for real time audio sources */
 	FAsyncRealtimeAudioTask* RealtimeAsyncTask;
-
 	/** Destination voices */
-	XAUDIO2_SEND_DESCRIPTOR Destinations[DEST_COUNT];
-
-	/** Used to allow notification when a sound loops and to feed audio to realtime decoded sources. */
-	XAUDIO2_BUFFER XAudio2Buffers[3];
-
-	/** Raw real-time buffer data for use with realtime XAudio2Buffers sources */
-	TArray<uint8> RealtimeBufferData[3];
-
+	XAUDIO2_SEND_DESCRIPTOR		Destinations[DEST_COUNT];
+	/** Which sound buffer should be written to next - used for double buffering. */
+	int32							CurrentBuffer;
+	/** A pair of sound buffers to allow notification when a sound loops. */
+	XAUDIO2_BUFFER				XAudio2Buffers[3];
 	/** Additional buffer info for XWMA sounds */
-	XAUDIO2_BUFFER_WMA XAudio2BufferXWMA[1];
-
-	/** Index of this sound source in the audio device sound source array. */
-	uint32 VoiceId;
-
-	/** Which sound buffer should be written to next - used for triple buffering. */
-	int32 CurrentBuffer;
-
-	/** The duration of the sound to use when playing virtualized. */
-	float VirtualDuration;
-
-	/** The virtual current playback time. Used to trigger notifications when finished. */
-	float VirtualPlaybackTime;
-
-	/** Set to true when the loop end callback is hit */
-	FThreadSafeBool bLoopCallback;
-
-	/** Whether or not the sound has finished playing */
-	FThreadSafeBool bIsFinished;
-
-	/** Whether or not the cached first buffer has played. Used to skip first two reads of a RT decoded file */
-	FThreadSafeBool bPlayedCachedBuffer;
-
-	/** Whether or not we need to submit our first buffers to the voice */
-	FThreadSafeBool bFirstRTBuffersSubmitted;
-
+	XAUDIO2_BUFFER_WMA			XAudio2BufferXWMA[1];
 	/** Set when we wish to let the buffers play themselves out */
-	FThreadSafeBool bBuffersToFlush;
-
+	uint32						bBuffersToFlush:1;
+	/** Set to true when the loop end callback is hit */
+	uint32						bLoopCallback:1;
 	/** Set to true when we've allocated resources that need to be freed */
-	uint32 bResourcesNeedFreeing : 1;
-
+	uint32						bResourcesNeedFreeing:1;
+	/** Index of this sound source in the audio device sound source array. */
+	uint32						VoiceId;
 	/** Whether or not this sound is spatializing using an HRTF spatialization algorithm. */
-	uint32 bUsingHRTFSpatialization : 1;
-
+	bool						bUsingHRTFSpatialization;
 	/** Whether or not we've already logged a warning on this sound about it switching algorithms after init. */
-	uint32 bEditorWarnedChangedSpatialization : 1;
+	bool						bEditorWarnedChangedSpatialization;
 
 	friend class FXAudio2Device;
 	friend class FXAudio2SoundSourceCallback;
@@ -735,7 +570,7 @@ FORCEINLINE bool operator==(const WAVEFORMATEX& FormatA, const WAVEFORMATEX& For
 
 
 /** This structure holds any singleton XAudio2 resources which need to be used, not just "properties" of the device. */
-struct FXAudioDeviceProperties : public IDeviceChangedListener
+struct FXAudioDeviceProperties
 {
 	// These variables are non-static to support multiple audio device instances
 	struct IXAudio2*					XAudio2;
@@ -749,10 +584,6 @@ struct FXAudioDeviceProperties : public IDeviceChangedListener
 	static XAUDIO2_DEVICE_DETAILS		DeviceDetails;
 #endif	//XAUDIO_SUPPORTS_DEVICE_DETAILS
 
-#if PLATFORM_WINDOWS
-	static FMMNotificationClient* NotificationClient;
-#endif
-
 	// For calculating speaker maps for 3d audio
 	FSpatializationHelper				SpatializationHelper;
 
@@ -765,36 +596,16 @@ struct FXAudioDeviceProperties : public IDeviceChangedListener
 	/** Number of non-free active voices */
 	int32 NumActiveVoices;
 
-	/** Whether or not the audio device changed. Used to trigger device reset when audio device changes. */
-	FThreadSafeBool bDeviceChanged;
-
 	FXAudioDeviceProperties()
 		: XAudio2(nullptr)
 		, MasteringVoice(nullptr)
 		, XAudio2Dll(nullptr)
 		, NumActiveVoices(0)
 	{
-#if PLATFORM_WINDOWS
-		if (NotificationClient == nullptr)
-		{
-			NotificationClient = new FMMNotificationClient();
-		}
-		else
-		{
-			NotificationClient->AddRef();
-		}
-
-		NotificationClient->RegisterDeviceChangedListener(this);
-#endif
 	}
 	
 	~FXAudioDeviceProperties()
 	{
-#if PLATFORM_WINDOWS
-		NotificationClient->UnRegisterDeviceDeviceChangedListener(this);
-		NotificationClient->Release();
-#endif
-
 		// Make sure we've free'd all of our active voices at this point!
 		check(NumActiveVoices == 0);
 
@@ -843,90 +654,81 @@ struct FXAudioDeviceProperties : public IDeviceChangedListener
 #endif
 	}
 
-	void OnDeviceRemoved(FString DeviceID) override
-	{
-#if XAUDIO_SUPPORTS_DEVICE_DETAILS
-		if (DeviceID == FString(DeviceDetails.DeviceID))
-		{
-			bDeviceChanged = true;
-		}
-#endif	//XAUDIO_SUPPORTS_DEVICE_DETAILS
-	}
-
-	bool DidAudioDeviceChange()
-	{
-		bool bChanged = bDeviceChanged;
-		bDeviceChanged = false;
-		return bChanged;
-	}
-
 	bool Validate(const TCHAR* Function, uint32 ErrorCode) const
 	{
 		if (ErrorCode != S_OK)
 		{
 			switch (ErrorCode)
 			{
-				case XAUDIO2_E_INVALID_CALL:
-				UE_LOG(LogAudio, Error, TEXT("%s error: Invalid Call"), Function);
-				break;
+			case XAUDIO2_E_INVALID_CALL:
+			UE_LOG(LogAudio, Error, TEXT("%s error: Invalid Call"), Function);
+			break;
 
-				case XAUDIO2_E_XMA_DECODER_ERROR:
-				UE_LOG(LogAudio, Error, TEXT("%s error: XMA Decoder Error"), Function);
-				break;
+			case XAUDIO2_E_XMA_DECODER_ERROR:
+			UE_LOG(LogAudio, Error, TEXT("%s error: XMA Decoder Error"), Function);
+			break;
 
-				case XAUDIO2_E_XAPO_CREATION_FAILED:
-				UE_LOG(LogAudio, Error, TEXT("%s error: XAPO Creation Failed"), Function);
-				break;
+			case XAUDIO2_E_XAPO_CREATION_FAILED:
+			UE_LOG(LogAudio, Error, TEXT("%s error: XAPO Creation Failed"), Function);
+			break;
 
-				case XAUDIO2_E_DEVICE_INVALIDATED:
-				UE_LOG(LogAudio, Error, TEXT("%s error: Device Invalidated"), Function);
-				break;
+			case XAUDIO2_E_DEVICE_INVALIDATED:
+			UE_LOG(LogAudio, Error, TEXT("%s error: Device Invalidated"), Function);
+			break;
 
-				default:
-				UE_LOG(LogAudio, Error, TEXT("%s error: Unhandled error code %d"), Function, ErrorCode);
-				break;
-			};
+			default:
+			UE_LOG(LogAudio, Error, TEXT("%s error: Unhandled error code %d"), Function, ErrorCode);
+			break;
+		};
 
 			return false;
-		}
+	}
 
 		return true;
-	}
-
-
-	void GetAudioDeviceList(TArray<FString>& OutAudioDeviceList) const
-	{
-		OutAudioDeviceList.Reset();
-
-#if XAUDIO_SUPPORTS_DEVICE_DETAILS
-		uint32 NumDevices = 0;
-		if (XAudio2)
-		{
-			if (Validate( TEXT("GetAudioDeviceList: XAudio2->GetDeviceCount"),
-				XAudio2->GetDeviceCount(&NumDevices)))
-			{
-				for (uint32 i = 0; i < NumDevices; ++i)
-				{
-					XAUDIO2_DEVICE_DETAILS Details;
-					if (Validate(TEXT("GetAudioDeviceList: XAudio2->GetDeviceDetails"),
-						XAudio2->GetDeviceDetails(i, &Details)))
-					{
-						OutAudioDeviceList.Add(FString(Details.DisplayName));
-					}
-				}
-			}
-		}
-#endif
-	}
+}
 
 	/** Returns either a new IXAudio2SourceVoice or a recycled IXAudio2SourceVoice according to the sound format and max channel count in the voice's effect chain*/
-	void GetFreeSourceVoice(IXAudio2SourceVoice** Voice, const FPCMBufferInfo& BufferInfo, const XAUDIO2_EFFECT_CHAIN* EffectChain = nullptr, const XAUDIO2_VOICE_SENDS* SendList = nullptr, int32 MaxEffectChainChannels = 0)
+	void GetFreeSourceVoice(IXAudio2SourceVoice** Voice, const FPCMBufferInfo& BufferInfo, const XAUDIO2_EFFECT_CHAIN* EffectChain = nullptr, int32 MaxEffectChainChannels = 0)
 	{
 		bool bSuccess = false;
 
+#if XAUDIO2_SUPPORTS_VOICE_POOL
+		// First find the pool for the given format
+		FSourceVoicePoolEntry* VoicePoolEntry = nullptr;
+		for (int32 i = 0; i < VoicePool.Num(); ++i)
+		{
+			if (VoicePool[i]->Format == BufferInfo.PCMFormat && VoicePool[i]->MaxEffectChainChannels == MaxEffectChainChannels)
+			{
+				VoicePoolEntry = VoicePool[i];
+				check(VoicePoolEntry);
+				bSuccess = true;
+				break;
+			}
+		}
+
+		// If we found a voice pool entry for this format and we have free voices
+		// then use the voice
+		if (VoicePoolEntry && VoicePoolEntry->FreeVoices.Num() > 0)
+		{
+			*Voice = VoicePoolEntry->FreeVoices.Pop(false);
+			check(*Voice);
+
+			bSuccess = Validate(TEXT("GetFreeSourceVoice, XAudio2->CreateSourceVoice"),
+								(*Voice)->SetEffectChain(EffectChain));
+		}
+		else
+		{
+			// Create a brand new source voice with this format.
+			check(XAudio2 != nullptr);
+			bSuccess = Validate(TEXT("GetFreeSourceVoice, XAudio2->CreateSourceVoice"),
+								XAudio2->CreateSourceVoice(Voice, &BufferInfo.PCMFormat, XAUDIO2_VOICE_USEFILTER, MAX_PITCH, &SourceCallback, nullptr, EffectChain));
+		}
+#else // XAUDIO2_SUPPORTS_VOICE_POOL
 		check(XAudio2 != nullptr);
 		bSuccess = Validate(TEXT("GetFreeSourceVoice, XAudio2->CreateSourceVoice"),
-							XAudio2->CreateSourceVoice(Voice, &BufferInfo.PCMFormat, XAUDIO2_VOICE_USEFILTER, MAX_PITCH, &SourceCallback, SendList, EffectChain));
+							XAudio2->CreateSourceVoice(Voice, &BufferInfo.PCMFormat, XAUDIO2_VOICE_USEFILTER, MAX_PITCH, &SourceCallback, nullptr, EffectChain));
+#endif // XAUDIO2_SUPPORTS_VOICE_POOL
+
 		if (bSuccess)
 		{
 			// Track the number of source voices out in the world
@@ -942,7 +744,60 @@ struct FXAudioDeviceProperties : public IDeviceChangedListener
 	/** Releases the voice into a pool of free voices according to the voice format and the max effect chain channels */
 	void ReleaseSourceVoice(IXAudio2SourceVoice* Voice, const FPCMBufferInfo& BufferInfo, const int32 MaxEffectChainChannels)
 	{
+		check(Voice != nullptr);
+
+#if XAUDIO2_SUPPORTS_VOICE_POOL
+		// Make sure the voice is stopped
+		Validate(TEXT("ReleaseSourceVoice, Voice->Stop()"), Voice->Stop());
+
+		// And make sure there's no audio remaining the voice so when it's re-used it's fresh.
+		Validate(TEXT("ReleaseSourceVoice, Voice->FlushSourceBuffers()"), Voice->FlushSourceBuffers());
+
+#if XAUDIO2_SUPPORTS_SENDLIST
+		// Clear out the send effects (OutputVoices). When the voice gets reused, the old internal state might be invalid 
+		// when the new send effects are applied to the voice.
+		Validate(TEXT("ReleaseSourceVoice, Voice->SetOutputVoices(nullptr)"), Voice->SetOutputVoices(nullptr));
+#endif
+
+		// Release the effect chain
+		Validate(TEXT("ReleaseSourceVoice, Voice->SetEffectChain(nullptr);"), Voice->SetEffectChain(nullptr));
+
+		// See if there is an existing pool for this source voice
+		FSourceVoicePoolEntry* VoicePoolEntry = nullptr;
+		for (int32 i = 0; i < VoicePool.Num(); ++i)
+		{
+			if (VoicePool[i]->Format == BufferInfo.PCMFormat && VoicePool[i]->MaxEffectChainChannels == MaxEffectChainChannels)
+			{
+				VoicePoolEntry = VoicePool[i];
+				break;
+			}
+		}
+
+		// If we found a voice pool entry for this voice, add the voice to the list of free voices
+		if (VoicePoolEntry)
+		{
+			VoicePoolEntry->FreeVoices.Add(Voice);
+		}
+		else
+		{
+			// Otherwise We need to make a new voice pool entry with this format and max effect chain channels
+			VoicePoolEntry = new FSourceVoicePoolEntry();
+			if (VoicePoolEntry)
+			{
+				VoicePoolEntry->Format = BufferInfo.PCMFormat;
+				VoicePoolEntry->FreeVoices.Add(Voice);
+				VoicePoolEntry->MaxEffectChainChannels = MaxEffectChainChannels;
+				VoicePool.Add(VoicePoolEntry);
+	}
+			else
+			{
+				// If we failed to create a new voice pool entry, then destroy the voice
+				Voice->DestroyVoice();
+			}
+		}
+#else // XAUDIO2_SUPPORTS_VOICE_POOL
 		Voice->DestroyVoice();
+#endif // XAUDIO2_SUPPORTS_VOICE_POOL
 
 		--NumActiveVoices;
 	}

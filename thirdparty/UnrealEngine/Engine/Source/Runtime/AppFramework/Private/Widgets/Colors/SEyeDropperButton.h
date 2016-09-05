@@ -12,7 +12,7 @@
 class SEyeDropperButton : public SButton
 {
 public:
-	DECLARE_DELEGATE_OneParam(FOnDropperComplete, bool)
+	DECLARE_DELEGATE(FOnDropperComplete)
 
 	SLATE_BEGIN_ARGS( SEyeDropperButton )
 		: _OnValueChanged()
@@ -22,7 +22,7 @@ public:
 		{}
 
 		/** Invoked when a new value is selected by the dropper */
-		SLATE_EVENT(FOnLinearColorValueChanged, OnValueChanged)
+	SLATE_EVENT(FOnLinearColorValueChanged, OnValueChanged)
 
 		/** Invoked when the dropper goes from inactive to active */
 		SLATE_EVENT(FSimpleDelegate, OnBegin)
@@ -42,7 +42,6 @@ public:
 	virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override;
-	virtual void OnMouseCaptureLost() override;
 
 private:
 
@@ -55,7 +54,6 @@ private:
 	bool IsMouseOver(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) const;
 
 	void OnPreTick(float DeltaTime);
-	void ResetDropperModeStates();
 
 private:
 

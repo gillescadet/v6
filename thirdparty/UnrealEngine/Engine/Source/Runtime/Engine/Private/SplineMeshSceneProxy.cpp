@@ -39,14 +39,33 @@ FSplineMeshSceneProxy::FSplineMeshSceneProxy(USplineMeshComponent* InComponent) 
 		SplineMeshMinZ = InComponent->SplineBoundaryMin * SplineMeshScaleZ;
 	}
 
+	LODResources.Reset(InComponent->StaticMesh->RenderData->LODResources.Num());
+
 	for (int32 LODIndex = 0; LODIndex < LODs.Num(); LODIndex++)
 	{
-		InitVertexFactory(InComponent, LODIndex, nullptr); // we always need this one for shadows etc
-		if (InComponent->LODData.IsValidIndex(LODIndex) && InComponent->LODData[LODIndex].OverrideVertexColors)
+		FSplineMeshVertexFactory* VertexFactory = new FSplineMeshVertexFactory(this);
+
+		LODResources.Add(VertexFactory);
+
+		if( InComponent->LODData.IsValidIndex( LODIndex ))
 		{
-			InitVertexFactory(InComponent, LODIndex, InComponent->LODData[LODIndex].OverrideVertexColors);
+			const FStaticMeshComponentLODInfo& ComponentLODInfo = InComponent->LODData[ LODIndex ];
+			InitResources( InComponent, LODIndex, ComponentLODInfo.OverrideVertexColors );
 		}
+		else
+			InitResources( InComponent, LODIndex, NULL );
 	}
+}
+
+FSplineMeshSceneProxy::~FSplineMeshSceneProxy()
+{
+	ReleaseResources();
+
+	for (FSplineMeshSceneProxy::FLODResources& LODResource : LODResources)
+	{
+		delete LODResource.VertexFactory;
+	}
+	LODResources.Empty();
 }
 
 bool FSplineMeshSceneProxy::GetShadowMeshElement(int32 LODIndex, int32 BatchIndex, uint8 InDepthPriorityGroup, FMeshBatch& OutMeshBatch, bool bDitheredLODTransition) const
@@ -55,12 +74,7 @@ bool FSplineMeshSceneProxy::GetShadowMeshElement(int32 LODIndex, int32 BatchInde
 
 	if (FStaticMeshSceneProxy::GetShadowMeshElement(LODIndex, BatchIndex, InDepthPriorityGroup, OutMeshBatch, bDitheredLODTransition))
 	{
-		const FStaticMeshLODResources& LOD = RenderData->LODResources[LODIndex];
-		check(OutMeshBatch.Elements.Num() == 1);
-		OutMeshBatch.VertexFactory = OutMeshBatch.Elements[0].bUserDataIsColorVertexBuffer ? LOD.SplineVertexFactoryOverrideColorVertexBuffer : LOD.SplineVertexFactory;
-		check(OutMeshBatch.VertexFactory);
-		OutMeshBatch.Elements[0].SplineMeshSceneProxy = const_cast<FSplineMeshSceneProxy*>(this);
-		OutMeshBatch.Elements[0].bIsSplineProxy = true;
+		OutMeshBatch.VertexFactory = LODResources[LODIndex].VertexFactory;
 		OutMeshBatch.ReverseCulling ^= (SplineParams.StartScale.X < 0) ^ (SplineParams.StartScale.Y < 0);
 		return true;
 	}
@@ -73,12 +87,7 @@ bool FSplineMeshSceneProxy::GetMeshElement(int32 LODIndex, int32 BatchIndex, int
 
 	if (FStaticMeshSceneProxy::GetMeshElement(LODIndex, BatchIndex, SectionIndex, InDepthPriorityGroup, bUseSelectedMaterial, bUseHoveredMaterial, bAllowPreCulledIndices, OutMeshBatch))
 	{
-		const FStaticMeshLODResources& LOD = RenderData->LODResources[LODIndex];
-		check(OutMeshBatch.Elements.Num() == 1);
-		OutMeshBatch.VertexFactory = OutMeshBatch.Elements[0].bUserDataIsColorVertexBuffer ? LOD.SplineVertexFactoryOverrideColorVertexBuffer : LOD.SplineVertexFactory;
-		check(OutMeshBatch.VertexFactory);
-		OutMeshBatch.Elements[0].SplineMeshSceneProxy = const_cast<FSplineMeshSceneProxy*>(this);
-		OutMeshBatch.Elements[0].bIsSplineProxy = true;
+		OutMeshBatch.VertexFactory = LODResources[LODIndex].VertexFactory;
 		OutMeshBatch.ReverseCulling ^= (SplineParams.StartScale.X < 0) ^ (SplineParams.StartScale.Y < 0);
 		return true;
 	}
@@ -91,12 +100,7 @@ bool FSplineMeshSceneProxy::GetWireframeMeshElement(int32 LODIndex, int32 BatchI
 
 	if (FStaticMeshSceneProxy::GetWireframeMeshElement(LODIndex, BatchIndex, WireframeRenderProxy, InDepthPriorityGroup, bAllowPreCulledIndices, OutMeshBatch))
 	{
-		const FStaticMeshLODResources& LOD = RenderData->LODResources[LODIndex];
-		check(OutMeshBatch.Elements.Num() == 1);
-		OutMeshBatch.VertexFactory = OutMeshBatch.Elements[0].bUserDataIsColorVertexBuffer ? LOD.SplineVertexFactoryOverrideColorVertexBuffer : LOD.SplineVertexFactory;
-		check(OutMeshBatch.VertexFactory);
-		OutMeshBatch.Elements[0].SplineMeshSceneProxy = const_cast<FSplineMeshSceneProxy*>(this);
-		OutMeshBatch.Elements[0].bIsSplineProxy = true;
+		OutMeshBatch.VertexFactory = LODResources[LODIndex].VertexFactory;
 		OutMeshBatch.ReverseCulling ^= (SplineParams.StartScale.X < 0) ^ (SplineParams.StartScale.Y < 0);
 		return true;
 	}

@@ -14,7 +14,7 @@ class UParticleModuleVectorFieldGlobal : public UParticleModuleVectorFieldBase
 	GENERATED_UCLASS_BODY()
 
 	/** Property override value for global vector field tightness.  */
-	UPROPERTY(EditAnywhere, Category = VectorField, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverrideGlobalVectorFieldTightness:1;
 
 	/** Global vector field scale. */

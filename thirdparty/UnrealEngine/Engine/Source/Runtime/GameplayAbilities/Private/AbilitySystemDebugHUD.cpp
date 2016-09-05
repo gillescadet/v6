@@ -126,7 +126,7 @@ void AAbilitySystemDebugHUD::DrawDebugAbilitySystemComponent(UAbilitySystemCompo
 	
 }
 
-#if !UE_BUILD_SHIPPING
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 static void	ToggleDebugHUD(const TArray<FString>& Args, UWorld* InWorld)
 {
 
@@ -163,4 +163,4 @@ FAutoConsoleCommandWithWorldAndArgs AbilitySystemToggleDebugHUDCommand(
 	TEXT("ToggleDebugHUD Drawing"),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(ToggleDebugHUD)
 	);
-#endif // !UE_BUILD_SHIPPING
+#endif

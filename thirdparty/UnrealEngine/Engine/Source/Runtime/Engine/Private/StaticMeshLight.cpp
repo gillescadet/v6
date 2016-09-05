@@ -209,7 +209,7 @@ void FStaticMeshStaticLightingTextureMapping::Apply(FQuantizedLightmapData* Quan
 	if (StaticMeshComponent)
 	{
 		// Should have happened at a higher level
-		check(!StaticMeshComponent->IsRenderStateCreated());
+		check(!StaticMeshComponent->IsRegistered());
 		// The rendering thread reads from LODData and IrrelevantLights, therefore
 		// the component must have finished detaching from the scene on the rendering
 		// thread before it is safe to continue.
@@ -287,7 +287,7 @@ void FStaticMeshStaticLightingTextureMapping::Apply(FQuantizedLightmapData* Quan
 #if WITH_EDITOR
 void UStaticMeshComponent::GetStaticLightingInfo(FStaticLightingPrimitiveInfo& OutPrimitiveInfo,const TArray<ULightComponent*>& InRelevantLights,const FLightingBuildOptions& Options)
 {
-	if( HasValidSettingsForStaticLighting(false) )
+	if( HasValidSettingsForStaticLighting() )
 	{
 		int32		BaseLightMapWidth	= 0;
 		int32		BaseLightMapHeight	= 0;
@@ -347,9 +347,10 @@ void UStaticMeshComponent::GetStaticLightingInfo(FStaticLightingPrimitiveInfo& O
 ELightMapInteractionType UStaticMeshComponent::GetStaticLightingType() const
 {
 	bool bUseTextureMap = false;
-	if( HasValidSettingsForStaticLighting(false) )
+	if( HasValidSettingsForStaticLighting() )
 	{
 		// Process each LOD separately.
+		TArray<FStaticMeshStaticLightingMesh*> StaticLightingMeshes;
 		for(int32 LODIndex = 0;LODIndex < StaticMesh->RenderData->LODResources.Num();LODIndex++)
 		{
 			const FStaticMeshLODResources& LODRenderData = StaticMesh->RenderData->LODResources[LODIndex];

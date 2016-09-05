@@ -4,6 +4,7 @@
 #include "SingleAnimationPlayData.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimSequenceBase.h"
+#include "Animation/VertexAnim/VertexAnimation.h"
 
 
 void FSingleAnimationPlayData::Initialize(UAnimSingleNodeInstance* Instance)
@@ -35,6 +36,10 @@ void FSingleAnimationPlayData::ValidatePosition()
 		{
 			Max = SequenceBase->SequenceLength;
 		}
+	}
+	else if (VertexAnimToPlay)
+	{
+		Max = VertexAnimToPlay->GetAnimLength();
 	}
 
 	SavedPosition = FMath::Clamp<float>(SavedPosition, Min, Max);

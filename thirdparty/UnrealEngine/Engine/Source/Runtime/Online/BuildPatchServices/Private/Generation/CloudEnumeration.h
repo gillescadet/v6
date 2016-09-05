@@ -1,11 +1,11 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
-#include "StatsCollector.h"
+#if WITH_BUILDPATCHGENERATION
 
 namespace BuildPatchServices
 {
-	class ICloudEnumeration
+	class FCloudEnumeration
 	{
 	public:
 		virtual TSet<FGuid> GetChunkSet(uint64 ChunkHash) const = 0;
@@ -14,12 +14,14 @@ namespace BuildPatchServices
 		virtual TMap<FGuid, FSHAHash> GetChunkShaHashes() const = 0;
 	};
 
-	typedef TSharedRef<ICloudEnumeration, ESPMode::ThreadSafe> ICloudEnumerationRef;
-	typedef TSharedPtr<ICloudEnumeration, ESPMode::ThreadSafe> ICloudEnumerationPtr;
+	typedef TSharedRef<FCloudEnumeration, ESPMode::ThreadSafe> FCloudEnumerationRef;
+	typedef TSharedPtr<FCloudEnumeration, ESPMode::ThreadSafe> FCloudEnumerationPtr;
 
 	class FCloudEnumerationFactory
 	{
 	public:
-		static ICloudEnumerationRef Create(const FString& CloudDirectory, const FDateTime& ManifestAgeThreshold, const FStatsCollectorRef& StatsCollector);
+		static FCloudEnumerationRef Create(const FString& CloudDirectory, const FDateTime& ManifestAgeThreshold);
 	};
 }
+
+#endif

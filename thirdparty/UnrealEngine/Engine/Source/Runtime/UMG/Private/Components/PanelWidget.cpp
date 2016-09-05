@@ -79,21 +79,21 @@ bool UPanelWidget::RemoveChildAt(int32 Index)
 		return false;
 	}
 
-	UPanelSlot* PanelSlot = Slots[Index];
-	if ( PanelSlot->Content )
+	UPanelSlot* Slot = Slots[Index];
+	if ( Slot->Content )
 	{
-		PanelSlot->Content->Slot = nullptr;
+		Slot->Content->Slot = nullptr;
 	}
 
 	Slots.RemoveAt(Index);
 
-	OnSlotRemoved(PanelSlot);
+	OnSlotRemoved(Slot);
 
 	const bool bReleaseChildren = true;
-	PanelSlot->ReleaseSlateResources(bReleaseChildren);
+	Slot->ReleaseSlateResources(bReleaseChildren);
 
-	PanelSlot->Parent = nullptr;
-	PanelSlot->Content = nullptr;
+	Slot->Parent = nullptr;
+	Slot->Content = nullptr;
 
 	return true;
 }
@@ -112,21 +112,21 @@ UPanelSlot* UPanelWidget::AddChild(UWidget* Content)
 
 	Content->RemoveFromParent();
 
-	UPanelSlot* PanelSlot = NewObject<UPanelSlot>(this, GetSlotClass());
-	PanelSlot->SetFlags(RF_Transactional);
-	PanelSlot->Content = Content;
-	PanelSlot->Parent = this;
+	UPanelSlot* Slot = NewObject<UPanelSlot>(this, GetSlotClass());
+	Slot->SetFlags(RF_Transactional);
+	Slot->Content = Content;
+	Slot->Parent = this;
 
 	if ( Content )
 	{
-		Content->Slot = PanelSlot;
+		Content->Slot = Slot;
 	}
 
-	Slots.Add(PanelSlot);
+	Slots.Add(Slot);
 
-	OnSlotAdded(PanelSlot);
+	OnSlotAdded(Slot);
 
-	return PanelSlot;
+	return Slot;
 }
 
 bool UPanelWidget::ReplaceChildAt(int32 Index, UWidget* Content)
@@ -136,15 +136,15 @@ bool UPanelWidget::ReplaceChildAt(int32 Index, UWidget* Content)
 		return false;
 	}
 
-	UPanelSlot* PanelSlot = Slots[Index];
-	PanelSlot->Content = Content;
+	UPanelSlot* Slot = Slots[Index];
+	Slot->Content = Content;
 
 	if ( Content )
 	{
-		Content->Slot = PanelSlot;
+		Content->Slot = Slot;
 	}
 
-	PanelSlot->SynchronizeProperties();
+	Slot->SynchronizeProperties();
 
 	return true;
 }

@@ -1,7 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "CoreUObjectPrivate.h"
-#include "PropertyTag.h"
 
 /*-----------------------------------------------------------------------------
 	UNameProperty.
@@ -29,7 +28,7 @@ const TCHAR* UNameProperty::ImportText_Internal( const TCHAR* Buffer, void* Data
 {
 	if (!(PortFlags & PPF_Delimited))
 	{
-		*(FName*)Data = FName(Buffer, FNAME_Add);
+		*(FName*)Data = FName(Buffer, FNAME_Add, true);
 
 		// in order to indicate that the value was successfully imported, advance the buffer past the last character that was imported
 		Buffer += FCString::Strlen(Buffer);
@@ -41,35 +40,9 @@ const TCHAR* UNameProperty::ImportText_Internal( const TCHAR* Buffer, void* Data
 		if (!Buffer)
 			return NULL;
 
-		*(FName*)Data = FName(*Temp, FNAME_Add);
+		*(FName*)Data = FName(*Temp, FNAME_Add, true);
 	}
 	return Buffer;
-}
-
-bool UNameProperty::ConvertFromType(const FPropertyTag& Tag, FArchive& Ar, uint8* Data, UStruct* DefaultsStruct, bool& bOutAdvanceProperty)
-{
-	if (Tag.Type == NAME_StrProperty)
-	{
-		FString str;
-		Ar << str;
-		SetPropertyValue_InContainer(Data, FName(*str), Tag.ArrayIndex);
-		bOutAdvanceProperty = true;
-	}
-	// Convert serialized text to name.
-	else if (Tag.Type == NAME_TextProperty)
-	{ 
-		FText Text;  
-		Ar << Text;
-		const FName Name = FName(*Text.ToString());
-		SetPropertyValue_InContainer(Data, Name, Tag.ArrayIndex);
-		bOutAdvanceProperty = true; 
-	}
-	else
-	{
-		bOutAdvanceProperty = false;
-	}
-
-	return bOutAdvanceProperty;
 }
 
 IMPLEMENT_CORE_INTRINSIC_CLASS(UNameProperty, UProperty,

@@ -12,7 +12,6 @@ void SSeparator::Construct( const FArguments& InArgs )
 		SBorder::FArguments()
 		.BorderImage(InArgs._SeparatorImage)
 		.Padding(0.0f)
-		.BorderBackgroundColor(InArgs._ColorAndOpacity)
 	);
 
 	Orientation = InArgs._Orientation;

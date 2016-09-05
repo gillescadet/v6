@@ -709,7 +709,7 @@ bool FDefaultValueHelper::ParseColor(const FString& Source, FColor& OutVal)
 		return false;
 	}
 
-	const uint8 Alpha = ( NULL != ThirdComma ) ? FCString::Atoi( ThirdComma + 1 ) : 255;
+	const float Alpha = ( NULL != ThirdComma ) ? FCString::Atoi( ThirdComma + 1 ) : 1.0f;
 	OutVal = FColor( 
 		FCString::Atoi( Start ), 
 		FCString::Atoi( FirstComma + 1 ), 

@@ -17,8 +17,8 @@ FLegacySlateFontInfoCache& FLegacySlateFontInfoCache::Get()
 }
 
 FLegacySlateFontInfoCache::FLegacySlateFontInfoCache()
-	: LocalizedFallbackFontRevision(0)
-	, LocalizedFallbackFontDataHistoryVersion(0)
+	: LocalizedFallbackFontRevision(INDEX_NONE)
+	, LocalizedFallbackFontDataHistoryVersion(INDEX_NONE)
 	, LocalizedFallbackFontFrameCounter(0)
 {
 }
@@ -90,7 +90,7 @@ const FFontData& FLegacySlateFontInfoCache::GetLocalizedFallbackFontData()
 	FScopeLock Lock(&LocalizedFallbackFontDataCS);
 
 	// The fallback font can change if the active culture is changed
-	const uint16 CurrentHistoryVersion = FTextLocalizationManager::Get().GetTextRevision();
+	const int32 CurrentHistoryVersion = FTextLocalizationManager::Get().GetTextRevision();
 	const uint64 CurrentFrameCounter = GFrameCounter;
 
 	// Only allow the fallback font to be updated once per-frame, as a culture change mid-frame could cause it to change unexpectedly and invalidate some assumptions that the font cache makes
@@ -120,14 +120,14 @@ const FFontData& FLegacySlateFontInfoCache::GetLocalizedFallbackFontData()
 		if (LocalizedFallbackFontData != PreviousLocalizedFallbackFontData)
 		{
 			// Only bump the revision if the font has actually changed
-			while (++LocalizedFallbackFontRevision == 0) {} // Zero is special, don't allow an overflow to stay at zero
+			++LocalizedFallbackFontRevision;
 		}
 	}
 
 	return *LocalizedFallbackFontData;
 }
 
-uint16 FLegacySlateFontInfoCache::GetLocalizedFallbackFontRevision() const
+int32 FLegacySlateFontInfoCache::GetLocalizedFallbackFontRevision() const
 {
 	return LocalizedFallbackFontRevision;
 }
@@ -167,19 +167,16 @@ const FFontData& FLegacySlateFontInfoCache::GetLastResortFontData()
 
 void FLegacySlateFontInfoCache::AddReferencedObjects(FReferenceCollector& Collector)
 {
-	for (TPair<FString, TSharedPtr<const FFontData>>& Pair : AllLocalizedFallbackFontData)
+	for (const auto& Pair : AllLocalizedFallbackFontData)
 	{
-		Collector.AddReferencedObject(const_cast<const UFontBulkData*&>(Pair.Value->BulkDataPtr));
-	}
-
-	if (LocalizedFallbackFontData.IsValid())
-	{
-		Collector.AddReferencedObject(const_cast<const UFontBulkData*&>(LocalizedFallbackFontData->BulkDataPtr));
+		const UFontBulkData* TmpPtr = Pair.Value->BulkDataPtr;
+		Collector.AddReferencedObject(TmpPtr);
 	}
 
 	if (LastResortFontData.IsValid())
 	{
-		Collector.AddReferencedObject(const_cast<const UFontBulkData*&>(LastResortFontData->BulkDataPtr));
+		const UFontBulkData* TmpPtr = LastResortFontData->BulkDataPtr;
+		Collector.AddReferencedObject(TmpPtr);
 	}
 }
 

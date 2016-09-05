@@ -13,7 +13,7 @@ UGameplayTask_SpawnActor* UGameplayTask_SpawnActor::SpawnActor(TScriptInterface<
 	bool bCanSpawn = true;
 	if (bSpawnOnlyOnAuthority == true)
 	{
-		AActor* TaskOwnerActor = TaskOwner->GetGameplayTaskOwner(nullptr);
+		AActor* TaskOwnerActor = TaskOwner->GetOwnerActor(nullptr);
 		if (TaskOwnerActor)
 		{
 			bCanSpawn = (TaskOwnerActor->Role == ROLE_Authority);

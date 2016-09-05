@@ -33,7 +33,7 @@ UMaterialExpressionLandscapeLayerSwitch::UMaterialExpressionLandscapeLayerSwitch
 	bCollapsed = false;
 }
 
-#if WITH_EDITOR
+
 bool UMaterialExpressionLandscapeLayerSwitch::IsResultMaterialAttributes(int32 OutputIndex)
 {
 	if (ContainsInputLoop())
@@ -45,6 +45,7 @@ bool UMaterialExpressionLandscapeLayerSwitch::IsResultMaterialAttributes(int32 O
 	bool bLayerNotUsedIsMaterialAttributes = LayerNotUsed.Expression != nullptr && LayerNotUsed.Expression->IsResultMaterialAttributes(LayerNotUsed.OutputIndex);
 	return bLayerUsedIsMaterialAttributes || bLayerNotUsedIsMaterialAttributes;
 }
+
 
 int32 UMaterialExpressionLandscapeLayerSwitch::Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex)
 {
@@ -72,20 +73,20 @@ int32 UMaterialExpressionLandscapeLayerSwitch::Compile(class FMaterialCompiler* 
 
 	return ReturnCode;
 }
-#endif // WITH_EDITOR
+
 
 UTexture* UMaterialExpressionLandscapeLayerSwitch::GetReferencedTexture()
 {
 	return GEngine->WeightMapPlaceholderTexture;
 }
 
-#if WITH_EDITOR
+
 void UMaterialExpressionLandscapeLayerSwitch::GetCaption(TArray<FString>& OutCaptions) const
 {
 	OutCaptions.Add(TEXT("Layer Switch"));
 	OutCaptions.Add(FString::Printf(TEXT("'%s'"), *ParameterName.ToString()));
 }
-#endif // WITH_EDITOR
+
 
 void UMaterialExpressionLandscapeLayerSwitch::Serialize(FArchive& Ar)
 {
@@ -126,9 +127,5 @@ void UMaterialExpressionLandscapeLayerSwitch::GetAllParameterNames(TArray<FName>
 	}
 }
 
-bool UMaterialExpressionLandscapeLayerSwitch::NeedsLoadForClient() const
-{
-	return ParameterName != NAME_None;
-}
 
 #undef LOCTEXT_NAMESPACE

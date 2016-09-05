@@ -1038,14 +1038,11 @@ FReply SMultiBoxWidget::FocusNextWidget(EUINavigation NavigationType)
 	{
 		FWidgetPath FocusPath;
 		FSlateApplication::Get().GeneratePathToWidgetUnchecked( FocusWidget.ToSharedRef(), FocusPath );
-		if (FocusPath.IsValid())
+		FWeakWidgetPath WeakFocusPath = FocusPath;
+		FWidgetPath NextFocusPath = WeakFocusPath.ToNextFocusedPath(NavigationType);
+		if ( NextFocusPath.Widgets.Num() > 0 )
 		{
-			FWeakWidgetPath WeakFocusPath = FocusPath;
-			FWidgetPath NextFocusPath = WeakFocusPath.ToNextFocusedPath(NavigationType);
-			if ( NextFocusPath.Widgets.Num() > 0 )
-			{
-				return FReply::Handled().SetUserFocus(NextFocusPath.Widgets.Last().Widget, EFocusCause::Navigation);
-			}
+			return FReply::Handled().SetUserFocus(NextFocusPath.Widgets.Last().Widget, EFocusCause::Navigation);
 		}
 	}
 
@@ -1076,11 +1073,7 @@ FReply SMultiBoxWidget::OnKeyDown( const FGeometry& MyGeometry, const FKeyEvent&
 		ResetSearch();
 	}
 	// allow use of up and down keys to transfer focus/hover state
-	else if( KeyEvent.GetKey() == EKeys::Up )
-	{
-		return FocusNextWidget( EUINavigation::Previous );
-	}
-	else if( KeyEvent.GetKey() == EKeys::Down )
+	else if( KeyEvent.GetKey() == EKeys::Up || KeyEvent.GetKey() == EKeys::Down )
 	{
 		return FocusNextWidget( EUINavigation::Next );
 	}
@@ -1103,12 +1096,16 @@ FReply SMultiBoxWidget::OnKeyChar( const FGeometry& MyGeometry, const FCharacter
 	return Reply;
 }
 
-void SMultiBoxWidget::TypeChar(const TCHAR InChar)
+void SMultiBoxWidget::TypeChar(const int32 InChar)
 {
 	// Certain characters are not allowed
 	bool bIsCharAllowed = true;
 	{
-		if ( InChar <= 0x1F )
+		if ( InChar == TEXT('\t') )
+		{
+			bIsCharAllowed = true;
+		}
+		else if ( InChar <= 0x1F )
 		{
 			bIsCharAllowed = false;
 		}
@@ -1120,7 +1117,7 @@ void SMultiBoxWidget::TypeChar(const TCHAR InChar)
 	}
 }
 
-void SMultiBoxWidget::UpdateSearch( const TCHAR CharToAdd )
+void SMultiBoxWidget::UpdateSearch( const int32 CharToAdd )
 {
 	const FString& OldSearchText = SearchText.ToString();
 	SearchText = FText::FromString( OldSearchText + CharToAdd );
@@ -1228,10 +1225,4 @@ void SMultiBoxWidget::SetSearchBlockWidget(TSharedPtr<SWidget> InWidget)
 void SMultiBoxWidget::AddSearchElement( TSharedPtr<SWidget> BlockWidget, FText BlockDisplayText )
 {
 	SearchElements.Add( BlockWidget, BlockDisplayText );
-}
-
-bool SMultiBoxWidget::OnVisualizeTooltip(const TSharedPtr<SWidget>& TooltipContent)
-{
-	// tooltips on multibox widgets are not supported outside of the editor
-	return !GIsEditor;
 }

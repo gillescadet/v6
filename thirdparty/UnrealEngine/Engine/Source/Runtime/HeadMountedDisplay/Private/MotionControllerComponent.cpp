@@ -3,7 +3,6 @@
 #include "HeadMountedDisplayPrivate.h"
 #include "MotionControllerComponent.h"
 #include "PrimitiveSceneInfo.h"
-#include "Features/IModularFeatures.h"
 
 namespace {
 	/** This is to prevent destruction of motion controller components while they are
@@ -81,15 +80,13 @@ bool UMotionControllerComponent::PollControllerState(FVector& Position, FRotator
 	if (IsInGameThread())
 	{
 		// Cache state from the game thread for use on the render thread
-		const AActor* MyOwner = GetOwner();
-		const APawn* MyPawn = Cast<APawn>(MyOwner);
-		bHasAuthority = MyPawn ? MyPawn->IsLocallyControlled() : (MyOwner->Role == ENetRole::ROLE_Authority);
+		const APlayerController* Actor = Cast<APlayerController>(GetOwner());
+		bHasAuthority = !Actor || Actor->IsLocalPlayerController();
 	}
 
 	if ((PlayerIndex != INDEX_NONE) && bHasAuthority)
 	{
-		TArray<IMotionController*> MotionControllers = IModularFeatures::Get().GetModularFeatureImplementations<IMotionController>( IMotionController::GetModularFeatureName() );
-		for( auto MotionController : MotionControllers )
+		for (auto MotionController : GEngine->MotionControllerDevices)
 		{
 			if ((MotionController != nullptr) && MotionController->GetControllerOrientationAndPosition(PlayerIndex, Hand, Orientation, Position))
 			{
@@ -143,7 +140,7 @@ void UMotionControllerComponent::FViewExtension::PreRenderViewFamily_RenderThrea
 	{
 		// Calculate the late update transform that will rebase all children proxies within the frame of reference
 		const FTransform OldLocalToWorldTransform = MotionControllerComponent->CalcNewComponentToWorld(MotionControllerComponent->GetRelativeTransform());
-		const FTransform NewLocalToWorldTransform = MotionControllerComponent->CalcNewComponentToWorld(FTransform(Orientation, Position, MotionControllerComponent->GetComponentScale()));
+		const FTransform NewLocalToWorldTransform = MotionControllerComponent->CalcNewComponentToWorld(FTransform(Orientation, Position));
 		const FMatrix LateUpdateTransform = (OldLocalToWorldTransform.Inverse() * NewLocalToWorldTransform).ToMatrixWithScale();
 
 		// Apply delta to the affected scene proxies

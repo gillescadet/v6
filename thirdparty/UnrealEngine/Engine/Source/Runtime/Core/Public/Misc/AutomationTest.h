@@ -86,13 +86,13 @@ public:
 };
 
 /** Simple class to store the automation test info */
-class CORE_API FAutomationTestInfo
+class FAutomationTestInfo
 {
 public:
 
 	// Default constructor
-	FAutomationTestInfo( )
-		: TestFlags( 0 )
+	FAutomationTestInfo( ) :
+		TestFlags( 0 )
 		, NumParticipantsRequired( 0 )
 		, NumDevicesCurrentlyRunningTest( 0 )
 	{}
@@ -103,8 +103,8 @@ public:
 	 *
 	 * @param	InTestInfo - comma separated value string containing the test info
 	 */
-	FAutomationTestInfo( const FString& InTestInfo )
-		: NumParticipantsRequired( 0 )
+	FAutomationTestInfo( const FString& InTestInfo ) :
+		NumParticipantsRequired( 0 )
 		, NumDevicesCurrentlyRunningTest( 0 )
 	{
 		ParseStringInfo( InTestInfo );
@@ -118,12 +118,10 @@ public:
 	 * @param	InTestFlag - Test flags
 	 * @param	InParameterName - optional parameter. e.g. asset name
 	 */
-	FAutomationTestInfo(const FString& InDisplayName, const FString& InTestName, const uint32 InTestFlags, const int32 InNumParticipantsRequired, const FString& InParameterName = FString(), const FString& InSourceFile = FString(), int32 InSourceFileLine = 0)
+	FAutomationTestInfo( const FString& InDisplayName, const FString& InTestName, const uint32 InTestFlags, const int32 InNumParticipantsRequired, const FString& InParameterName = FString() )
 		: DisplayName( InDisplayName )
 		, TestName( InTestName )
 		, TestParameter( InParameterName )
-		, SourceFile( InSourceFile )
-		, SourceFileLine( InSourceFileLine )
 		, TestFlags( InTestFlags )
 		, NumParticipantsRequired( InNumParticipantsRequired )
 		, NumDevicesCurrentlyRunningTest( 0 )
@@ -158,7 +156,10 @@ public:
 	 *
 	 * @return The test as a string.
 	 */
-	FString GetTestAsString() const;
+	const FString GetTestAsString()
+	{
+		return FString::Printf( TEXT("%s,%s,%i,%d,%s,"), *DisplayName, *TestName, TestFlags, NumParticipantsRequired, *TestParameter );
+	}
 
 
 	/**
@@ -166,7 +167,7 @@ public:
 	 *
 	 * @return The test name.
 	 */
-	FString GetTestName() const
+	const FString GetTestName() const
 	{
 		return TestName;
 	}
@@ -182,25 +183,6 @@ public:
 		return TestParameter;
 	}
 
-	/**
-	 * Get the source file this test originated in.
-	 *
-	 * @return the source file.
-	 */
-	const FString GetSourceFile() const
-	{
-		return SourceFile;
-	}
-
-	/**
-	 * Get the line number in the source file this test originated on.
-	 *
-	 * @return the source line number.
-	 */
-	const int32 GetSourceFileLine() const
-	{
-		return SourceFileLine;
-	}
 
 	/**
 	 * Get the type of test.
@@ -277,7 +259,27 @@ private:
 	 *
 	 * @Param InTestInfo - the test information as a string.
 	 */
-	void ParseStringInfo(const FString& InTestInfo);
+	void ParseStringInfo( const FString& InTestInfo )
+	{
+		//Split New Test Name into string array
+		TArray<FString> Pieces;
+		InTestInfo.ParseIntoArray(Pieces, TEXT(","), true);
+
+		// We should always have at least 3 parameters
+		check( Pieces.Num() >= 3 )
+
+		DisplayName = Pieces[0];
+		TestName = Pieces[1];
+		TestFlags = uint8( FCString::Atoi( *Pieces[2] ) );
+
+		NumParticipantsRequired = FCString::Atoi( *Pieces[3] );
+
+		// parameter 4 is optional
+		if ( Pieces.Num() == 5 )
+		{
+			TestParameter = Pieces[4];
+		}
+	}
 
 private:
 	/** Display name used in the UI */
@@ -288,12 +290,6 @@ private:
 
 	/** Parameter - e.g. an asset name or map name */
 	FString TestParameter;
-
-	/** The source file this test originated in. */
-	FString SourceFile;
-
-	/** The line number in the source file this test originated on. */
-	int32 SourceFileLine;
 
 	/** The test flags. */
 	uint32 TestFlags;
@@ -548,7 +544,7 @@ public:
 private:
 
 	/** Special feedback context used exclusively while automation testing */
-	 class FAutomationTestFeedbackContext : public FFeedbackContext
+	class FAutomationTestFeedbackContext : public FFeedbackContext
 	{
 	public:
 
@@ -587,7 +583,6 @@ private:
 		class FAutomationTestBase* CurTest;
 	};
 
-	 friend class FAutomationTestFeedbackContext;
 	/** Helper method called to prepare settings for automation testing to follow */
 	void PrepForAutomationTests();
 
@@ -753,7 +748,7 @@ public:
 	 * Returns whether this test has any errors associated with it or not
 	 *
 	 * @return true if this test has at least one error associated with it; false if not
-	 */
+ 	 */
 	bool HasAnyErrors() const;
 
 	/**
@@ -795,28 +790,6 @@ public:
 	{
 		bSuppressLogs = bNewValue;
 	}
-
-	/**
-	 * Enqueues a new latent command.
-	 */
-	FORCEINLINE void AddCommand(TSharedPtr<IAutomationLatentCommand> NewCommand)
-	{
-		FAutomationTestFramework::GetInstance().EnqueueLatentCommand(NewCommand);
-	}
-
-	/**
-	 * Enqueues a new latent network command.
-	 */
-	FORCEINLINE void AddCommand(TSharedPtr<IAutomationNetworkCommand> NewCommand)
-	{
-		FAutomationTestFramework::GetInstance().EnqueueNetworkCommand(NewCommand);
-	}
-
-	/** Gets the filename where this test was defined. */
-	virtual FString GetFileName() const { return ""; }
-
-	/** Gets the line number where this test was defined. */
-	virtual int32 GetFileLine() const { return 0; }
 
 public:
 
@@ -993,7 +966,7 @@ protected:
 	 * @param OutTestCommands - The parameters to be specified to each call to RunTests (for load all maps, it would be the map name to load)
 	 */
 	virtual void GetTests(TArray<FString>& OutBeautifiedNames, TArray <FString>& OutTestCommands) const = 0;
-
+	
 	/**
 	 * Virtual call to execute the automation test.  
 	 *
@@ -1108,7 +1081,7 @@ public: \
  * the automation test framework as a result of the macro.
  */
 
-#define IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE( TClass, PrettyName, TFlags, FileName, LineNumber ) \
+#define IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE( TClass, PrettyName, TFlags ) \
 	class TClass : public FAutomationTestBase \
 	{ \
 	public: \
@@ -1125,8 +1098,6 @@ public: \
 		virtual uint32 GetTestFlags() const override { return TFlags; } \
 		virtual bool IsStressTest() const { return false; } \
 		virtual uint32 GetRequiredDeviceNum() const override { return 1; } \
-		virtual FString GetFileName() const { return FileName; } \
-		virtual int32 GetFileLine() const { return LineNumber; } \
 	protected: \
 		virtual void GetTests(TArray<FString>& OutBeautifiedNames, TArray <FString>& OutTestCommands) const override \
 		{ \
@@ -1137,7 +1108,7 @@ public: \
 		virtual FString GetBeautifiedTestName() const override { return PrettyName; } \
 	};
 
-#define IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE( TClass, PrettyName, TFlags, FileName, LineNumber ) \
+#define IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE( TClass, PrettyName, TFlags ) \
 	class TClass : public FAutomationTestBase \
 	{ \
 	public: \
@@ -1154,15 +1125,13 @@ public: \
 		virtual uint32 GetTestFlags() const override { return ((TFlags) & ~(EAutomationTestFlags::SmokeFilter)); } \
 		virtual bool IsStressTest() const { return true; } \
 		virtual uint32 GetRequiredDeviceNum() const override { return 1; } \
-		virtual FString GetFileName() const { return FileName; } \
-		virtual int32 GetFileLine() const { return LineNumber; } \
 	protected: \
 		virtual void GetTests(TArray<FString>& OutBeautifiedNames, TArray <FString>& OutTestCommands) const override; \
 		virtual bool RunTest(const FString& Parameters) override; \
 		virtual FString GetBeautifiedTestName() const override { return PrettyName; } \
 	};
 
-#define IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants, FileName, LineNumber) \
+#define IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants) \
 	class TClass : public FAutomationTestBase \
 	{ \
 	public: \
@@ -1178,8 +1147,6 @@ public: \
 		} \
 		virtual uint32 GetTestFlags() const override { return ((TFlags) & ~(EAutomationTestFlags::EditorContext | EAutomationTestFlags::CommandletContext | EAutomationTestFlags::SmokeFilter)); } \
 		virtual uint32 GetRequiredDeviceNum() const override { return NumParticipants; } \
-		virtual FString GetFileName() const { return FileName; } \
-		virtual int32 GetFileLine() const { return LineNumber; } \
 	protected: \
 		virtual void GetTests(TArray<FString>& OutBeautifiedNames, TArray <FString>& OutTestCommands) const override \
 		{ \
@@ -1193,57 +1160,31 @@ public: \
 
 #if WITH_AUTOMATION_WORKER
 	#define IMPLEMENT_SIMPLE_AUTOMATION_TEST( TClass, PrettyName, TFlags ) \
-		IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, __FILE__, __LINE__) \
+		IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags) \
 		namespace\
 		{\
 			TClass TClass##AutomationTestInstance( TEXT(#TClass) );\
 		}
 	#define IMPLEMENT_COMPLEX_AUTOMATION_TEST( TClass, PrettyName, TFlags ) \
-		IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, __FILE__, __LINE__) \
+		IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags) \
 		namespace\
 		{\
 			TClass TClass##AutomationTestInstance( TEXT(#TClass) );\
 		}
 	#define IMPLEMENT_NETWORKED_AUTOMATION_TEST(TClass, PrettyName, TFlags, NumParticipants) \
-		IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants, __FILE__, __LINE__) \
+		IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants) \
 		namespace\
 		{\
 			TClass TClass##AutomationTestInstance( TEXT(#TClass) );\
 		}
 #else
 	#define IMPLEMENT_SIMPLE_AUTOMATION_TEST( TClass, PrettyName, TFlags ) \
-		IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, __FILE__, __LINE__)
+		IMPLEMENT_SIMPLE_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags)
 	#define IMPLEMENT_COMPLEX_AUTOMATION_TEST( TClass, PrettyName, TFlags ) \
-		IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, __FILE__, __LINE__)
+		IMPLEMENT_COMPLEX_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags)
 	#define IMPLEMENT_NETWORKED_AUTOMATION_TEST(TClass, PrettyName, TFlags, NumParticipants) \
-		IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants, __FILE__, __LINE__)
+		IMPLEMENT_NETWORKED_AUTOMATION_TEST_PRIVATE(TClass, PrettyName, TFlags, NumParticipants)
 #endif // #if WITH_AUTOMATION_WORKER
 
 
-//////////////////////////////////////////////////////////////////////////
-// Basic Latent Commands
 
-/**
- * Run some code latently with a predicate lambda.  If the predicate returns true, the latent action will be called 
- * again next frame.  If it returns false, the command will stop running.
- */
-class CORE_API FFunctionLatentCommand : public IAutomationLatentCommand
-{
-public:
-	FFunctionLatentCommand(TFunction<bool()> InLatentPredicate)
-		: LatentPredicate(InLatentPredicate)
-	{
-	}
-
-	virtual ~FFunctionLatentCommand()
-	{
-	}
-
-	virtual bool Update() override
-	{
-		return LatentPredicate();
-	}
-
-private:
-	TFunction<bool()> LatentPredicate;
-};

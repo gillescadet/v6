@@ -4,7 +4,6 @@
 
 class UBTNode;
 class UBehaviorTreeComponent;
-class UBlackboardData;
 
 namespace BlueprintNodeHelpers
 {
@@ -13,7 +12,6 @@ namespace BlueprintNodeHelpers
 	uint16 GetPropertiesMemorySize(const TArray<UProperty*>& PropertyData);
 
 	void CollectBlackboardSelectors(const UObject* Ob, const UClass* StopAtClass, TArray<FName>& KeyNames);
-	void ResolveBlackboardSelectors(UObject& Ob, const UClass& StopAtClass, const UBlackboardData& BlackboardAsset);
 	bool HasAnyBlackboardSelectors(const UObject* Ob, const UClass* StopAtClass);
 
 	AIMODULE_API FString DescribeProperty(const UProperty* Prop, const uint8* PropertyAddr);

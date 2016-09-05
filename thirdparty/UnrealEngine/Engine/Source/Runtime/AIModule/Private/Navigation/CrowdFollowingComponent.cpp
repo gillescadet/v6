@@ -5,7 +5,6 @@
 #include "Navigation/CrowdManager.h"
 #include "AI/Navigation/NavLinkCustomInterface.h"
 #include "AI/Navigation/AbstractNavData.h"
-#include "Navigation/MetaNavMeshPath.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 
@@ -63,21 +62,6 @@ void UCrowdFollowingComponent::GetCrowdAgentCollisions(float& CylinderRadius, fl
 float UCrowdFollowingComponent::GetCrowdAgentMaxSpeed() const
 {
 	return MovementComp ? MovementComp->GetMaxSpeed() : 0.0f;
-}
-
-int32 UCrowdFollowingComponent::GetCrowdAgentAvoidanceGroup() const
-{
-	return GetAvoidanceGroup();
-}
-
-int32 UCrowdFollowingComponent::GetCrowdAgentGroupsToAvoid() const
-{
-	return GetGroupsToAvoid();
-}
-
-int32 UCrowdFollowingComponent::GetCrowdAgentGroupsToIgnore() const
-{
-	return GetGroupsToIgnore();
 }
 
 void UCrowdFollowingComponent::SetCrowdAnticipateTurns(bool bEnable, bool bUpdateAgent)
@@ -321,50 +305,29 @@ void UCrowdFollowingComponent::UpdateCachedDirections(const FVector& NewVelocity
 	}
 }
 
-bool UCrowdFollowingComponent::ShouldTrackMovingGoal(FVector& OutGoalLocation) const
+bool UCrowdFollowingComponent::UpdateCachedGoal(FVector& NewGoalPos)
 {
 	if (bFinalPathPart && !bUpdateDirectMoveVelocity &&
 		Path.IsValid() && !Path->IsPartial() && Path->GetGoalActor())
 	{
-		OutGoalLocation = Path->GetGoalLocation();
+		NewGoalPos = Path->GetGoalLocation();
+		CurrentDestination.Set(Path->GetBaseActor(), NewGoalPos);
 		return true;
 	}
 
 	return false;
 }
 
-void UCrowdFollowingComponent::UpdateDestinationForMovingGoal(const FVector& NewDestination)
-{
-	CurrentDestination.Set(Path->GetBaseActor(), NewDestination);
-}
-
-bool UCrowdFollowingComponent::UpdateCachedGoal(FVector& NewGoalPos)
-{
-	return ShouldTrackMovingGoal(NewGoalPos);
-}
 
 void UCrowdFollowingComponent::ApplyCrowdAgentVelocity(const FVector& NewVelocity, const FVector& DestPathCorner, bool bTraversingLink)
 {
-	if (IsCrowdSimulationEnabled() && Status == EPathFollowingStatus::Moving && MovementComp)
+	if (IsCrowdSimulationEnabled() && Status == EPathFollowingStatus::Moving)
 	{
 		if (bAffectFallingVelocity || CharacterMovement == NULL || CharacterMovement->MovementMode != MOVE_Falling)
 		{
+			MovementComp->RequestDirectMove(NewVelocity, false);
+
 			UpdateCachedDirections(NewVelocity, DestPathCorner, bTraversingLink);
-
-			const bool bAccelerationBased = MovementComp->UseAccelerationForPathFollowing();
-			if (bAccelerationBased)
-			{
-				const float MaxSpeed = GetCrowdAgentMaxSpeed();
-				const float NewSpeed = NewVelocity.Size();
-				const float SpeedPct = FMath::Clamp(NewSpeed / MaxSpeed, 0.0f, 1.0f);
-				const FVector MoveInput = FMath::IsNearlyZero(NewSpeed) ? FVector::ZeroVector : ((NewVelocity / NewSpeed) * SpeedPct);
-
-				MovementComp->RequestPathMove(MoveInput);
-			}
-			else
-			{
-				MovementComp->RequestDirectMove(NewVelocity, false);
-			}
 		}
 	}
 }
@@ -472,7 +435,7 @@ void UCrowdFollowingComponent::BeginDestroy()
 	Cleanup();
 }
 
-void UCrowdFollowingComponent::AbortMove(const UObject& Instigator, FPathFollowingResultFlags::Type AbortFlags, FAIRequestID RequestID, EPathFollowingVelocityMode VelocityMode)
+void UCrowdFollowingComponent::AbortMove(const FString& Reason, FAIRequestID RequestID, bool bResetVelocity, bool bSilent, uint8 MessageFlags)
 {
 	if (IsCrowdSimulationEnabled() && (Status != EPathFollowingStatus::Idle) && RequestID.IsEquivalent(GetCurrentRequestId()))
 	{
@@ -483,10 +446,10 @@ void UCrowdFollowingComponent::AbortMove(const UObject& Instigator, FPathFollowi
 		}
 	}
 
-	Super::AbortMove(Instigator, AbortFlags, RequestID, VelocityMode);
+	Super::AbortMove(Reason, RequestID, bResetVelocity, bSilent, MessageFlags);
 }
 
-void UCrowdFollowingComponent::PauseMove(FAIRequestID RequestID, EPathFollowingVelocityMode VelocityMode)
+void UCrowdFollowingComponent::PauseMove(FAIRequestID RequestID, bool bResetVelocity)
 {
 	if (IsCrowdSimulationEnabled() && (Status != EPathFollowingStatus::Paused) && RequestID.IsEquivalent(GetCurrentRequestId()))
 	{
@@ -497,7 +460,7 @@ void UCrowdFollowingComponent::PauseMove(FAIRequestID RequestID, EPathFollowingV
 		}
 	}
 
-	Super::PauseMove(RequestID, VelocityMode);
+	Super::PauseMove(RequestID, bResetVelocity);
 }
 
 void UCrowdFollowingComponent::ResumeMove(FAIRequestID RequestID)
@@ -565,7 +528,7 @@ void UCrowdFollowingComponent::FinishUsingCustomLink(INavLinkCustomInterface* Cu
 	}
 }
 
-void UCrowdFollowingComponent::OnPathFinished(const FPathFollowingResult& Result)
+void UCrowdFollowingComponent::OnPathFinished(EPathFollowingResult::Type Result)
 {
 	UCrowdManager* CrowdManager = UCrowdManager::GetCurrent(GetWorld());
 	if (IsCrowdSimulationEnabled() && CrowdManager)
@@ -665,54 +628,51 @@ void LogPathPartHelper(AActor* LogOwner, FNavMeshPath* NavMeshPath, int32 StartI
 	const FVector CorridorOffset = NavigationDebugDrawing::PathOffset * 1.25f;
 	int32 NumAreaMark = 1;
 
+	NavMesh->BeginBatchQuery();
 	FVisualLogEntry* Snapshot = VisualLogger.GetEntryToWrite(LogOwner, LogOwner->GetWorld()->GetTimeSeconds());
-	if (Snapshot)
+
+	TArray<FVector> Verts;
+	for (int32 Idx = StartIdx; Idx <= EndIdx; Idx++)
 	{
-		NavMesh->BeginBatchQuery();
+		const uint8 AreaID = NavMesh->GetPolyAreaID(NavMeshPath->PathCorridor[Idx]);
+		const UClass* AreaClass = NavMesh->GetAreaClass(AreaID);
 
-		TArray<FVector> Verts;
-		for (int32 Idx = StartIdx; Idx <= EndIdx; Idx++)
+		Verts.Reset();
+		NavMesh->GetPolyVerts(NavMeshPath->PathCorridor[Idx], Verts);
+
+		FVector CenterPt = FVector::ZeroVector;
+		for (int32 VIdx = 0; VIdx < Verts.Num(); VIdx++)
 		{
-			const uint8 AreaID = NavMesh->GetPolyAreaID(NavMeshPath->PathCorridor[Idx]);
-			const UClass* AreaClass = NavMesh->GetAreaClass(AreaID);
-
-			Verts.Reset();
-			NavMesh->GetPolyVerts(NavMeshPath->PathCorridor[Idx], Verts);
-
-			FVector CenterPt = FVector::ZeroVector;
-			for (int32 VIdx = 0; VIdx < Verts.Num(); VIdx++)
-			{
-				Verts[VIdx].Z += 5.0f;
-				CenterPt += Verts[VIdx];
-			}
-			CenterPt /= Verts.Num();
-
-			const UNavArea* DefArea = AreaClass ? ((UClass*)AreaClass)->GetDefaultObject<UNavArea>() : NULL;
-			const FColor PolygonColor = AreaClass != UNavigationSystem::GetDefaultWalkableArea() ? (DefArea ? DefArea->DrawColor : NavMesh->GetConfig().Color) : FColorList::LightSteelBlue;
-
-			CorridorPoly.SetColor(PolygonColor.WithAlpha(100));
-			CorridorPoly.Points.Reset();
-			CorridorPoly.Points.Append(Verts);
-			Snapshot->ElementsToDraw.Add(CorridorPoly);
-
-			if (AreaClass && AreaClass != UNavigationSystem::GetDefaultWalkableArea())
-			{
-				FVisualLogShapeElement AreaMarkElem(EVisualLoggerShapeElement::Segment);
-				AreaMarkElem.SetColor(FColorList::Orange.WithAlpha(100));
-				AreaMarkElem.Category = LogNavigation.GetCategoryName();
-				AreaMarkElem.Thicknes = 2;
-				AreaMarkElem.Description = AreaClass->GetName();
-
-				AreaMarkElem.Points.Add(CenterPt + CorridorOffset);
-				AreaMarkElem.Points.Add(CenterPt + CorridorOffset + FVector(0, 0, 100.0f + NumAreaMark * 50.0f));
-				Snapshot->ElementsToDraw.Add(AreaMarkElem);
-
-				NumAreaMark = (NumAreaMark + 1) % 5;
-			}
+			Verts[VIdx].Z += 5.0f;
+			CenterPt += Verts[VIdx];
 		}
+		CenterPt /= Verts.Num();
 
-		NavMesh->FinishBatchQuery();
+		const UNavArea* DefArea = AreaClass ? ((UClass*)AreaClass)->GetDefaultObject<UNavArea>() : NULL;
+		const FColor PolygonColor = AreaClass != UNavigationSystem::GetDefaultWalkableArea() ? (DefArea ? DefArea->DrawColor : NavMesh->GetConfig().Color) : FColorList::LightSteelBlue;
+
+		CorridorPoly.SetColor(PolygonColor.WithAlpha(100));
+		CorridorPoly.Points.Reset();
+		CorridorPoly.Points.Append(Verts);
+		Snapshot->ElementsToDraw.Add(CorridorPoly);
+
+		if (AreaClass && AreaClass != UNavigationSystem::GetDefaultWalkableArea())
+		{
+			FVisualLogShapeElement AreaMarkElem(EVisualLoggerShapeElement::Segment);
+			AreaMarkElem.SetColor(FColorList::Orange.WithAlpha(100));
+			AreaMarkElem.Category = LogNavigation.GetCategoryName();
+			AreaMarkElem.Thicknes = 2;
+			AreaMarkElem.Description = AreaClass->GetName();
+
+			AreaMarkElem.Points.Add(CenterPt + CorridorOffset);
+			AreaMarkElem.Points.Add(CenterPt + CorridorOffset + FVector(0, 0, 100.0f + NumAreaMark * 50.0f));
+			Snapshot->ElementsToDraw.Add(AreaMarkElem);
+
+			NumAreaMark = (NumAreaMark + 1) % 5;
+		}
 	}
+
+	NavMesh->FinishBatchQuery();
 #endif // ENABLE_VISUAL_LOG && WITH_RECAST
 }
 
@@ -838,7 +798,7 @@ void UCrowdFollowingComponent::UpdatePathSegment()
 
 	if (!Path.IsValid() || MovementComp == NULL)
 	{
-		OnPathFinished(FPathFollowingResult(EPathFollowingResult::Aborted, FPathFollowingResultFlags::InvalidPath));
+		AbortMove(TEXT("no path"), FAIRequestID::CurrentRequest, true, false, EPathFollowingMessage::NoPath);
 		return;
 	}
 
@@ -846,23 +806,23 @@ void UCrowdFollowingComponent::UpdatePathSegment()
 	{
 		if (!Path->IsWaitingForRepath())
 		{
-			OnPathFinished(FPathFollowingResult(EPathFollowingResult::Aborted, FPathFollowingResultFlags::InvalidPath));
+			AbortMove(TEXT("no path"), FAIRequestID::CurrentRequest, true, false, EPathFollowingMessage::NoPath);
 		}
 		return;
 	}
 
 	// if agent has control over its movement, check finish conditions
-	const FVector CurrentLocation = MovementComp->GetActorFeetLocation();
 	const bool bCanReachTarget = MovementComp->CanStopPathFollowing();
 	if (bCanReachTarget && Status == EPathFollowingStatus::Moving)
 	{
+		const FVector CurrentLocation = MovementComp->GetActorFeetLocation();
 		const FVector GoalLocation = GetCurrentTargetLocation();
 
 		if (bCollidedWithGoal)
 		{
 			// check if collided with goal actor
 			OnSegmentFinished();
-			OnPathFinished(FPathFollowingResult(EPathFollowingResult::Success, FPathFollowingResultFlags::None));
+			OnPathFinished(EPathFollowingResult::Success);
 		}
 		else if (bFinalPathPart)
 		{
@@ -873,10 +833,10 @@ void UCrowdFollowingComponent::UpdatePathSegment()
 
 			// can't use HasReachedDestination here, because it will use last path point
 			// which is not set correctly for partial paths without string pulling
-			if (bMovedTooFar || HasReachedInternal(GoalLocation, 0.0f, 0.0f, CurrentLocation, AcceptanceRadius, bReachTestIncludesAgentRadius ? MinAgentRadiusPct : 0.0f))
+			if (bMovedTooFar || HasReachedInternal(GoalLocation, 0.0f, 0.0f, CurrentLocation, AcceptanceRadius, bStopOnOverlap ? MinAgentRadiusPct : 0.0f))
 			{
 				UE_VLOG(GetOwner(), LogCrowdFollowing, Log, TEXT("Last path segment finished due to \'%s\'"), bMovedTooFar ? TEXT("Missing Last Point") : TEXT("Reaching Destination"));
-				OnPathFinished(FPathFollowingResult(EPathFollowingResult::Success, FPathFollowingResultFlags::None));
+				OnPathFinished(EPathFollowingResult::Success);
 			}
 		}
 		else
@@ -892,20 +852,13 @@ void UCrowdFollowingComponent::UpdatePathSegment()
 		}
 	}
 
+	// gather location samples to detect if moving agent is blocked
 	if (bCanReachTarget && Status == EPathFollowingStatus::Moving)
 	{
-		// check waypoint switch condition in meta paths
-		FMetaNavMeshPath* MetaNavPath = bIsUsingMetaPath ? Path->CastPath<FMetaNavMeshPath>() : nullptr;
-		if (MetaNavPath && Status == EPathFollowingStatus::Moving)
-		{
-			MetaNavPath->ConditionalMoveToNextSection(CurrentLocation, EMetaPathUpdateReason::MoveTick);
-		}
-
-		// gather location samples to detect if moving agent is blocked
 		const bool bHasNewSample = UpdateBlockDetection();
 		if (bHasNewSample && IsBlocked())
 		{
-			OnPathFinished(FPathFollowingResult(EPathFollowingResult::Blocked, FPathFollowingResultFlags::None));
+			OnPathFinished(EPathFollowingResult::Blocked);
 		}
 	}
 }

@@ -75,20 +75,21 @@ public:
 	virtual IBuildManifestPtr LoadManifestFromFile(const FString& Filename) override;
 	virtual IBuildManifestPtr MakeManifestFromData(const TArray<uint8>& ManifestData) override;
 	virtual bool SaveManifestToFile(const FString& Filename, IBuildManifestRef Manifest, bool bUseBinary = true) override;
-	virtual IBuildInstallerPtr StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair = false, TSet<FString> InstallTags = TSet<FString>()) override;
-	virtual IBuildInstallerPtr StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair = false, TSet<FString> InstallTags = TSet<FString>()) override;
+	virtual IBuildInstallerPtr StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags = TSet<FString>()) override;
+	virtual IBuildInstallerPtr StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags = TSet<FString>()) override;
 	virtual void SetStagingDirectory(const FString& StagingDir) override;
-	virtual void SetCloudDirectory(FString CloudDir) override;
-	virtual void SetCloudDirectories(TArray<FString> CloudDirs) override;
+	virtual void SetCloudDirectory(const FString& CloudDir) override;
 	virtual void SetBackupDirectory(const FString& BackupDir) override;
 	virtual void SetAnalyticsProvider(TSharedPtr< IAnalyticsProvider > AnalyticsProvider) override;
 	virtual void SetHttpTracker(TSharedPtr< FHttpServiceTracker > HttpTracker) override;
 	virtual void RegisterAppInstallation(IBuildManifestRef AppManifest, const FString AppInstallDirectory) override;
 	virtual void CancelAllInstallers(bool WaitForThreads) override;
+#if WITH_BUILDPATCHGENERATION
 	virtual bool GenerateChunksManifestFromDirectory(const FBuildPatchSettings& Settings) override;
-	virtual bool CompactifyCloudDirectory(float DataAgeThreshold, ECompactifyMode::Type Mode) override;
-	virtual bool EnumerateManifestData(const FString& ManifestFilePath, const FString& OutputFile, bool bIncludeSizes) override;
-	virtual bool MergeManifests(const FString& ManifestFilePathA, const FString& ManifestFilePathB, const FString& ManifestFilePathC, const FString& NewVersionString, const FString& SelectionDetailFilePath) override;
+	virtual bool GenerateFilesManifestFromDirectory(const FBuildPatchSettings& Settings) override;
+	virtual bool CompactifyCloudDirectory(const TArray<FString>& ManifestsToKeep, const float DataAgeThreshold, const ECompactifyMode::Type Mode) override;
+	virtual bool EnumerateManifestData(FString ManifestFilePath, FString OutputFile, const bool bIncludeSizes) override;
+#endif
 	virtual IBuildManifestPtr MakeManifestFromJSON(const FString& ManifestJSON) override;
 	//~ End IBuildPatchServicesModule Interface
 
@@ -100,16 +101,9 @@ public:
 
 	/**
 	 * Gets the cloud directory where chunks and manifests will be pulled from.
-	 * @param CloudIdx    Optional override for which cloud directory to get. This value will wrap within the range of available cloud directories.
 	 * @return	The cloud directory
 	 */
-	static FString GetCloudDirectory(int32 CloudIdx = 0);
-
-	/**
-	 * Gets the cloud directories where chunks and manifests will be pulled from.
-	 * @return	The cloud directories
-	 */
-	static TArray<FString> GetCloudDirectories();
+	static const FString& GetCloudDirectory();
 
 	/**
 	 * Gets the backup directory for saving files clobbered by repair/patch.
@@ -130,31 +124,15 @@ private:
 	 */
 	void PreExit();
 
-	/**
-	 * Called during init to perform any fix up required to new configuration.
-	 */
-	void FixupLegacyConfig();
-
-	/**
-	 * Helper function to normalize the provided directory list.
-	 */
-	void NormalizeCloudPaths(TArray<FString>& InOutCloudPaths);
-
 private:
-	// Holds the cloud directories where chunks should belong
-	static TArray<FString> CloudDirectories;
+	// Holds the cloud directory where chunks should belong
+	static FString CloudDirectory;
 
 	// Holds the staging directory where we can perform any temporary work
 	static FString StagingDirectory;
 
 	// Holds the backup directory where we can move files that will be clobbered by repair or patch
 	static FString BackupDirectory;
-
-	// Holds the filename for local machine config. This is instead of shipped or user config, to track machine installation config.
-	FString LocalMachineConfigFile;
-
-	// A flag specifying whether prerequisites install should be skipped
-	bool bForceSkipPrereqs;
 
 	// Save the ptr to the build installer thread that we create
 	TArray< FBuildPatchInstallerPtr > BuildPatchInstallers;

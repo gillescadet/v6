@@ -238,7 +238,7 @@ struct ENGINE_API FEdGraphSchemaAction_NewNode : public FEdGraphSchemaAction
 		return Cast<NodeType>(Action.PerformAction(ParentGraph, NULL, Location, bSelectNewNode));
 	}
 
-	static UEdGraphNode* CreateNode(class UEdGraph* ParentGraph, UEdGraphPin* FromPin, const FVector2D Location, class UEdGraphNode* InNodeTemplate);
+	static UEdGraphNode* CreateNode(class UEdGraph* ParentGraph, UEdGraphPin* FromPin, const FVector2D Location, class UEdGraphNode* NodeTemplate);
 };
 
 /** Dummy action, useful for putting messages in the menu */
@@ -266,43 +266,38 @@ public:
 
 public:
 	FPinConnectionResponse()
-		: Message(FText::GetEmpty())
-		, Response(CONNECT_RESPONSE_MAKE)
-		, bIsFatal(false)
+	: Message(FText::GetEmpty())
+	, Response(CONNECT_RESPONSE_MAKE)
 	{
 	}
 
 	FPinConnectionResponse(const ECanCreateConnectionResponse InResponse, const FString& InMessage)
 		: Message(FText::FromString(InMessage))
 		, Response(InResponse)
-		, bIsFatal(false)
 	{
 	}
 
 	FPinConnectionResponse(const ECanCreateConnectionResponse InResponse, const ANSICHAR* InMessage)
 		: Message(FText::FromString(InMessage))
 		, Response(InResponse)
-		, bIsFatal(false)
 	{
 	}
 
 	FPinConnectionResponse(const ECanCreateConnectionResponse InResponse, const WIDECHAR* InMessage)
 		: Message(FText::FromString(InMessage))
 		, Response(InResponse)
-		, bIsFatal(false)
 	{
 	}
 
 	FPinConnectionResponse(const ECanCreateConnectionResponse InResponse, const FText& InMessage)
 		: Message(InMessage)
 		, Response(InResponse)
-		, bIsFatal(false)
 	{
 	}
 
 	friend bool operator==(const FPinConnectionResponse& A, const FPinConnectionResponse& B)
 	{
-		return (A.Message.ToString() == B.Message.ToString()) && (A.Response == B.Response) && (A.bIsFatal == B.bIsFatal);
+		return (A.Message.ToString() == B.Message.ToString()) && (A.Response == B.Response);
 	}	
 
 	/** If a connection can be made without breaking existing connections */
@@ -310,20 +305,6 @@ public:
 	{
 		return (Response == CONNECT_RESPONSE_MAKE);
 	}
-
-	bool IsFatal() const
-	{
-		return (Response == CONNECT_RESPONSE_DISALLOW) && bIsFatal;
-	}
-
-	void SetFatal()
-	{
-		Response = CONNECT_RESPONSE_DISALLOW;
-		bIsFatal = true;
-	}
-
-private:
-	bool bIsFatal:1;
 };
 
 
@@ -767,10 +748,9 @@ class ENGINE_API UEdGraphSchema : public UObject
 	 * @param	Node			The node to replace
 	 * @param	Graph			The destination graph
 	 * @param	InstanceGraph	Object instancing graph
-	 * @param	InOutExtraNames	List of extra names that are in-use from the substitution should be added to this list to prevent other substitutions from attempting to use them
 	 * @return					NULL if a substitute node cannot be created; otherwise, the substitute node instance
 	 */
-	virtual UEdGraphNode* CreateSubstituteNode(UEdGraphNode* Node, const UEdGraph* Graph, FObjectInstancingGraph* InstanceGraph, TArray<FName>& InOutExtraNames) const { return NULL; }
+	virtual UEdGraphNode* CreateSubstituteNode(UEdGraphNode* Node, const UEdGraph* Graph, FObjectInstancingGraph* InstanceGraph) const { return NULL; }
 
 
 	/**

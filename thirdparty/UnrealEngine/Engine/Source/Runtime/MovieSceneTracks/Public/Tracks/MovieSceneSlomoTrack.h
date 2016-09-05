@@ -6,10 +6,6 @@
 #include "MovieSceneSlomoTrack.generated.h"
 
 
-class IMovieSceneTrackInstance;
-class UMovieSceneSection;
-
-
 /**
  * Implements a movie scene track that controls a movie scene's playback speed.
  */
@@ -27,7 +23,6 @@ public:
 	virtual UMovieSceneSection* CreateNewSection() override;
 
 #if WITH_EDITORONLY_DATA
-	virtual FText GetDefaultDisplayName() const override;
-	virtual bool CanRename() const override { return true; }
+	virtual FText GetDisplayName() const override;
 #endif
 };

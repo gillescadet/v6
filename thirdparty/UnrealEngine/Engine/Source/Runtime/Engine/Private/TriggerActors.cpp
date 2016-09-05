@@ -15,7 +15,6 @@
 namespace
 {
 	static const FColor TriggerBaseColor(100, 255, 100, 255);
-	static const FName TriggerCollisionProfileName(TEXT("Trigger"));
 }
 ATriggerCapsule::ATriggerCapsule(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UCapsuleComponent>(TEXT("CollisionComp")))
@@ -23,14 +22,15 @@ ATriggerCapsule::ATriggerCapsule(const FObjectInitializer& ObjectInitializer)
 	UCapsuleComponent* CapsuleCollisionComponent = CastChecked<UCapsuleComponent>(GetCollisionComponent());
 	CapsuleCollisionComponent->ShapeColor = TriggerBaseColor;
 	CapsuleCollisionComponent->InitCapsuleSize(+40.0f, +80.0f);
-	CapsuleCollisionComponent->SetCollisionProfileName(TriggerCollisionProfileName);
+	static FName CollisionProfileName(TEXT("Trigger"));
+	CapsuleCollisionComponent->SetCollisionProfileName(CollisionProfileName);
 
 	bCollideWhenPlacing = true;
 	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
 
-	if (UBillboardComponent* TriggerSpriteComponent = GetSpriteComponent())
+	if (GetSpriteComponent())
 	{
-		TriggerSpriteComponent->SetupAttachment(CapsuleCollisionComponent);
+		GetSpriteComponent()->AttachParent = CapsuleCollisionComponent;
 	}
 }
 
@@ -39,7 +39,7 @@ void ATriggerCapsule::EditorApplyScale(const FVector& DeltaScale, const FVector*
 {
 	const FVector ModifiedScale = DeltaScale * ( AActor::bUsePercentageBasedScaling ? 500.0f : 5.0f );
 
-	UCapsuleComponent * CapsuleComponent = CastChecked<UCapsuleComponent>(GetRootComponent());
+	UCapsuleComponent * CapsuleComponent = Cast<UCapsuleComponent>(GetRootComponent());
 	if ( bCtrlDown )
 	{
 		// CTRL+Scaling modifies trigger collision height.  This is for convenience, so that height
@@ -91,11 +91,13 @@ ATriggerBox::ATriggerBox(const FObjectInitializer& ObjectInitializer)
 
 	BoxCollisionComponent->ShapeColor = TriggerBaseColor;
 	BoxCollisionComponent->InitBoxExtent(FVector(40.0f, 40.0f, 40.0f));
-	BoxCollisionComponent->SetCollisionProfileName(TriggerCollisionProfileName);
 
-	if (UBillboardComponent* TriggerSpriteComponent = GetSpriteComponent())
+	static FName CollisionProfileName(TEXT("Trigger"));
+	BoxCollisionComponent->SetCollisionProfileName(CollisionProfileName);
+
+	if (GetSpriteComponent())
 	{
-		TriggerSpriteComponent->SetupAttachment(BoxCollisionComponent);
+		GetSpriteComponent()->AttachParent = BoxCollisionComponent;
 	}
 }
 
@@ -104,7 +106,7 @@ void ATriggerBox::EditorApplyScale(const FVector& DeltaScale, const FVector* Piv
 {
 	const FVector ModifiedScale = DeltaScale * ( AActor::bUsePercentageBasedScaling ? 500.0f : 5.0f );
 
-	UBoxComponent * BoxComponent = CastChecked<UBoxComponent>(GetRootComponent());
+	UBoxComponent * BoxComponent = Cast<UBoxComponent>(GetRootComponent());
 	if ( bCtrlDown )
 	{
 		// CTRL+Scaling modifies trigger collision height.  This is for convenience, so that height
@@ -132,11 +134,12 @@ ATriggerSphere::ATriggerSphere(const FObjectInitializer& ObjectInitializer)
 
 	SphereCollisionComponent->ShapeColor = TriggerBaseColor;
 	SphereCollisionComponent->InitSphereRadius(+40.0f);
-	SphereCollisionComponent->SetCollisionProfileName(TriggerCollisionProfileName);
+	static FName CollisionProfileName(TEXT("Trigger"));
+	SphereCollisionComponent->SetCollisionProfileName(CollisionProfileName);
 
-	if (UBillboardComponent* TriggerSpriteComponent = GetSpriteComponent())
+	if (GetSpriteComponent())
 	{
-		TriggerSpriteComponent->SetupAttachment(SphereCollisionComponent);
+		GetSpriteComponent()->AttachParent = SphereCollisionComponent;
 	}
 }
 
@@ -145,7 +148,7 @@ void ATriggerSphere::EditorApplyScale(const FVector& DeltaScale, const FVector* 
 {
 	const FVector ModifiedScale = DeltaScale * ( AActor::bUsePercentageBasedScaling ? 500.0f : 5.0f );
 
-	USphereComponent * SphereComponent = CastChecked<USphereComponent>(GetRootComponent());
+	USphereComponent * SphereComponent = Cast<USphereComponent>(GetRootComponent());
 	SphereComponent->SetSphereRadius(FMath::Max<float>(0.0f, SphereComponent->GetUnscaledSphereRadius() + ModifiedScale.X));
 }
 #endif	//WITH_EDITOR

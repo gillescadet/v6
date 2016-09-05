@@ -8,10 +8,6 @@
 #include "Platform.h"
 #include "UnrealTemplate.h"
 #include "UnrealTypeTraits.h"
-#include "AndOr.h"
-#include "IsTriviallyCopyAssignable.h"
-#include "IsTriviallyCopyConstructible.h"
-#include "IsTriviallyDestructible.h"
 
 
 namespace UE4MemoryOps_Private
@@ -22,13 +18,11 @@ namespace UE4MemoryOps_Private
 		enum
 		{
 			Value =
-				TOr<
-					TAreTypesEqual<DestinationElementType, SourceElementType>,
-					TAnd<
-						TIsBitwiseConstructible<DestinationElementType, SourceElementType>,
-						TIsTriviallyDestructible<SourceElementType>
-					>
-				>::Value
+				(
+					TIsBitwiseConstructible<DestinationElementType, SourceElementType>::Value &&
+					!TTypeTraits<SourceElementType>::NeedsDestructor
+				) ||
+				TAreTypesEqual<DestinationElementType, SourceElementType>::Value
 		};
 	};
 }
@@ -60,34 +54,13 @@ FORCEINLINE typename TEnableIf<TIsZeroConstructType<ElementType>::Value>::Type D
 
 
 /**
- * Destructs a single item in memory.
- *
- * @param	Elements	A pointer to the item to destruct.
- */
-template <typename ElementType>
-FORCEINLINE typename TEnableIf<!TIsTriviallyDestructible<ElementType>::Value>::Type DestructItem(ElementType* Element)
-{
-	// We need a typedef here because VC won't compile the destructor call below if ElementType itself has a member called ElementType
-	typedef ElementType DestructItemsElementTypeTypedef;
-
-	Element->DestructItemsElementTypeTypedef::~DestructItemsElementTypeTypedef();
-}
-
-
-template <typename ElementType>
-FORCEINLINE typename TEnableIf<TIsTriviallyDestructible<ElementType>::Value>::Type DestructItem(ElementType* Element)
-{
-}
-
-
-/**
  * Destructs a range of items in memory.
  *
  * @param	Elements	A pointer to the first item to destruct.
  * @param	Count		The number of elements to destruct.
  */
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<!TIsTriviallyDestructible<ElementType>::Value>::Type DestructItems(ElementType* Element, int32 Count)
+FORCEINLINE typename TEnableIf<TTypeTraits<ElementType>::NeedsDestructor>::Type DestructItems(ElementType* Element, int32 Count)
 {
 	while (Count)
 	{
@@ -102,7 +75,7 @@ FORCEINLINE typename TEnableIf<!TIsTriviallyDestructible<ElementType>::Value>::T
 
 
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<TIsTriviallyDestructible<ElementType>::Value>::Type DestructItems(ElementType* Elements, int32 Count)
+FORCEINLINE typename TEnableIf<!TTypeTraits<ElementType>::NeedsDestructor>::Type DestructItems(ElementType* Elements, int32 Count)
 {
 }
 
@@ -150,7 +123,7 @@ FORCEINLINE void CopyConstructItems(void* Dest, const ElementType* Source, int32
  * @param	Count		The number of elements to assign.
  */
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<!TIsTriviallyCopyAssignable<ElementType>::Value>::Type CopyAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<TTypeTraits<ElementType>::NeedsCopyAssignment>::Type CopyAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
 {
 	while (Count)
 	{
@@ -163,7 +136,7 @@ FORCEINLINE typename TEnableIf<!TIsTriviallyCopyAssignable<ElementType>::Value>:
 
 
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<TIsTriviallyCopyAssignable<ElementType>::Value>::Type CopyAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<!TTypeTraits<ElementType>::NeedsCopyAssignment>::Type CopyAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
 {
 	FMemory::Memcpy(Dest, Source, sizeof(ElementType) * Count);
 }
@@ -222,7 +195,7 @@ FORCEINLINE void RelocateItems(void* Dest, const ElementType* Source, int32 Coun
  * @param	Count		The number of elements to move.
  */
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<!TIsTriviallyCopyConstructible<ElementType>::Value>::Type MoveConstructItems(void* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<TTypeTraits<ElementType>::NeedsMoveConstructor>::Type MoveConstructItems(void* Dest, const ElementType* Source, int32 Count)
 {
 	while (Count)
 	{
@@ -234,7 +207,7 @@ FORCEINLINE typename TEnableIf<!TIsTriviallyCopyConstructible<ElementType>::Valu
 }
 
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<TIsTriviallyCopyConstructible<ElementType>::Value>::Type MoveConstructItems(void* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<!TTypeTraits<ElementType>::NeedsMoveConstructor>::Type MoveConstructItems(void* Dest, const ElementType* Source, int32 Count)
 {
 	FMemory::Memmove(Dest, Source, sizeof(ElementType) * Count);
 }
@@ -247,7 +220,7 @@ FORCEINLINE typename TEnableIf<TIsTriviallyCopyConstructible<ElementType>::Value
  * @param	Count		The number of elements to move assign.
  */
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<!TIsTriviallyCopyAssignable<ElementType>::Value>::Type MoveAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<TTypeTraits<ElementType>::NeedsMoveAssignment>::Type MoveAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
 {
 	while (Count)
 	{
@@ -259,7 +232,7 @@ FORCEINLINE typename TEnableIf<!TIsTriviallyCopyAssignable<ElementType>::Value>:
 }
 
 template <typename ElementType>
-FORCEINLINE typename TEnableIf<TIsTriviallyCopyAssignable<ElementType>::Value>::Type MoveAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
+FORCEINLINE typename TEnableIf<!TTypeTraits<ElementType>::NeedsMoveAssignment>::Type MoveAssignItems(ElementType* Dest, const ElementType* Source, int32 Count)
 {
 	FMemory::Memmove(Dest, Source, sizeof(ElementType) * Count);
 }

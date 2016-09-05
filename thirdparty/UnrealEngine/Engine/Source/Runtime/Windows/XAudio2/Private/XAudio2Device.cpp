@@ -52,27 +52,14 @@ const float* FXAudioDeviceProperties::OutputMixMatrix = NULL;
 XAUDIO2_DEVICE_DETAILS FXAudioDeviceProperties::DeviceDetails;
 #endif	//XAUDIO_SUPPORTS_DEVICE_DETAILS
 
-#if PLATFORM_WINDOWS
-FMMNotificationClient* FXAudioDeviceProperties::NotificationClient = nullptr;
-#endif
-
 /*------------------------------------------------------------------------------------
 	FAudioDevice Interface.
 ------------------------------------------------------------------------------------*/
 
 #define DEBUG_XAUDIO2 0
 
-void FXAudio2Device::GetAudioDeviceList(TArray<FString>& OutAudioDeviceNames) const
-{
-	DeviceProperties->GetAudioDeviceList(OutAudioDeviceNames);
-}
-
 bool FXAudio2Device::InitializeHardware()
 {
-	bIsAudioDeviceHardwareInitialized = false;
-
-	bHardwareChanged = false;
-
 	if (IsRunningDedicatedServer())
 	{
 		return false;
@@ -116,7 +103,7 @@ bool FXAudio2Device::InitializeHardware()
 #endif
 
 	// Create a new XAudio2 device object instance
-	if (XAudio2Create(&DeviceProperties->XAudio2, Flags, (XAUDIO2_PROCESSOR)FPlatformAffinity::GetAudioThreadMask()) != S_OK)
+	if (XAudio2Create(&DeviceProperties->XAudio2, Flags, AUDIO_HWTHREAD) != S_OK)
 	{
 		UE_LOG(LogInit, Log, TEXT( "Failed to create XAudio2 interface" ) );
 		return( false );
@@ -144,9 +131,10 @@ bool FXAudio2Device::InitializeHardware()
 	GConfig->GetString(TEXT("/Script/WindowsTargetPlatform.WindowsTargetSettings"), TEXT("AudioDevice"), WindowsAudioDeviceName, GEngineIni);
 
 	// Allow HMD to specify audio device, if one was not specified in settings
-	if (WindowsAudioDeviceName.IsEmpty() && FAudioDevice::CanUseVRAudioDevice() && IHeadMountedDisplayModule::IsAvailable())
+	if (WindowsAudioDeviceName.IsEmpty() && IHeadMountedDisplayModule::IsAvailable())
 	{
-		WindowsAudioDeviceName = IHeadMountedDisplayModule::Get().GetAudioOutputDevice();
+		FHeadMountedDisplayModuleExt* const HmdEx = FHeadMountedDisplayModuleExt::GetExtendedInterface(&IHeadMountedDisplayModule::Get());
+		WindowsAudioDeviceName = HmdEx ? HmdEx->GetAudioOutputDevice() : FString();
 	}
 	
 	// If an audio device was specified, try to find it
@@ -160,23 +148,23 @@ bool FXAudio2Device::InitializeHardware()
 			XAUDIO2_DEVICE_DETAILS Details;
 			DeviceProperties->XAudio2->GetDeviceDetails(i, &Details);
 
-			if (FString(Details.DeviceID) == WindowsAudioDeviceName || FString(Details.DisplayName) == WindowsAudioDeviceName)
+			if (FString(Details.DeviceID) == WindowsAudioDeviceName)
 			{
 				DeviceIndex = i;
 				break;
 			}
 		}
 	}
+#endif
 
 	// Get the details of the desired device index (0 is default)
-	if (!ValidateAPICall(TEXT("GetDeviceDetails"),
+	if( !ValidateAPICall(TEXT("GetDeviceDetails"),
 		DeviceProperties->XAudio2->GetDeviceDetails(DeviceIndex, &FXAudioDeviceProperties::DeviceDetails)))
 	{
 		UE_LOG(LogInit, Log, TEXT("Failed to get DeviceDetails for XAudio2"));
 		DeviceProperties->XAudio2 = nullptr;
 		return(false);
 	}
-#endif
 
 #if DEBUG_XAUDIO2
 	XAUDIO2_DEBUG_CONFIGURATION DebugConfig = {0};
@@ -195,14 +183,12 @@ bool FXAudio2Device::InitializeHardware()
 		FXAudioDeviceProperties::DeviceDetails.OutputFormat.Format.nSamplesPerSec = SampleRate;
 	}
 
-#if XAUDIO_SUPPORTS_DEVICE_DETAILS
-	UE_LOG(LogInit, Log, TEXT("XAudio2 using '%s' : %d channels at %g kHz using %d bits per sample (channel mask 0x%x)"),
+	UE_LOG(LogInit, Log, TEXT( "XAudio2 using '%s' : %d channels at %g kHz using %d bits per sample (channel mask 0x%x)" ), 
 		FXAudioDeviceProperties::DeviceDetails.DisplayName,
 		FXAudioDeviceProperties::NumSpeakers, 
 		( float )SampleRate / 1000.0f, 
 		FXAudioDeviceProperties::DeviceDetails.OutputFormat.Format.wBitsPerSample,
 		(uint32)UE4_XAUDIO2_CHANNELMASK );
-#endif
 
 	if( !GetOutputMatrix( UE4_XAUDIO2_CHANNELMASK, FXAudioDeviceProperties::NumSpeakers ) )
 	{
@@ -231,9 +217,6 @@ bool FXAudio2Device::InitializeHardware()
 #endif	//XAUDIO_SUPPORTS_DEVICE_DETAILS
 
 	DeviceProperties->SpatializationHelper.Init();
-
-	// Set that we initialized our hardware audio device ok so we should use real voices.
-	bIsAudioDeviceHardwareInitialized = true;
 
 	// Initialize permanent memory stack for initial & always loaded sound allocations.
 	if( CommonAudioPoolSize )
@@ -269,25 +252,6 @@ void FXAudio2Device::TeardownHardware()
 
 void FXAudio2Device::UpdateHardware()
 {
-	if (DeviceProperties)
-	{
-#if PLATFORM_WINDOWS
-		if (DeviceProperties->DidAudioDeviceChange())
-		{
-			// Stop any sounds that are playing
-			StopAllSounds(true);
-
-			// Set all sound sources to virtual mode so they don't play audio
-			for (FSoundSource* Source : Sources)
-			{
-				Source->SetVirtual();
-			}
-
-			// And switch to no-audio mode.
-			bIsAudioDeviceHardwareInitialized = false;
-		}
-#endif
-	}
 }
 
 FAudioEffectsManager* FXAudio2Device::CreateEffectsManager()
@@ -313,31 +277,23 @@ bool FXAudio2Device::HasCompressedAudioInfoClass(USoundWave* SoundWave)
 
 class ICompressedAudioInfo* FXAudio2Device::CreateCompressedAudioInfo(USoundWave* SoundWave)
 {
-	check(SoundWave);
-
 	if (SoundWave->IsStreaming())
 	{
 		return new FOpusAudioInfo();
 	}
 
 #if WITH_OGGVORBIS
-	static const FName NAME_OGG(TEXT("OGG"));
-	if (FPlatformProperties::RequiresCookedData() ? SoundWave->HasCompressedData(NAME_OGG) : (SoundWave->GetCompressedData(NAME_OGG) != nullptr))
+	if (SoundWave->CompressionName.IsNone() || SoundWave->CompressionName == TEXT("OGG"))
 	{
-		ICompressedAudioInfo* CompressedInfo = new FVorbisAudioInfo();
-		if (!CompressedInfo)
-		{
-			UE_LOG(LogAudio, Error, TEXT("Failed to create new FVorbisAudioInfo for SoundWave %s: out of memory."), *SoundWave->GetName());
-			return nullptr;
-		}
-		return CompressedInfo;
+
+		return new FVorbisAudioInfo();
 	}
 	else
 	{
-		return nullptr;
+		return NULL;
 	}
 #else
-	return nullptr;
+	return NULL;
 #endif
 	
 }

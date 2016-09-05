@@ -5,7 +5,6 @@
 #include "Engine/Channel.h"
 #include "ActorChannel.generated.h"
 
-class FNetFieldExportGroup;
 
 /**
  * A channel for exchanging actor and its subobject's properties and RPCs.
@@ -59,7 +58,6 @@ class ENGINE_API UActorChannel
 	uint32  bActorMustStayDirty:1;	// ActorDirty may not be cleared at end of this tick
 	uint32  bActorStillInitial:1;	// Not all properties sent while bNetInitial, so still bNetInitial next tick
 	uint32  bIsReplicatingActor:1;	// true when in this channel's ReplicateActor() to avoid recursion as that can cause invalid data to be sent
-	uint32  bPendingCheckpoint:1;	// true when this channel is currently waiting to replicate for a checkpoint
 	
 	/** whether we should nullptr references to this channel's Actor in other channels' Recent data when this channel is closed
 	 * set to false in cases where the Actor can't become relevant again (e.g. destruction) as it's unnecessary in that case
@@ -145,31 +143,16 @@ public:
 	void CleanupReplicators( const bool bKeepReplicators = false );
 
 	/** Writes the header for a content block of properties / RPCs for the given object (either the actor a subobject of the actor) */
-	void WriteContentBlockHeader( UObject* Obj, FOutBunch &Bunch, const bool bHasRepLayout );
+	void BeginContentBlock( UObject* Obj, FOutBunch &Bunch );
 
 	/** Writes the header for a content block specifically for deleting sub-objects */
-	void WriteContentBlockForSubObjectDelete( FOutBunch & Bunch, FNetworkGUID & GuidToDelete );
+	void BeginContentBlockForSubObjectDelete( FOutBunch & Bunch, FNetworkGUID & GuidToDelete );
 
-	/** Writes header and payload of content block */
-	int32 WriteContentBlockPayload( UObject* Obj, FOutBunch &Bunch, const bool bHasRepLayout, FNetBitWriter& Payload );
+	/** Writes the footer for a content block of properties / RPCs for the given object (either the actor a subobject of the actor) */
+	void EndContentBlock( UObject *Obj, FOutBunch &Bunch, const FClassNetCache* ClassCache = nullptr );
 
 	/** Reads the header of the content block and instantiates the subobject if necessary */
-	UObject* ReadContentBlockHeader( FInBunch& Bunch, bool& bObjectDeleted, bool& bOutHasRepLayout );
-
-	/** Reads content block header and payload */
-	UObject* ReadContentBlockPayload( FInBunch &Bunch, FNetBitReader& OutPayload, bool& bOutHasRepLayout );
-
-	/** Writes property/function header and data blob to network stream */
-	int32 WriteFieldHeaderAndPayload( FNetBitWriter& Bunch, const FClassNetCache* ClassCache, const FFieldNetCache* FieldCache, FNetFieldExportGroup* NetFieldExportGroup, FNetBitWriter& Payload );
-
-	/** Reads property/function header and data blob from network stream */
-	bool ReadFieldHeaderAndPayload( UObject* Object, const FClassNetCache* ClassCache, FNetFieldExportGroup* NetFieldExportGroup, FNetBitReader& Bunch, const FFieldNetCache** OutField, FNetBitReader& OutPayload ) const;
-
-	/** Finds the net field export group for a class net cache, if not found, creates one */
-	FNetFieldExportGroup* GetNetFieldExportGroupForClassNetCache( const UClass* ObjectClass );
-		
-	/** Finds (or creates) the net field export group for a class net cache, if not found, creates one */
-	FNetFieldExportGroup* GetOrCreateNetFieldExportGroupForClassNetCache( const UClass* ObjectClass );
+	UObject* ReadContentBlockHeader(FInBunch& Bunch, bool& bObjectDeleted);
 
 	/** Returns the replicator for the actor associated with this channel. Guaranteed to exist. */
 	FObjectReplicator & GetActorReplicationData();

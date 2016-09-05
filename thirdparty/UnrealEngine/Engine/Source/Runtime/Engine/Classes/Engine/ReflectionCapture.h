@@ -18,9 +18,6 @@ private_subobject:
 	DEPRECATED_FORGAME(4.6, "SpriteComponent should not be accessed directly, please use GetSpriteComponent() function instead. SpriteComponent will soon be private and your code will not compile.")
 	UPROPERTY()
 	UBillboardComponent* SpriteComponent;
-
-	UPROPERTY()
-	UBillboardComponent* CaptureOffsetComponent;
 #endif // WITH_EDITORONLY_DATA
 
 public:	
@@ -36,7 +33,6 @@ public:
 #if WITH_EDITORONLY_DATA
 	/** Returns SpriteComponent subobject **/
 	ENGINE_API UBillboardComponent* GetSpriteComponent() const;
-	ENGINE_API UBillboardComponent* GetCaptureOffsetComponent() const { return CaptureOffsetComponent; }
 #endif
 };
 

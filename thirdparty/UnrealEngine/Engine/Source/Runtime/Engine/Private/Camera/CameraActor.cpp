@@ -28,7 +28,7 @@ ACameraActor::ACameraActor(const FObjectInitializer& ObjectInitializer)
 	CameraComponent->AspectRatio = 1.777778f;
 	CameraComponent->PostProcessBlendWeight = 1.0f;
 	
-	CameraComponent->SetupAttachment(SceneComponent);
+	CameraComponent->AttachParent = SceneComponent;
 
 	// Initialize deprecated properties (needed for backwards compatibility due to delta serialization)
 	FOVAngle_DEPRECATED = 90.0f;
@@ -56,22 +56,22 @@ void ACameraActor::Serialize(FArchive& Ar)
 void ACameraActor::PostLoadSubobjects(FObjectInstancingGraph* OuterInstanceGraph)
 {
 	USceneComponent* OldRoot = RootComponent;
-	USceneComponent* OldAttachParent = OldRoot->GetAttachParent();
-	const FName OldSocketName = OldRoot->GetAttachSocketName();
+	USceneComponent* OldAttachParent = OldRoot->AttachParent;
+	const FName OldSocketName = OldRoot->AttachSocketName;
 
 	Super::PostLoadSubobjects(OuterInstanceGraph);
 	
 	if (GetLinkerUE4Version() < VER_UE4_CAMERA_ACTOR_USING_CAMERA_COMPONENT)
 	{
-		CameraComponent->SetupAttachment(OldAttachParent, OldSocketName);
-		OldRoot->SetupAttachment(nullptr);
+		CameraComponent->AttachParent = OldAttachParent;
+		OldRoot->AttachParent = NULL;
 	}
 
 	if (GetLinkerUE4Version() < VER_UE4_CAMERA_COMPONENT_ATTACH_TO_ROOT)
 	{
 		RootComponent = SceneComponent;
-		CameraComponent->SetupAttachment(RootComponent);
-		RootComponent->SetupAttachment(OldAttachParent, OldSocketName);
+		CameraComponent->AttachTo(RootComponent);
+		RootComponent->AttachTo(OldAttachParent, OldSocketName);
 	}
 }
 

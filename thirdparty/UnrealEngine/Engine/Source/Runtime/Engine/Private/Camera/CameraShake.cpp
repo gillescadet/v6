@@ -26,12 +26,6 @@ float FFOscillator::GetInitialOffset(FFOscillator const& Osc)
 		: 0.f;
 }
 
-// static
-float FFOscillator::GetOffsetAtTime(FFOscillator const& Osc, float InitialOffset, float Time)
-{
-	return InitialOffset + (Time * Osc.Frequency);
-}
-
 //////////////////////////////////////////////////////////////////////////
 // UCameraShake
 
@@ -46,48 +40,16 @@ UCameraShake::UCameraShake(const FObjectInitializer& ObjectInitializer)
 	OscillationBlendOutTime = 0.2f;
 }
 
-void UCameraShake::StopShake(bool bImmediately)
+void UCameraShake::StopShake()
 {
-	if (bImmediately)
+	// stop cam anim if playing
+	if ((AnimInst != nullptr) && !AnimInst->bFinished)
 	{
-		// stop cam anim if playing
-		if (AnimInst && !AnimInst->bFinished)
-		{
-			if (CameraOwner)
-			{
-				CameraOwner->StopCameraAnimInst(AnimInst, true);
-			}
-			else
-			{
-				AnimInst->Stop(true);
-			}
-		}
-
+		CameraOwner->StopCameraAnimInst(AnimInst, true);
 		AnimInst = nullptr;
-
-		// stop oscillation
-		OscillatorTimeRemaining = 0.f;
-	}
-	else
-	{
-		// advance to the blend out time
-		OscillatorTimeRemaining = FMath::Min(OscillatorTimeRemaining, OscillationBlendOutTime);
-
-		if (AnimInst && !AnimInst->bFinished)
-		{
-			if (CameraOwner)
-			{
-				CameraOwner->StopCameraAnimInst(AnimInst, false);
-			}
-			else
-			{
-				// playing without a cameramanager, stop it ourselves
-				AnimInst->Stop(false);
-			}
-		}
 	}
 
-	ReceiveStopShake(bImmediately);
+	ReceiveStopShake();
 }
 
 void UCameraShake::PlayShake(APlayerCameraManager* Camera, float Scale, ECameraAnimPlaySpace::Type InPlaySpace, FRotator UserPlaySpaceRot)
@@ -134,10 +96,6 @@ void UCameraShake::PlayShake(APlayerCameraManager* Camera, float Scale, ECameraA
 
 			FOVSinOffset = FFOscillator::GetInitialOffset(FOVOscillation);
 
-			InitialLocSinOffset = LocSinOffset;
-			InitialRotSinOffset = RotSinOffset;
-			InitialFOVSinOffset = FOVSinOffset;
-
 			OscillatorTimeRemaining = OscillationDuration;
 
 			if (OscillationBlendInTime > 0.f)
@@ -172,22 +130,7 @@ void UCameraShake::PlayShake(APlayerCameraManager* Camera, float Scale, ECameraA
 			float const FinalAnimScale = Scale * AnimScale;
 			if (FinalAnimScale > 0.f)
 			{
-				if (CameraOwner)
-				{
-					AnimInst = CameraOwner->PlayCameraAnim(Anim, AnimPlayRate, FinalAnimScale, AnimBlendInTime, AnimBlendOutTime, bLoop, bRandomStart, Duration, InPlaySpace, UserPlaySpaceRot);
-				}
-				else
-				{
-					// allocate our own instance and start it
-					AnimInst = NewObject<UCameraAnimInst>(this);
-					if (AnimInst)
-					{
-						// note: we don't have a temp camera actor necessary for evaluating a camera anim.
-						// caller is responsible in this case for providing one by calling SetTempCameraAnimActor() on the shake instance before playing the shake
-						AnimInst->Play(Anim, TempCameraActorForCameraAnims, AnimPlayRate, FinalAnimScale, AnimBlendInTime, AnimBlendOutTime, bLoop, bRandomStart, Duration);
-						AnimInst->SetPlaySpace(InPlaySpace, UserPlaySpaceRot);
-					}
-				}
+				AnimInst = CameraOwner->PlayCameraAnim(Anim, AnimPlayRate, FinalAnimScale, AnimBlendInTime, AnimBlendOutTime, bLoop, bRandomStart, Duration, InPlaySpace, UserPlaySpaceRot);
 			}
 		}
 	}
@@ -355,35 +298,3 @@ bool UCameraShake::IsLooping() const
 	return OscillationDuration < 0.0f;
 }
 
-void UCameraShake::SetCurrentTimeAndApplyShake(float NewTime, FMinimalViewInfo& POV)
-{
-	// reset to start and advance to desired point
-	LocSinOffset = InitialLocSinOffset;
-	RotSinOffset = InitialRotSinOffset;
-	FOVSinOffset = InitialFOVSinOffset;
-
-	OscillatorTimeRemaining = OscillationDuration;
-
-	if (OscillationBlendInTime > 0.f)
-	{
-		bBlendingIn = true;
-		CurrentBlendInTime = 0.f;
-	}
-
-	if (OscillationDuration > 0.f)
-	{
-		if ((OscillationBlendOutTime > 0.f) && (NewTime > OscillationBlendOutTime))
-		{
-			bBlendingOut = true;
-			CurrentBlendOutTime = OscillationBlendOutTime - (OscillationDuration - NewTime);
-		}
-	}
-
-	UpdateAndApplyCameraShake(NewTime, 1.f, POV);
-
-	if (AnimInst)
-	{
-		AnimInst->SetCurrentTime(NewTime);
-		AnimInst->ApplyToView(POV);
-	}
-}

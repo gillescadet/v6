@@ -372,7 +372,6 @@ const FSearchBoxStyle& FSearchBoxStyle::GetDefault()
 }
 
 FSliderStyle::FSliderStyle()
-	: BarThickness(2.0f)
 {
 }
 

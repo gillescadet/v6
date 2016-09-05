@@ -22,7 +22,7 @@ class UAbilityTask_ApplyRootMotionConstantForce : public UAbilityTask
 
 	/** Apply force to character's movement */
 	UFUNCTION(BlueprintCallable, Category = "Ability|Tasks", meta = (HidePin = "WorldContextObject", DefaultToSelf = "WorldContextObject", BlueprintInternalUseOnly = "TRUE"))
-	static UAbilityTask_ApplyRootMotionConstantForce* ApplyRootMotionConstantForce(UObject* WorldContextObject, FName TaskInstanceName, FVector WorldDirection, float Strength, float Duration, bool bIsAdditive, bool bDisableImpartingVelocityOnRemoval, UCurveFloat* StrengthOverTime);
+	static UAbilityTask_ApplyRootMotionConstantForce* ApplyRootMotionConstantForce(UObject* WorldContextObject, FName TaskInstanceName, FVector WorldDirection, float Strength, float Duration, bool bIsAdditive, bool bDisableImpartingVelocityOnRemoval);
 
 	virtual void Activate() override;
 
@@ -31,6 +31,8 @@ class UAbilityTask_ApplyRootMotionConstantForce : public UAbilityTask
 
 	virtual void PreDestroyFromReplication() override;
 	virtual void OnDestroy(bool AbilityIsEnding) override;
+
+	void PreReplicatedRemove(const struct FOrionCardArray& InArray);
 
 protected:
 
@@ -51,15 +53,6 @@ protected:
 
 	UPROPERTY(Replicated)
 	bool bDisableImpartingVelocityOnRemoval;
-
-	/** 
-	 *  Strength of the force over time
-	 *  Curve Y is 0 to 1 which is percent of full Strength parameter to apply
-	 *  Curve X is 0 to 1 normalized time if this force has a limited duration (Duration > 0), or
-	 *          is in units of seconds if this force has unlimited duration (Duration < 0)
-	 */
-	UPROPERTY(Replicated)
-	UCurveFloat* StrengthOverTime;
 
 	uint16 RootMotionSourceID;
 	bool bIsFinished;

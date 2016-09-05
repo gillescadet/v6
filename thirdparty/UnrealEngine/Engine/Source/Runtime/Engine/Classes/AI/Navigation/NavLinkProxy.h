@@ -69,7 +69,6 @@ public:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR
 	virtual void PostInitializeComponents() override;
-	virtual void PostLoad() override;
 
 #if ENABLE_VISUAL_LOG
 	virtual void BeginPlay() override;

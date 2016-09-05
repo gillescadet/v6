@@ -142,13 +142,13 @@ void FParticleScratchVertexBuffer::InitRHI()
 {
 	// Create a scratch vertex buffer for injecting particles and rendering tiles.
 	uint32 Flags = BUF_Volatile;
-	if (GSupportsResourceView)
+	if (GetFeatureLevel() >= ERHIFeatureLevel::ES3_1)
 	{
 		Flags |= BUF_ShaderResource;
 	}
 	FRHIResourceCreateInfo CreateInfo;
 	VertexBufferRHI = RHICreateVertexBuffer(GParticleScratchVertexBufferSize, Flags, CreateInfo);
-	if (GSupportsResourceView)
+	if (GetFeatureLevel() >= ERHIFeatureLevel::ES3_1)
 	{
 		VertexBufferSRV_G32R32F = RHICreateShaderResourceView( VertexBufferRHI, /*Stride=*/ sizeof(FVector2D), PF_G32R32F );
 	}

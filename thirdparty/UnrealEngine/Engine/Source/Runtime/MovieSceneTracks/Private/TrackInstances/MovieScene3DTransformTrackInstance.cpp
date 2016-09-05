@@ -11,49 +11,45 @@ FMovieScene3DTransformTrackInstance::FMovieScene3DTransformTrackInstance( UMovie
 }
 
 
-void FMovieScene3DTransformTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieScene3DTransformTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
 	for (int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex)
 	{
-		UObject* Object = RuntimeObjects[ObjIndex].Get();
-		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
-
+		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 		if (SceneComponent != nullptr)
 		{
-			if (InitTransformMap.Find(Object) == nullptr)
+			if (InitTransformMap.Find(RuntimeObjects[ObjIndex]) == nullptr)
 			{
-				InitTransformMap.Add(Object, SceneComponent->GetRelativeTransform());
+				InitTransformMap.Add(RuntimeObjects[ObjIndex], SceneComponent->GetRelativeTransform());
 			}
-			if (InitMobilityMap.Find(Object) == nullptr)
+			if (InitMobilityMap.Find(RuntimeObjects[ObjIndex]) == nullptr)
 			{
-				InitMobilityMap.Add(Object, SceneComponent->Mobility);
+				InitMobilityMap.Add(RuntimeObjects[ObjIndex], SceneComponent->Mobility);
 			}
 		}
 	}
 }
 
 
-void FMovieScene3DTransformTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieScene3DTransformTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
 	for (int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex)
 	{
-		UObject* Object = RuntimeObjects[ObjIndex].Get();
-
-		if (!IsValid(Object))
+		if (!IsValid(RuntimeObjects[ObjIndex]))
 		{
 			continue;
 		}
 
-		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
+		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 		if (SceneComponent != nullptr)
 		{
-			FTransform *Transform = InitTransformMap.Find(Object);
+			FTransform *Transform = InitTransformMap.Find(RuntimeObjects[ObjIndex]);
 			if (Transform != nullptr)
 			{
 				SceneComponent->SetRelativeTransform(*Transform);
 			}
 
-			EComponentMobility::Type* ComponentMobility = InitMobilityMap.Find(Object);
+			EComponentMobility::Type* ComponentMobility = InitMobilityMap.Find(RuntimeObjects[ObjIndex]);
 			if (ComponentMobility != nullptr)
 			{
 				SceneComponent->SetMobility(*ComponentMobility);
@@ -62,20 +58,19 @@ void FMovieScene3DTransformTrackInstance::RestoreState(const TArray<TWeakObjectP
 	}
 }
 
-void FMovieScene3DTransformTrackInstance::UpdateRuntimeMobility(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects)
+void FMovieScene3DTransformTrackInstance::UpdateRuntimeMobility(const TArray<UObject*>& RuntimeObjects)
 {
 	for( int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex )
 	{
-		UObject* Object = RuntimeObjects[ObjIndex].Get();
-		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
+		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 
 		if (SceneComponent != nullptr)
 		{
 			if (SceneComponent->Mobility != EComponentMobility::Movable)
 			{
-				if (InitMobilityMap.Find(Object) == nullptr)
+				if (InitMobilityMap.Find(RuntimeObjects[ObjIndex]) == nullptr)
 				{
-					InitMobilityMap.Add(Object, SceneComponent->Mobility);
+					InitMobilityMap.Add(RuntimeObjects[ObjIndex], SceneComponent->Mobility);
 				}
 
 				SceneComponent->SetMobility(EComponentMobility::Movable);
@@ -84,9 +79,9 @@ void FMovieScene3DTransformTrackInstance::UpdateRuntimeMobility(const TArray<TWe
 	}
 }
 
-void FMovieScene3DTransformTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieScene3DTransformTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
-	if (UpdateData.UpdatePass == MSUP_PreUpdate)
+	if (UpdatePass == MSUP_PreUpdate)
 	{
 		UpdateRuntimeMobility(RuntimeObjects);
 	}
@@ -95,24 +90,19 @@ void FMovieScene3DTransformTrackInstance::Update(EMovieSceneUpdateData& UpdateDa
 	FRotator Rotation;
 	FVector Scale;
 
-	if( TransformTrack->Eval( UpdateData.Position, UpdateData.LastPosition, Translation, Rotation, Scale ) )
+	if( TransformTrack->Eval( Position, LastPosition, Translation, Rotation, Scale ) )
 	{
 		for( int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex )
 		{
-			UObject* Object = RuntimeObjects[ObjIndex].Get();
-			USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
+			USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 
 			if (SceneComponent != nullptr)
 			{
-				if (UpdateData.UpdatePass == MSUP_PreUpdate)
-				{		
-					// Set the transforms to identity explicitly instead of ResetRelativeTransform so that overlaps aren't evaluated at the origin
-					SceneComponent->RelativeLocation = FVector(FVector::ZeroVector);
-					SceneComponent->RelativeRotation = FRotator(FRotator::ZeroRotator);
-					SceneComponent->RelativeScale3D = FVector(1.f);
-					SceneComponent->UpdateComponentToWorld();
+				if (UpdatePass == MSUP_PreUpdate)
+				{
+					SceneComponent->ResetRelativeTransform();
 				}
-				else if (UpdateData.UpdatePass == MSUP_Update)
+				else if (UpdatePass == MSUP_Update)
 				{
 					SceneComponent->AddRelativeLocation(Translation);
 					SceneComponent->AddRelativeRotation(Rotation);
@@ -123,7 +113,7 @@ void FMovieScene3DTransformTrackInstance::Update(EMovieSceneUpdateData& UpdateDa
 	}
 }
  
-void FMovieScene3DTransformTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieScene3DTransformTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	UpdateRuntimeMobility(RuntimeObjects);
 }

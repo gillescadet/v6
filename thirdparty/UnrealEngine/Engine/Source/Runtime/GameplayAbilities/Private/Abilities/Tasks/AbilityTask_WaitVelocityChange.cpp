@@ -44,5 +44,4 @@ void UAbilityTask_WaitVelocityChange::Activate()
 {
 	const FGameplayAbilityActorInfo* ActorInfo = Ability->GetCurrentActorInfo();
 	CachedMovementComponent = ActorInfo->MovementComponent.Get();
-	SetWaitingOnAvatar();
 }

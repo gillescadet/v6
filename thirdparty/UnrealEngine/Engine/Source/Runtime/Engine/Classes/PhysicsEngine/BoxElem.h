@@ -16,24 +16,20 @@ struct FKBoxElem : public FKShapeElem
 	UPROPERTY()
 	FMatrix TM_DEPRECATED;
 
-	/** Position of the box's origin */
-	UPROPERTY(Category=Box, EditAnywhere)
+	UPROPERTY(Category=KBoxElem, VisibleAnywhere)
 	FVector Center;
 
-	/** Orientation of the box */
-	UPROPERTY(Category= Box, EditAnywhere)
+	UPROPERTY(Category=KBoxElem, VisibleAnywhere)
 	FQuat Orientation;
 
-	/** Extent of the box along the y-axis */
-	UPROPERTY(Category= Box, EditAnywhere, meta =(DisplayName = "X Extent"))
+	UPROPERTY(Category=KBoxElem, VisibleAnywhere)
 	float X;
 
-	/** Extent of the box along the y-axis */
-	UPROPERTY(Category= Box, EditAnywhere, meta = (DisplayName = "Y Extent"))
+	UPROPERTY(Category=KBoxElem, VisibleAnywhere)
 	float Y;
 
-	/** Extent of the box along the z-axis */
-	UPROPERTY(Category= Box, EditAnywhere, meta = (DisplayName = "Z Extent"))
+	/** length (not radius) */
+	UPROPERTY(Category=KBoxElem, VisibleAnywhere)
 	float Z;
 
 
@@ -100,26 +96,5 @@ struct FKBoxElem : public FKShapeElem
 
 	ENGINE_API void ScaleElem(FVector DeltaSize, float MinSize);
 
-	ENGINE_API FKBoxElem GetFinalScaled(const FVector& Scale3D, const FTransform& RelativeTM) const;
-
 	ENGINE_API static EAggCollisionShape::Type StaticShapeType;
-
-	/**	
-	 * Finds the shortest distance between the element and a world position. Input and output are given in world space
-	 * @param	WorldPosition	The point we are trying to get close to
-	 * @param	BodyToWorldTM	The transform to convert BodySetup into world space
-	 * @return					The distance between WorldPosition and the shape. 0 indicates WorldPosition is inside one of the shapes.
-	 */
-	ENGINE_API float GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& BodyToWorldTM) const;
-
-	
-	/**	
-	 * Finds the closest point on the shape given a world position. Input and output are given in world space
-	 * @param	WorldPosition			The point we are trying to get close to
-	 * @param	BodyToWorldTM			The transform to convert BodySetup into world space
-	 * @param	ClosestWorldPosition	The closest point on the shape in world space
-	 * @param	Normal					The normal of the feature associated with ClosestWorldPosition.
-	 * @return							The distance between WorldPosition and the shape. 0 indicates WorldPosition is inside the shape.
-	 */
-	ENGINE_API float GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& BodyToWorldTM, FVector& ClosestWorldPosition, FVector& Normal) const;
 };

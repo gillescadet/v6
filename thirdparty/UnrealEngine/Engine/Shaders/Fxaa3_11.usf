@@ -150,7 +150,7 @@ Getting luma correct is required for the algorithm to work correctly.
 ------------------------------------------------------------------------------
 Applying FXAA to a framebuffer with linear RGB color will look worse.
 This is very counter intuitive, but happends to be true in this case.
-The reason is because dithering artifacts will be more visible 
+The reason is because dithering artifacts will be more visiable 
 in a linear colorspace.
 
 

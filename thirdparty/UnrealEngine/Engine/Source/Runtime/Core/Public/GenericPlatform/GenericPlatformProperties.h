@@ -224,6 +224,11 @@ struct FGenericPlatformProperties
 		return true;
 	}
 
+	static FORCEINLINE bool SupportsVertexShaderTextureSampling()
+	{
+		return true;
+	}
+
 	/**
 	 * Gets whether user settings should override the resolution or not
 	 */

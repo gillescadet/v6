@@ -153,8 +153,7 @@ float FAlphaBlend::AlphaToBlendOption(float InAlpha, EAlphaBlendOption InBlendOp
 		}
 	}
 
-	// Make sure linear returns a clamped value.
-	return FMath::Clamp<float>(InAlpha, 0.f, 1.f);
+	return InAlpha;
 }
 
 void FAlphaBlend::SetValueRange(float Begin, float Desired)

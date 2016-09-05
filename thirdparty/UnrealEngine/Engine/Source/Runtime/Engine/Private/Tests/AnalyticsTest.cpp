@@ -7,8 +7,6 @@
 #include "Runtime/Analytics/Analytics/Public/AnalyticsEventAttribute.h"
 #include "UnrealEngine.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
-
 /**
 * Artificial Record Event for analytics - Simulates the engine startup simulation.  
 */
@@ -140,5 +138,3 @@ bool FAnalyticsEventAttributeUnitTest::RunTest(const FString& Parameters)
 	ExecutionInfo.LogItems.Add(TEXT("SKIPPED 'FAnalyticsEventAttributeUnitTest' test.  EngineAnalytics are not currently available."));
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

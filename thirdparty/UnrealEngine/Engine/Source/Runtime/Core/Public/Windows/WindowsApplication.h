@@ -164,9 +164,9 @@ struct FDragDropOLEData
 {
 	enum EWindowsOLEDataType
 	{
-		None = 0,
-		Text = 1<<0,
-		Files = 1<<1,
+		None,
+		Text,
+		Files
 	};
 
 	FDragDropOLEData()
@@ -175,7 +175,7 @@ struct FDragDropOLEData
 
 	FString OperationText;
 	TArray<FString> OperationFilenames;
-	uint8 Type;
+	EWindowsOLEDataType Type;
 };
 
 
@@ -333,6 +333,7 @@ public:
 	virtual void PollGameDeviceState( const float TimeDelta ) override;
 	virtual void PumpMessages( const float TimeDelta ) override;
 	virtual void ProcessDeferredEvents( const float TimeDelta ) override;
+	virtual void Tick( const float TimeDelta ) override;
 	virtual TSharedRef< FGenericWindow > MakeWindow() override;
 	virtual void InitializeWindow( const TSharedRef< FGenericWindow >& Window, const TSharedRef< FGenericWindowDefinition >& InDefinition, const TSharedPtr< FGenericWindow >& InParent, const bool bShowImmediately ) override;
 	virtual void SetCapture( const TSharedPtr< FGenericWindow >& InWindow ) override;
@@ -340,7 +341,6 @@ public:
 	virtual void SetHighPrecisionMouseMode( const bool Enable, const TSharedPtr< FGenericWindow >& InWindow ) override;
 	virtual bool IsUsingHighPrecisionMouseMode() const override { return bUsingHighPrecisionMouseInput; }
 	virtual bool IsMouseAttached() const override { return bIsMouseAttached; }
-	virtual bool IsGamepadAttached() const override;
 	virtual FModifierKeysState GetModifierKeys() const override;
 	virtual bool IsCursorDirectlyOverSlateWindow() const override;
 	virtual FPlatformRect GetWorkArea( const FPlatformRect& CurrentWindow ) const override;
@@ -404,12 +404,6 @@ private:
 	/** Registers the Windows class for windows and assigns the application instance and icon */
 	static bool RegisterClass( const HINSTANCE HInstance, const HICON HIcon );
 
-	/**  @return  True if a windows message is related to user input from the keyboard */
-	static bool IsKeyboardInputMessage( uint32 msg );
-
-	/**  @return  True if a windows message is related to user input from the mouse */
-	static bool IsMouseInputMessage( uint32 msg );
-
 	/**  @return  True if a windows message is related to user input (mouse, keyboard) */
 	static bool IsInputMessage( uint32 msg );
 
@@ -427,9 +421,6 @@ private:
 
 	/** Queries and caches the number of connected mouse devices. */
 	void QueryConnectedMice();
-
-	/** Helper function to update the cached states of all modifier keys */
-	void UpdateAllModifierKeyStates();
 
 private:
 
@@ -458,22 +449,9 @@ private:
 	TArray<TSharedPtr<class IInputDevice>> ExternalInputDevices;
 	bool bHasLoadedInputPlugins;
 
-	struct EModifierKey
-	{
-		enum Type
-		{
-			LeftShift,		// VK_LSHIFT
-			RightShift,		// VK_RSHIFT
-			LeftControl,	// VK_LCONTROL
-			RightControl,	// VK_RCONTROL
-			LeftAlt,		// VK_LMENU
-			RightAlt,		// VK_RMENU
-			CapsLock,		// VK_CAPITAL
-			Count,
-		};
-	};
-	/** Cached state of the modifier keys. True if the modifier key is pressed (or toggled in the case of caps lock), false otherwise */
-	bool ModifierKeyState[EModifierKey::Count];
+	TArray<int32> PressedModifierKeys;
+
+	FModifierKeysState CachedModifierKeyState;
 
 	int32 bAllowedToDeferMessageProcessing;
 	

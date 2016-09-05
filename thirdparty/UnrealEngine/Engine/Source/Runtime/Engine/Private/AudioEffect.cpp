@@ -131,8 +131,9 @@ void FAudioEQEffect::ClampValues( void )
 /** 
  * Interpolate EQ settings based on time
  */
-void FAudioEQEffect::Interpolate(float InterpValue, const FAudioEQEffect& Start, const FAudioEQEffect& End )
+void FAudioEQEffect::Interpolate( float InterpValue, const FAudioEQEffect& Start, const FAudioEQEffect& End )
 {
+	float InvInterpValue = 1.0f - InterpValue;
 	RootTime = FApp::GetCurrentTime();
 
 	FrequencyCenter0 = FMath::Lerp(Start.FrequencyCenter0, End.FrequencyCenter0, InterpValue);
@@ -365,7 +366,7 @@ void FAudioEffectsManager::ClearMixSettings()
 /** 
  * Feed in new settings to the audio effect system
  */
-void FAudioEffectsManager::Update()
+void FAudioEffectsManager::Update( void )
 {
 	// Check for changes to the mix so we can hear EQ changes in real-time
 #if WITH_EDITORONLY_DATA

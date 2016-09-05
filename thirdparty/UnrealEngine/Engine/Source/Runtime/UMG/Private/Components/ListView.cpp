@@ -61,6 +61,11 @@ TSharedRef<ITableRow> UListView::HandleOnGenerateRow(UObject* Item, const TShare
 
 #if WITH_EDITOR
 
+const FSlateBrush* UListView::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.ListView");
+}
+
 const FText UListView::GetPaletteCategory()
 {
 	return LOCTEXT("Misc", "Misc");

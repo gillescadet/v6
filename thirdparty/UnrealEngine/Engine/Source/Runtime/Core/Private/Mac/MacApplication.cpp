@@ -638,23 +638,7 @@ void FMacApplication::ProcessEvent(const FDeferredMacEvent& Event)
 			const bool bHaveText = [[Event.DraggingPasteboard types] containsObject:NSPasteboardTypeString];
 			const bool bHaveFiles = [[Event.DraggingPasteboard types] containsObject:NSFilenamesPboardType];
 
-			if (bHaveFiles && bHaveText)
-			{
-				TArray<FString> FileList;
-
-				NSArray *Files = [Event.DraggingPasteboard propertyListForType:NSFilenamesPboardType];
-				for (int32 Index = 0; Index < [Files count]; Index++)
-				{
-					NSString* FilePath = [Files objectAtIndex: Index];
-					const FString ListElement = FString([FilePath fileSystemRepresentation]);
-					FileList.Add(ListElement);
-				}
-
-				NSString* Text = [Event.DraggingPasteboard stringForType:NSPasteboardTypeString];
-
-				MessageHandler->OnDragEnterExternal(EventWindow.ToSharedRef(), FString(Text), FileList);
-			}
-			else if (bHaveFiles)
+			if (bHaveFiles)
 			{
 				TArray<FString> FileList;
 
@@ -819,9 +803,7 @@ void FMacApplication::ProcessMouseDownEvent(const FDeferredMacEvent& Event, TSha
 	if (EventWindow.IsValid())
 	{
 		const EWindowZone::Type Zone = GetCurrentWindowZone(EventWindow.ToSharedRef());
-		
 		bool const bResizable = !bUsingHighPrecisionMouseInput && EventWindow->IsRegularWindow() && (EventWindow->GetDefinition().SupportsMaximize || EventWindow->GetDefinition().HasSizingFrame);
-		
 		if (Button == LastPressedMouseButton && (Event.ClickCount % 2) == 0)
 		{
 			if (Zone == EWindowZone::TitleBar)
@@ -901,7 +883,7 @@ void FMacApplication::ProcessScrollWheelEvent(const FDeferredMacEvent& Event, TS
 		const FVector2D ScrollDelta(Event.ScrollingDelta.X, Event.ScrollingDelta.Y);
 
 		// This is actually a scroll gesture from trackpad
-		MessageHandler->OnTouchGesture(EGestureEvent::Scroll, ScrollDelta, DeltaY, Event.IsDirectionInvertedFromDevice);
+		MessageHandler->OnTouchGesture(EGestureEvent::Scroll, Event.IsDirectionInvertedFromDevice ? -ScrollDelta : ScrollDelta, DeltaY);
 		RecordUsage(EGestureEvent::Scroll);
 	}
 	else
@@ -931,7 +913,7 @@ void FMacApplication::ProcessGestureEvent(const FDeferredMacEvent& Event)
 	else
 	{
 		const EGestureEvent::Type GestureType = Event.Type == NSEventTypeMagnify ? EGestureEvent::Magnify : (Event.Type == NSEventTypeSwipe ? EGestureEvent::Swipe : EGestureEvent::Rotate);
-		MessageHandler->OnTouchGesture(GestureType, Event.Delta, 0, Event.IsDirectionInvertedFromDevice);
+		MessageHandler->OnTouchGesture(GestureType, Event.Delta, 0);
 		RecordUsage(GestureType);
 	}
 }
@@ -1169,26 +1151,12 @@ void FMacApplication::OnWindowsReordered()
 	SavedWindowsOrder.Empty();
 
 	NSArray* OrderedWindows = [NSApp orderedWindows];
-
-	int32 MinLevel = 0;
-	int32 MaxLevel = 0;
 	for (NSWindow* Window in OrderedWindows)
 	{
-		const int32 WindowLevel = Levels.Contains([Window windowNumber]) ? Levels[[Window windowNumber]] : [Window level];
-		MinLevel = FMath::Min(MinLevel, WindowLevel);
-		MaxLevel = FMath::Max(MaxLevel, WindowLevel);
-	}
-
-	for (int32 Level = MaxLevel; Level >= MinLevel; Level--)
-	{
-		for (NSWindow* Window in OrderedWindows)
+		if ([Window isKindOfClass:[FCocoaWindow class]] && [Window isVisible] && ![Window hidesOnDeactivate])
 		{
-			const int32 WindowLevel = Levels.Contains([Window windowNumber]) ? Levels[[Window windowNumber]] : [Window level];
-			if (Level == WindowLevel && [Window isKindOfClass:[FCocoaWindow class]] && [Window isVisible] && ![Window hidesOnDeactivate])
-			{
-				SavedWindowsOrder.Add(FSavedWindowOrderInfo([Window windowNumber], WindowLevel));
-				[Window setLevel:NSNormalWindowLevel];
-			}
+			SavedWindowsOrder.Add(FSavedWindowOrderInfo([Window windowNumber], Levels.Contains([Window windowNumber]) ? Levels[[Window windowNumber]] : [Window level]));
+			[Window setLevel:NSNormalWindowLevel];
 		}
 	}
 }
@@ -1607,7 +1575,4 @@ void FDisplayMetrics::GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics)
 	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top = ScreenFrame.size.height - (VisibleFrame.origin.y + VisibleFrame.size.height);
 	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Right = VisibleFrame.origin.x + VisibleFrame.size.width;
 	OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Bottom = OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top + VisibleFrame.size.height;
-
-	// Apply the debug safe zones
-	OutDisplayMetrics.ApplyDefaultSafeZones();
 }

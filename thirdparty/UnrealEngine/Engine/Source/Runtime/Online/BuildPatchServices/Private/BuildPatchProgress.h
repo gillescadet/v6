@@ -47,6 +47,9 @@ namespace EBuildPatchProgress
 		// A state to catch the UI when progress is 100% but UI still being displayed
 		Completed,
 
+		// The patch process is in an error state
+		Error,
+
 		// The process has been set paused
 		Paused,
 
@@ -101,6 +104,12 @@ private:
 	// The current progress value for UI polling
 	float CurrentProgress;
 
+	// The error text that was set when in error state
+	FText ErrorText;
+
+	// The error text that was set when in error state
+	FText ShortErrorText;
+
 	// Critical section to protect variable access
 	FCriticalSection ThreadLock;
 
@@ -132,53 +141,48 @@ public:
 
 	/**
 	 * Gets the text for the current progress state
+	 * @param ShortError		The truncated version of the error
 	 * @return The display text for the current progress state
 	 */
-	const FText& GetStateText();
+	const FText& GetStateText( bool ShortError = false );
 
 	/**
 	 * Gets the current overall progress
 	 * @return The current progress value. Range 0 to 1. -1 indicates undetermined, i.e. show a marquee style bar.
 	 */
-	float GetProgress();
-
-	/**
-	 * Gets the current overall progress regardless of current state using marquee
-	 * @return The current progress value. Range 0 to 1.
-	 */
-	float GetProgressNoMarquee();
+	const float GetProgress();
 
 	/**
 	 * Gets the progress value for a particular state
 	 * @param State		The state to get progress for
 	 * @return The state progress value. Range 0 to 1.
 	 */
-	float GetStateProgress( const EBuildPatchProgress::Type& State );
+	const float GetStateProgress( const EBuildPatchProgress::Type& State );
 
 	/**
 	 * Gets the weight value for a particular state
 	 * @param State		The state to get weight for
 	 * @return The state weight value.
 	 */
-	float GetStateWeight( const EBuildPatchProgress::Type& State );
+	const float GetStateWeight( const EBuildPatchProgress::Type& State );
 
 	/**
 	 * Toggles the pause state
 	 * @return Whether the current state is now paused
 	 */
-	bool TogglePauseState();
+	const bool TogglePauseState();
 
 	/**
 	 * Blocks calling thread while the progress is paused
 	 * @return How long we paused for, in seconds
 	 */
-	double WaitWhilePaused();
+	const double WaitWhilePaused();
 
 	/**
 	 * Gets the pause state
 	 * @return Whether the current state is paused
 	 */
-	bool GetPauseState();
+	const bool GetPauseState();
 
 private:
 

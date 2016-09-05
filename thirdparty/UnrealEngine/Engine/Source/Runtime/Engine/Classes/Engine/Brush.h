@@ -197,8 +197,6 @@ public:
 	 */
 	static bool NeedsRebuild(TArray< TWeakObjectPtr< ULevel > >* OutLevels = nullptr)
 	{
-		LevelsToRebuild.RemoveAllSwap([](const TWeakObjectPtr<ULevel>& Level) { return !Level.IsValid(); });
-
 		if (OutLevels)
 		{
 			*OutLevels = LevelsToRebuild;

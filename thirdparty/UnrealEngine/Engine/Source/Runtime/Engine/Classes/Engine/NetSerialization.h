@@ -536,12 +536,8 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 		// See if the array changed at all. If the ArrayReplicationKey matches we can skip checking individual items
 		if (Parms.OldState && (ArraySerializer.ArrayReplicationKey == BaseReplicationKey))
 		{
-			// Double check the old map is valid and the old/new maps are the same size.
-			if (ensureMsgf(OldMap, TEXT("Invalid OldMap")))
-			{
-				ensureMsgf((OldMap->Num() == Items.Num()), TEXT("OldMap size (%d) does not match Items size (%d)"), OldMap->Num(), Items.Num());
-			}
-
+			// Double check the old/new maps are the same size.
+			ensure(OldMap && OldMap->Num() == Items.Num());
 			return false;
 		}
 
@@ -632,8 +628,13 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 			}
 		}
 
-		// Note: we used to early return false here if nothing had changed, but we still need to send
-		// a bunch with the array key / base key, so that clients can look for implicit deletes.
+		// return if nothing changed
+		if ( ChangedElements.Num() == 0 && DeletedElements.Num() == 0)
+		{
+			// Nothing changed
+			UE_LOG(LogNetFastTArray, Log, TEXT("   No Changed Elements in this array - skipping write"));
+			return false;
+		}
 
 		// The array replication key may have changed while adding new elemnts (in the call to MarkItemDirty above)
 		NewState->ArrayReplicationKey = ArraySerializer.ArrayReplicationKey;
@@ -652,7 +653,7 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 		ElemNum = ChangedElements.Num();
 		Writer << ElemNum;
 
-		UE_LOG(LogNetFastTArray, Log, TEXT("   Writing Bunch. NumChange: %d. NumDel: %d [%d/%d]"), ChangedElements.Num(), DeletedElements.Num(), ArrayReplicationKey, BaseReplicationKey );
+		UE_LOG(LogNetFastTArray, Log, TEXT("   Writing Bunch. NumChange: %d. NumDel: %d"), ChangedElements.Num(), DeletedElements.Num() );
 
 		// Serialize deleted items, just by their ID
 		for (auto It = DeletedElements.CreateIterator(); It; ++It)
@@ -749,7 +750,6 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 				{
 					int32 DeleteIndex = *ElementIndexPtr;
 					DeleteIndices.Add(DeleteIndex);
-					UE_LOG(LogNetFastTArray, Log, TEXT("   Adding ElementID: %d for deletion"), ElementID);
 				}
 				else
 				{
@@ -851,14 +851,8 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 			Type& Item = Items[idx];
 			if (Item.MostRecentArrayReplicationKey < ArrayReplicationKey && Item.MostRecentArrayReplicationKey > BaseReplicationKey)
 			{
-				// Make sure this wasn't an explicit delete in this bunch (otherwise we end up deleting an extra element!)
-				if (DeleteIndices.Contains(idx) == false)
-				{
-					// This will happen in normal conditions in network replays.
-					UE_LOG( LogNetFastTArray, Log, TEXT( "Adding implicit delete for ElementID: %d. MostRecentArrayReplicationKey: %d. Current Payload: [%d/%d]"), Item.ReplicationID, Item.MostRecentArrayReplicationKey, ArrayReplicationKey, BaseReplicationKey);
-					
-					DeleteIndices.Add(idx);
-				}
+				UE_LOG( LogNetFastTArray, Warning, TEXT( "Adding implicit delete for ElementID: %d. MostRecentArrayReplicationKey: %d. Current Payload: [%d/%d]"), Item.ReplicationID, Item.MostRecentArrayReplicationKey, ArrayReplicationKey, BaseReplicationKey);
+				DeleteIndices.Add(idx);
 			}
 		}
 
@@ -866,7 +860,6 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 		// Invoke all callbacks: removed -> added -> changed
 		// ---------------------------------------------------------
 
-		int32 PreRemoveSize = Items.Num();
 		for (int32 idx : DeleteIndices)
 		{
 			if (Items.IsValidIndex(idx))
@@ -874,10 +867,6 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 				// Call the delete callbacks now, actually remove them at the end
 				Items[idx].PreReplicatedRemove(ArraySerializer);
 			}
-		}
-		if (PreRemoveSize != Items.Num())
-		{
-			UE_LOG( LogNetFastTArray, Error, TEXT( "Item size changed after PreReplicatedRemove! PremoveSize: %d  Item.Num: %d"), PreRemoveSize, Items.Num() );
 		}
 
 		for (int32 idx : AddedIndices)
@@ -889,11 +878,6 @@ bool FFastArraySerializer::FastArrayDeltaSerialize( TArray<Type> &Items, FNetDel
 		{
 			Items[idx].PostReplicatedChange(ArraySerializer);
 		}	
-
-		if (PreRemoveSize != Items.Num())
-		{
-			UE_LOG( LogNetFastTArray, Error, TEXT( "Item size changed after PostReplicatedAdd/PostReplicatedChange! PremoveSize: %d  Item.Num: %d"), PreRemoveSize, Items.Num() );
-		}
 
 		if (DeleteIndices.Num() > 0)
 		{
@@ -1324,108 +1308,3 @@ struct TStructOpsTypeTraits< FVector_NetQuantizeNormal > : public TStructOpsType
 };
 
 // --------------------------------------------------------------
-
-
-/**
- *	===================== Safe TArray Serialization ===================== 
- *	
- *	These are helper methods intended to make serializing TArrays safer in custom
- *	::NetSerialize functions. These enforce max limits on array size, so that a malformed
- *	packet is not able to allocate an arbitrary amount of memory (E.g., a hacker serilizes
- *	a packet where a TArray size is of size MAX_int32, causing gigs of memory to be allocated for
- *	the TArray).
- *	
- *	These should only need to be used when you are overriding ::NetSerialize on a UStruct via struct traits.
- *	When using default replication, TArray properties already have this built in security.
- *	
- *	SafeNetSerializeTArray_Default - calls << operator to serialize the items in the array.
- *	SafeNetSerializeTArray_WithNetSerialize - calls NetSerialize to serialize the items in the array.
- *	
- *	When saving, bOutSuccess will be set to false if the passed in array size exceeds to MaxNum template parameter.
- *	
- *	Example:
- *	
- *	FMyStruct {
- *		
- *		TArray<float>						MyFloats;		// We want to call << to serialize floats
- *		TArray<FVector_NetQuantizeNormal>	MyVectors;		// We want to call NetSeriailze on these *		
- *		
- *		bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
- *		{
- *			// Don't do this:
- *			Ar << MyFloats;
- *			Ar << MyVectors;
- *			
- *			// Do this instead:
- *			SafeNetSerializeTArray_Default<31>(Ar, MyFloats);
- *			SafeNetSerializeTArray_WithNetSerialize<31>(Ar, MyVectors, Map);
- *		}
- *	}	
- *	
- */
-
-template<int32 MaxNum, typename T>
-int32 SafeNetSerializeTArray_HeaderOnly(FArchive& Ar, TArray<T>& Array, bool& bOutSuccess)
-{
-	const uint32 NumBits = FMath::CeilLogTwo(MaxNum)+1;
-	
-	int32 ArrayNum = 0;
-
-	// Clamp number of elements on saving side
-	if (Ar.IsSaving())
-	{
-		ArrayNum = Array.Num();
-		if (ArrayNum > MaxNum)
-		{
-			// Overflow. This is on the saving side, so the calling code is exceeding the limit and needs to be fixed.
-			bOutSuccess = false;
-			ArrayNum = MaxNum;
-		}		
-	}
-
-	// Serialize num of elements
-	Ar.SerializeBits(&ArrayNum, NumBits);
-
-	// Preallocate new items on loading side
-	if (Ar.IsLoading())
-	{
-		Array.Reset();
-		Array.AddDefaulted(ArrayNum);
-	}
-
-	return ArrayNum;
-}
-
-template<int32 MaxNum, typename T>
-bool SafeNetSerializeTArray_Default(FArchive& Ar, TArray<T>& Array)
-{
-	bool bOutSuccess = true;
-	int32 ArrayNum = SafeNetSerializeTArray_HeaderOnly<MaxNum, T>(Ar, Array, bOutSuccess);
-
-	// Serialize each element in the array with the << operator
-	for (int32 idx=0; idx < ArrayNum && Ar.IsError() == false; ++idx)
-	{
-		Ar << Array[idx];
-	}
-
-	// Return
-	bOutSuccess |= Ar.IsError();
-	return bOutSuccess;
-}
-
-template<int32 MaxNum, typename T >
-bool SafeNetSerializeTArray_WithNetSerialize(FArchive& Ar, TArray<T>& Array, class UPackageMap* PackageMap)
-{
-	bool bOutSuccess = true;
-	int32 ArrayNum = SafeNetSerializeTArray_HeaderOnly<MaxNum, T>(Ar, Array, bOutSuccess);
-
-	// Serialize each element in the array with the << operator
-	for (int32 idx=0; idx < ArrayNum && Ar.IsError() == false; ++idx)
-	{
-		Array[idx].NetSerialize(Ar, PackageMap, bOutSuccess);
-	}
-
-	// Return
-	bOutSuccess |= Ar.IsError();
-	return bOutSuccess;
-}

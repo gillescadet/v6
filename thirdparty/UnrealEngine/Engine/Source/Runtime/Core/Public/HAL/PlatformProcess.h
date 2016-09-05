@@ -15,6 +15,8 @@
 #include "IOS/IOSPlatformProcess.h"
 #elif PLATFORM_ANDROID
 #include "Android/AndroidProcess.h"
+#elif PLATFORM_WINRT
+#include "WinRT/WinRTProcess.h"
 #elif PLATFORM_HTML5
 #include "HTML5/HTML5PlatformProcess.h"
 #elif PLATFORM_LINUX

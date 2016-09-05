@@ -48,7 +48,7 @@ void DrawViewElementsInner(
 }
 
 template<typename DrawingPolicyFactoryType>
-class FDrawViewElementsAnyThreadTask : public FRenderTask
+class FDrawViewElementsAnyThreadTask
 {
 	FRHICommandList& RHICmdList;
 	const FViewInfo& View;
@@ -84,6 +84,11 @@ public:
 	FORCEINLINE TStatId GetStatId() const
 	{
 		RETURN_QUICK_DECLARE_CYCLE_STAT(FDrawViewElementsAnyThreadTask, STATGROUP_TaskGraphTasks);
+	}
+
+	ENamedThreads::Type GetDesiredThread()
+	{
+		return ENamedThreads::AnyThread;
 	}
 
 	static ESubsequentsMode::Type GetSubsequentsMode() { return ESubsequentsMode::TrackSubsequents; }
@@ -297,10 +302,7 @@ inline int32 FViewElementPDI::DrawMesh(const FMeshBatch& Mesh)
 		TIndirectArray<FMeshBatch>& ViewMeshElementList = ( ( DPGIndex == SDPG_Foreground  ) ? ViewInfo->TopViewMeshElements : ViewInfo->ViewMeshElements );
 
 		FMeshBatch* NewMesh = new(ViewMeshElementList) FMeshBatch(Mesh);
-		if( CurrentHitProxy != nullptr )
-		{
-			NewMesh->BatchHitProxyId = CurrentHitProxy->Id;
-		}
+		NewMesh->BatchHitProxyId = CurrentHitProxy ? CurrentHitProxy->Id : FHitProxyId();
 
 		return 1;
 	}

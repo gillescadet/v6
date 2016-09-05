@@ -14,13 +14,10 @@
 #include "Engine/LevelStreamingKismet.h"
 #include "Components/BrushComponent.h"
 #include "Engine/CoreSettings.h"
-#include "PhysicsEngine/BodySetup.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogLevelStreaming, Log, All);
 
 #define LOCTEXT_NAMESPACE "World"
-
-int32 ULevelStreamingKismet::UniqueLevelInstanceId = 0;
 
 FStreamLevelAction::FStreamLevelAction(bool bIsLoading, const FName& InLevelName, bool bIsMakeVisibleAfterLoad, bool bIsShouldBlockOnLoad, const FLatentActionInfo& InLatentInfo, UWorld* World)
 	: bLoading(bIsLoading)
@@ -58,12 +55,7 @@ ULevelStreaming* FStreamLevelAction::FindAndCacheLevelStreamingObject( const FNa
 	// Search for the level object by name.
 	if( LevelName != NAME_None )
 	{
-		FString SearchPackageName = MakeSafeLevelName( LevelName, InWorld );
-		if (FPackageName::IsShortPackageName(SearchPackageName))
-		{
-			// Make sure MyMap1 and Map1 names do not resolve to a same streaming level
-			SearchPackageName = TEXT("/") + SearchPackageName;
-		}
+		const FString SearchPackageName = MakeSafeLevelName( LevelName, InWorld );
 
 		for (ULevelStreaming* LevelStreaming : InWorld->StreamingLevels)
 		{
@@ -332,7 +324,7 @@ void ULevelStreaming::DiscardPendingUnloadLevel(UWorld* PersistentWorld)
 	}
 }
 
-bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoadRequests, EReqLevelBlock BlockPolicy)
+bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoadRequests, bool bBlockOnLoad)
 {
 	// Quit early in case load request already issued
 	if (bHasLoadRequestPending)
@@ -411,7 +403,7 @@ bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoad
 		}
 	}
 
-	EPackageFlags PackageFlags = PKG_ContainsMap;
+	EPackageFlags PackageFlags = PKG_None;
 	int32 PIEInstanceID = INDEX_NONE;
 
 	// copy streaming level on demand if we are in PIE
@@ -428,7 +420,7 @@ bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoad
 		const FString NonPrefixedLevelName = UWorld::StripPIEPrefixFromPackageName(DesiredPackageName.ToString(), PersistentWorld->StreamingLevelsPrefix);
 		UPackage* EditorLevelPackage = FindObjectFast<UPackage>(nullptr, FName(*NonPrefixedLevelName));
 		
-		bool bShouldDuplicate = EditorLevelPackage && (BlockPolicy == AlwaysBlock || EditorLevelPackage->IsDirty() || !GEngine->PreferToStreamLevelsInPIE());
+		bool bShouldDuplicate = EditorLevelPackage && (bBlockOnLoad || EditorLevelPackage->IsDirty() || !GEngine->PreferToStreamLevelsInPIE());
 		if (bShouldDuplicate)
 		{
 			// Do the duplication
@@ -493,7 +485,7 @@ bool ULevelStreaming::RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoad
 
 			// streamingServer: server loads everything?
 			// Editor immediately blocks on load and we also block if background level streaming is disabled.
-			if (BlockPolicy == AlwaysBlock || (ShouldBeAlwaysLoaded() && BlockPolicy != NeverBlock))
+			if (bBlockOnLoad || ShouldBeAlwaysLoaded())
 			{
 				// Finish all async loading.
 				FlushAsyncLoading();
@@ -561,9 +553,6 @@ void ULevelStreaming::AsyncLevelLoadComplete(const FName& InPackageName, UPackag
 		}
 		else
 		{
-			// No world in this package
-			LevelPackage->ClearPackageFlags(PKG_ContainsMap);
-
 			// There could have been a redirector in the package. Attempt to follow it.
 			UObjectRedirector* WorldRedirector = nullptr;
 			UWorld* DestinationWorld = UWorld::FollowWorldRedirectorInPackage(LevelPackage, &WorldRedirector);
@@ -677,8 +666,7 @@ bool ULevelStreaming::IsStreamingStatePending() const
 	UWorld* PersistentWorld = GetWorld();
 	if (PersistentWorld)
 	{
-		if (IsLevelLoaded() == ShouldBeLoaded() && 
-			(IsLevelVisible() == ShouldBeVisible() || !ShouldBeLoaded())) // visibility state does not matter if sub-level set to be unloaded
+		if (IsLevelLoaded() == ShouldBeLoaded() && IsLevelVisible() == ShouldBeVisible())
 		{
 			const FName DesiredPackageName = PersistentWorld->IsGameWorld() ? GetLODPackageName() : GetWorldAssetPackageFName();
 			if (!LoadedLevel || CachedLoadedLevelPackageName == DesiredPackageName)
@@ -995,50 +983,6 @@ ALevelScriptActor* ULevelStreaming::GetLevelScriptActor()
 	}
 	return nullptr;
 }
-
-ULevelStreamingKismet* ULevelStreamingKismet::LoadLevelInstance(UObject* WorldContextObject, const FString& LevelName, const FVector& Location, const FRotator& Rotation, bool& bOutSuccess)
-{ 
-	bOutSuccess = false; 
-	UWorld* const World = GEngine->GetWorldFromContextObject(WorldContextObject, false);
-	if (!World) 
-	{
-		return nullptr;
-	}
-	
-	// Check whether requested map exists, this could be very slow if LevelName is a short package name
-	FString LongPackageName;
-	bOutSuccess = FPackageName::SearchForPackageOnDisk(LevelName, &LongPackageName);
-	if (!bOutSuccess) 
-	{
-		return nullptr;
-	}
-		 
-    // Create Unique Name for sub-level package
-	const FString ShortPackageName = FPackageName::GetShortName(LongPackageName);
-	const FString PackagePath = FPackageName::GetLongPackagePath(LongPackageName);
-	FString UniqueLevelPackageName = PackagePath + TEXT("/") + World->StreamingLevelsPrefix + ShortPackageName;
-	UniqueLevelPackageName += TEXT("_LevelInstance_") + FString::FromInt(++UniqueLevelInstanceId);
-    
-	// Setup streaming level object that will load specified map
-	ULevelStreamingKismet* StreamingLevel = NewObject<ULevelStreamingKismet>(World, ULevelStreamingKismet::StaticClass(), NAME_None, RF_Transient, NULL);
-    StreamingLevel->SetWorldAssetByPackageName(FName(*UniqueLevelPackageName));
-    StreamingLevel->LevelColor = FColor::MakeRandomColor();
-    StreamingLevel->bShouldBeLoaded = true;
-    StreamingLevel->bShouldBeVisible = true;
-    StreamingLevel->bShouldBlockOnLoad = false;
-    StreamingLevel->bInitiallyLoaded = true;
-    StreamingLevel->bInitiallyVisible = true;
-	// Transform
-    StreamingLevel->LevelTransform = FTransform(Rotation, Location);
-	// Map to Load
-    StreamingLevel->PackageNameToLoad = FName(*LongPackageName);
-          
-    // Add the new level to world.
-    World->StreamingLevels.Add(StreamingLevel);
-      
-	bOutSuccess = true;
-    return StreamingLevel;
-}	
 
 /*-----------------------------------------------------------------------------
 	ULevelStreamingAlwaysLoaded implementation.

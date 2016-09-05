@@ -3,8 +3,9 @@
 #pragma once
 #include "NiagaraSimulation.h"
 #include "NiagaraEmitterProperties.h"
-#include "NiagaraEffectRenderer.h"
+#include "Engine/NiagaraEffectRenderer.h"
 #include "List.h"
+#include "Runtime/VectorVM/Public/VectorVMDataObject.h"
 #include "NiagaraEffect.generated.h"
 
 
@@ -48,6 +49,9 @@ public:
 	//End UObject Interface
 private:
 	UPROPERTY()
+	TArray<FDeprecatedNiagaraEmitterProperties>EmitterPropsSerialized_DEPRECATED;
+
+	UPROPERTY()
 	TArray<UNiagaraEmitterProperties*> EmitterProps;
 };
 
@@ -66,6 +70,7 @@ public:
 			Emitters.Add(MakeShareable(Sim));
 		}
 		InitRenderModules(Component->GetWorld()->FeatureLevel);
+		VolumeGrid = NewObject<UNiagaraSparseVolumeDataObject>();
 	}
 
 	explicit FNiagaraEffectInstance(UNiagaraEffect *InAsset)
@@ -73,6 +78,7 @@ public:
 		, Effect(InAsset)
 	{
 		InitEmitters(InAsset);
+		VolumeGrid = NewObject<UNiagaraSparseVolumeDataObject>();
 	}
 
 	NIAGARA_API void InitEmitters(UNiagaraEffect *InAsset);
@@ -119,19 +125,24 @@ public:
 
 	void SetConstant(FNiagaraVariableInfo ID, const float Value)
 	{
-		InstanceConstants.SetOrAdd(ID.Name, Value);
+		Constants.SetOrAdd(ID, Value);
 	}
 
 	void SetConstant(FNiagaraVariableInfo ID, const FVector4& Value)
 	{
-		InstanceConstants.SetOrAdd(ID.Name, Value);
+		Constants.SetOrAdd(ID, Value);
 	}
 
 	void SetConstant(FNiagaraVariableInfo ID, const FMatrix& Value)
 	{
-		InstanceConstants.SetOrAdd(ID.Name, Value);
+		Constants.SetOrAdd(ID, Value);
 	}
-	
+
+	void SetConstant(FName ConstantName, UNiagaraDataObject *Value)
+	{
+		Constants.SetOrAdd(ConstantName, Value);
+	}
+
 	void Tick(float DeltaSeconds);
 
 	NIAGARA_API void RenderModuleupdate();
@@ -159,9 +170,11 @@ private:
 	float Age;
 
 	/** Local constant table. */
-	FNiagaraConstants InstanceConstants;
+	FNiagaraConstantMap Constants;
 	
 	TMap<FNiagaraDataSetID, FNiagaraDataSet> ExternalEvents;
 
 	TArray< TSharedPtr<FNiagaraSimulation> > Emitters;
+
+	UNiagaraSparseVolumeDataObject *VolumeGrid;
 };

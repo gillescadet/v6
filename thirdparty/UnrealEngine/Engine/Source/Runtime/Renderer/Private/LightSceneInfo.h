@@ -4,7 +4,8 @@
 	LightSceneInfo.h: Light scene info definitions.
 =============================================================================*/
 
-#pragma once
+#ifndef __LIGHTSCENEINFO_H__
+#define __LIGHTSCENEINFO_H__
 
 #include "StaticArray.h"
 #include "SceneManagement.h"
@@ -96,9 +97,7 @@ public:
 	FLightSceneProxy* Proxy;
 
 	/** The list of dynamic primitives affected by the light. */
-	FLightPrimitiveInteraction* DynamicInteractionOftenMovingPrimitiveList;
-
-	FLightPrimitiveInteraction* DynamicInteractionStaticPrimitiveList;
+	FLightPrimitiveInteraction* DynamicPrimitiveList;
 
 	/** If bVisible == true, this is the index of the primitive in Scene->Lights. */
 	int32 Id;
@@ -261,16 +260,4 @@ struct FLightOctreeSemantics
 	}
 };
 
-/** Stores lighting information for the clustered forward shading path */
-struct FClusteredLightsSceneInfo
-{
-	FIntPoint TileSize;			// In pixels
-	FIntVector GridSize;		// In tiles (x,y) + slices (z)
-	FVector4 LightGridZParams;
-
-	// Index of the light in this array corresponds to the bit set in the grid.
-	TArray<FLightSceneInfoCompact> ClusteredLights;
-
-	// The light grid.  Size is >= GridSize.
-	FTexture3DRHIRef LightGridTex;
-};
+#endif

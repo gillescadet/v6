@@ -7,7 +7,6 @@ DEFINE_STAT(STAT_MetalMakeDrawableTime);
 DEFINE_STAT(STAT_MetalDrawCallTime);
 DEFINE_STAT(STAT_MetalPrepareDrawTime);
 DEFINE_STAT(STAT_MetalUniformBufferCleanupTime);
-DEFINE_STAT(STAT_MetalTotalUniformBufferMemory);
 DEFINE_STAT(STAT_MetalFreeUniformBufferMemory);
 DEFINE_STAT(STAT_MetalNumFreeUniformBuffers);
 DEFINE_STAT(STAT_MetalPipelineStateTime);
@@ -15,36 +14,6 @@ DEFINE_STAT(STAT_MetalBoundShaderStateTime);
 DEFINE_STAT(STAT_MetalVertexDeclarationTime);
 DEFINE_STAT(STAT_MetalBufferPageOffTime);
 DEFINE_STAT(STAT_MetalTexturePageOffTime);
-DEFINE_STAT(STAT_MetalBufferCount);
-DEFINE_STAT(STAT_MetalTextureCount);
-DEFINE_STAT(STAT_MetalCommandBufferCount);
-DEFINE_STAT(STAT_MetalSamplerStateCount);
-DEFINE_STAT(STAT_MetalDepthStencilStateCount);
-DEFINE_STAT(STAT_MetalRenderPipelineStateCount);
-DEFINE_STAT(STAT_MetalRenderPipelineColorAttachmentDescriptor);
-DEFINE_STAT(STAT_MetalRenderPassDescriptorCount);
-DEFINE_STAT(STAT_MetalRenderPassColorAttachmentDescriptorCount);
-DEFINE_STAT(STAT_MetalRenderPassDepthAttachmentDescriptorCount);
-DEFINE_STAT(STAT_MetalRenderPassStencilAttachmentDescriptorCount);
-DEFINE_STAT(STAT_MetalVertexDescriptorCount);
-DEFINE_STAT(STAT_MetalComputePipelineStateCount);
-DEFINE_STAT(STAT_MetalFunctionCount);
-DEFINE_STAT(STAT_MetalFreePooledBufferCount);
-DEFINE_STAT(STAT_MetalPooledBufferCount);
-
-DEFINE_STAT(STAT_MetalPooledBufferMem);
-DEFINE_STAT(STAT_MetalUsedPooledBufferMem);
-DEFINE_STAT(STAT_MetalFreePooledBufferMem);
-DEFINE_STAT(STAT_MetalWastedPooledBufferMem);
-DEFINE_STAT(STAT_MetalBufferAlloctations);
-DEFINE_STAT(STAT_MetalBufferFreed);
-DEFINE_STAT(STAT_MetalBufferMemAlloc);
-DEFINE_STAT(STAT_MetalBufferMemFreed);
-DEFINE_STAT(STAT_MetalBufferNativeAlloctations);
-DEFINE_STAT(STAT_MetalBufferNativeFreed);
-DEFINE_STAT(STAT_MetalBufferNativeMemAlloc);
-DEFINE_STAT(STAT_MetalBufferNativeMemFreed);
-
 
 #if METAL_STATISTICS
 void FMetalEventNode::GetStats(FMetalPipelineStats& OutStats)
@@ -64,6 +33,9 @@ void FMetalEventNode::GetStats(FMetalPipelineStats& OutStats)
 		OutStats.ClipperPrimitives += DrawStat.ClipperPrimitives;
 		OutStats.FragmentFunctionInvocations += DrawStat.FragmentFunctionInvocations;
 	}
+	
+	OutStats.VertexFunctionCost = NumDraws > 0 ? OutStats.VertexFunctionCost / NumDraws : 0;
+	OutStats.FragmentFunctionCost = NumDraws > 0 ? OutStats.FragmentFunctionCost / NumDraws : 0;
 }
 
 /** Recursively dumps stats for each node with a depth first traversal. */
@@ -84,7 +56,7 @@ static void DumpStatsEventNode(FMetalEventNode* Node, float RootResult, int32 De
 		
 		// Print information about this node, padded to its depth in the tree
 		float DrawCallTime = FPlatformTime::ToMilliseconds(Stats.DrawCallTime);
-		UE_LOG(LogRHI, Warning, TEXT("%s%4.1f%%%5.2fms (%5.2fms)   %s %u draws %u (%u) prims %u (%u) verts %u vert invoke %u vert cost %u clip invoke %u clip prims %u pixel invoke %u pixel cost"),
+		UE_LOG(LogRHI, Warning, TEXT("%s%4.1f%%%5.2fms (%5.2fms)   %s %u draws %u (%u) prims %u (%u) verts %u vert invoke %4.1f%% vert cost %u clip invoke %u clip prims %u pixel invoke %4.1f%% pixel cost"),
 			   *FString(TEXT("")).LeftPad(EffectiveDepth * 3),
 			   Percent,
 			   Node->TimingResult,
@@ -258,9 +230,9 @@ void FMetalGPUProfiler::Cleanup()
 	
 }
 
-void FMetalGPUProfiler::PushEvent(const TCHAR* Name, FColor Color)
+void FMetalGPUProfiler::PushEvent(const TCHAR* Name)
 {
-	FGPUProfiler::PushEvent(Name, Color);
+	FGPUProfiler::PushEvent(Name);
 }
 
 void FMetalGPUProfiler::PopEvent()
@@ -332,7 +304,7 @@ void FMetalGPUProfiler::BeginFrame()
 			}*/
         }
         
-        PushEvent(TEXT("FRAME"), FColor(0, 255, 0, 255));
+        PushEvent(TEXT("FRAME"));
     }
     NumNestedFrames++;
 }
@@ -341,12 +313,8 @@ void FMetalGPUProfiler::EndFrame()
 {
     if(--NumNestedFrames == 0)
     {
-		PopEvent();
-		
-#if PLATFORM_MAC
-        FPlatformMisc::UpdateDriverMonitorStatistics(GetMetalDeviceContext().GetDeviceIndex());
-#endif
-		
+        PopEvent();
+        
         if(CurrentEventNodeFrame)
         {
             CurrentEventNodeFrame->EndFrame();

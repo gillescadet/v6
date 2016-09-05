@@ -19,7 +19,7 @@ void ULandscapeInfoMap::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
 
-	if (Ar.IsTransacting() || Ar.IsObjectReferenceCollector())
+	if (!Ar.IsLoading() && !Ar.IsSaving())
 	{
 		Ar << Map;
 	}

@@ -41,13 +41,6 @@ void SEyeDropperButton::Construct(const FArguments& InArgs)
 	);
 }
 
-void SEyeDropperButton::ResetDropperModeStates()
-{
-	bWasClickActivated = false;
-	bWasLeft = false;
-	bWasReEntered = false;
-}
-
 void SEyeDropperButton::OnPreTick(float InDeltaTime)
 {
 	if (bWasClickActivated)
@@ -79,7 +72,9 @@ FReply SEyeDropperButton::OnMouseButtonDown(const FGeometry& MyGeometry, const F
 	// Clicking ANY mouse button when the dropper isn't active resets the active dropper states ready to activate
 	if ( !HasMouseCapture() )
 	{
-		ResetDropperModeStates();
+		bWasClickActivated = false;
+		bWasLeft = false;
+		bWasReEntered = false;
 	}
 
 	return SButton::OnMouseButtonDown(MyGeometry, MouseEvent);
@@ -103,12 +98,14 @@ FReply SEyeDropperButton::OnMouseButtonUp(const FGeometry& MyGeometry, const FPo
 	// Switching dropper mode off?
 	if ( bDeactivating )
 	{
-		ResetDropperModeStates();
+		// These state flags clear dropper mode
+		bWasClickActivated = false;
+		bWasLeft = false;
+		bWasReEntered = false;
 
 		Reply.ReleaseMouseCapture();
 
-		const bool bCancelled = false;
-		OnComplete.ExecuteIfBound(bCancelled);
+		OnComplete.ExecuteIfBound();
 	}
 	else if ( MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && bWasClicked )
 	{
@@ -153,19 +150,6 @@ FReply SEyeDropperButton::OnMouseMove(const FGeometry& MyGeometry, const FPointe
 	return SButton::OnMouseMove(MyGeometry, MouseEvent);
 }
 
-void SEyeDropperButton::OnMouseCaptureLost()
-{
-	if (bWasClickActivated && bWasLeft && !bWasReEntered)
-	{
-		// We can't just wipe the dropper states when we lose mouse capture, since we will briefly lose mouse capture when the
-		// dropper is selected. We need to ensure that we haven't just clicked the widget before resetting states.
-		ResetDropperModeStates();
-
-		const bool bCancelled = false;
-		OnComplete.ExecuteIfBound(bCancelled);
-	}
-}
-
 FReply SEyeDropperButton::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
 	// Escape key when in dropper mode
@@ -173,15 +157,17 @@ FReply SEyeDropperButton::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent
 		HasMouseCapture() &&
 		bWasClickActivated )
 	{
-		ResetDropperModeStates();
+		// Clear the dropper mode states
+		bWasClickActivated = false;
+		bWasLeft = false;
+		bWasReEntered = false;
 
 		// This is needed to switch the dropper cursor off immediately so the user can see the Esc key worked
 		FSlateApplication::Get().QueryCursor();
 
 		FReply ReleaseReply = FReply::Handled().ReleaseMouseCapture();
 
-		const bool bCancelled = true;
-		OnComplete.ExecuteIfBound(bCancelled);
+		OnComplete.ExecuteIfBound();
 
 		return ReleaseReply;
 	}

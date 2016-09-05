@@ -13,11 +13,9 @@ private:
 	FName BlendableType;
 	// to be able to jump over data
 	uint32 DataSize;
-	// to align the data
-	uint32 PrePadding;
-	 
+
 	// @return pointer to the next object or end (can be compared with container end pointer)
-	uint8* GetDataPtr(){ check(this); return ((uint8*)(this + 1)) + PrePadding; }
+	uint8* GetDataPtr() { check(this); return (uint8*)(this + 1); }
 	// @return next or end of the array
 	FBlendableEntry* GetNext() { return (FBlendableEntry*)(GetDataPtr() + DataSize); }
 
@@ -37,19 +35,15 @@ public:
 
 	// @param InWeight 0..1, excluding 0 as this is used to disable entries
 	// @param InData is copied with a memcpy
+	// @return pointer to the newly added entry
 	template <class T>
 	T* PushBlendableData(float InWeight, const T& InData)
 	{
 		FName BlendableType = T::GetFName();
 
-		// at least 4 byte alignment
-		uint32 Alignment = FMath::Max((uint32)4, (uint32)ALIGNOF(T));
+		FBlendableEntry* Ret = PushBlendableDataPtr(InWeight, BlendableType, (const uint8*)&InData, sizeof(T));
 
-		FBlendableEntry* Entry = PushBlendableDataPtr(InWeight, BlendableType, (const uint8*)&InData, sizeof(T), Alignment);
-
-		T* Ret = (T*)Entry->GetDataPtr();
-
-		return Ret;
+		return (T*)Ret;
 	}
 
 	// used to blend multiple blendables of the given type with lerp into one final one
@@ -102,8 +96,8 @@ public:
 		do
 		{
 			InIterator = GetNextBlendableEntryPtr(InIterator);
-			
-		} while (InIterator && InIterator->BlendableType != BlendableType);		
+
+		} while (InIterator && InIterator->Weight <= 0.0f && InIterator->BlendableType != BlendableType);
 
 		if (InIterator)
 		{
@@ -146,29 +140,21 @@ private:
 	// @param InData is copied
 	// @param InDataSize >0
 	// @return pointer to the newly added entry
-	FBlendableEntry* PushBlendableDataPtr(float InWeight, FName InBlendableType, const uint8* InData, uint32 InDataSize, uint32 Alignment)
+	FBlendableEntry* PushBlendableDataPtr(float InWeight, FName InBlendableType, const uint8* InData, uint32 InDataSize)
 	{
 		check(InWeight > 0.0f && InWeight <= 1.0f);
 		check(InData);
 		check(InDataSize);
 
-		uint32 PrePadding;
-		{
-			uint8* DataStart = Scratch.GetData() + Scratch.Num() + sizeof(FBlendableEntry);
-			PrePadding = static_cast<uint32>(Alignment - reinterpret_cast<ptrdiff_t>(DataStart) % Alignment);
-			PrePadding = (PrePadding == Alignment) ? 0 : PrePadding;	
-		}
+		uint32 OldSize = Scratch.AddUninitialized(sizeof(FBlendableEntry) + InDataSize);
 
-		uint32 OldSize = Scratch.AddUninitialized(sizeof(FBlendableEntry) + InDataSize + PrePadding);
-		
 		FBlendableEntry* Dst = (FBlendableEntry*)&Scratch[OldSize];
 
 		Dst->Weight = InWeight;
 		Dst->BlendableType = InBlendableType;
 		Dst->DataSize = InDataSize;
-		Dst->PrePadding = PrePadding;
 		memcpy(Dst->GetDataPtr(), InData, InDataSize);
 
-		return Dst;
+		return (FBlendableEntry*)Dst->GetDataPtr();
 	}
 };

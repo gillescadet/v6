@@ -5,8 +5,6 @@
 #include "MessageLog.h"
 #include "UObjectToken.h"
 #include "PhysicsEngine/PhysicsConstraintTemplate.h"
-#include "PhysicsEngine/PhysicsConstraintComponent.h"
-#include "PhysicsEngine/ConstraintUtils.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 
 #define LOCTEXT_NAMESPACE "ConstraintComponent"
@@ -71,16 +69,14 @@ UPrimitiveComponent* UPhysicsConstraintComponent::GetComponentInternal(EConstrai
 			{
 				PrimComp = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
 			}
-			// Name specified, see if we can find that component..
+			// Name specified, see if we can find that property..
 			else
 			{
-				for(UActorComponent* Comp : Actor->GetComponents())
+				UObjectPropertyBase* ObjProp = FindField<UObjectPropertyBase>(Actor->GetClass(), ComponentName);
+				if(ObjProp != NULL)
 				{
-					if(Comp->GetFName() == ComponentName)
-					{
-						PrimComp = Cast<UPrimitiveComponent>(Comp);
-						break;
-					}
+					// .. and return the component that is there
+					PrimComp = Cast<UPrimitiveComponent>(ObjProp->GetObjectPropertyValue_InContainer(Actor));
 				}
 			}
 		}	
@@ -132,7 +128,7 @@ FBox UPhysicsConstraintComponent::GetBodyBoxInternal(EConstraintFrame::Type Fram
 			if(BoneIndex != INDEX_NONE && BodyIndex != INDEX_NONE)
 			{	
 				const FTransform BoneTransform = SkelComp->GetBoneTransform(BoneIndex);
-				ResultBox = PhysicsAsset->SkeletalBodySetups[BodyIndex]->AggGeom.CalcAABB(BoneTransform);
+				ResultBox = PhysicsAsset->BodySetup[BodyIndex]->AggGeom.CalcAABB(BoneTransform);
 			}
 		}
 	}
@@ -187,12 +183,6 @@ FBodyInstance* UPhysicsConstraintComponent::GetBodyInstance(EConstraintFrame::Ty
 }
 
 
-/** Wrapper that calls our constraint broken delegate */
-void UPhysicsConstraintComponent::OnConstraintBrokenWrapper(int32 ConstraintIndex)
-{
-	OnConstraintBroken.Broadcast(ConstraintIndex);
-}
-
 void UPhysicsConstraintComponent::InitComponentConstraint()
 {
 	// First we convert world space position of constraint into local space frames
@@ -201,8 +191,7 @@ void UPhysicsConstraintComponent::InitComponentConstraint()
 	// Then we init the constraint
 	FBodyInstance* Body1 = GetBodyInstance(EConstraintFrame::Frame1);
 	FBodyInstance* Body2 = GetBodyInstance(EConstraintFrame::Frame2);
-
-	ConstraintInstance.InitConstraint(Body1, Body2, GetConstraintScale(), this, FOnConstraintBroken::CreateUObject(this, &UPhysicsConstraintComponent::OnConstraintBrokenWrapper));
+	ConstraintInstance.InitConstraint(this, Body1, Body2, 1.0f);
 }
 
 void UPhysicsConstraintComponent::TermComponentConstraint()
@@ -213,11 +202,6 @@ void UPhysicsConstraintComponent::TermComponentConstraint()
 void UPhysicsConstraintComponent::OnConstraintBrokenHandler(FConstraintInstance* BrokenConstraint)
 {
 	OnConstraintBroken.Broadcast(BrokenConstraint->ConstraintIndex);
-}
-
-float UPhysicsConstraintComponent::GetConstraintScale() const
-{
-	return GetComponentScale().GetAbsMin();
 }
 
 void UPhysicsConstraintComponent::SetConstrainedComponents(UPrimitiveComponent* Component1, FName BoneName1, UPrimitiveComponent* Component2, FName BoneName2)
@@ -324,15 +308,12 @@ void UPhysicsConstraintComponent::PostLoad()
 		{
 			float AverageMass = TotalMass / NumDynamic;
 
-#if WITH_EDITORONLY_DATA
-			ConstraintInstance.ProfileInstance.LinearLimit.Stiffness /= AverageMass;
-			ConstraintInstance.SwingLimitStiffness_DEPRECATED /= AverageMass;
-			ConstraintInstance.TwistLimitStiffness_DEPRECATED /= AverageMass;
-			ConstraintInstance.LinearLimitDamping_DEPRECATED /= AverageMass;
-			ConstraintInstance.SwingLimitDamping_DEPRECATED /= AverageMass;
-			ConstraintInstance.TwistLimitDamping_DEPRECATED /= AverageMass;
-			
-#endif
+			ConstraintInstance.LinearLimitStiffness /= AverageMass;
+			ConstraintInstance.SwingLimitStiffness /= AverageMass;
+			ConstraintInstance.TwistLimitStiffness /= AverageMass;
+			ConstraintInstance.LinearLimitDamping /= AverageMass;
+			ConstraintInstance.SwingLimitDamping /= AverageMass;
+			ConstraintInstance.TwistLimitDamping /= AverageMass;
 		}
 
 	}
@@ -404,10 +385,9 @@ void UPhysicsConstraintComponent::CheckForErrors()
 void UPhysicsConstraintComponent::UpdateConstraintFrames()
 {
 	FTransform A1Transform = GetBodyTransform(EConstraintFrame::Frame1);
-	A1Transform.RemoveScaling();
-
+	A1Transform.SetScale3D(FVector(1.f));
 	FTransform A2Transform = GetBodyTransform(EConstraintFrame::Frame2);
-	A2Transform.RemoveScaling();
+	A2Transform.SetScale3D(FVector(1.f));
 
 	// World ref frame
 	const FVector WPos = GetComponentLocation();
@@ -420,28 +400,11 @@ void UPhysicsConstraintComponent::UpdateConstraintFrames()
 
 	const FVector RotatedX = ConstraintInstance.AngularRotationOffset.RotateVector(FVector(1,0,0));
 	const FVector RotatedY = ConstraintInstance.AngularRotationOffset.RotateVector(FVector(0,1,0));
-	const FVector WPri2 = ComponentToWorld.TransformVectorNoScale(RotatedX);
-	const FVector WOrth2 = ComponentToWorld.TransformVectorNoScale(RotatedY);
-	
-	
+	const FVector WPri2 = ComponentToWorld.TransformVector(RotatedX);
+	const FVector WOrth2 = ComponentToWorld.TransformVector(RotatedY);
 	ConstraintInstance.Pos2 = A2Transform.InverseTransformPosition(WPos);
 	ConstraintInstance.PriAxis2 = A2Transform.InverseTransformVectorNoScale(WPri2);
 	ConstraintInstance.SecAxis2 = A2Transform.InverseTransformVectorNoScale(WOrth2);
-
-	//Constraint instance is given our reference frame scale and uses it to scale position.
-	//Note that the scale passed in is also used for limits, so we first undo the position scale so that it's consistent.
-
-	//Note that in the case where there is no body instance, the position is given in world space and there is no scaling.
-	const float RefScale = FMath::Max(GetConstraintScale(), 0.01f);
-	if(GetBodyInstance(EConstraintFrame::Frame1))
-	{
-		ConstraintInstance.Pos1 /= RefScale;
-	}
-
-	if (GetBodyInstance(EConstraintFrame::Frame2))
-	{
-		ConstraintInstance.Pos2 /= RefScale;
-	}
 }
 
 void UPhysicsConstraintComponent::SetConstraintReferenceFrame(EConstraintFrame::Type Frame, const FTransform& RefFrame)
@@ -475,11 +438,11 @@ void UPhysicsConstraintComponent::UpdateSpriteTexture()
 {
 	if (SpriteComponent)
 	{
-		if (ConstraintUtils::IsHinge(ConstraintInstance))
+		if (ConstraintInstance.IsHinge())
 		{
 			SpriteComponent->SetSprite(LoadObject<UTexture2D>(NULL, TEXT("/Engine/EditorResources/S_KHinge.S_KHinge")));
 		}
-		else if (ConstraintUtils::IsPrismatic(ConstraintInstance))
+		else if (ConstraintInstance.IsPrismatic())
 		{
 			SpriteComponent->SetSprite(LoadObject<UTexture2D>(NULL, TEXT("/Engine/EditorResources/S_KPrismatic.S_KPrismatic")));
 		}

@@ -87,7 +87,7 @@ void FALSoundSource::Update( void )
 
 	float Volume = 1.0f;
 
-	if (AudioDevice->IsAudioDeviceMuted())
+	if (AudioDevice->bIsDeviceMuted)
 	{
 		Volume = 0.0f;
 	}
@@ -100,7 +100,7 @@ void FALSoundSource::Update( void )
 			Volume *= 1.25f;
 		}
 		Volume *= FApp::GetVolumeMultiplier();
-		Volume *= AudioDevice->GetPlatformAudioHeadroom();
+		Volume *= AudioDevice->PlatformAudioHeadroom;
 		Volume = FMath::Clamp(Volume, 0.0f, MAX_VOLUME);
 	}
 

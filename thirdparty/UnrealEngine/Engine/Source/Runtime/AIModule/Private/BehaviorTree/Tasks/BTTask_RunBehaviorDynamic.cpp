@@ -33,14 +33,9 @@ void UBTTask_RunBehaviorDynamic::DescribeRuntimeValues(const UBehaviorTreeCompon
 	Values.Add(FString::Printf(TEXT("subtree: %s"), *GetNameSafe(BehaviorAsset)));
 }
 
-bool UBTTask_RunBehaviorDynamic::SetBehaviorAsset(UBehaviorTree* NewBehaviorAsset)
+void UBTTask_RunBehaviorDynamic::SetBehaviorAsset(UBehaviorTree* NewBehaviorAsset)
 {
-	if (BehaviorAsset != NewBehaviorAsset)
-	{
-		BehaviorAsset = NewBehaviorAsset;
-		return true;
-	}
-	return false;
+	BehaviorAsset = NewBehaviorAsset;
 }
 
 #if WITH_EDITOR

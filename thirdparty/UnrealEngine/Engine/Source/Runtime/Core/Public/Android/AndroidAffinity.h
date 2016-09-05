@@ -13,17 +13,33 @@ class FAndroidAffinity : public FGenericPlatformAffinity
 public:
 	static const CORE_API uint64 GetMainGameMask()
 	{
-		return GameThreadMask;
+		return MAKEAFFINITYMASK1(0);
 	}
 
 	static const CORE_API uint64 GetRenderingThreadMask()
 	{
-		return RenderingThreadMask;
+		return MAKEAFFINITYMASK1(1);
 	}
 
-public:
-	static int64 GameThreadMask;
-	static int64 RenderingThreadMask;
+	static const CORE_API uint64 GetRTHeartBeatMask()
+	{
+		return MAKEAFFINITYMASK1(4);
+	}
+
+	static const CORE_API uint64 GetPoolThreadMask()
+	{
+		return MAKEAFFINITYMASK1(4);
+	}
+
+	static const CORE_API uint64 GetTaskGraphThreadMask()
+	{
+		return MAKEAFFINITYMASK3(0, 2, 3);
+	}
+
+	static const CORE_API uint64 GetStatsThreadMask()
+	{
+		return MAKEAFFINITYMASK1(5);
+	}
 };
 
 typedef FAndroidAffinity FPlatformAffinity;

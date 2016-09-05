@@ -23,8 +23,11 @@ class ENGINE_API UAnimSingleNodeInstance : public UAnimInstance
 	PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 	/** Current Asset being played **/
-	UPROPERTY(Transient)
+	DEPRECATED(4.11, "Please use FAnimSingleNodeInstanceProxy::CurrentAsset")
 	class UAnimationAsset* CurrentAsset;
+
+	DEPRECATED(4.11, "Please use FAnimSingleNodeInstanceProxy::CurrentVertexAnim")
+	class UVertexAnimation* CurrentVertexAnim;
 
 	/** Random cached values to play each asset **/
 	DEPRECATED(4.11, "Please use FAnimSingleNodeInstanceProxy::BlendSpaceInput")
@@ -80,8 +83,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Animation")
 	void SetPosition(float InPosition, bool bFireNotifies=true);
 	UFUNCTION(BlueprintCallable, Category="Animation")
-	void SetPositionWithPreviousTime(float InPosition, float InPreviousTime, bool bFireNotifies=true);
-	UFUNCTION(BlueprintCallable, Category="Animation")
 	void SetBlendSpaceInput(const FVector& InBlendInput);
 	UFUNCTION(BlueprintCallable, Category="Animation")
 	void SetPlaying(bool bIsPlaying);
@@ -95,9 +96,10 @@ public:
 	/** Set New Asset - calls InitializeAnimation, for now we need MeshComponent **/
 	UFUNCTION(BlueprintCallable, Category="Animation")
 	virtual void SetAnimationAsset(UAnimationAsset* NewAsset, bool bIsLooping=true, float InPlayRate=1.f);
-	/** Set pose value */
- 	UFUNCTION(BlueprintCallable, Category = "Animation")
- 	void SetPreviewCurveOverride(const FName& PoseName, float Value, bool bRemoveIfZero);
+	/** Set new vertex animation */
+	UFUNCTION(BlueprintCallable, Category="Animation")
+	void SetVertexAnimation(UVertexAnimation* NewVertexAnim, bool bIsLooping=true, float InPlayRate=1.f);
+
 public:
 	/** AnimSequence specific **/
 	void StepForward();
@@ -130,6 +132,9 @@ public:
 
 	/** Get the currently playing asset. Can return NULL */
 	UAnimationAsset* GetCurrentAsset();
+
+	/** Get the currently playing vertex animation. Can return NULL */
+	UVertexAnimation* GetCurrentVertexAnimation();
 
 	/** Get the last filter output */
 	FVector GetFilterLastOutput();

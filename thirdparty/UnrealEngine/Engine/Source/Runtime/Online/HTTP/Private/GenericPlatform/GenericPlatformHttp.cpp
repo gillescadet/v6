@@ -29,7 +29,6 @@ public:
 	virtual void SetContent(const TArray<uint8>& ContentPayload) override {}
 	virtual void SetContentAsString(const FString& ContentString) override {}
 	virtual void SetHeader(const FString& HeaderName, const FString& HeaderValue) override {}
-	virtual void AppendToHeader(const FString& HeaderName, const FString& AdditionalHeaderValue) override {};
 	virtual bool ProcessRequest() override { return false; }
 	virtual FHttpRequestCompleteDelegate& OnProcessRequestComplete() override { static FHttpRequestCompleteDelegate RequestCompleteDelegate; return RequestCompleteDelegate; }
 	virtual FHttpRequestProgressDelegate& OnRequestProgress() override { static FHttpRequestProgressDelegate RequestProgressDelegate; return RequestProgressDelegate; }
@@ -167,6 +166,7 @@ FString FGenericPlatformHttp::UrlDecode(const FString &EncodedString)
 		}
 	}
 
-	Data.Add('\0');
-	return FString(UTF8_TO_TCHAR(Data.GetData()));
+	Data.Add(0);
+	FUTF8ToTCHAR DecodeConvert(Data.GetData());
+	return DecodeConvert.Get();
 }

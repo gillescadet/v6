@@ -17,11 +17,10 @@ namespace NiagaraConstants
 		NumBuiltinConstants
 	} ConstantDef;
 
-	FName GConstantNames[] = {
-		"Undefined",
+	FName ConstantNames[] = {
 		"Delta Time",
-		"Emitter Position",
-		"Emitter Age",
+		"Emitter position",
+		"Emitter age",
 		"Emitter X Axis",
 		"Emitter Y Axis",
 		"Emitter Z Axis",
@@ -29,6 +28,3 @@ namespace NiagaraConstants
 	};
 };
 
-#define BUILTIN_CONST_DELTATIME  NiagaraConstants::GConstantNames[NiagaraConstants::DeltaSeconds]
-#define BUILTIN_CONST_EMITTERPOS  NiagaraConstants::GConstantNames[NiagaraConstants::EmitterPosition]
-#define BUILTIN_CONST_EMITTERAGE  NiagaraConstants::GConstantNames[NiagaraConstants::EmitterAge]

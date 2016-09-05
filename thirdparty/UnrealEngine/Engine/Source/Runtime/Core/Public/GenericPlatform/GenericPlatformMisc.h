@@ -15,7 +15,6 @@ class FString;
 class FText;
 class GenericApplication;
 class IPlatformChunkInstall;
-class IPlatformCompression;
 class UWorld;
 
 
@@ -278,7 +277,7 @@ struct CORE_API FGenericPlatformMisc
 	 */
 	static FString GetUniqueDeviceId();
 
-	// #CrashReport: 2015-02-24 Remove
+	// @TODO yrx 2015-02-24 Remove
 	/** Submits a crash report to a central server (release builds only) */
 	static void SubmitErrorReport( const TCHAR* InErrorHist, EErrorReportMode::Type InMode );
 
@@ -308,22 +307,6 @@ struct CORE_API FGenericPlatformMisc
 	*/
 	static FString GetCPUVendor();
 
-	/**
-	 * On x86(-64) platforms, uses cpuid instruction to get the CPU signature
-	 *
-	 * @return	CPU info bitfield
-	 *
-	 *			Bits 0-3	Stepping ID
-	 *			Bits 4-7	Model
-	 *			Bits 8-11	Family
-	 *			Bits 12-13	Processor type (Intel) / Reserved (AMD)
-	 *			Bits 14-15	Reserved
-	 *			Bits 16-19	Extended model
-	 *			Bits 20-27	Extended family
-	 *			Bits 28-31	Reserved
-	 */
-	static uint32 GetCPUInfo();
-
 	/** 
 	 * Uses cpuid instruction to get the CPU brand string
 	 *
@@ -336,7 +319,10 @@ struct CORE_API FGenericPlatformMisc
 	 */
 	static FString GetPrimaryGPUBrand();
 
-	static struct FGPUDriverInfo GetGPUDriverInfo(const FString& DeviceDescription);
+	// @param InternalDriverVersion e.g. "15.200.1062.1004"(AMD) "9.18.13.4788" (NVIDIA) for comparison
+	// @param UserDriverVersion e.g. "15.7.1"(Catalyst AMD) "9.18.13.4788" (NVIDIA) for user feedback
+	// @param DriverDate e.g. 3-13-2015
+	static void GetGPUDriverInfo(const FString DeviceDescription, FString& InternalDriverVersion, FString& UserDriverVersion, FString& DriverDate);
 
 	/**
 	 * Gets the OS Version and OS Subversion.
@@ -478,11 +464,6 @@ public:
 	/** Prints string to the default output */
 	static void LocalPrint( const TCHAR* Str );
 
-	/** 
-	 * Whether the platform has a separate debug channel to stdout (eg. OutputDebugString on Windows). Used to suppress messages being output twice 
-	 * if both go to the same place.
-	 */
-	static bool HasSeparateChannelForDebugOutput();
 
 	/** Request application to minimize (goto background). **/
 	static void RequestMinimize();
@@ -494,15 +475,6 @@ public:
 	 *                  If false, request clean main-loop exit from the platform specific code.
 	 */
 	static void RequestExit( bool Force );
-
-	/**
-	 * Requests application exit with a specified return code. Name is different from RequestExit() so overloads of just one of functions are possible.
-	 *
-	 * @param	Force 	   If true, perform immediate exit (dangerous because config code isn't flushed, etc).
-	 *                     If false, request clean main-loop exit from the platform specific code.
-	 * @param   ReturnCode This value will be returned from the program (on the platforms where it's possible). Limited to 0-255 to conform with POSIX.
-	 */
-	static void RequestExitWithStatus( bool Force, uint8 ReturnCode );
 
 	/**
 	 * Returns the last system error code in string form.  NOTE: Only one return value is valid at a time!
@@ -610,28 +582,6 @@ public:
 	}
 
 	/**
-	* Checks if platform wants to allow an audio thread on current device (note: does not imply it will, only if okay given other criteria met)
-	*
-	* @return true if allowed, false if shouldn't use a separate audio thread
-	*/
-	static bool AllowAudioThread()
-	{
-		// allow if not overridden
-		return true;
-	}
-
-	/**
-	 * Checks if platform wants to allow the thread heartbeat hang detection
-	 *
-	 * @return true if allows, false if shouldn't allow thread heartbeat hang detection
-	 */
-	static bool AllowThreadHeartBeat()
-	{
-		// allow if not overridden
-		return true;
-	}
-
-	/**
 	 * return the number of hardware CPU cores
 	 */
 	static int32 NumberOfCores()
@@ -648,11 +598,6 @@ public:
 	 * Return the number of worker threads we should spawn, based on number of cores
 	 */
 	static int32 NumberOfWorkerThreadsToSpawn();
-
-	/**
-	* Return the number of worker threads we should spawn to service IO, NOT based on number of cores
-	*/
-	static int32 NumberOfIOWorkerThreadsToSpawn();
 
 	/**
 	 * Return the platform specific async IO system, or nullptr if the standard one should be used.
@@ -714,8 +659,6 @@ public:
 
 	static const TCHAR* GetUBTPlatform();
 
-	static const TCHAR* GetUBTTarget();
-
 	/** 
 	 * Determines the shader format for the plarform
 	 *
@@ -729,13 +672,6 @@ public:
 	 * @return	Returns the platform specific chunk based install implementation
 	 */
 	static IPlatformChunkInstall* GetPlatformChunkInstall();
-
-	/**
-	 * Returns the platform specific compression interface
-	 *
-	 * @return Returns the platform specific compression interface
-	 */
-	static IPlatformCompression* GetPlatformCompression();
 
 	/**
 	 * Has the OS execute a command and path pair (such as launch a browser)
@@ -997,5 +933,3 @@ protected:
 	static bool bPromptForRemoteDebugOnEnsure;
 #endif	//#if !UE_BUILD_SHIPPING
 };
-
-

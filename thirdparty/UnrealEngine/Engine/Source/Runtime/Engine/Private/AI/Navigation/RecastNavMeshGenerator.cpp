@@ -12,7 +12,6 @@
 #include "PImplRecastNavMesh.h"
 #include "SurfaceIterators.h"
 #include "AI/Navigation/NavMeshBoundsVolume.h"
-#include "AI/NavigationOctree.h"
 
 // recast includes
 #include "Recast.h"
@@ -25,7 +24,7 @@
 #include "RecastHelpers.h"
 #include "NavigationSystemHelpers.h"
 #include "VisualLogger/VisualLogger.h"
-#include "PhysicsEngine/BodySetup.h"
+#include "NavMeshRenderingHelpers.h"
 
 #define SEAMLESS_REBUILDING_ENABLED 1
 
@@ -506,16 +505,13 @@ void ExportPxHeightField(PxHeightField const * const HeightField, const FTransfo
 			const PxHeightFieldSample& Sample = HFSamples[SampleIdx];
 			const bool HoleQuad = (Sample.materialIndex0 == PxHeightFieldMaterial::eHOLE);
 
-			if (!HoleQuad)
-			{
-				IndexBuffer.Add(VertOffset + I00);
-				IndexBuffer.Add(VertOffset + I11);
-				IndexBuffer.Add(VertOffset + I10);
+			IndexBuffer.Add(VertOffset + I00);
+			IndexBuffer.Add(VertOffset + (HoleQuad ? I00 : I11));
+			IndexBuffer.Add(VertOffset + (HoleQuad ? I00 : I10));
 
-				IndexBuffer.Add(VertOffset + I00);
-				IndexBuffer.Add(VertOffset + I01);
-				IndexBuffer.Add(VertOffset + I11);
-			}
+			IndexBuffer.Add(VertOffset + I00);
+			IndexBuffer.Add(VertOffset + (HoleQuad ? I00 : I01));
+			IndexBuffer.Add(VertOffset + (HoleQuad ? I00 : I11));
 		}
 	}
 }
@@ -2148,16 +2144,14 @@ void FRecastTileGenerator::AppendGeometry(const TNavStatArray<uint8>& RawCollisi
 	
 	const int32 NumCoords = CollisionCache.Header.NumVerts * 3;
 	const int32 NumIndices = CollisionCache.Header.NumFaces * 3;
-	if (NumIndices > 0)
-	{
-		GeometryElement.GeomCoords.SetNumUninitialized(NumCoords);
-		GeometryElement.GeomIndices.SetNumUninitialized(NumIndices);
+	
+	GeometryElement.GeomCoords.SetNumUninitialized(NumCoords);
+	GeometryElement.GeomIndices.SetNumUninitialized(NumIndices);
 
-		FMemory::Memcpy(GeometryElement.GeomCoords.GetData(), CollisionCache.Verts, sizeof(float) * NumCoords);
-		FMemory::Memcpy(GeometryElement.GeomIndices.GetData(), CollisionCache.Indices, sizeof(int32) * NumIndices);
+	FMemory::Memcpy(GeometryElement.GeomCoords.GetData(), CollisionCache.Verts, sizeof(float) * NumCoords);
+	FMemory::Memcpy(GeometryElement.GeomIndices.GetData(), CollisionCache.Indices, sizeof(int32) * NumIndices);
 
-		RawGeometry.Add(MoveTemp(GeometryElement));
-	}	
+	RawGeometry.Add(MoveTemp(GeometryElement));
 }
 
 bool FRecastTileGenerator::GenerateTile()
@@ -2367,6 +2361,12 @@ bool FRecastTileGenerator::GenerateCompressedLayers(FNavMeshBuildContext& BuildC
 		}
 	}
 
+	// remove all low area marking at this point
+	if (TileConfig.bMarkLowHeightAreas)
+	{
+		rcReplaceBoxArea(&BuildContext, TileConfig.bmin, TileConfig.bmax, RECAST_NULL_AREA, RECAST_LOW_AREA, *RasterContext.CompactHF);
+	}
+
 	// Build layers
 	{
 		RECAST_STAT(STAT_Navigation_Async_Recast_Layers);
@@ -2561,12 +2561,6 @@ bool FRecastTileGenerator::GenerateNavigationData(FNavMeshBuildContext& BuildCon
 
 		// Rasterize obstacles.
 		MarkDynamicAreas(*GenerationContext.Layer);
-
-		// remove all low area marking at this point
-		if (TileConfig.bMarkLowHeightAreas)
-		{
-			dtReplaceArea(*GenerationContext.Layer, RECAST_NULL_AREA, RECAST_LOW_AREA);
-		}
 
 		{
 			RECAST_STAT(STAT_Navigation_Async_Recast_BuildRegions)
@@ -2819,15 +2813,13 @@ void FRecastTileGenerator::MarkDynamicArea(const FAreaNavModifier& Modifier, con
 		return;
 	}
 
-	// Expand by 1 cell height up and down to cover for voxel grid inaccuracy
-	const float OffsetZMax = TileConfig.ch;
-	const float OffsetZMin = -TileConfig.ch - (Modifier.ShouldIncludeAgentHeight() ? TileConfig.AgentHeight : 0.0f);
-
 	// Check whether modifier affects this layer
 	const FBox LayerUnrealBounds = Recast2UnrealBox(Layer.header->bmin, Layer.header->bmax);
 	FBox ModifierBounds = Modifier.GetBounds().TransformBy(LocalToWorld);
-	ModifierBounds.Max.Z += OffsetZMax;
-	ModifierBounds.Min.Z += OffsetZMin;
+	if (Modifier.ShouldIncludeAgentHeight())
+	{
+		ModifierBounds.Min.Z -= TileConfig.AgentHeight;
+	}
 
 	if (!LayerUnrealBounds.Intersect(ModifierBounds))
 	{
@@ -2836,6 +2828,7 @@ void FRecastTileGenerator::MarkDynamicArea(const FAreaNavModifier& Modifier, con
 
 	const float ExpandBy = TileConfig.AgentRadius;
 	const float* LayerRecastOrig = Layer.header->bmin;
+	const float OffsetZ = TileConfig.ch + (Modifier.ShouldIncludeAgentHeight() ? TileConfig.AgentHeight : 0.0f);
 
 	switch (Modifier.GetShapeType())
 	{
@@ -2850,9 +2843,8 @@ void FRecastTileGenerator::MarkDynamicArea(const FAreaNavModifier& Modifier, con
 			CylinderData.Radius *= FMath::Max(Scale3D.X, Scale3D.Y);
 			CylinderData.Origin = LocalToWorld.TransformPosition(CylinderData.Origin);
 			
-			const float OffsetZMid = (OffsetZMin + OffsetZMax) * 0.5f;
-			CylinderData.Origin.Z += OffsetZMid;
-			CylinderData.Height += FMath::Abs(OffsetZMid) * 2.f;
+			CylinderData.Origin.Z -= OffsetZ;
+			CylinderData.Height += OffsetZ*2.f;
 			CylinderData.Radius += ExpandBy;
 			
 			FVector RecastPos = Unreal2RecastPoint(CylinderData.Origin);
@@ -2876,10 +2868,8 @@ void FRecastTileGenerator::MarkDynamicArea(const FAreaNavModifier& Modifier, con
 			Modifier.GetBox(BoxData);
 
 			FBox WorldBox = FBox::BuildAABB(BoxData.Origin, BoxData.Extent).TransformBy(LocalToWorld);
-			WorldBox = WorldBox.ExpandBy(FVector(ExpandBy, ExpandBy, 0));
-			WorldBox.Min.Z += OffsetZMin;
-			WorldBox.Max.Z += OffsetZMax;
-
+			WorldBox = WorldBox.ExpandBy(FVector(ExpandBy, ExpandBy, OffsetZ));
+			
 			FBox RacastBox = Unreal2RecastBox(WorldBox);
 			FVector RecastPos;
 			FVector RecastExtent;
@@ -2907,8 +2897,8 @@ void FRecastTileGenerator::MarkDynamicArea(const FAreaNavModifier& Modifier, con
 
 			TArray<FVector> ConvexVerts;
 			GrowConvexHull(ExpandBy, ConvexData.Points, ConvexVerts);
-			ConvexData.MinZ += OffsetZMin;
-			ConvexData.MaxZ += OffsetZMax;
+			ConvexData.MinZ -= OffsetZ;
+			ConvexData.MaxZ += TileConfig.ch;
 
 			if (ConvexVerts.Num())
 			{
@@ -3082,6 +3072,7 @@ FRecastNavMeshGenerator::FRecastNavMeshGenerator(ARecastNavMesh& InDestNavMesh)
 	{
 		// recreate navmesh from scratch if no data was loaded
 		ConstructTiledNavMesh();
+		InDestNavMesh.MarkAsNeedingUpdate();
 	}
 	else
 	{
@@ -3700,13 +3691,6 @@ TArray<uint32> FRecastNavMeshGenerator::AddGeneratedTiles(FRecastTileGenerator& 
 					QUICK_SCOPE_CYCLE_COUNTER(STAT_NavMesh_AddTileToDetourMesh);
 					// let navmesh know it's tile generator who owns the data
 					status = DetourMesh->addTile(TileLayers[i].GetData(), TileLayers[i].DataSize, DT_TILE_FREE_DATA, OldTileRef, &ResultTileRef);
-
-					// if tile index was already taken by other layer try adding it on first free entry (salt was already updated by whatever took that spot)
-					if (dtStatusFailed(status) && dtStatusDetail(status, DT_OUT_OF_MEMORY) && OldTileRef)
-					{
-						OldTileRef = 0;
-						status = DetourMesh->addTile(TileLayers[i].GetData(), TileLayers[i].DataSize, DT_TILE_FREE_DATA, OldTileRef, &ResultTileRef);
-					}
 				}
 
 				if (dtStatusFailed(status))
@@ -4255,21 +4239,7 @@ void FRecastNavMeshGenerator::GrabDebugSnapshot(struct FVisualLogEntry* Snapshot
 				if (bExportGeometry && Element.Data->CollisionData.Num())
 				{
 					FRecastGeometryCache CachedGeometry(Element.Data->CollisionData.GetData());
-					
-					const uint32 NumVerts = CachedGeometry.Header.NumVerts;
-					CoordBuffer.Reset(NumVerts);
-					for (uint32 VertIdx = 0; VertIdx < NumVerts * 3; VertIdx += 3)
-					{
-						CoordBuffer.Add(Recast2UnrealPoint(&CachedGeometry.Verts[VertIdx]));
-					}
-
-					const uint32 NumIndices = CachedGeometry.Header.NumFaces * 3;
-					Indices.SetNum(NumIndices, false);
-					for (uint32 IndicesIdx = 0; IndicesIdx < NumIndices; ++IndicesIdx)
-					{
-						Indices[IndicesIdx] = CachedGeometry.Indices[IndicesIdx];
-					}
-
+					AppendGeometry(CoordBuffer, Indices, CachedGeometry.Verts, CachedGeometry.Header.NumVerts, CachedGeometry.Indices, CachedGeometry.Header.NumFaces);
 					Snapshot->AddElement(CoordBuffer, Indices, LogCategory.GetCategoryName(), LogVerbosity, FColorList::LightGrey.WithAlpha(255));
 				}
 				else

@@ -9,24 +9,6 @@
 #include "ShaderParameterUtils.h"
 #include "LocalVertexFactory.h"
 
-class FSpeedTreeWindNullUniformBuffer : public TUniformBuffer<FSpeedTreeUniformParameters>
-{
-	typedef TUniformBuffer< FSpeedTreeUniformParameters > Super;
-public:
-	virtual void InitDynamicRHI() override;
-};
-
-void FSpeedTreeWindNullUniformBuffer::InitDynamicRHI()
-{
-	FSpeedTreeUniformParameters Parameters;
-	FMemory::Memzero(Parameters);
-	SetContentsNoUpdate(Parameters);
-	
-	Super::InitDynamicRHI();
-}
-
-static TGlobalResource< FSpeedTreeWindNullUniformBuffer > GSpeedTreeWindNullUniformBuffer;
-
 void FLocalVertexFactoryShaderParameters::Bind(const FShaderParameterMap& ParameterMap)
 {
 	LODParameter.Bind(ParameterMap, TEXT("SpeedTreeLODInfo"));
@@ -50,18 +32,15 @@ void FLocalVertexFactoryShaderParameters::SetMesh(FRHICommandList& RHICmdList, F
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_FLocalVertexFactoryShaderParameters_SetMesh_SpeedTree);
 		FUniformBufferRHIParamRef SpeedTreeUniformBuffer = View.Family->Scene->GetSpeedTreeUniformBuffer(VertexFactory);
-		if (SpeedTreeUniformBuffer == NULL)
+		if (SpeedTreeUniformBuffer != NULL)
 		{
-			SpeedTreeUniformBuffer = GSpeedTreeWindNullUniformBuffer.GetUniformBufferRHI();
-		}
-		check(SpeedTreeUniformBuffer != NULL);
+			SetUniformBufferParameter(RHICmdList, Shader->GetVertexShader(), Shader->GetUniformBufferParameter<FSpeedTreeUniformParameters>(), SpeedTreeUniformBuffer);
 
-		SetUniformBufferParameter(RHICmdList, Shader->GetVertexShader(), Shader->GetUniformBufferParameter<FSpeedTreeUniformParameters>(), SpeedTreeUniformBuffer);
-
-		if (LODParameter.IsBound())
-		{
-			FVector LODData(BatchElement.MinScreenSize, BatchElement.MaxScreenSize, BatchElement.MaxScreenSize - BatchElement.MinScreenSize);
-			SetShaderValue(RHICmdList, Shader->GetVertexShader(), LODParameter, LODData);
+			if (LODParameter.IsBound())
+			{
+				FVector LODData(BatchElement.MinScreenSize, BatchElement.MaxScreenSize, BatchElement.MaxScreenSize - BatchElement.MinScreenSize);
+				SetShaderValue(RHICmdList, Shader->GetVertexShader(), LODParameter, LODData);
+			}
 		}
 	}
 }
@@ -74,7 +53,7 @@ bool FLocalVertexFactory::ShouldCache(EShaderPlatform Platform, const class FMat
 	return true; 
 }
 
-void FLocalVertexFactory::SetData(const FDataType& InData)
+void FLocalVertexFactory::SetData(const DataType& InData)
 {
 	check(IsInRenderingThread());
 
@@ -95,7 +74,7 @@ void FLocalVertexFactory::Copy(const FLocalVertexFactory& Other)
 	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
 		FLocalVertexFactoryCopyData,
 		FLocalVertexFactory*,VertexFactory,this,
-		const FDataType*,DataCopy,&Other.Data,
+		const DataType*,DataCopy,&Other.Data,
 	{
 		VertexFactory->Data = *DataCopy;
 	});
@@ -173,7 +152,7 @@ void FLocalVertexFactory::InitRHI()
 
 	check(Streams.Num() > 0);
 
-	InitDeclaration(Elements);
+	InitDeclaration(Elements,Data);
 
 	check(IsValidRef(GetDeclaration()));
 }

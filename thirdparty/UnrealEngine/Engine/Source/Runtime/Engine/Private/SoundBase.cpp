@@ -5,9 +5,6 @@
 #include "Sound/AudioSettings.h"
 #include "AudioDevice.h"
 
-USoundClass* USoundBase::DefaultSoundClassObject = nullptr;
-USoundConcurrency* USoundBase::DefaultSoundConcurrencyObject = nullptr;
-
 USoundBase::USoundBase(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 	, bIgnoreFocus(false)
@@ -20,26 +17,17 @@ void USoundBase::PostInitProperties()
 {
 	Super::PostInitProperties();
 
-	if (USoundBase::DefaultSoundClassObject == nullptr)
+	const FStringAssetReference DefaultSoundClassName = GetDefault<UAudioSettings>()->DefaultSoundClassName;
+	if (DefaultSoundClassName.IsValid())
 	{
-		const FStringAssetReference DefaultSoundClassName = GetDefault<UAudioSettings>()->DefaultSoundClassName;
-		if (DefaultSoundClassName.IsValid())
-		{
-			USoundBase::DefaultSoundClassObject = LoadObject<USoundClass>(nullptr, *DefaultSoundClassName.ToString());
-		}
+		SoundClassObject = LoadObject<USoundClass>(nullptr, *DefaultSoundClassName.ToString());
 	}
-	SoundClassObject = USoundBase::DefaultSoundClassObject;
 
-	if (USoundBase::DefaultSoundConcurrencyObject == nullptr)
+	const FStringAssetReference DefaultSoundConcurrencyName = GetDefault<UAudioSettings>()->DefaultSoundConcurrencyName;
+	if (DefaultSoundConcurrencyName.IsValid())
 	{
-		const FStringAssetReference DefaultSoundConcurrencyName = GetDefault<UAudioSettings>()->DefaultSoundConcurrencyName;
-		if (DefaultSoundConcurrencyName.IsValid())
-		{
-			USoundBase::DefaultSoundConcurrencyObject = LoadObject<USoundConcurrency>(nullptr, *DefaultSoundConcurrencyName.ToString());
-		}
+		SoundConcurrencySettings = LoadObject<USoundConcurrency>(nullptr, *DefaultSoundConcurrencyName.ToString());
 	}
-	SoundConcurrencySettings = USoundBase::DefaultSoundConcurrencyObject;
-
 }
 
 bool USoundBase::IsPlayable() const
@@ -81,10 +69,6 @@ bool USoundBase::IsLooping()
 	return (GetDuration() >= INDEFINITELY_LOOPING_DURATION); 
 }
 
-bool USoundBase::ShouldApplyInteriorVolumes() const
-{
-	return (SoundClassObject && SoundClassObject->Properties.bApplyAmbientVolumes);
-}
 
 USoundClass* USoundBase::GetSoundClass() const
 {

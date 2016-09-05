@@ -59,12 +59,7 @@ float3 GetTangentSpaceNonUniformScales(float3x3 TangentToLocal)
 float GetTessellationMultiplier(FPassSpecificVSToDS I)
 {
 	FMaterialTessellationParameters MaterialParameters = GetMaterialTessellationParameters(I.FactoryInterpolants, I.Position.xyz);
-	float MaterialTessellationMultiplier = GetMaterialTessellationMultiplier(MaterialParameters);
-#if VERTEX_FACTORY_MODIFIES_TESSELLATION
-	return VertexFactoryModifyTessellationMultiplier(I.FactoryInterpolants, I.Position.xyz, MaterialTessellationMultiplier);
-#else
-	return MaterialTessellationMultiplier;
-#endif
+	return GetMaterialTessellationMultiplier(MaterialParameters);
 }
 
 // Flag set if inside frustum
@@ -119,7 +114,7 @@ float4 CalculateCompositeTessellationFactors(float3 Control0, float3 Control1, f
 	CompositeFactors.w = 0.333 * ( CompositeFactors.x + CompositeFactors.y + CompositeFactors.z );
 
 	// The adaptive tessellation factor is 0.5 * ResolvedView.ViewToClip[1][1] * ViewSizeY / PixelsPerEdge and CompositeFactors is 2 * PercentageOfScreen.  
-	return View.AdaptiveTessellationFactor * CompositeFactors;
+	return Frame.AdaptiveTessellationFactor * CompositeFactors;
 #else
 	return float4( 1.0,1.0,1.0,1.0 );
 #endif

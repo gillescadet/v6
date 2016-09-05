@@ -18,6 +18,7 @@
  * Example: LocalToWorld = (DeltaRotation * LocalToWorld) will change rotation in local space by DeltaRotation.
  * Example: LocalToWorld = (LocalToWorld * DeltaRotation) will change rotation in world space by DeltaRotation.
  */
+
 struct FTransform
 {
 #if !defined(COREUOBJECT_API)
@@ -92,7 +93,9 @@ public:
 	FORCEINLINE void DiagnosticCheck_IsValid() const {}
 #endif
 
-	/** Default constructor. */
+	/**
+	 * Constructor with initialization to the identity transform.
+	 */
 	FORCEINLINE FTransform()
 		: Rotation(0.f,0.f,0.f,1.f)
 		, Translation(0.f)
@@ -228,12 +231,12 @@ public:
 	CORE_API FString ToString() const;
 
 	/** Acceptable form: "%f,%f,%f|%f,%f,%f|%f,%f,%f" */
-	CORE_API bool InitFromString(const FString& InSourceString);
+	CORE_API bool InitFromString( const FString& InSourceString );
 
 #ifdef IMPLEMENT_ASSIGNMENT_OPERATOR_MANUALLY
 	/**
-	 * Copy another Transform into this one
-	 */
+	* Copy another Transform into this one
+	*/
 	FORCEINLINE FTransform& operator=(const FTransform& Other)
 	{
 		this->Rotation = Other.Rotation;
@@ -245,15 +248,15 @@ public:
 #endif
 
 	/**
-	 * Convert this Transform to a transformation matrix with scaling.
-	 */
+	* Convert this Transform to a transformation matrix with scaling.
+	*/
 	FORCEINLINE FMatrix ToMatrixWithScale() const
 	{
 		FMatrix OutMatrix;
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && WITH_EDITORONLY_DATA
 		// Make sure Rotation is normalized when we turn it into a matrix.
-		check(IsRotationNormalized());
+		check( IsRotationNormalized() );
 #endif
 		OutMatrix.M[3][0] = Translation.X;
 		OutMatrix.M[3][1] = Translation.Y;
@@ -302,8 +305,8 @@ public:
 	}
 
 	/**
-	 * Convert this Transform to matrix with scaling and compute the inverse of that.
-	 */
+	* Convert this Transform to matrix with scaling and compute the inverse of that.
+	*/
 	FORCEINLINE FMatrix ToInverseMatrixWithScale() const
 	{
 		// todo: optimize
@@ -311,28 +314,27 @@ public:
 	}
 
 	/**
-	 * Convert this Transform to inverse.
-	 */
+	* Convert this Transform to inverse.
+	*/
 	FORCEINLINE FTransform Inverse() const
 	{
 		FQuat   InvRotation    = Rotation.Inverse();
-		// this used to cause NaN if Scale contained 0 
-		FVector InvScale3D     = GetSafeScaleReciprocal(Scale3D);
+		FVector InvScale3D     = Scale3D.Reciprocal();
 		FVector InvTranslation = InvRotation * (InvScale3D * -Translation);
 
 		return FTransform(InvRotation, InvTranslation, InvScale3D);
 	}
 
 	/**
-	 * Convert this Transform to a transformation matrix, ignoring its scaling
-	 */
+	* Convert this Transform to a transformation matrix, ignoring its scaling
+	*/
 	FORCEINLINE FMatrix ToMatrixNoScale() const
 	{
 		FMatrix OutMatrix;
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && WITH_EDITORONLY_DATA
 		// Make sure Rotation is normalized when we turn it into a matrix.
-		check(IsRotationNormalized());
+		check( IsRotationNormalized() );
 #endif
 		OutMatrix.M[3][0] = Translation.X;
 		OutMatrix.M[3][1] = Translation.Y;
@@ -385,15 +387,15 @@ public:
 	{
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && WITH_EDITORONLY_DATA
 		// Check that all bone atoms coming from animation are normalized
-		check(Atom1.IsRotationNormalized());
-		check(Atom2.IsRotationNormalized());
+		check( Atom1.IsRotationNormalized() );
+		check( Atom2.IsRotationNormalized() );
 #endif
-		if(Alpha <= ZERO_ANIMWEIGHT_THRESH)
+		if( Alpha <= ZERO_ANIMWEIGHT_THRESH )
 		{
 			// if blend is all the way for child1, then just copy its bone atoms
 			(*this) = Atom1;
 		}
-		else if(Alpha >= 1.f - ZERO_ANIMWEIGHT_THRESH)
+		else if( Alpha >= 1.f - ZERO_ANIMWEIGHT_THRESH )
 		{
 			// if blend is all the way for child2, then just copy its bone atoms
 			(*this) = Atom2;
@@ -415,12 +417,12 @@ public:
 	{
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST) && WITH_EDITORONLY_DATA
 		// Check that all bone atoms coming from animation are normalized
-		check(IsRotationNormalized());
-		check(OtherAtom.IsRotationNormalized());
+		check( IsRotationNormalized() );
+		check( OtherAtom.IsRotationNormalized() );
 #endif
-		if(Alpha > ZERO_ANIMWEIGHT_THRESH)
+		if( Alpha > ZERO_ANIMWEIGHT_THRESH )
 		{
-			if(Alpha >= 1.f - ZERO_ANIMWEIGHT_THRESH)
+			if( Alpha >= 1.f - ZERO_ANIMWEIGHT_THRESH )
 			{
 				// if blend is all the way for child2, then just copy its bone atoms
 				(*this) = OtherAtom;
@@ -501,20 +503,20 @@ public:
 	FORCEINLINE void operator*=(const FTransform& Other);
 	
 	/**
-	 * Return a transform that is the result of this multiplied by another transform (made only from a rotation).
-	 * Order matters when composing transforms : C = A * B will yield a transform C that logically first applies A then B to any subsequent transformation.
-	 *
-	 * @param  Other other quaternion rotation by which to multiply.
-	 * @return new transform: this * FTransform(Other)
-	 */
+	* Return a transform that is the result of this multiplied by another transform (made only from a rotation).
+	* Order matters when composing transforms : C = A * B will yield a transform C that logically first applies A then B to any subsequent transformation.
+	*
+	* @param  Other other quaternion rotation by which to multiply.
+	* @return new transform: this * FTransform(Other)
+	*/
 	FORCEINLINE FTransform operator*(const FQuat& Other) const;
 	
 	/**
-	 * Sets this transform to the result of this multiplied by another transform (made only from a rotation).
-	 * Order matters when composing transforms : C = A * B will yield a transform C that logically first applies A then B to any subsequent transformation.
-	 *
-	 * @param  Other other quaternion rotation by which to multiply.
-	 */
+	* Sets this transform to the result of this multiplied by another transform (made only from a rotation).
+	* Order matters when composing transforms : C = A * B will yield a transform C that logically first applies A then B to any subsequent transformation.
+	*
+	* @param  Other other quaternion rotation by which to multiply.
+	*/
 	FORCEINLINE void operator*=(const FQuat& Other);
 
 	FORCEINLINE void ScaleTranslation(const FVector& InScale3D);
@@ -522,7 +524,6 @@ public:
 	FORCEINLINE void RemoveScaling(float Tolerance=SMALL_NUMBER);
 	FORCEINLINE float GetMaximumAxisScale() const;
 	FORCEINLINE float GetMinimumAxisScale() const;
-
 	// Inverse does not work well with VQS format(in particular non-uniform), so removing it, but made two below functions to be used instead. 
 
 	/*******************************************************************************************
@@ -538,37 +539,42 @@ public:
 	 * Set current transform and the relative to ParentTransform.
 	 * Equates to This = This->GetRelativeTransform(Parent), but saves the intermediate FTransform storage and copy.
 	 */
-	CORE_API void SetToRelativeTransform(const FTransform& ParentTransform);
+	CORE_API void		SetToRelativeTransform(const FTransform& ParentTransform);
 
-	FORCEINLINE FVector4 TransformFVector4(const FVector4& V) const;
-	FORCEINLINE FVector4 TransformFVector4NoScale(const FVector4& V) const;
-	FORCEINLINE FVector TransformPosition(const FVector& V) const;
-	FORCEINLINE FVector TransformPositionNoScale(const FVector& V) const;
+	FORCEINLINE FVector4	TransformFVector4(const FVector4& V) const;
+	FORCEINLINE FVector4	TransformFVector4NoScale(const FVector4& V) const;
+	FORCEINLINE FVector		TransformPosition(const FVector& V) const;
+	FORCEINLINE FVector		TransformPositionNoScale(const FVector& V) const;
+
 
 	/** Inverts the matrix and then transforms V - correctly handles scaling in this matrix. */
-	FORCEINLINE FVector InverseTransformPosition(const FVector &V) const;
-	FORCEINLINE FVector InverseTransformPositionNoScale(const FVector &V) const;
-	FORCEINLINE FVector TransformVector(const FVector& V) const;
-	FORCEINLINE FVector TransformVectorNoScale(const FVector& V) const;
+	FORCEINLINE FVector		InverseTransformPosition(const FVector &V) const;
+
+	FORCEINLINE FVector		InverseTransformPositionNoScale(const FVector &V) const;
+
+	FORCEINLINE FVector		TransformVector(const FVector& V) const;
+
+	FORCEINLINE FVector		TransformVectorNoScale(const FVector& V) const;
 
 	/** 
 	 *	Transform a direction vector by the inverse of this matrix - will not take into account translation part.
 	 *	If you want to transform a surface normal (or plane) and correctly account for non-uniform scaling you should use TransformByUsingAdjointT with adjoint of matrix inverse.
 	 */
 	FORCEINLINE FVector InverseTransformVector(const FVector &V) const;
+
 	FORCEINLINE FVector InverseTransformVectorNoScale(const FVector &V) const;
 
-	FORCEINLINE FTransform GetScaled(float Scale) const;
-	FORCEINLINE FTransform GetScaled(FVector Scale) const;
-	FORCEINLINE FVector GetScaledAxis(EAxis::Type InAxis) const;
-	FORCEINLINE FVector GetUnitAxis(EAxis::Type InAxis) const;
-	FORCEINLINE void Mirror(EAxis::Type MirrorAxis, EAxis::Type FlipAxis);
-	FORCEINLINE static FVector GetSafeScaleReciprocal(const FVector& InScale, float Tolerance=SMALL_NUMBER);
+	FORCEINLINE FTransform	GetScaled(float Scale) const;
+	FORCEINLINE FTransform	GetScaled(FVector Scale) const;
+	FORCEINLINE FVector		GetScaledAxis(EAxis::Type InAxis) const;
+	FORCEINLINE FVector		GetUnitAxis(EAxis::Type InAxis) const;
+	FORCEINLINE void		Mirror(EAxis::Type MirrorAxis, EAxis::Type FlipAxis);
+	static FORCEINLINE FVector		GetSafeScaleReciprocal(const FVector& InScale);
 
 	// temp function for easy conversion
 	FORCEINLINE FVector GetLocation() const
 	{
-		return GetTranslation();
+		return Translation;
 	}
 
 	FORCEINLINE FRotator Rotator() const
@@ -590,8 +596,8 @@ public:
 	}
 
 	/**
-	 * Checks the components for non-finite values (NaN or Inf).
-	 * @return Returns true if any component (rotation, translation, or scale) is not finite.
+	 * Checks the components for NaN's
+	 * @return Returns true if any component (rotation, translation, or scale) is a NAN
 	 */
 	bool ContainsNaN() const
 	{
@@ -600,12 +606,12 @@ public:
 
 	inline bool IsValid() const
 	{
-		if (ContainsNaN())
+		if ( ContainsNaN() )
 		{
 			return false;
 		}
 
-		if (!Rotation.IsNormalized())
+		if ( !Rotation.IsNormalized() )
 		{
 			return false;
 		}
@@ -624,11 +630,11 @@ public:
 
 	// Binary comparison operators.
 	/*
-	bool operator==(const FTransform& Other) const
+	bool operator==( const FTransform& Other ) const
 	{
 		return Rotation==Other.Rotation && Translation==Other.Translation && Scale3D==Other.Scale3D;
 	}
-	bool operator!=(const FTransform& Other) const
+	bool operator!=( const FTransform& Other ) const
 	{
 		return Rotation!=Other.Rotation || Translation!=Other.Translation || Scale3D!=Other.Scale3D;
 	}
@@ -853,67 +859,6 @@ public:
 		DiagnosticCheckNaN_Scale3D();
 	}
 
-	/** @note: Added template type function for Accumulate
-	  * The template type isn't much useful yet, but it is with the plan to move forward
-	  * to unify blending features with just type of additive or full pose
-	  * Eventually it would be nice to just call blend and it all works depending on full pose
-	  * or additive, but right now that is a lot more refactoring
-	  * For now this types only defines the different functionality of accumulate
-	  */
-	  
-	/**
-	 * Accumulates another transform with this one
-	 *
-	 * Rotation is accumulated multiplicatively (Rotation = SourceAtom.Rotation * Rotation)
-	 * Translation is accumulated additively (Translation += SourceAtom.Translation)
-	 * Scale3D is accumulated multiplicatively (Scale3D *= SourceAtom.Scale3D)
-	 *
-	 * @param SourceAtom The other transform to accumulate into this one
-	 */
-	FORCEINLINE void Accumulate(const FTransform& SourceAtom)
-	{
-		// Add ref pose relative animation to base animation, only if rotation is significant.
-		if(FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA)
-		{
-			Rotation = SourceAtom.Rotation * Rotation;
-		}
-
-		Translation += SourceAtom.Translation;
-		Scale3D *= SourceAtom.Scale3D;
-
-		DiagnosticCheckNaN_All();
-
-		checkSlow(IsRotationNormalized());
-	}
-	
-	/** Accumulates another transform with this one, with a blending weight
-	*
-	* Let SourceAtom = Atom * BlendWeight
-	* Rotation is accumulated multiplicatively (Rotation = SourceAtom.Rotation * Rotation).
-	* Translation is accumulated additively (Translation += SourceAtom.Translation)
-	* Scale3D is accumulated multiplicatively (Scale3D *= SourceAtom.Scale3D)
-	*
-	* Note: Rotation will not be normalized! Will have to be done manually.
-	*
-	* @param Atom The other transform to accumulate into this one
-	* @param BlendWeight The weight to multiply Atom by before it is accumulated.
-	*/
-	FORCEINLINE void Accumulate(const FTransform& Atom, float BlendWeight/* default param doesn't work since vectorized version takes ref param */)
-	{
-		FTransform SourceAtom(Atom * BlendWeight);
-
-		// Add ref pose relative animation to base animation, only if rotation is significant.
-		if (FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA)
-		{
-			Rotation = SourceAtom.Rotation * Rotation;
-		}
-
-		Translation += SourceAtom.Translation;
-		Scale3D *= SourceAtom.Scale3D;
-
-		DiagnosticCheckNaN_All();
-	}
-
 	/**
 	 * Accumulates another transform with this one, with an optional blending weight
 	 *
@@ -924,12 +869,12 @@ public:
 	 * @param DeltaAtom The other transform to accumulate into this one
 	 * @param Weight The weight to multiply DeltaAtom by before it is accumulated.
 	 */
-	FORCEINLINE void AccumulateWithShortestRotation(const FTransform& DeltaAtom, float BlendWeight/* default param doesn't work since vectorized version takes ref param */)
+	FORCEINLINE void AccumulateWithShortestRotation(const FTransform& DeltaAtom, float Weight = 1.0f)
 	{
-		FTransform Atom(DeltaAtom * BlendWeight);
+		FTransform Atom(DeltaAtom * Weight);
 
 		// To ensure the 'shortest route', we make sure the dot product between the accumulator and the incoming child atom is positive.
-		if((Atom.Rotation | Rotation) < 0.f)
+		if( (Atom.Rotation | Rotation) < 0.f )
 		{
 			Rotation.X -= Atom.Rotation.X;
 			Rotation.Y -= Atom.Rotation.Y;
@@ -950,41 +895,59 @@ public:
 		DiagnosticCheckNaN_All();
 	}
 
-	/** Accumulates another transform with this one, with a blending weight
+	/**
+	 * Accumulates another transform with this one
+	 *
+	 * Rotation is accumulated multiplicatively (Rotation = SourceAtom.Rotation * Rotation)
+	 * Translation is accumulated additively (Translation += SourceAtom.Translation)
+	 * Scale3D is accumulated multiplicatively (Scale3D *= SourceAtom.Scale3D)
+	 *
+	 * @param SourceAtom The other transform to accumulate into this one
+	 */
+	FORCEINLINE void Accumulate(const FTransform& SourceAtom)
+	{
+		// Add ref pose relative animation to base animation, only if rotation is significant.
+		if( FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA )
+		{
+			Rotation = SourceAtom.Rotation * Rotation;
+		}
+
+		Translation += SourceAtom.Translation;
+		Scale3D *= SourceAtom.Scale3D;
+
+		DiagnosticCheckNaN_All();
+
+		checkSlow( IsRotationNormalized() );
+	}
+
+   /** Accumulates another transform with this one, with a blending weight
 	*
 	* Let SourceAtom = Atom * BlendWeight
 	* Rotation is accumulated multiplicatively (Rotation = SourceAtom.Rotation * Rotation).
 	* Translation is accumulated additively (Translation += SourceAtom.Translation)
-	* Scale3D is accumulated assuming incoming scale is additive scale (Scale3D *= (1 + SourceAtom.Scale3D))
-	* 
-	* When we create additive, we create additive scale based on [TargetScale/SourceScale -1]
-	* because that way when you apply weight of 0.3, you don't shrink. We only saves the % of grow/shrink
-	* when we apply that back to it, we add back the 1, so that it goes back to it. 
-	* This solves issue where you blend two additives with 0.3, you don't come back to 0.6 scale, but 1 scale at the end 
-	* because [1 + [1-1]*0.3 + [1-1]*0.3] becomes 1, so you don't shrink by applying additive scale
+	* Scale3D is accumulated multiplicatively (Scale3D *= SourceAtom.Scale3D)
 	*
 	* Note: Rotation will not be normalized! Will have to be done manually.
 	*
 	* @param Atom The other transform to accumulate into this one
 	* @param BlendWeight The weight to multiply Atom by before it is accumulated.
 	*/
-	FORCEINLINE void AccumulateWithAdditiveScale(const FTransform& Atom, float BlendWeight/* default param doesn't work since vectorized version takes ref param */)
+	FORCEINLINE void Accumulate(const FTransform& Atom, float BlendWeight)
 	{
-		const FVector DefaultScale(1.f);
-
 		FTransform SourceAtom(Atom * BlendWeight);
-		
+
 		// Add ref pose relative animation to base animation, only if rotation is significant.
-		if (FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA)
+		if( FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA )
 		{
 			Rotation = SourceAtom.Rotation * Rotation;
 		}
 
 		Translation += SourceAtom.Translation;
-		Scale3D *= (DefaultScale + SourceAtom.Scale3D);
+		Scale3D *= SourceAtom.Scale3D;
 
 		DiagnosticCheckNaN_All();
 	}
+
 	/**
 	 * Set the translation and Scale3D components of this transform to a linearly interpolated combination of two other transforms
 	 *
@@ -1002,6 +965,28 @@ public:
 
 		DiagnosticCheckNaN_Translate();
 		DiagnosticCheckNaN_Scale3D();
+	}
+
+	/**
+	 * Accumulates another transform with this one
+	 *
+	 * Rotation is accumulated multiplicatively (Rotation = SourceAtom.Rotation * Rotation)
+	 * Translation is accumulated additively (Translation += SourceAtom.Translation)
+	 * Scale3D is accumulated additively (Scale3D += SourceAtom.Scale3D)
+	 *
+	 * @param SourceAtom The other transform to accumulate into this one
+	 */
+	FORCEINLINE void AccumulateWithAdditiveScale3D(const FTransform& SourceAtom)
+	{
+		if( FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA )
+		{
+			Rotation = SourceAtom.Rotation * Rotation;
+		}
+
+		Translation += SourceAtom.Translation;
+		Scale3D += SourceAtom.Scale3D;
+
+		DiagnosticCheckNaN_All();
 	}
 
 	/**
@@ -1037,27 +1022,26 @@ public:
 	 */
 	FORCEINLINE static void BlendFromIdentityAndAccumulate(FTransform& FinalAtom, FTransform& SourceAtom, float BlendWeight)
 	{
-		const  FTransform AdditiveIdentity(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
-		const FVector DefaultScale(1.f);
+		const FTransform IdentityAtom = FTransform::Identity;
 
 		// Scale delta by weight
-		if(BlendWeight < (1.f - ZERO_ANIMWEIGHT_THRESH))
+		if( BlendWeight < (1.f - ZERO_ANIMWEIGHT_THRESH) )
 		{
-			SourceAtom.Blend(AdditiveIdentity, SourceAtom, BlendWeight);
+			SourceAtom.Blend(IdentityAtom, SourceAtom, BlendWeight);
 		}
 
 		// Add ref pose relative animation to base animation, only if rotation is significant.
-		if(FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA)
+		if( FMath::Square(SourceAtom.Rotation.W) < 1.f - DELTA * DELTA )
 		{
 			FinalAtom.Rotation = SourceAtom.Rotation * FinalAtom.Rotation;
 		}
 
 		FinalAtom.Translation += SourceAtom.Translation;
-		FinalAtom.Scale3D *= (DefaultScale + SourceAtom.Scale3D);
+		FinalAtom.Scale3D *= SourceAtom.Scale3D;
 
 		FinalAtom.DiagnosticCheckNaN_All();
 
-		checkSlow(FinalAtom.IsRotationNormalized());
+		checkSlow( FinalAtom.IsRotationNormalized() );
 	}
 
 	/**
@@ -1173,7 +1157,7 @@ public:
 			// Assume it is along X and modify transform accordingly. 
 			// It doesn't actually matter which axis we choose, the 'appearance' will be the same
 			Scale3D.X *= -1.f;
-			M.SetAxis(0, -M.GetScaledAxis(EAxis::X));
+			M.SetAxis(0, -M.GetScaledAxis( EAxis::X ));
 		}
 
 		Rotation = FQuat(M);
@@ -1182,44 +1166,9 @@ public:
 		// Normalize rotation
 		Rotation.Normalize();
 	}
-
-private:
-	/**
-	* Create a new transform: OutTransform = A * B using the matrix while keeping the scale that's given by A and B
-	* Please note that this operation is a lot more expensive than normal Multiply
-	*
-	* Order matters when composing transforms : A * B will yield a transform that logically first applies A then B to any subsequent transformation.
-	*
-	* @param  OutTransform pointer to transform that will store the result of A * B.
-	* @param  A Transform A.
-	* @param  B Transform B.
-	*/
-	FORCEINLINE static void MultiplyUsingMatrixWithScale(FTransform* OutTransform, const FTransform* A, const FTransform* B);
-	/**
-	* Create a new transform from multiplications of given to matrices (AMatrix*BMatrix) using desired scale
-	* This is used by MultiplyUsingMatrixWithScale and GetRelativeTransformUsingMatrixWithScale
-	* This is only used to handle negative scale
-	*
-	* @param	AMatrix first Matrix of operation
-	* @param	BMatrix second Matrix of operation
-	* @param	DesiredScale - there is no check on if the magnitude is correct here. It assumes that is correct.
-	* @param	OutTransform the constructed transform
-	*/
-	FORCEINLINE static void ConstructTransformFromMatrixWithDesiredScale(const FMatrix& AMatrix, const FMatrix& BMatrix, const FVector& DesiredScale, FTransform& OutTransform);
-	/**
-	* Create a new transform: OutTransform = Base * Relative(-1) using the matrix while keeping the scale that's given by Base and Relative
-	* Please note that this operation is a lot more expensive than normal GetRelativeTrnasform
-	*
-	* @param  OutTransform pointer to transform that will store the result of Base * Relative(-1).
-	* @param  BAse Transform Base.
-	* @param  Relative Transform Relative.
-	*/
-	static void GetRelativeTransformUsingMatrixWithScale(FTransform* OutTransform, const FTransform* Base, const FTransform* Relative);
 };
 
-
 template <> struct TIsPODType<FTransform> { enum { Value = true }; };
-
 
 /** Scale the translation part of the Transform by the supplied vector. */
 FORCEINLINE void FTransform::ScaleTranslation(const FVector& InScale3D)
@@ -1229,14 +1178,12 @@ FORCEINLINE void FTransform::ScaleTranslation(const FVector& InScale3D)
 	DiagnosticCheckNaN_Translate();
 }
 
-
 FORCEINLINE void FTransform::ScaleTranslation(const float& Scale)
 {
 	Translation *= Scale;
 
 	DiagnosticCheckNaN_Translate();
 }
-
 
 // this function is from matrix, and all it does is to normalize rotation portion
 FORCEINLINE void FTransform::RemoveScaling(float Tolerance/*=SMALL_NUMBER*/)
@@ -1248,50 +1195,14 @@ FORCEINLINE void FTransform::RemoveScaling(float Tolerance/*=SMALL_NUMBER*/)
 	DiagnosticCheckNaN_Scale3D();
 }
 
-FORCEINLINE void FTransform::MultiplyUsingMatrixWithScale(FTransform* OutTransform, const FTransform* A, const FTransform* B)
-{
-	// the goal of using M is to get the correct orientation
-	// but for translation, we still need scale
-	ConstructTransformFromMatrixWithDesiredScale(A->ToMatrixWithScale(), B->ToMatrixWithScale(), A->Scale3D*B->Scale3D, *OutTransform);
-}
-
-FORCEINLINE void FTransform::ConstructTransformFromMatrixWithDesiredScale(const FMatrix& AMatrix, const FMatrix& BMatrix, const FVector& DesiredScale, FTransform& OutTransform)
-{
-	// the goal of using M is to get the correct orientation
-	// but for translation, we still need scale
-	FMatrix M = AMatrix * BMatrix;
-	M.RemoveScaling();
-
-	// apply negative scale back to axes
-	FVector SignedScale = DesiredScale.GetSignVector();
-
-	M.SetAxis(0, SignedScale.X * M.GetScaledAxis(EAxis::X));
-	M.SetAxis(1, SignedScale.Y * M.GetScaledAxis(EAxis::Y));
-	M.SetAxis(2, SignedScale.Z * M.GetScaledAxis(EAxis::Z));
-
-	// @note: if you have negative with 0 scale, this will return rotation that is identity
-	// since matrix loses that axes
-	FQuat Rotation = FQuat(M);
-	Rotation.Normalize();
-
-	// set values back to output
-	OutTransform.Scale3D = DesiredScale;
-	OutTransform.Rotation = Rotation;
-
-	// technically I could calculate this using FTransform but then it does more quat multiplication 
-	// instead of using Scale in matrix multiplication
-	// it's a question of between RemoveScaling vs using FTransform to move translation
-	OutTransform.Translation = M.GetOrigin();
-}
-
 /** Returns Multiplied Transform of 2 FTransforms **/
 FORCEINLINE void FTransform::Multiply(FTransform* OutTransform, const FTransform* A, const FTransform* B)
 {
 	A->DiagnosticCheckNaN_All();
 	B->DiagnosticCheckNaN_All();
 
-	checkSlow(A->IsRotationNormalized());
-	checkSlow(B->IsRotationNormalized());
+	checkSlow( A->IsRotationNormalized() );
+	checkSlow( B->IsRotationNormalized() );
 
 	//	When Q = quaternion, S = single scalar scale, and T = translation
 	//	QST(A) = Q(A), S(A), T(A), and QST(B) = Q(B), S(B), T(B)
@@ -1308,23 +1219,19 @@ FORCEINLINE void FTransform::Multiply(FTransform* OutTransform, const FTransform
 	//	S(AxB) = S(A)*S(B)
 	//	T(AxB) = Q(B)*S(B)*T(A)*-Q(B) + T(B)
 
-	const bool bHaveNegativeScale = A->Scale3D.GetMin() < 0 || B->Scale3D.GetMin() < 0;
-	if (bHaveNegativeScale)
-	{
-		// @note, if you have 0 scale with negative, you're going to lose rotation as it can't convert back to quat
-		MultiplyUsingMatrixWithScale(OutTransform, A, B);
-	}
-	else
-	{
-		OutTransform->Rotation = B->Rotation*A->Rotation;
-		OutTransform->Scale3D = A->Scale3D*B->Scale3D;
-		OutTransform->Translation = B->Rotation*(B->Scale3D*A->Translation) + B->Translation;
-	}
+	FTransform Ret;
+	Ret.Rotation = B->Rotation*A->Rotation;
 
+	Ret.Scale3D = A->Scale3D*B->Scale3D;
+	Ret.Translation = B->Rotation*(B->Scale3D*A->Translation) + B->Translation;
 	// we do not support matrix transform when non-uniform
 	// that was removed at rev 21 with UE4
-	OutTransform->DiagnosticCheckNaN_All();
+
+	*OutTransform = Ret;
+	Ret.DiagnosticCheckNaN_All();
 }
+
+
 /** 
  * Apply Scale to this transform
  */
@@ -1338,7 +1245,6 @@ FORCEINLINE FTransform FTransform::GetScaled(float InScale) const
 	return A;
 }
 
-
 /** 
  * Apply Scale to this transform
  */
@@ -1351,7 +1257,6 @@ FORCEINLINE FTransform FTransform::GetScaled(FVector InScale) const
 
 	return A;
 }
-
 
 /** Transform homogenous FVector4, ignoring the scaling part of this transform **/
 FORCEINLINE FVector4 FTransform::TransformFVector4NoScale(const FVector4& V) const
@@ -1371,7 +1276,6 @@ FORCEINLINE FVector4 FTransform::TransformFVector4NoScale(const FVector4& V) con
 
 	return Transform;
 }
-
 
 /** Transform FVector4 **/
 FORCEINLINE FVector4 FTransform::TransformFVector4(const FVector4& V) const
@@ -1394,12 +1298,12 @@ FORCEINLINE FVector4 FTransform::TransformFVector4(const FVector4& V) const
 }
 
 
+
 FORCEINLINE FVector FTransform::TransformPosition(const FVector& V) const
 {
 	DiagnosticCheckNaN_All();
 	return Rotation.RotateVector(Scale3D*V) + Translation;
 }
-
 
 FORCEINLINE FVector FTransform::TransformPositionNoScale(const FVector& V) const
 {
@@ -1407,13 +1311,11 @@ FORCEINLINE FVector FTransform::TransformPositionNoScale(const FVector& V) const
 	return Rotation.RotateVector(V) + Translation;
 }
 
-
 FORCEINLINE FVector FTransform::TransformVector(const FVector& V) const
 {
 	DiagnosticCheckNaN_All();
 	return Rotation.RotateVector(Scale3D*V);
 }
-
 
 FORCEINLINE FVector FTransform::TransformVectorNoScale(const FVector& V) const
 {
@@ -1421,20 +1323,18 @@ FORCEINLINE FVector FTransform::TransformVectorNoScale(const FVector& V) const
 	return Rotation.RotateVector(V);
 }
 
-
 // do backward operation when inverse, translation -> rotation -> scale
 FORCEINLINE FVector FTransform::InverseTransformPosition(const FVector &V) const
 {
 	DiagnosticCheckNaN_All();
-	return (Rotation.UnrotateVector(V-Translation)) * GetSafeScaleReciprocal(Scale3D);
+	return ( Rotation.UnrotateVector(V-Translation) ) * GetSafeScaleReciprocal(Scale3D);
 }
-
 
 // do backward operation when inverse, translation -> rotation
 FORCEINLINE FVector FTransform::InverseTransformPositionNoScale(const FVector &V) const
 {
 	DiagnosticCheckNaN_All();
-	return (Rotation.UnrotateVector(V-Translation));
+	return ( Rotation.UnrotateVector(V-Translation) );
 }
 
 
@@ -1442,17 +1342,15 @@ FORCEINLINE FVector FTransform::InverseTransformPositionNoScale(const FVector &V
 FORCEINLINE FVector FTransform::InverseTransformVector(const FVector &V) const
 {
 	DiagnosticCheckNaN_All();
-	return (Rotation.UnrotateVector(V)) * GetSafeScaleReciprocal(Scale3D);
+	return ( Rotation.UnrotateVector(V) ) * GetSafeScaleReciprocal(Scale3D);
 }
-
 
 // do backward operation when inverse, translation -> rotation
 FORCEINLINE FVector FTransform::InverseTransformVectorNoScale(const FVector &V) const
 {
 	DiagnosticCheckNaN_All();
-	return (Rotation.UnrotateVector(V));
+	return ( Rotation.UnrotateVector(V) );
 }
-
 
 FORCEINLINE FTransform FTransform::operator*(const FTransform& Other) const
 {
@@ -1461,12 +1359,10 @@ FORCEINLINE FTransform FTransform::operator*(const FTransform& Other) const
 	return Output;
 }
 
-
 FORCEINLINE void FTransform::operator*=(const FTransform& Other)
 {
 	Multiply(this, this, &Other);
 }
-
 
 FORCEINLINE FTransform FTransform::operator*(const FQuat& Other) const
 {
@@ -1475,22 +1371,20 @@ FORCEINLINE FTransform FTransform::operator*(const FQuat& Other) const
 	return Output;
 }
 
-
 FORCEINLINE void FTransform::operator*=(const FQuat& Other)
 {
 	FTransform OtherTransform(Other, FVector::ZeroVector, FVector(1.f));
 	Multiply(this, this, &OtherTransform);
 }
 
-
 // x = 0, y = 1, z = 2
-FORCEINLINE FVector FTransform::GetScaledAxis(EAxis::Type InAxis) const
+FORCEINLINE FVector FTransform::GetScaledAxis( EAxis::Type InAxis ) const
 {
-	if (InAxis == EAxis::X)
+	if ( InAxis == EAxis::X )
 	{
 		return TransformVector(FVector(1.f, 0.f, 0.f));
 	}
-	else if (InAxis == EAxis::Y)
+	else if ( InAxis == EAxis::Y )
 	{
 		return TransformVector(FVector(0.f, 1.f, 0.f));
 	}
@@ -1498,15 +1392,14 @@ FORCEINLINE FVector FTransform::GetScaledAxis(EAxis::Type InAxis) const
 	return TransformVector(FVector(0.f, 0.f, 1.f));
 }
 
-
 // x = 0, y = 1, z = 2
-FORCEINLINE FVector FTransform::GetUnitAxis(EAxis::Type InAxis) const
+FORCEINLINE FVector FTransform::GetUnitAxis( EAxis::Type InAxis ) const
 {
-	if (InAxis == EAxis::X)
+	if ( InAxis == EAxis::X )
 	{
 		return TransformVectorNoScale(FVector(1.f, 0.f, 0.f));
 	}
-	else if (InAxis == EAxis::Y)
+	else if ( InAxis == EAxis::Y )
 	{
 		return TransformVectorNoScale(FVector(0.f, 1.f, 0.f));
 	}
@@ -1514,15 +1407,13 @@ FORCEINLINE FVector FTransform::GetUnitAxis(EAxis::Type InAxis) const
 	return TransformVectorNoScale(FVector(0.f, 0.f, 1.f));
 }
 
-
-FORCEINLINE void FTransform::Mirror(EAxis::Type MirrorAxis, EAxis::Type FlipAxis)
+FORCEINLINE void FTransform::Mirror( EAxis::Type MirrorAxis, EAxis::Type FlipAxis)
 {
 	// We do convert to Matrix for mirroring. 
 	FMatrix M = ToMatrixWithScale();
 	M.Mirror(MirrorAxis, FlipAxis);
 	SetFromMatrix(M);
 }
-
 
 /** same version of FMatrix::GetMaximumAxisScale function **/
 /** @return the maximum magnitude of all components of the 3D scale. */
@@ -1532,7 +1423,6 @@ inline float FTransform::GetMaximumAxisScale() const
 	return Scale3D.GetAbsMax();
 }
 
-
 /** @return the minimum magnitude of all components of the 3D scale. */
 inline float FTransform::GetMinimumAxisScale() const
 {
@@ -1540,40 +1430,44 @@ inline float FTransform::GetMinimumAxisScale() const
 	return Scale3D.GetAbsMin();
 }
 
-
 // mathematically if you have 0 scale, it should be infinite, 
 // however, in practice if you have 0 scale, and relative transform doesn't make much sense 
 // anymore because you should be instead of showing gigantic infinite mesh
 // also returning BIG_NUMBER causes sequential NaN issues by multiplying 
 // so we hardcode as 0
-FORCEINLINE FVector FTransform::GetSafeScaleReciprocal(const FVector& InScale, float Tolerance)
+FORCEINLINE FVector FTransform::GetSafeScaleReciprocal(const FVector& InScale)
 {
 	FVector SafeReciprocalScale;
-	if (FMath::Abs(InScale.X) <= Tolerance)
+	// mathematically if you have 0 scale, it should be infinite, 
+	// however, in practice if you have 0 scale, and relative transform doesn't make much sense 
+	// anymore because you should be instead of showing gigantic infinite mesh
+	// also returning BIG_NUMBER causes sequential NaN issues by multiplying 
+	// so we hardcode as 0
+	if (InScale.X == 0)
 	{
 		SafeReciprocalScale.X = 0.f;
 	}
 	else
 	{
-		SafeReciprocalScale.X = 1 / InScale.X;
+		SafeReciprocalScale.X = 1/InScale.X;
 	}
 
-	if (FMath::Abs(InScale.Y) <= Tolerance)
+	if (InScale.Y == 0)
 	{
 		SafeReciprocalScale.Y = 0.f;
 	}
 	else
 	{
-		SafeReciprocalScale.Y = 1 / InScale.Y;
+		SafeReciprocalScale.Y = 1/InScale.Y;
 	}
 
-	if (FMath::Abs(InScale.Z) <= Tolerance)
+	if (InScale.Z == 0)
 	{
 		SafeReciprocalScale.Z = 0.f;
 	}
 	else
 	{
-		SafeReciprocalScale.Z = 1 / InScale.Z;
+		SafeReciprocalScale.Z = 1/InScale.Z;
 	}
 
 	return SafeReciprocalScale;

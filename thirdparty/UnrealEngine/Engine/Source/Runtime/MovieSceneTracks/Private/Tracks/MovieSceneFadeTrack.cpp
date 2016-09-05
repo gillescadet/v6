@@ -25,7 +25,7 @@ UMovieSceneSection* UMovieSceneFadeTrack::CreateNewSection()
 
 
 #if WITH_EDITORONLY_DATA
-FText UMovieSceneFadeTrack::GetDefaultDisplayName() const
+FText UMovieSceneFadeTrack::GetDisplayName() const
 {
 	return LOCTEXT("TrackName", "Fade");
 }

@@ -60,7 +60,7 @@ namespace ComponentUtils
 	 */
 	USceneComponent* GetAttachedParent(USceneComponent const* SceneComponentObject)
 	{
-		USceneComponent* SceneParent = SceneComponentObject->GetAttachParent();
+		USceneComponent* SceneParent = SceneComponentObject->AttachParent;
 		if(SceneParent == nullptr)
 		{
 			USCS_Node* const SCSNode = FindCorrespondingSCSNode(SceneComponentObject);

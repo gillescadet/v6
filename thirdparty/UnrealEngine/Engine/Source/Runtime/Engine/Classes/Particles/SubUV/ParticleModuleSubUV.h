@@ -43,8 +43,7 @@ class UParticleModuleSubUV : public UParticleModuleSubUVBase
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR
-	virtual void PostLoad() override;
-	virtual void PostInitProperties() override;
+	virtual void	PostInitProperties() override;
 	//End UObject Interface
 
 	//~ Begin UParticleModule Interface

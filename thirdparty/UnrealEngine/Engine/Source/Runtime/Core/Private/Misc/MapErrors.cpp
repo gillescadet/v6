@@ -14,7 +14,6 @@ FName FMapErrors::StaticPhysNone(TEXT("StaticPhysNone"));
 FName FMapErrors::VolumeActorCollisionComponentNULL(TEXT("VolumeActorCollisionComponentNULL"));
 FName FMapErrors::VolumeActorZeroRadius(TEXT("VolumeActorZeroRadius"));
 FName FMapErrors::VertexColorsNotMatchOriginalMesh(TEXT("VertexColorsNotMatchOriginalMesh"));
-FName FMapErrors::CollisionEnabledNoCollisionGeom(TEXT("CollisionEnabledNoCollisionGeom"));
 FName FMapErrors::ShadowCasterUsingBoundsScale(TEXT("ShadowCasterUsingBoundsScale"));
 FName FMapErrors::MultipleSkyLights(TEXT("MultipleSkyLights"));
 FName FMapErrors::InvalidTrace(TEXT("InvalidTrace"));

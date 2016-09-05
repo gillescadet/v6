@@ -2,11 +2,10 @@
 
 #pragma once
 
-#include "IAnalyticsProviderModule.h"
+#include "Runtime/Analytics/Analytics/Public/Interfaces/IAnalyticsProviderModule.h"
 #include "Core.h"
 
 class IAnalyticsProvider;
-struct FAnalyticsEventAttribute;
 
 enum class EQoSEventParam : uint32
 {
@@ -109,7 +108,7 @@ public:
 	 * Creates the analytics provider given a configuration delegate.
 	 * The keys required exactly match the field names in the Config object. 
 	 */
-	virtual TSharedPtr<IAnalyticsProvider> CreateAnalyticsProvider(const FAnalyticsProviderConfigurationDelegate& GetConfigValue) const;
+	virtual TSharedPtr<IAnalyticsProvider> CreateAnalyticsProvider(const FAnalytics::FProviderConfigurationDelegate& GetConfigValue) const;
 	
 	/** 
 	 * Construct an analytics provider directly from a config object.
@@ -133,9 +132,9 @@ public:
 	 * Return the provider instance. Not valid outside of Initialize/Shutdown calls.
 	 * Note: must check IsAvailable() first else this code will assert if the provider is not valid.
 	 */
-	QOSREPORTER_API static IAnalyticsProvider& GetProvider();
+	static IAnalyticsProvider& GetProvider();
 	/** Helper function to determine if the provider is valid. */
-	QOSREPORTER_API static bool IsAvailable() { return Analytics.IsValid(); }
+	static bool IsAvailable() { return Analytics.IsValid(); }
 	/** Called to initialize the singleton. */
 	QOSREPORTER_API static void Initialize();
 	/** Called to shut down the singleton */
@@ -159,26 +158,9 @@ public:
 	static void QOSREPORTER_API Tick();
 
 	/**
-	 * Returns instance id that QoS reporter is using in its events
+	 * This function is expected to be called periodically to update ongoing tasks.
 	 */
-	static FString QOSREPORTER_API GetQoSReporterInstanceId();
-
-	/** @return the backend deployment name that was previously set */
-	static FString QOSREPORTER_API GetBackendDeploymentName();
-
-	/**
-	 * Backend services are split into deployments; this can be used to distinguish between them.
-	 *
-	 * @param InDeploymentName deployment name (has a meaning for the game and QoS alerting). Won't be sent if empty.
-	 */
-	static void QOSREPORTER_API SetBackendDeploymentName(const FString& InDeploymentName);
-
-	/**
-	 * Whether or not hitches should be counted
-	 *
-	 * @param bEnable true if yes, false if no (default)
-	 */
-	static void QOSREPORTER_API EnableCountingHitches(bool bEnable);
+	static FGuid QOSREPORTER_API GetQoSReporterInstanceId();
 
 private:
 
@@ -197,8 +179,16 @@ private:
 	 */
 	static void AddClientHeartbeatAttributes(TArray<FAnalyticsEventAttribute> & OutArray);
 
+	/**
+	 * Returns application role (server, client)
+	 */
+	static FString GetApplicationRole();
+
 	/** Whether the module has been initialized. */
 	static bool bIsInitialized;
+
+	/** Unique identifier for this QoS reporter instance (only changed on module initialization) */
+	static FGuid InstanceId;
 
 	/** Chosen analytics provider. */
 	static TSharedPtr<IAnalyticsProvider> Analytics;
@@ -209,9 +199,6 @@ private:
 	/** Timestamp when we sent the last heartbeat */
 	static double LastHeartbeatTimestamp;
 
-	/** Time when Tick() was called previously */
-	static double PreviousTickTime;
-
 	/**
 	 * Event-specific variables
 	 */
@@ -221,6 +208,4 @@ private:
 	/** Whether startup event was reported. */
 	static bool bStartupEventReported;
 
-	/** Whether or not counting hitches has been suppressed. */
-	static bool bCountHitches;
 };

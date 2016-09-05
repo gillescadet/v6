@@ -6,7 +6,7 @@ public class UtilityShaders : ModuleRules
 {
 	public UtilityShaders(TargetInfo Target)
 	{
-		PublicDependencyModuleNames.AddRange(
+		PrivateDependencyModuleNames.AddRange(
 			new string[] {
 				"Core",
 				"Engine",

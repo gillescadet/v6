@@ -7,7 +7,6 @@ class AGameplayCueNotify_Actor;
 
 #include "GameplayTags.h"
 #include "GameplayEffect.h"
-#include "ObjectKey.h"
 #include "GameplayCue_Types.generated.h"
 
 UENUM()
@@ -29,8 +28,9 @@ struct FGameplayCuePendingExecute
 	, OwningComponent(NULL)
 	{
 	}
-	
-	TArray<FGameplayTag, TInlineAllocator<1> > GameplayCueTags;
+
+	UPROPERTY()
+	FGameplayTag GameplayCueTag;
 	
 	/** Prediction key that spawned this cue */
 	UPROPERTY()
@@ -64,7 +64,8 @@ struct FPreallocationInfo
 	UPROPERTY(transient)
 	TArray<AGameplayCueNotify_Actor*>	ClassesNeedingPreallocation;
 
-	FObjectKey OwningWorldKey;
+	UPROPERTY(transient)
+	UWorld* OwningWorld;
 };
 
 /** Struct that is used by the gameplaycue manager to tie an instanced gameplaycue to the calling gamecode. Usually this is just the target actor, but can also be unique per instigator/sourceobject */
@@ -77,18 +78,16 @@ struct FGCNotifyActorKey
 
 	FGCNotifyActorKey(AActor* InTargetActor, UClass* InCueClass, AActor* InInstigatorActor=nullptr, const UObject* InSourceObj=nullptr)
 	{
-		TargetActor = FObjectKey(InTargetActor);
-		OptionalInstigatorActor = FObjectKey(InInstigatorActor);
-		OptionalSourceObject = FObjectKey(InSourceObj);
-		CueClass = FObjectKey(InCueClass);
+		TargetActor = InTargetActor;
+		OptionalInstigatorActor = InInstigatorActor;
+		OptionalSourceObject = InSourceObj;
+		CueClass = InCueClass;
 	}
 
-	
-
-	FObjectKey	TargetActor;
-	FObjectKey	OptionalInstigatorActor;
-	FObjectKey	OptionalSourceObject;
-	FObjectKey	CueClass;
+	TWeakObjectPtr<AActor>	TargetActor;
+	TWeakObjectPtr<AActor>	OptionalInstigatorActor;
+	TWeakObjectPtr<UObject>	OptionalSourceObject;
+	TWeakObjectPtr<UClass>	CueClass;
 
 	FORCEINLINE bool operator==(const FGCNotifyActorKey& Other) const
 	{

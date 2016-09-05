@@ -5,7 +5,6 @@
 #include "Internationalization/InternationalizationArchive.h"
 #include "Internationalization/InternationalizationMetadata.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArchiveTest, "System.Core.Misc.Internationalization Archive", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::SmokeFilter)
 
@@ -212,6 +211,3 @@ bool FArchiveTest::RunTest( const FString& Parameters )
 
 	return true;
 }
-
-
-#endif //WITH_DEV_AUTOMATION_TESTS

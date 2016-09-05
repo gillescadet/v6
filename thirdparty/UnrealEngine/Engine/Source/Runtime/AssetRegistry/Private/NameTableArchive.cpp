@@ -4,24 +4,13 @@
 
 FNameTableArchiveReader::FNameTableArchiveReader()
 	: FArchive()
-	, FileAr(nullptr)
 {
 	ArIsLoading = true;
 }
 
-FNameTableArchiveReader::~FNameTableArchiveReader()
-{
-	if (FileAr)
-	{
-		delete FileAr;
-		FileAr = nullptr;
-	}
-}
-
 bool FNameTableArchiveReader::LoadFile(const TCHAR* Filename, int32 SerializationVersion)
 {
-	FileAr = IFileManager::Get().CreateFileReader(Filename, FILEREAD_Silent);
-	if (FileAr && !FileAr->IsError() && FileAr->TotalSize() > 0)
+	if ( FFileHelper::LoadFileToArray(Reader, Filename, FILEREAD_Silent) )
 	{
 		int32 MagicNumber = 0;
 		*this << MagicNumber;
@@ -68,7 +57,7 @@ bool FNameTableArchiveReader::SerializeNameMap()
 		for ( int32 NameMapIdx = 0; NameMapIdx < NameCount; ++NameMapIdx )
 		{
 			// Read the name entry from the file.
-			FNameEntrySerialized NameEntry(ENAME_LinkerConstructor);
+			FNameEntry NameEntry(ENAME_LinkerConstructor);
 			*this << NameEntry;
 
 			if (IsError())
@@ -76,7 +65,11 @@ bool FNameTableArchiveReader::SerializeNameMap()
 				return false;
 			}
 
-			NameMap.Add(FName(NameEntry));
+			NameMap.Add( 
+				NameEntry.IsWide() ? 
+					FName(ENAME_LinkerConstructor, NameEntry.GetWideName()) : 
+					FName(ENAME_LinkerConstructor, NameEntry.GetAnsiName())
+				);
 		}
 
 		Seek( OriginalOffset );
@@ -87,17 +80,17 @@ bool FNameTableArchiveReader::SerializeNameMap()
 
 void FNameTableArchiveReader::Serialize( void* V, int64 Length )
 {
-	if (FileAr && !IsError())
+	if (!IsError())
 	{
-		FileAr->Serialize( V, Length );
+		Reader.Serialize( V, Length );
 	}
 }
 
 bool FNameTableArchiveReader::Precache( int64 PrecacheOffset, int64 PrecacheSize )
 {
-	if (FileAr && !IsError())
+	if (!IsError())
 	{
-		return FileAr->Precache( PrecacheOffset, PrecacheSize );
+		return Reader.Precache( PrecacheOffset, PrecacheSize );
 	}
 
 	return false;
@@ -105,30 +98,20 @@ bool FNameTableArchiveReader::Precache( int64 PrecacheOffset, int64 PrecacheSize
 
 void FNameTableArchiveReader::Seek( int64 InPos )
 {
-	if (FileAr && !IsError())
+	if (!IsError())
 	{
-		FileAr->Seek( InPos );
+		Reader.Seek( InPos );
 	}
 }
 
 int64 FNameTableArchiveReader::Tell()
 {
-	if (FileAr)
-	{
-		return FileAr->Tell();
-	}
-	
-	return 0;
+	return Reader.Tell();
 }
 
 int64 FNameTableArchiveReader::TotalSize()
 {
-	if (FileAr)
-	{
-		return FileAr->TotalSize();
-	}
-
-	return 0;
+	return Reader.TotalSize();
 }
 
 FArchive& FNameTableArchiveReader::operator<<( FName& Name )
@@ -164,49 +147,41 @@ FArchive& FNameTableArchiveReader::operator<<( FName& Name )
 
 
 
-FNameTableArchiveWriter::FNameTableArchiveWriter(int32 SerializationVersion, const FString& Filename)
+FNameTableArchiveWriter::FNameTableArchiveWriter(int32 SerializationVersion)
 	: FArchive()
-	, FileAr(nullptr)
-	, FinalFilename(Filename)
-	, TempFilename(Filename + TEXT(".tmp"))
 {
 	ArIsSaving = true;
 
-	// Save to a temp file first, then move to the destination to avoid corruption
-	FileAr = IFileManager::Get().CreateFileWriter(*TempFilename, 0);
-	if (FileAr)
-	{
-		int32 MagicNumber = PACKAGE_FILE_TAG;
-		*this << MagicNumber;
+	int32 MagicNumber = PACKAGE_FILE_TAG;
+	*this << MagicNumber;
 
-		int32 VersionToWrite = SerializationVersion;
-		*this << VersionToWrite;
+	int32 VersionToWrite = SerializationVersion;
+	*this << VersionToWrite;
 
-		// Just write a 0 for the name table offset for now. This will be overwritten later when we are done serializing
-		NameOffsetLoc = Tell();
-		int64 NameOffset = 0;
-		*this << NameOffset;
-	}
-	else
-	{
-		UE_LOG(LogAssetRegistry, Error, TEXT("Failed to open file for write %s"), *Filename);
-	}
+	// Just write a 0 for the name table offset for now. This will be overwritten later when we are done serializing
+	NameOffsetLoc = Tell();
+	int64 NameOffset = 0;
+	*this << NameOffset;
 }
 
-FNameTableArchiveWriter::~FNameTableArchiveWriter()
+bool FNameTableArchiveWriter::SaveToFile(const TCHAR* Filename)
 {
-	if (FileAr)
+	int64 ActualNameOffset = Tell();
+	SerializeNameMap();
+	Seek(NameOffsetLoc);
+	*this << ActualNameOffset;
+
+	// Save to a temp file first, then move to the destination to avoid corruption
+	const FString TempFile = FString(Filename) + TEXT(".tmp");
+	if ( FFileHelper::SaveArrayToFile(Writer, *TempFile) )
 	{
-		int64 ActualNameOffset = Tell();
-		SerializeNameMap();
-		Seek(NameOffsetLoc);
-		*this << ActualNameOffset;
-
-		delete FileAr;
-		FileAr = nullptr;
-
-		IFileManager::Get().Move(*FinalFilename, *TempFilename);
+		if ( IFileManager::Get().Move(Filename, *TempFile) )
+		{
+			return true;
+		}
 	}
+
+	return false;
 }
 
 void FNameTableArchiveWriter::SerializeNameMap()
@@ -225,48 +200,27 @@ void FNameTableArchiveWriter::SerializeNameMap()
 
 void FNameTableArchiveWriter::Serialize( void* V, int64 Length )
 {
-	if (FileAr)
-	{
-		FileAr->Serialize( V, Length );
-	}
+	Writer.Serialize( V, Length );
 }
 
 bool FNameTableArchiveWriter::Precache( int64 PrecacheOffset, int64 PrecacheSize )
 {
-	if (FileAr)
-	{
-		return FileAr->Precache( PrecacheOffset, PrecacheSize );
-	}
-	
-	return false;
+	return Writer.Precache( PrecacheOffset, PrecacheSize );
 }
 
 void FNameTableArchiveWriter::Seek( int64 InPos )
 {
-	if (FileAr)
-	{
-		FileAr->Seek( InPos );
-	}
+	Writer.Seek( InPos );
 }
 
 int64 FNameTableArchiveWriter::Tell()
 {
-	if (FileAr)
-	{
-		return FileAr->Tell();
-	}
-
-	return 0.f;
+	return Writer.Tell();
 }
 
 int64 FNameTableArchiveWriter::TotalSize()
 {
-	if (FileAr)
-	{
-		return FileAr->TotalSize();
-	}
-
-	return 0.f;
+	return Writer.TotalSize();
 }
 
 FArchive& FNameTableArchiveWriter::operator<<( FName& Name )

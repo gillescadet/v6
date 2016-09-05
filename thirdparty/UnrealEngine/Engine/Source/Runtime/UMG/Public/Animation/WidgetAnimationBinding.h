@@ -22,16 +22,13 @@ struct FWidgetAnimationBinding
 	UPROPERTY()
 	FGuid AnimationGuid;
 
-	UPROPERTY()
-	bool bIsRootWidget;
-
 public:
 
 	/**
-	 * Locates a runtime object to animate from the provided tree of widgets.
-	 * @return the runtime object to animate or null if not found
+	 * Locates a runtime object to animate from the provided tree of widgets
+	 * @return the runtime object to animate or null if not found 
 	 */
-	UMG_API UObject* FindRuntimeObject(UWidgetTree& WidgetTree, UUserWidget& UserWidget) const;
+	UMG_API UObject* FindRuntimeObject(UWidgetTree& WidgetTree) const;
 
 	/**
 	 * Compares two widget animation bindings for equality.
@@ -42,7 +39,7 @@ public:
 	 */
 	friend bool operator==(const FWidgetAnimationBinding& X, const FWidgetAnimationBinding& Y)
 	{
-		return (X.WidgetName == Y.WidgetName) && (X.SlotWidgetName == Y.SlotWidgetName) && (X.AnimationGuid == Y.AnimationGuid) && (X.bIsRootWidget == Y.bIsRootWidget);
+		return (X.WidgetName == Y.WidgetName) && (X.SlotWidgetName == Y.SlotWidgetName) && (X.AnimationGuid == Y.AnimationGuid);
 	}
 
 	/**
@@ -56,7 +53,6 @@ public:
 		Ar << Binding.WidgetName;
 		Ar << Binding.SlotWidgetName;
 		Ar << Binding.AnimationGuid;
-		Ar << Binding.bIsRootWidget;
 		return Ar;
 	}
 };

@@ -160,8 +160,6 @@ extern RHI_API FCachedBoundShaderStateLink* GetCachedBoundShaderState(
 	FGeometryShaderRHIParamRef GeometryShader = NULL
 	);
 
-extern RHI_API void EmptyCachedBoundShaderStates();
-
 class RHI_API FCachedBoundShaderStateLink_Threadsafe : public FCachedBoundShaderStateLink
 {
 public:

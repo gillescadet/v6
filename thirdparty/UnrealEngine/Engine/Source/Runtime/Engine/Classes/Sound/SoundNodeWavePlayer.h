@@ -20,7 +20,7 @@ private:
 	UPROPERTY(transient)
 	USoundWave* SoundWave;
 
-	void OnSoundWaveLoaded(const FName& PackageName, UPackage * Package, EAsyncLoadingResult::Type Result, bool bAddToRoot);
+	void OnSoundWaveLoaded(const FName& PackageName, UPackage * Package, EAsyncLoadingResult::Type Result);
 
 	uint32 bAsyncLoading:1;
 public:	
@@ -48,7 +48,7 @@ public:
 	//~ End USoundNode Interface
 
 	//~ Begin USoundNodeAssetReferencer Interface
-	virtual void LoadAsset(bool bAddToRoot = false) override;
+	virtual void LoadAsset() override;
 	//~ End USoundNode Interface
 
 };

@@ -11,7 +11,7 @@
 
 #include "ObjectBase.h"
 
-class COREUOBJECT_API FGCObject;
+class FGCObject;
 
 /**
  * This nested class is used to provide a UObject interface between non
@@ -33,14 +33,14 @@ public:
 	 *
 	 * @param Object The object to add to the list
 	 */
-	COREUOBJECT_API void AddObject(FGCObject* Object);
+	void AddObject(FGCObject* Object);
 
 	/**
 	 * Removes a window from the list so it won't receive serialization events
 	 *
 	 * @param Object The object to remove from the list
 	 */
-	COREUOBJECT_API void RemoveObject(FGCObject* Object);
+	void RemoveObject(FGCObject* Object);
 
 	/**
 	 * Forwards this call to all registered objects so they can reference
@@ -49,13 +49,13 @@ public:
 	 * @param InThis This UGCObjectReferencer object.
 	 * @param Collector The collector of referenced objects.
 	 */
-	COREUOBJECT_API static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	
 	/**
 	 * Destroy function that gets called before the object is freed. This might
 	 * be as late as from the destructor.
 	 */
-	COREUOBJECT_API virtual void FinishDestroy() override;
+	virtual void FinishDestroy() override;
 };
 
 

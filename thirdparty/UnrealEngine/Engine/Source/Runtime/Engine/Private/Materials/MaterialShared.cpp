@@ -25,9 +25,6 @@
 #include "VertexFactory.h"
 #include "RendererInterface.h"
 #include "MaterialShaderQualitySettings.h"
-#include "UObject/CoreObjectVersion.h"
-#include "DecalRenderingCommon.h"
-
 DEFINE_LOG_CATEGORY(LogMaterial);
 
 FName MaterialQualityLevelNames[] = 
@@ -67,14 +64,10 @@ int32 FMaterialCompiler::Errorf(const TCHAR* Format,...)
 	return Error(ErrorText);
 }
 
-IMPLEMENT_STRUCT(ExpressionInput);
-IMPLEMENT_STRUCT(ColorMaterialInput);
-IMPLEMENT_STRUCT(ScalarMaterialInput);
-IMPLEMENT_STRUCT(VectorMaterialInput);
-IMPLEMENT_STRUCT(Vector2MaterialInput);
-IMPLEMENT_STRUCT(MaterialAttributesInput);
+//
+//	FExpressionInput::Compile
+//
 
-#if WITH_EDITOR
 int32 FExpressionInput::Compile(class FMaterialCompiler* Compiler, int32 MultiplexIndex)
 {
 	if(Expression)
@@ -113,96 +106,7 @@ void FExpressionInput::Connect( int32 InOutputIndex, class UMaterialExpression* 
 	MaskB = Output->MaskB;
 	MaskA = Output->MaskA;
 }
-#endif // WITH_EDITOR
 
-/** Native serialize for FMaterialExpression struct */
-static bool SerializeExpressionInput(FArchive& Ar, FExpressionInput& Input)
-{
-	Ar.UsingCustomVersion(FCoreObjectVersion::GUID);
-
-	if (Ar.CustomVer(FCoreObjectVersion::GUID) < FCoreObjectVersion::MaterialInputNativeSerialize)
-	{
-		return false;
-	}
-
-#if WITH_EDITORONLY_DATA
-	if (!Ar.IsCooking())
-	{
-		Ar << Input.Expression;
-	}
-#endif
-	Ar << Input.OutputIndex;
-	Ar << Input.InputName;
-	Ar << Input.Mask;
-	Ar << Input.MaskR;
-	Ar << Input.MaskG;
-	Ar << Input.MaskB;
-	Ar << Input.MaskA;
-
-	// Some expressions may have been stripped when cooking and Expression can be null after loading
-	// so make sure we keep the information about the connected node in cooked packages
-	if (FPlatformProperties::RequiresCookedData() || (Ar.IsSaving() && Ar.IsCooking()))
-	{
-#if WITH_EDITORONLY_DATA
-		if (Ar.IsSaving())
-		{
-			Input.ExpressionName = Input.Expression ? Input.Expression->GetFName() : NAME_None;
-		}
-#endif // WITH_EDITORONLY_DATA
-		Ar << Input.ExpressionName;
-	}
-
-	return true;
-}
-
-template <typename InputType>
-static bool SerializeMaterialInput(FArchive& Ar, FMaterialInput<InputType>& Input)
-{
-	if (SerializeExpressionInput(Ar, Input))
-	{
-		bool bUseConstantValue = Input.UseConstant;
-		Ar << bUseConstantValue;
-		Input.UseConstant = bUseConstantValue;
-		Ar << Input.Constant;
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-bool FExpressionInput::Serialize(FArchive& Ar)
-{
-	return SerializeExpressionInput(Ar, *this);
-}
-
-bool FColorMaterialInput::Serialize(FArchive& Ar)
-{
-	return SerializeMaterialInput<FColor>(Ar, *this);
-}
-
-bool FScalarMaterialInput::Serialize(FArchive& Ar)
-{
-	return SerializeMaterialInput<float>(Ar, *this);
-}
-
-bool FVectorMaterialInput::Serialize(FArchive& Ar)
-{
-	return SerializeMaterialInput<FVector>(Ar, *this);
-}
-
-bool FVector2MaterialInput::Serialize(FArchive& Ar)
-{
-	return SerializeMaterialInput<FVector2D>(Ar, *this);
-}
-
-bool FMaterialAttributesInput::Serialize(FArchive& Ar)
-{
-	return SerializeExpressionInput(Ar, *this);
-}
-
-#if WITH_EDITOR
 int32 FColorMaterialInput::CompileWithDefault(class FMaterialCompiler* Compiler, EMaterialProperty Property)
 {
 	if (UseConstant)
@@ -302,7 +206,6 @@ int32 FMaterialAttributesInput::CompileWithDefault(class FMaterialCompiler* Comp
 
 	return Ret;
 }
-#endif  // WITH_EDITOR
 
 EMaterialValueType GetMaterialPropertyType(EMaterialProperty Property)
 {
@@ -325,7 +228,7 @@ EMaterialValueType GetMaterialPropertyType(EMaterialProperty Property)
 	case MP_CustomData0: return MCT_Float;
 	case MP_CustomData1: return MCT_Float;
 	case MP_AmbientOcclusion: return MCT_Float;
-	case MP_Refraction: return MCT_Float2;
+	case MP_Refraction: return MCT_Float;
 	case MP_MaterialAttributes: return MCT_MaterialAttributes;
 	case MP_PixelDepthOffset: return MCT_Float;
 	};
@@ -365,44 +268,30 @@ void FMaterialCompilationOutput::Serialize(FArchive& Ar)
 	Ar << bNeedsSceneTextures;
 	Ar << bUsesEyeAdaptation;
 	Ar << bModifiesMeshPosition;
-	Ar << bUsesWorldPositionOffset;
 	Ar << bNeedsGBuffer;
 	Ar << bUsesGlobalDistanceField;
-	Ar << bUsesPixelDepthOffset;
 }
 
 void FMaterial::GetShaderMapId(EShaderPlatform Platform, FMaterialShaderMapId& OutId) const
 { 
-	if (bLoadedCookedShaderMapId)
-	{
-		OutId = CookedShaderMapId;
-	}
-	else
-	{
-		TArray<FShaderType*> ShaderTypes;
-		TArray<FVertexFactoryType*> VFTypes;
-		TArray<const FShaderPipelineType*> ShaderPipelineTypes;
+	TArray<FShaderType*> ShaderTypes;
+	TArray<FVertexFactoryType*> VFTypes;
+	TArray<const FShaderPipelineType*> ShaderPipelineTypes;
 
-		GetDependentShaderAndVFTypes(Platform, ShaderTypes, ShaderPipelineTypes, VFTypes);
+	GetDependentShaderAndVFTypes(Platform, ShaderTypes, ShaderPipelineTypes, VFTypes);
 
-		OutId.Usage = GetShaderMapUsage();
-		OutId.BaseMaterialId = GetMaterialId();
-		OutId.QualityLevel = GetQualityLevelForShaderMapId();
-		OutId.FeatureLevel = GetFeatureLevel();
-		OutId.SetShaderDependencies(ShaderTypes, ShaderPipelineTypes, VFTypes);
-		GetReferencedTexturesHash(Platform, OutId.TextureReferencesHash);
-	}
+	OutId.Usage = GetShaderMapUsage();
+	OutId.BaseMaterialId = GetMaterialId();
+	OutId.QualityLevel = GetQualityLevelForShaderMapId();
+	OutId.FeatureLevel = GetFeatureLevel();
+	OutId.SetShaderDependencies(ShaderTypes, ShaderPipelineTypes, VFTypes);
+	GetReferencedTexturesHash(Platform, OutId.TextureReferencesHash);
 }
 
 EMaterialTessellationMode FMaterial::GetTessellationMode() const 
 { 
 	return MTM_NoTessellation; 
-}
-
-ERefractionMode FMaterial::GetRefractionMode() const 
-{ 
-	return RM_IndexOfRefraction; 
-}
+};
 
 void FMaterial::GetShaderMapIDsWithUnfinishedCompilation(TArray<int32>& ShaderMapIds)
 {
@@ -417,7 +306,7 @@ void FMaterial::GetShaderMapIDsWithUnfinishedCompilation(TArray<int32>& ShaderMa
 	}
 }
 
-bool FMaterial::IsCompilationFinished() const
+bool FMaterial::IsCompilationFinished()
 {
 	// Build an array of the shader map Id's are not finished compiling.
 	if (GameThreadShaderMap && !GameThreadShaderMap->IsCompilationFinalized())
@@ -431,7 +320,7 @@ bool FMaterial::IsCompilationFinished() const
 	return true;
 }
 
-bool FMaterial::HasValidGameThreadShaderMap() const
+bool FMaterial::HasValidGameThreadShaderMap()
 {
 	if(!GameThreadShaderMap || !GameThreadShaderMap->IsCompilationFinalized())
 	{
@@ -573,8 +462,7 @@ bool FMaterial::NeedsGBuffer() const
 {
 	check(IsInParallelRenderingThread());
 
-	if (IsOpenGLPlatform(GMaxRHIShaderPlatform) // @todo: TTP #341211
-		&& !IsMobilePlatform(GMaxRHIShaderPlatform)) 
+	if (IsOpenGLPlatform(GMaxRHIShaderPlatform)) // @todo: TTP #341211
 	{
 		return true;
 	}
@@ -605,11 +493,6 @@ bool FMaterial::UsesGlobalDistanceField_GameThread() const
 	return GameThreadShaderMap.GetReference() ? GameThreadShaderMap->UsesGlobalDistanceField() : false; 
 }
 
-bool FMaterial::UsesWorldPositionOffset_GameThread() const 
-{ 
-	return GameThreadShaderMap.GetReference() ? GameThreadShaderMap->UsesWorldPositionOffset() : false; 
-}
-
 bool FMaterial::MaterialModifiesMeshPosition_RenderThread() const
 { 
 	check(IsInParallelRenderingThread());
@@ -633,12 +516,6 @@ bool FMaterial::MaterialMayModifyMeshPosition() const
 	// This function is only intended for use in deciding whether or not shader permutations are required.
 	return HasVertexPositionOffsetConnected() || HasPixelDepthOffsetConnected() || HasMaterialAttributesConnected() || GetTessellationMode() != MTM_NoTessellation
 		|| (GetMaterialDomain() == MD_DeferredDecal && GetDecalBlendMode() == DBM_Volumetric_DistanceFunction);
-}
-
-bool FMaterial::MaterialUsesPixelDepthOffset() const
-{
-	check(IsInParallelRenderingThread());
-	return RenderingThreadShaderMap ? RenderingThreadShaderMap->UsesPixelDepthOffset() : false;
 }
 
 FMaterialShaderMap* FMaterial::GetRenderingThreadShaderMap() const 
@@ -765,14 +642,6 @@ void FMaterial::SerializeInlineShaderMap(FArchive& Ar)
 	}
 }
 
-void FMaterial::RegisterInlineShaderMap()
-{
-	if (GameThreadShaderMap)
-	{
-		GameThreadShaderMap->RegisterSerializedShaders();
-	}
-}
-
 void FMaterialResource::LegacySerialize(FArchive& Ar)
 {
 	FMaterial::LegacySerialize(Ar);
@@ -812,8 +681,13 @@ void FMaterial::ReleaseShaderMap()
 	}
 }
 
+bool IsTranslucentBlendMode(EBlendMode BlendMode)
+{
+	return BlendMode != BLEND_Opaque && BlendMode != BLEND_Masked;
+}
+
 int32 FMaterialResource::GetMaterialDomain() const { return Material->MaterialDomain; }
-bool FMaterialResource::IsTangentSpaceNormal() const { return Material->bTangentSpaceNormal || (!Material->Normal.IsConnected() && !Material->bUseMaterialAttributes); }
+bool FMaterialResource::IsTangentSpaceNormal() const { return Material->bTangentSpaceNormal || (Material->Normal.Expression == nullptr && !Material->bUseMaterialAttributes); }
 bool FMaterialResource::ShouldInjectEmissiveIntoLPV() const { return Material->bUseEmissiveForDynamicAreaLighting; }
 bool FMaterialResource::ShouldBlockGI() const { return Material->bBlockGI; }
 bool FMaterialResource::ShouldGenerateSphericalParticleNormals() const { return Material->bGenerateSphericalParticleNormals; }
@@ -824,11 +698,11 @@ bool FMaterialResource::IsWireframe() const { return Material->Wireframe; }
 bool FMaterialResource::IsUIMaterial() const { return Material->MaterialDomain == MD_UI; }
 bool FMaterialResource::IsLightFunction() const { return Material->MaterialDomain == MD_LightFunction; }
 bool FMaterialResource::IsUsedWithEditorCompositing() const { return Material->bUsedWithEditorCompositing; }
-bool FMaterialResource::IsDeferredDecal() const { return Material->MaterialDomain == MD_DeferredDecal; }
+bool FMaterialResource::IsUsedWithDeferredDecal() const { return Material->MaterialDomain == MD_DeferredDecal; }
 bool FMaterialResource::IsSpecialEngineMaterial() const { return Material->bUsedAsSpecialEngineMaterial; }
-bool FMaterialResource::HasVertexPositionOffsetConnected() const { return HasMaterialAttributesConnected() || (!Material->bUseMaterialAttributes && Material->WorldPositionOffset.IsConnected()); }
-bool FMaterialResource::HasPixelDepthOffsetConnected() const { return HasMaterialAttributesConnected() || (!Material->bUseMaterialAttributes && Material->PixelDepthOffset.IsConnected()); }
-bool FMaterialResource::HasMaterialAttributesConnected() const { return Material->bUseMaterialAttributes && Material->MaterialAttributes.IsConnected(); }
+bool FMaterialResource::HasVertexPositionOffsetConnected() const { return !Material->bUseMaterialAttributes && Material->WorldPositionOffset.Expression != nullptr; }
+bool FMaterialResource::HasPixelDepthOffsetConnected() const { return !Material->bUseMaterialAttributes && Material->PixelDepthOffset.Expression != nullptr; }
+bool FMaterialResource::HasMaterialAttributesConnected() const { return Material->bUseMaterialAttributes && Material->MaterialAttributes.Expression != nullptr; }
 FString FMaterialResource::GetBaseMaterialPathName() const { return Material->GetPathName(); }
 
 bool FMaterialResource::IsUsedWithSkeletalMesh() const
@@ -838,7 +712,7 @@ bool FMaterialResource::IsUsedWithSkeletalMesh() const
 
 bool FMaterialResource::IsUsedWithLandscape() const
 {
-	return false;
+	return Material->bUsedWithLandscape;
 }
 
 bool FMaterialResource::IsUsedWithParticleSystem() const
@@ -906,11 +780,6 @@ bool FMaterialResource::IsSeparateTranslucencyEnabled() const
 	return Material->bEnableSeparateTranslucency && !IsUIMaterial();
 }
 
-bool FMaterialResource::IsMobileSeparateTranslucencyEnabled() const
-{
-	return Material->bEnableMobileSeparateTranslucency && !IsUIMaterial();
-}
-
 bool FMaterialResource::IsAdaptiveTessellationEnabled() const
 {
 	return Material->bEnableAdaptiveTessellation;
@@ -921,19 +790,9 @@ bool FMaterialResource::IsFullyRough() const
 	return Material->bFullyRough;
 }
 
-bool FMaterialResource::IsUsingFullPrecision() const
-{
-	return Material->bUseFullPrecision;
-}
-
 bool FMaterialResource::IsUsingHQForwardReflections() const
 {
 	return Material->bUseHQForwardReflections;
-}
-
-bool FMaterialResource::IsUsingPlanarForwardReflections() const
-{
-	return Material->bUsePlanarForwardReflections;
 }
 
 bool FMaterialResource::OutputsVelocityOnBasePass() const
@@ -975,11 +834,6 @@ EBlendMode FMaterialResource::GetBlendMode() const
 	return MaterialInstance ? MaterialInstance->GetBlendMode() : Material->GetBlendMode();
 }
 
-ERefractionMode FMaterialResource::GetRefractionMode() const
-{
-	return Material->RefractionMode;
-}
-
 EMaterialShadingModel FMaterialResource::GetShadingModel() const 
 {
 	return MaterialInstance ? MaterialInstance->GetShadingModel() : Material->GetShadingModel();
@@ -1003,11 +857,6 @@ bool FMaterialResource::IsMasked() const
 bool FMaterialResource::IsDitherMasked() const 
 {
 	return Material->DitherOpacityMask;
-}
-
-bool FMaterialResource::AllowNegativeEmissiveColor() const 
-{
-	return Material->bAllowNegativeEmissiveColor;
 }
 
 bool FMaterialResource::IsDistorted() const { return Material->bUsesDistortion && IsTranslucentBlendMode(GetBlendMode()); }
@@ -1036,7 +885,7 @@ uint32 FMaterialResource::GetMaterialDecalResponse() const
 
 bool FMaterialResource::HasNormalConnected() const
 {
-	return HasMaterialAttributesConnected() || Material->HasNormalConnected();
+	return Material->HasNormalConnected();
 }
 
 bool FMaterialResource::RequiresSynchronousCompilation() const
@@ -1054,14 +903,9 @@ int32 FMaterialResource::GetNumCustomizedUVs() const
 	return Material->NumCustomizedUVs;
 }
 
-int32 FMaterialResource::GetBlendableLocation() const
-{
-	return Material->BlendableLocation;
-}
-
 void FMaterialResource::NotifyCompilationFinished()
 {
-	UMaterial::NotifyCompilationFinished(MaterialInstance ? (UMaterialInterface*)MaterialInstance : (UMaterialInterface*)Material);
+	Material->NotifyCompilationFinished(this);
 }
 
 /**
@@ -1285,10 +1129,6 @@ FMaterial::~FMaterial()
 	}
 
 	FMaterialShaderMap::RemovePendingMaterial(this);
-
-	// If the material becomes invalid, then the debug view material will also be invalid
-	void ClearAllDebugViewMaterials();
-	ClearAllDebugViewMaterials();
 }
 
 // could be more to a more central DBuffer file
@@ -1383,11 +1223,6 @@ void FMaterial::SetupMaterialEnvironment(
 			}
 			break;
 		}
-	case BLEND_AlphaComposite: 
-		{
-			// Fall through the case, blend mode will reuse MATERIALBLENDING_TRANSLUCENT
-			OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_ALPHACOMPOSITE"), TEXT("1"));
-		}
 	case BLEND_Translucent: OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_TRANSLUCENT"),TEXT("1")); break;
 	case BLEND_Additive: OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_ADDITIVE"),TEXT("1")); break;
 	case BLEND_Modulate: OutEnvironment.SetDefine(TEXT("MATERIALBLENDING_MODULATE"),TEXT("1")); break;
@@ -1419,35 +1254,19 @@ void FMaterial::SetupMaterialEnvironment(
 		OutEnvironment.SetDefine(TEXT("MATERIALDECALRESPONSEMASK"), MaterialDecalResponseMask);
 	}
 
-	switch(GetRefractionMode())
-	{
-	case RM_IndexOfRefraction: OutEnvironment.SetDefine(TEXT("REFRACTION_USE_INDEX_OF_REFRACTION"),TEXT("1")); break;
-	case RM_PixelNormalOffset: OutEnvironment.SetDefine(TEXT("REFRACTION_USE_PIXEL_NORMAL_OFFSET"),TEXT("1")); break;
-	default: 
-		UE_LOG(LogMaterial, Warning, TEXT("Unknown material refraction mode: %u  Setting to RM_IndexOfRefraction"),(int32)GetRefractionMode());
-		OutEnvironment.SetDefine(TEXT("REFRACTION_USE_INDEX_OF_REFRACTION"),TEXT("1"));
-	}
-
-	OutEnvironment.SetDefine(TEXT("USE_DITHERED_LOD_TRANSITION_FROM_MATERIAL"), IsDitheredLODTransition());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_TWOSIDED"), IsTwoSided());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_TANGENTSPACENORMAL"), IsTangentSpaceNormal());
-	OutEnvironment.SetDefine(TEXT("GENERATE_SPHERICAL_PARTICLE_NORMALS"),ShouldGenerateSphericalParticleNormals());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_USES_SCENE_COLOR_COPY"), RequiresSceneColorCopy_GameThread());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_FULLY_ROUGH"), IsFullyRough());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_HQ_FORWARD_REFLECTIONS"), IsUsingHQForwardReflections());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_PLANAR_FORWARD_REFLECTIONS"), IsUsingPlanarForwardReflections());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_NONMETAL"), IsNonmetal());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_USE_LM_DIRECTIONALITY"), UseLmDirectionality());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_INJECT_EMISSIVE_INTO_LPV"), ShouldInjectEmissiveIntoLPV());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_SSR"), ShouldDoSSR());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_BLOCK_GI"), ShouldBlockGI());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_DITHER_OPACITY_MASK"), IsDitherMasked());
-	OutEnvironment.SetDefine(TEXT("MATERIAL_ALLOW_NEGATIVE_EMISSIVECOLOR"), AllowNegativeEmissiveColor());
-
-	if (IsUsingFullPrecision())
-	{
-		OutEnvironment.CompilerFlags.Add(CFLAG_UseFullPrecisionInPS);
-	}
+	OutEnvironment.SetDefine(TEXT("USE_DITHERED_LOD_TRANSITION_FROM_MATERIAL"), IsDitheredLODTransition() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_TWOSIDED"), IsTwoSided() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_TANGENTSPACENORMAL"), IsTangentSpaceNormal() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("GENERATE_SPHERICAL_PARTICLE_NORMALS"),ShouldGenerateSphericalParticleNormals() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_USES_SCENE_COLOR_COPY"), RequiresSceneColorCopy_GameThread() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_FULLY_ROUGH"), IsFullyRough() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_HQ_FORWARD_REFLECTIONS"), IsUsingHQForwardReflections() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_NONMETAL"), IsNonmetal() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_USE_LM_DIRECTIONALITY"), UseLmDirectionality() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_INJECT_EMISSIVE_INTO_LPV"), ShouldInjectEmissiveIntoLPV() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_SSR"), ShouldDoSSR() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_BLOCK_GI"), ShouldBlockGI() ? TEXT("1") : TEXT("0"));
+	OutEnvironment.SetDefine(TEXT("MATERIAL_DITHER_OPACITY_MASK"), IsDitherMasked() ? TEXT("1") : TEXT("0"));
 
 	{
 		auto DecalBlendMode = (EDecalBlendMode)GetDecalBlendMode();
@@ -1457,30 +1276,6 @@ void FMaterial::SetupMaterialEnvironment(
 		OutEnvironment.SetDefine(TEXT("MATERIAL_DBUFFERA"), (bDBufferMask & 0x1) != 0);
 		OutEnvironment.SetDefine(TEXT("MATERIAL_DBUFFERB"), (bDBufferMask & 0x2) != 0);
 		OutEnvironment.SetDefine(TEXT("MATERIAL_DBUFFERC"), (bDBufferMask & 0x4) != 0);
-	}
-
-	if(GetMaterialDomain() == MD_DeferredDecal)
-	{
-		bool bHasNormalConnected = HasNormalConnected();
-		EDecalBlendMode DecalBlendMode = FDecalRenderingCommon::ComputeFinalDecalBlendMode(Platform, (EDecalBlendMode)GetDecalBlendMode(), bHasNormalConnected);
-		FDecalRenderingCommon::ERenderTargetMode RenderTargetMode = FDecalRenderingCommon::ComputeRenderTargetMode(Platform, DecalBlendMode, bHasNormalConnected);
-		uint32 RenderTargetCount = FDecalRenderingCommon::ComputeRenderTargetCount(Platform, RenderTargetMode);
-
-		uint32 BindTarget1 = (RenderTargetMode == FDecalRenderingCommon::RTM_SceneColorAndGBufferNoNormal || RenderTargetMode == FDecalRenderingCommon::RTM_SceneColorAndGBufferDepthWriteNoNormal) ? 0 : 1;
-		OutEnvironment.SetDefine(TEXT("BIND_RENDERTARGET1"), BindTarget1);
-
-		// avoid using the index directly, better use DECALBLENDMODEID_VOLUMETRIC, DECALBLENDMODEID_STAIN, ...
-		OutEnvironment.SetDefine(TEXT("DECAL_BLEND_MODE"), (uint32)DecalBlendMode);
-		OutEnvironment.SetDefine(TEXT("DECAL_PROJECTION"), 1);
-		OutEnvironment.SetDefine(TEXT("DECAL_RENDERTARGET_COUNT"), RenderTargetCount);
-		OutEnvironment.SetDefine(TEXT("DECAL_RENDERSTAGE"), (uint32)FDecalRenderingCommon::ComputeRenderStage(Platform, DecalBlendMode));
-
-		// to compare against DECAL_BLEND_MODE, we can expose more if needed
-		OutEnvironment.SetDefine(TEXT("DECALBLENDMODEID_VOLUMETRIC"), (uint32)DBM_Volumetric_DistanceFunction);
-		OutEnvironment.SetDefine(TEXT("DECALBLENDMODEID_STAIN"), (uint32)DBM_Stain);
-		OutEnvironment.SetDefine(TEXT("DECALBLENDMODEID_NORMAL"), (uint32)DBM_Normal);
-		OutEnvironment.SetDefine(TEXT("DECALBLENDMODEID_EMISSIVE"), (uint32)DBM_Emissive);
-		OutEnvironment.SetDefine(TEXT("DECALBLENDMODEID_TRANSLUCENT"), (uint32)DBM_Translucent);
 	}
 
 	switch(GetShadingModel())
@@ -1523,8 +1318,10 @@ void FMaterial::SetupMaterialEnvironment(
 	}
 
 	{	
-		static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.StencilForLODDither"));
-		OutEnvironment.SetDefine(TEXT("USE_STENCIL_LOD_DITHER_DEFAULT"), CVar->GetValueOnAnyThread() != 0 ? 1 : 0);
+		// Note: Should be kept in sync with DDM_AllOccluders enum entry in DepthRendering.h.
+		const int32 EarlyZMode_DDM_AllOccluders = 2; 
+		static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.EarlyZPass"));
+		OutEnvironment.SetDefine(TEXT("USE_STENCIL_LOD_DITHER_DEFAULT"), ((CVar ? CVar->GetInt() : 0) == EarlyZMode_DDM_AllOccluders) ? 1 : 0);
 	}
 }
 
@@ -1584,15 +1381,6 @@ bool FMaterial::CacheShaders(const FMaterialShaderMapId& ShaderMapId, EShaderPla
 		}
 	}
 
-	// Log which shader, pipeline or factory is missing when about to have a fatal error
-	const bool bLogShaderMapFailInfo = IsSpecialEngineMaterial() && (bContainsInlineShaders || FPlatformProperties::RequiresCookedData());
-
-	bool bAssumeShaderMapIsComplete = false;
-#if UE_BUILD_SHIPPING || UE_BUILD_TEST
-	bAssumeShaderMapIsComplete = (bContainsInlineShaders || FPlatformProperties::RequiresCookedData()) 
-		&& !bLogShaderMapFailInfo; // if it is the special engine material, we will check it
-#endif
-
 	if (GameThreadShaderMap && GameThreadShaderMap->TryToAddToExistingCompilationTask(this))
 	{
 		OutstandingCompileShaderMapIds.Add(GameThreadShaderMap->GetCompilingId());
@@ -1600,7 +1388,7 @@ bool FMaterial::CacheShaders(const FMaterialShaderMapId& ShaderMapId, EShaderPla
 		GameThreadShaderMap = nullptr;
 		bSucceeded = true;
 	}
-	else if (!GameThreadShaderMap || !(bAssumeShaderMapIsComplete || GameThreadShaderMap->IsComplete(this, !bLogShaderMapFailInfo)))
+	else if (!GameThreadShaderMap || !GameThreadShaderMap->IsComplete(this, true))
 	{
 		if (bContainsInlineShaders || FPlatformProperties::RequiresCookedData())
 		{
@@ -1701,7 +1489,7 @@ bool FMaterial::BeginCompileShaderMap(
 		const FString MaterialShaderCode = MaterialTranslator.GetMaterialShaderCode();
 		const bool bSynchronousCompile = RequiresSynchronousCompilation() || !GShaderCompilingManager->AllowAsynchronousShaderCompiling();
 
-		MaterialEnvironment->IncludeFileNameToContentsMap.Add(TEXT("Material.usf"), StringToArray<ANSICHAR>(*MaterialShaderCode, MaterialShaderCode.Len() + 1));
+		MaterialEnvironment->IncludeFileNameToContentsMap.Add(TEXT("Material.usf"), MaterialShaderCode);
 
 		// Compile the shaders for the material.
 		NewShaderMap->Compile(this, ShaderMapId, MaterialEnvironment, NewCompilationOutput, Platform, bSynchronousCompile, bApplyCompletedShaderMapForRendering);
@@ -1802,7 +1590,7 @@ FShaderPipeline* FMaterial::GetShaderPipeline(class FShaderPipelineType* ShaderP
 		for (auto* ShaderType : ShaderPipelineType->GetStages())
 		{
 			FShader* Shader = MeshShaderMap ? MeshShaderMap->GetShader((FShaderType*)ShaderType) : nullptr;
-			if (!Shader && ShaderType->GetMeshMaterialShaderType())
+			if (Shader && ShaderType->GetMeshMaterialShaderType())
 			{
 				bool bMaterialShouldCache = ShouldCache(ShaderPlatform, ShaderType->GetMeshMaterialShaderType(), VertexFactoryType);
 				bool bVFShouldCache = VertexFactoryType->ShouldCache(ShaderPlatform, this, ShaderType->GetMeshMaterialShaderType());
@@ -1810,6 +1598,11 @@ FShaderPipeline* FMaterial::GetShaderPipeline(class FShaderPipelineType* ShaderP
 
 				Message += FString::Printf(TEXT("%s Freq %d, ShouldCache: Mat=%u, VF=%u, Shader=%u\n"),
 					ShaderType->GetName(), (int32)ShaderType->GetFrequency(), bMaterialShouldCache, bVFShouldCache, bShaderShouldCache);
+			}
+			else
+			{
+				Message += FString::Printf(TEXT("%s Freq %d not Found\n"),
+					ShaderType->GetName(), (int32)ShaderType->GetFrequency());
 			}
 		}
 
@@ -1898,23 +1691,23 @@ void FMaterialRenderProxy::CacheUniformExpressions()
 
 	TArray<FMaterialResource*> ResourcesToCache;
 
-	UMaterialInterface::IterateOverActiveFeatureLevels([&](ERHIFeatureLevel::Type InFeatureLevel)
+	UMaterialInterface::IterateOverActiveFeatureLevels([&](ERHIFeatureLevel::Type FeatureLevel)
 	{
-		const FMaterial* MaterialNoFallback = GetMaterialNoFallback(InFeatureLevel);
+		const FMaterial* MaterialNoFallback = GetMaterialNoFallback(FeatureLevel);
 
 		if (MaterialNoFallback && MaterialNoFallback->GetRenderingThreadShaderMap())
 		{
-			const FMaterial* Material = GetMaterial(InFeatureLevel);
+			const FMaterial* Material = GetMaterial(FeatureLevel);
 
 			// Do not cache uniform expressions for fallback materials. This step could
 			// be skipped where we don't allow for asynchronous shader compiling.
-			bool bIsFallbackMaterial = (Material != MaterialNoFallback);
+			bool bIsFallbackMaterial = (Material != GetMaterialNoFallback(FeatureLevel));
 
 			if (!bIsFallbackMaterial)
 			{
-				FMaterialRenderContext MaterialRenderContext(this , *Material, nullptr);
+				FMaterialRenderContext MaterialRenderContext(this, *Material, nullptr);
 				MaterialRenderContext.bShowSelection = GIsEditor;
-				EvaluateUniformExpressions(UniformExpressionCache[(int32)InFeatureLevel], MaterialRenderContext);
+				EvaluateUniformExpressions(UniformExpressionCache[(int32)FeatureLevel], MaterialRenderContext);
 			}
 			else
 			{
@@ -1978,8 +1771,7 @@ FMaterialRenderProxy::FMaterialRenderProxy(bool bInSelected, bool bInHovered)
 
 FMaterialRenderProxy::~FMaterialRenderProxy()
 {
-	// Removed for now to work around UE-31636. Re-enable when the underlying bug is fixed!
-	//check(!IsReferencedInDrawList());
+	check(!IsReferencedInDrawList());
 
 	if(IsInitialized())
 	{
@@ -2099,9 +1891,11 @@ FString FMaterialResource::GetMaterialUsageDescription() const
 
 	// this changed from ",SpecialEngine, TwoSided" to ",SpecialEngine=1, TwoSided=1, TSNormal=0, ..." to be more readable
 	BaseDescription += FString::Printf(
-		TEXT("SpecialEngine=%d, TwoSided=%d, TSNormal=%d, Masked=%d, Distorted=%d, WritesEveryPixel=%d, ModifiesMeshPosition=%d")
+		TEXT("SpecialEngine=%d, TwoSided=%d, TSNormal=%d, InjectEmissiveIntoLPV=%d, Masked=%d, Distorted=%d")
+		TEXT(", BlockGI=%d")
 		TEXT(", Usage={"),
-		(int32)IsSpecialEngineMaterial(), (int32)IsTwoSided(), (int32)IsTangentSpaceNormal(), (int32)IsMasked(), (int32)IsDistorted(), (int32)WritesEveryPixel(), (int32)MaterialMayModifyMeshPosition()
+		(int32)IsSpecialEngineMaterial(), (int32)IsTwoSided(), (int32)IsTangentSpaceNormal(), (int32)ShouldInjectEmissiveIntoLPV(), (int32)IsMasked(), (int32)IsDistorted()
+		, (int32)ShouldBlockGI()
 		);
 
 	bool bFirst = true;
@@ -2257,10 +2051,13 @@ void FMaterial::GetReferencedTexturesHash(EShaderPlatform Platform, FSHAHash& Ou
 		HashState.UpdateWithString(*TextureName, TextureName.Len());
 	}
 
-	UMaterialShaderQualitySettings* MaterialShaderQualitySettings = UMaterialShaderQualitySettings::Get();
-	if(MaterialShaderQualitySettings->HasPlatformQualitySettings(Platform, QualityLevel))
+	// TODO:
+	// Appending the quality settings for this platform,
+	// this is being done here to avoid bumping EUnrealEngineObjectUE4Version for 4.10
+	// must be fixed for 4.11.
+	if (bHasQualityLevelUsage)
 	{
-		MaterialShaderQualitySettings->GetShaderPlatformQualitySettings(Platform)->AppendToHashState(QualityLevel, HashState);
+		UMaterialShaderQualitySettings::Get()->GetShaderPlatformQualitySettings(Platform)->AppendToHashState(GetQualityLevelForShaderMapId(), HashState);
 	}
 
 	HashState.Final();
@@ -2380,12 +2177,6 @@ void FMaterialUpdateContext::AddMaterialInstance(UMaterialInstance* Instance)
 	UpdatedMaterialInterfaces.Add(Instance);
 }
 
-void FMaterialUpdateContext::AddMaterialInterface(UMaterialInterface* Interface)
-{
-	UpdatedMaterials.Add(Interface->GetMaterial());
-	UpdatedMaterialInterfaces.Add(Interface);
-}
-
 FMaterialUpdateContext::~FMaterialUpdateContext()
 {
 	double StartTime = FPlatformTime::Seconds();
@@ -2461,23 +2252,17 @@ FMaterialUpdateContext::~FMaterialUpdateContext()
 
 	// Material instances that use this base material must have their uniform expressions recached 
 	// However, some material instances that use this base material may also depend on another MI with static parameters
-	// So we must traverse upwards and ensure all parent instances that need updating are recached first.
+	// So we must update the MI's with static parameters first, and do other MI's in a second pass
 	int32 NumInstancesWithStaticPermutations = 0;
-
-	TFunction<void(UMaterialInstance* MI)> UpdateInstance = [&](UMaterialInstance* MI)
+	for (int32 MIIndex = 0; MIIndex < InstancesToUpdate.Num(); MIIndex++)
 	{
-		if (MI->Parent && InstancesToUpdate.Contains(MI->Parent))
-		{
-			if (UMaterialInstance* ParentInst = Cast<UMaterialInstance>(MI->Parent))
-			{
-				UpdateInstance(ParentInst);
-			}
-		}
+		UMaterialInstance* CurrentMaterialInstance = InstancesToUpdate[MIIndex];
 
-		MI->InitStaticPermutation();//bHasStaticPermutation can change.
-		if (MI->bHasStaticPermutationResource)
+		if (CurrentMaterialInstance->bHasStaticPermutationResource)
 		{
 			NumInstancesWithStaticPermutations++;
+			CurrentMaterialInstance->InitStaticPermutation();
+
 			// Collect FMaterial's that have been recompiled
 			if (bUpdateStaticDrawLists)
 			{
@@ -2485,18 +2270,23 @@ FMaterialUpdateContext::~FMaterialUpdateContext()
 				{
 					for (int32 FeatureLevelIndex = 0; FeatureLevelIndex < ERHIFeatureLevel::Num; FeatureLevelIndex++)
 					{
-						FMaterialResource* CurrentResource = MI->StaticPermutationMaterialResources[QualityLevelIndex][FeatureLevelIndex];
+						FMaterialResource* CurrentResource = CurrentMaterialInstance->StaticPermutationMaterialResources[QualityLevelIndex][FeatureLevelIndex];
 						MaterialResourcesToUpdate.Add(CurrentResource);
 					}
 				}
 			}
 		}
-		InstancesToUpdate.Remove(MI);
-	};
+	}
 
-	while (InstancesToUpdate.Num() > 0)
+	// Recache uniform expressions on dependent MI's without static parameters
+	for (int32 MIIndex = 0; MIIndex < InstancesToUpdate.Num(); MIIndex++)
 	{
-		UpdateInstance(InstancesToUpdate.Last());
+		UMaterialInstance* CurrentMaterialInstance = InstancesToUpdate[MIIndex];
+
+		if (!CurrentMaterialInstance->bHasStaticPermutationResource)
+		{
+			CurrentMaterialInstance->InitStaticPermutation();
+		}
 	}
 
 	if (bUpdateStaticDrawLists)
@@ -2604,18 +2394,7 @@ int32 GetDefaultExpressionForMaterialProperty(FMaterialCompiler* Compiler, EMate
 		case MP_DiffuseColor:			return Compiler->Constant3(0, 0, 0);
 		case MP_SpecularColor:			return Compiler->Constant3(0, 0, 0);
 		case MP_BaseColor:				return Compiler->Constant3(0, 0, 0);
-		case MP_SubsurfaceColor:		
-		{
-			// Two-sided foliage should default to black
-			if (Compiler->GetMaterialShadingModel() == MSM_TwoSidedFoliage)
-			{
-				return Compiler->Constant3(0, 0, 0);
-			}
-			else
-			{
-				return Compiler->Constant3(1, 1, 1);
-			}
-		}
+		case MP_SubsurfaceColor:		return Compiler->Constant3(1, 1, 1);
 		case MP_Normal:					return Compiler->Constant3(0, 0, 1);
 		case MP_WorldPositionOffset:	return Compiler->Constant3(0, 0, 0);
 		case MP_WorldDisplacement:		return Compiler->Constant3(0, 0, 0);
@@ -2683,7 +2462,6 @@ bool UMaterialInterface::IsPropertyActive(EMaterialProperty InProperty)const
 	return false;
 }
 
-#if WITH_EDITOR
 int32 UMaterialInterface::CompilePropertyEx( class FMaterialCompiler* Compiler, EMaterialProperty Property )
 {
 	return INDEX_NONE;
@@ -2700,7 +2478,6 @@ int32 UMaterialInterface::CompileProperty(FMaterialCompiler* Compiler, EMaterial
 		return GetDefaultExpressionForMaterialProperty(Compiler, Property);
 	}
 }
-#endif // WITH_EDITOR
 
 void UMaterialInterface::AnalyzeMaterialProperty(EMaterialProperty InProperty, int32& OutNumTextureCoordinates, bool& bOutRequiresVertexData)
 {
@@ -2747,7 +2524,6 @@ void UMaterialInterface::AnalyzeMaterialProperty(EMaterialProperty InProperty, i
 #endif
 }
 
-#if WITH_EDITORONLY_DATA
 //Reorder the output index for any FExpressionInput connected to a UMaterialExpressionBreakMaterialAttributes.
 //If the order of pins in the material results or the make/break attributes nodes changes 
 //then the OutputIndex stored in any FExpressionInput coming from UMaterialExpressionBreakMaterialAttributes will be wrong and needs reordering.
@@ -2782,7 +2558,7 @@ void DoMaterialAttributeReorder(FExpressionInput* Input, int32 UE4Ver)
 		}
 	}
 }
-#endif // WITH_EDITORONLY_DATA
+
 //////////////////////////////////////////////////////////////////////////
 
 FMaterialInstanceBasePropertyOverrides::FMaterialInstanceBasePropertyOverrides()

@@ -20,7 +20,7 @@ public class UnrealAudioXAudio2 : ModuleRules
 		
 		PublicDependencyModuleNames.Add("UnrealAudio");
 
-		AddEngineThirdPartyPrivateStaticDependencies(Target, 
+		AddThirdPartyPrivateStaticDependencies(Target, 
 			"DX11Audio"
 		);
 

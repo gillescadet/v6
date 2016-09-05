@@ -3,16 +3,10 @@
 
 #pragma once
 
-// Forward declarations
-class ULandscapeComponent;
 class ULandscapeLayerInfoObject;
-class ULandscapeInfo;
-class ALandscape;
-class ALandscapeProxy;
 class AInstancedFoliageActor;
 
 #include "AI/Navigation/NavigationTypes.h"
-#include "Components/PrimitiveComponent.h"
 #include "LandscapeHeightfieldCollisionComponent.generated.h"
 
 #if WITH_PHYSX
@@ -47,10 +41,6 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 	UPROPERTY()
 	float CollisionScale;
 
-	/** Size of component's "simple collision" in collision quads */
-	UPROPERTY()
-	int32 SimpleCollisionSizeQuads;
-
 	/** The flags for each collision quad. See ECollisionQuadFlags. */
 	UPROPERTY()
 	TArray<uint8> CollisionQuadFlags;
@@ -65,7 +55,7 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 
 	/** Reference to render component */
 	UPROPERTY()
-	TLazyObjectPtr<ULandscapeComponent> RenderComponent;
+	TLazyObjectPtr<class ULandscapeComponent> RenderComponent;
 
 	struct FPhysXHeightfieldRef : public FRefCountedObject
 	{
@@ -73,38 +63,31 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 
 #if WITH_PHYSX
 		/** List of PxMaterials used on this landscape */
-		TArray<physx::PxMaterial*> UsedPhysicalMaterialArray;
-		physx::PxHeightField* RBHeightfield;
-		physx::PxHeightField* RBHeightfieldSimple;
+		TArray<physx::PxMaterial*>	UsedPhysicalMaterialArray;
+		class physx::PxHeightField*			RBHeightfield;
 #if WITH_EDITOR
-		physx::PxHeightField* RBHeightfieldEd; // Used only by landscape editor, does not have holes in it
+		class physx::PxHeightField*			RBHeightfieldEd; // Used only by landscape editor, does not have holes in it
 #endif	//WITH_EDITOR
 #endif	//WITH_PHYSX
 
 		/** tors **/
-		FPhysXHeightfieldRef()
+		FPhysXHeightfieldRef() 
 #if WITH_PHYSX
-			: RBHeightfield(nullptr)
-			, RBHeightfieldSimple(nullptr)
+			:	RBHeightfield(NULL)
 #if WITH_EDITOR
-			, RBHeightfieldEd(nullptr)
+			,	RBHeightfieldEd(NULL)
 #endif	//WITH_EDITOR
 #endif	//WITH_PHYSX
-		{
-		}
-
+		{}
 		FPhysXHeightfieldRef(FGuid& InGuid)
-			: Guid(InGuid)
+			:	Guid(InGuid)
 #if WITH_PHYSX
-			, RBHeightfield(nullptr)
-			, RBHeightfieldSimple(nullptr)
+			,	RBHeightfield(NULL)
 #if WITH_EDITOR
-			, RBHeightfieldEd(nullptr)
+			,	RBHeightfieldEd(NULL)
 #endif	//WITH_EDITOR
 #endif	//WITH_PHYSX
-		{
-		}
-
+		{}
 		virtual ~FPhysXHeightfieldRef();
 	};
 	
@@ -144,14 +127,14 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 	TArray<UPhysicalMaterial*>					CookedPhysicalMaterials;
 	
 	/** Physics engine version of heightfield data. */
-	TRefCountPtr<FPhysXHeightfieldRef>	HeightfieldRef;
+	TRefCountPtr<struct FPhysXHeightfieldRef>	HeightfieldRef;
 	
 	/** Cached PxHeightFieldSamples values for navmesh generation. Note that it's being used only if navigation octree is set up for lazy geometry exporting */
 	int32 HeightfieldRowsCount;
 	int32 HeightfieldColumnsCount;
 	mutable FNavHeightfieldSamples CachedHeightFieldSamples;
 
-	enum ECollisionQuadFlags : uint8
+	enum ECollisionQuadFlags
 	{
 		QF_PhysicalMaterialMask = 63,	// Mask value for the physical material index, stored in the lower 6 bits.
 		QF_EdgeTurned = 64,				// This quad's diagonal has been turned.
@@ -159,9 +142,7 @@ class ULandscapeHeightfieldCollisionComponent : public UPrimitiveComponent
 	};
 
 	//~ Begin UActorComponent Interface.
-protected:
-	virtual void OnCreatePhysicsState() override;
-public:
+	virtual void CreatePhysicsState() override;
 	virtual void ApplyWorldOffset(const FVector& InOffset, bool bWorldShift) override;
 	//~ End UActorComponent Interface.
 
@@ -194,7 +175,7 @@ public:
 	virtual void Serialize(FArchive& Ar) override;
 	virtual void BeginDestroy() override;
 	virtual void PostLoad() override;
-	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+	virtual void PreSave() override;
 #if WITH_EDITOR
 	virtual void ExportCustomProperties(FOutputDevice& Out, uint32 Indent) override;
 	virtual void ImportCustomProperties(const TCHAR* SourceText, FFeedbackContext* Warn) override;
@@ -202,8 +183,8 @@ public:
 	virtual void PostEditUndo() override;
 	//~ End UObject Interface.
 
-	/** Gets the landscape info object for this landscape */
-	ULandscapeInfo* GetLandscapeInfo() const;
+	// @todo document
+	class ULandscapeInfo* GetLandscapeInfo(bool bSpawnNewActor = true) const;
 
 	/**  We speculatively async load collision object from DDC to remove hitch when streaming */
 	void SpeculativelyLoadAsyncDDCCollsionData();
@@ -215,13 +196,14 @@ public:
 
 	/** Modify a sub-region of the PhysX heightfield. Note that this does not update the physical material */
 	void UpdateHeightfieldRegion(int32 ComponentX1, int32 ComponentY1, int32 ComponentX2, int32 ComponentY2);
-#endif
 
+#endif
 	/** Creates collision object from a cooked collision data */
 	virtual void CreateCollisionObject();
 
 	/** Return the landscape actor associated with this component. */
-	LANDSCAPE_API ALandscapeProxy* GetLandscapeProxy() const;
+	class ALandscape* GetLandscapeActor() const;
+	LANDSCAPE_API class ALandscapeProxy* GetLandscapeProxy() const;
 
 	/** @return Component section base as FIntPoint */
 	LANDSCAPE_API FIntPoint GetSectionBase() const; 

@@ -2,7 +2,6 @@
 
 #include "CoreUObjectPrivate.h"
 #include "UObject/UObjectThreadContext.h"
-#include "TextPackageNamespaceUtil.h"
 
 /*----------------------------------------------------------------------------
 	FDuplicateDataReader.
@@ -13,21 +12,14 @@
  * @param	InDuplicatedObjects		map of original object to copy of that object
  * @param	InObjectData			object data to read from
  */
-FDuplicateDataReader::FDuplicateDataReader( class FUObjectAnnotationSparse<FDuplicatedObject,false>& InDuplicatedObjects ,const TArray<uint8>& InObjectData, uint32 InPortFlags, UObject* InDestOuter )
-	: DuplicatedObjectAnnotation(InDuplicatedObjects)
-	, ObjectData(InObjectData)
-	, Offset(0)
+FDuplicateDataReader::FDuplicateDataReader( class FUObjectAnnotationSparse<FDuplicatedObject,false>& InDuplicatedObjects ,const TArray<uint8>& InObjectData, uint32 InPortFlags )
+: DuplicatedObjectAnnotation(InDuplicatedObjects)
+, ObjectData(InObjectData)
+, Offset(0)
 {
 	ArIsLoading			= true;
 	ArIsPersistent		= true;
 	ArPortFlags |= PPF_Duplicate | InPortFlags;
-
-#if USE_STABLE_LOCALIZATION_KEYS
-	if (GIsEditor && !(ArPortFlags & PPF_DuplicateForPIE))
-	{
-		SetLocalizationNamespace(TextNamespaceUtil::EnsurePackageNamespace(InDestOuter));
-	}
-#endif // USE_STABLE_LOCALIZATION_KEYS
 }
 
 void FDuplicateDataReader::SerializeFail()
@@ -90,21 +82,4 @@ FArchive& FDuplicateDataReader::operator<<( FAssetPtr& AssetPtr)
 
 	AssetPtr = ID;
 	return Ar;
-}
-
-FArchive& FDuplicateDataReader::operator<<( FStringAssetReference& StringAssetReference)
-{
-	FArchiveUObject::operator<<(StringAssetReference);
-			
-	// Remap asset reference if necessary
-	{
-		UObject* SourceObject = StringAssetReference.ResolveObject();
-		FDuplicatedObject ObjectInfo = SourceObject ? DuplicatedObjectAnnotation.GetAnnotation(SourceObject) : FDuplicatedObject();
-		if (!ObjectInfo.IsDefault())
-		{
-			StringAssetReference = FStringAssetReference::GetOrCreateIDForObject(ObjectInfo.DuplicatedObject);
-		}
-	}
-	
-	return *this;
 }

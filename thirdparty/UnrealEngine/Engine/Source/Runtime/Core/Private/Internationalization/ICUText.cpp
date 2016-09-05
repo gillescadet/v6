@@ -5,29 +5,19 @@
 #if UE_ENABLE_ICU
 #include "Text.h"
 #include "TextData.h"
+#include "TextHistory.h"
+#include "ICUCulture.h"
 
-#if defined(_MSC_VER) && USING_CODE_ANALYSIS
-	#pragma warning(push)
-	#pragma warning(disable:28251)
-	#pragma warning(disable:28252)
-	#pragma warning(disable:28253)
-#endif
-    #include <unicode/utypes.h>
-	#include <unicode/unistr.h>
-	PRAGMA_DISABLE_SHADOW_VARIABLE_WARNINGS
-	#include <unicode/coll.h>
-	#include <unicode/sortkey.h>
-	#include <unicode/numfmt.h>
-	#include <unicode/msgfmt.h>
-	PRAGMA_ENABLE_SHADOW_VARIABLE_WARNINGS
-	#include <unicode/uniset.h>
-	#include <unicode/ubidi.h>
-#if defined(_MSC_VER) && USING_CODE_ANALYSIS
-	#pragma warning(pop)
-#endif
+PRAGMA_DISABLE_SHADOW_VARIABLE_WARNINGS
+#include <unicode/coll.h>
+#include <unicode/sortkey.h>
+#include <unicode/numfmt.h>
+#include <unicode/msgfmt.h>
+PRAGMA_ENABLE_SHADOW_VARIABLE_WARNINGS
+#include <unicode/uniset.h>
+#include <unicode/ubidi.h>
 
 #include "ICUUtilities.h"
-#include "ICUCulture.h"
 #include "ICUTextCharacterIterator.h"
 
 bool FText::IsWhitespace( const TCHAR Char )
@@ -84,6 +74,8 @@ FText FText::AsTimespan(const FTimespan& Timespan, const FCulturePtr& TargetCult
 	checkf(I18N.IsInitialized() == true, TEXT("FInternationalization is not initialized. An FText formatting method was likely used in static object initialization - this is not supported."));
 	FCulturePtr Culture = TargetCulture.IsValid() ? TargetCulture : I18N.GetCurrentCulture();
 
+	FText TimespanFormatPattern = NSLOCTEXT("Timespan", "FormatPattern", "{Hours}:{Minutes}:{Seconds}");
+
 	double TotalHours = Timespan.GetTotalHours();
 	int32 Hours = static_cast<int32>(TotalHours);
 	int32 Minutes = Timespan.GetMinutes();
@@ -93,23 +85,11 @@ FText FText::AsTimespan(const FTimespan& Timespan, const FCulturePtr& TargetCult
 	NumberFormattingOptions.MinimumIntegralDigits = 2;
 	NumberFormattingOptions.MaximumIntegralDigits = 2;
 
-	if (Hours > 0)
-	{
-		FText TimespanFormatPattern = NSLOCTEXT("Timespan", "FormatPattern", "{Hours}:{Minutes}:{Seconds}");
-		FFormatNamedArguments TimeArguments;
-		TimeArguments.Add(TEXT("Hours"), Hours);
-		TimeArguments.Add(TEXT("Minutes"), FText::AsNumber(Minutes, &(NumberFormattingOptions), Culture));
-		TimeArguments.Add(TEXT("Seconds"), FText::AsNumber(Seconds, &(NumberFormattingOptions), Culture));
-		return FText::Format(TimespanFormatPattern, TimeArguments);
-	}
-	else
-	{
-		FText TimespanFormatPattern = NSLOCTEXT("Timespan", "FormatPattern2", "{Minutes}:{Seconds}");
-		FFormatNamedArguments TimeArguments;
-		TimeArguments.Add(TEXT("Minutes"), Minutes);
-		TimeArguments.Add(TEXT("Seconds"), FText::AsNumber(Seconds, &(NumberFormattingOptions), Culture));
-		return FText::Format(TimespanFormatPattern, TimeArguments);
-	}
+	FFormatNamedArguments TimeArguments;
+	TimeArguments.Add(TEXT("Hours"), Hours);
+	TimeArguments.Add(TEXT("Minutes"), FText::AsNumber(Minutes, &(NumberFormattingOptions), Culture));
+	TimeArguments.Add(TEXT("Seconds"), FText::AsNumber(Seconds, &(NumberFormattingOptions), Culture));
+	return FText::Format(TimespanFormatPattern, TimeArguments);
 }
 
 FText FText::AsDateTime(const FDateTime& DateTime, const EDateTimeStyle::Type DateStyle, const EDateTimeStyle::Type TimeStyle, const FString& TimeZone, const FCulturePtr& TargetCulture)
@@ -210,12 +190,12 @@ bool FText::FSortPredicate::operator()(const FText& A, const FText& B) const
 	return Implementation->Compare(A, B);
 }
 
-bool FUnicodeChar::CodepointToString(const uint32 InCodepoint, FString& OutString)
+bool FText::IsLetter( const TCHAR Char )
 {
-	icu::UnicodeString CodepointString;
-	CodepointString.setTo((UChar32)InCodepoint);
-	ICUUtilities::ConvertString(CodepointString, OutString);
-	return true;
+	icu::UnicodeString PatternString = ICUUtilities::ConvertString(TEXT("[\\p{L}]"));
+	UErrorCode ICUStatus = U_ZERO_ERROR;
+	icu::UnicodeSet Uniscode(PatternString, ICUStatus);
+	return Uniscode.contains(Char) != 0;
 }
 
 namespace TextBiDi

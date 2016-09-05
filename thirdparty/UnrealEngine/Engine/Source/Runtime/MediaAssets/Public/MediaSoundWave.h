@@ -2,37 +2,58 @@
 
 #pragma once
 
-#include "Sound/SoundWaveProcedural.h"
-#include "IMediaAudioSink.h"
+#include "MediaSampleQueue.h"
+#include "Sound/SoundWave.h"
 #include "MediaSoundWave.generated.h"
 
 
+class FMediaSampleQueue;
+class IMediaAudioTrack;
+class IMediaPlayer;
 class UMediaPlayer;
 
 
 /**
  * Implements a playable sound asset for audio streams from UMediaPlayer assets.
  */
-UCLASS(hidecategories=(Compression, Info, Sound, SoundWave, Subtitles))
+UCLASS(hidecategories=(Compression, Sound, SoundWave, Subtitles))
 class MEDIAASSETS_API UMediaSoundWave
 	: public USoundWave
-	, public IMediaAudioSink
 {
 	GENERATED_UCLASS_BODY()
 
+	/** The index of the MediaPlayer's audio track to get the wave data from. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MediaPlayer)
+	int32 AudioTrackIndex;
+
+	/** The MediaPlayer asset to stream audio from. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=MediaPlayer)
+	UMediaPlayer* MediaPlayer;
+
 public:
 
-	DECLARE_EVENT_OneParam(UMediaSoundWave, FOnBeginDestroy, UMediaSoundWave& /*DestroyedSoundWave*/)
-	FOnBeginDestroy& OnBeginDestroy()
-	{
-		return BeginDestroyEvent;
-	}
+	/**
+	 * Sets the MediaPlayer asset to be used for this texture.
+	 *
+	 * @param InMediaPlayer The asset to set.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Media|MediaSound")
+	void SetMediaPlayer(UMediaPlayer* InMediaPlayer);
 
 public:
 
-	//~ USoundWave interface
+	/**
+	 * Gets the low-level player associated with the assigned UMediaPlayer asset.
+	 *
+	 * @return The player, or nullptr if no player is available.
+	 */
+	TSharedPtr<IMediaPlayer> GetPlayer() const;
 
-	virtual int32 GeneratePCMData(uint8* Data, const int32 SamplesRequested) override;
+public:
+
+	// USoundWave overrides
+
+	virtual int32 GeneratePCMData(uint8* PCMData, const int32 SamplesNeeded) override;
 	virtual FByteBulkData* GetCompressedData(FName Format) override;
 	virtual int32 GetResourceSizeForFormat(FName Format) override;
 	virtual void InitAudioResource(FByteBulkData& CompressedData) override;
@@ -40,55 +61,38 @@ public:
 
 public:
 
-	//~ UObject interface
+	// UObject overrides
 
-	virtual void BeginDestroy() override;
 	virtual void GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTags) const override;
 	virtual SIZE_T GetResourceSize(EResourceSizeMode::Type Mode) override;
 	virtual void Serialize(FArchive& Ar) override;
-
-public:
-
-	//~ IMediaAudioSink interface
-
-	virtual void FlushAudioSink() override;
-	virtual int32 GetAudioSinkChannels() const override;
-	virtual int32 GetAudioSinkSampleRate() const override;
-	virtual bool InitializeAudioSink(uint32 Channels, uint32 SampleRate) override;
-	virtual void PauseAudioSink() override;
-	virtual void PlayAudioSink(const uint8* SampleBuffer, uint32 BufferSize, FTimespan Time) override;
-	virtual void ResumeAudioSink() override;
-	virtual void ShutdownAudioSink() override;
+	virtual void PostLoad() override;
+	virtual void BeginDestroy() override;
 
 protected:
 
-	//~ Deprecated members
-
-	DEPRECATED_FORGAME(4.13, "The AudioTrackIndex property is no longer used. Please upgrade your content to Media Framework 2.0")
-	UPROPERTY(BlueprintReadWrite, Category=MediaPlayer)
-	int32 AudioTrackIndex;
-
-	DEPRECATED_FORGAME(4.13, "The MediaPlayer property is no longer used. Please upgrade your content to Media Framework 2.0")
-	UPROPERTY(BlueprintReadWrite, Category=MediaPlayer)
-	class UMediaPlayer* MediaPlayer;
+	/** Initializes the audio track. */
+	void InitializeTrack();
 
 private:
 
-	/** An event delegate that is invoked when this media texture is being destroyed. */
-	FOnBeginDestroy BeginDestroyEvent;
+	/** Callback for when the UMediaPlayer changed tracks. */
+	void HandleMediaPlayerTracksChanged();
 
-	/** Critical section for synchronizing access to QueuedAudio. */
-	mutable FCriticalSection CriticalSection;
+private:
 
-	/** Whether the audio is currently paused. */
-	bool Paused;
+	/** The audio sample queue. */
+	TSharedRef<FMediaSampleQueue, ESPMode::ThreadSafe> AudioQueue;
+
+	/** Holds the selected audio track. */
+	TSharedPtr<IMediaAudioTrack, ESPMode::ThreadSafe> AudioTrack;
+
+	/** Holds the media player asset currently being used. */
+	UPROPERTY()
+	TWeakObjectPtr<UMediaPlayer> CurrentMediaPlayer;
 
 	/** Holds queued audio samples. */
 	TArray<uint8> QueuedAudio;
 
-	/** The sink's number of audio channels. */
-	int32 SinkNumChannels;
-
-	/** The sink's sample rate. */
-	int32 SinkSampleRate;
+	bool bSetupDelegates;
 };

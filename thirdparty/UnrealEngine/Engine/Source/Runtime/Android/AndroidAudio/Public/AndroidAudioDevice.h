@@ -263,24 +263,19 @@ public:
 
 	virtual FName GetRuntimeFormat(USoundWave* SoundWave) override
 	{
+		
+		if (SoundWave->CompressionName.IsNone())
+		{
 #if WITH_OGGVORBIS
-		static FName NAME_OGG(TEXT("OGG"));		//@todo android: probably not ogg
-		if (SoundWave->HasCompressedData(NAME_OGG))
-		{
+			static FName NAME_OGG(TEXT("OGG"));		//@todo android: probably not ogg
 			return NAME_OGG;
-		}
-#endif
-		static FName NAME_ADPCM(TEXT("ADPCM"));
-		if (SoundWave->HasCompressedData(NAME_ADPCM))
-		{
+#else
+			static FName NAME_ADPCM(TEXT("ADPCM"));
 			return NAME_ADPCM;
+#endif
 		}
 
-#if WITH_OGGVORBIS
-		return NAME_OGG;
-#else
-		return NAME_ADPCM;
-#endif
+		return SoundWave->CompressionName;
 	}
 
 	virtual bool HasCompressedAudioInfoClass(USoundWave* SoundWave) override;

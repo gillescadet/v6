@@ -173,7 +173,7 @@ struct FTexture2DMipMap
 	 * Place mip-map data in the derived data cache associated with the provided
 	 * key.
 	 */
-	uint32 StoreInDerivedDataCache(const FString& InDerivedDataKey);
+	void StoreInDerivedDataCache(const FString& InDerivedDataKey);
 #endif // #if WITH_EDITORONLY_DATA
 };
 
@@ -319,8 +319,6 @@ private:
 	uint64				IORequestIndices[MAX_TEXTURE_MIP_COUNT];
 	/** Number of file I/O requests for current request														*/
 	int32					IORequestCount;
-
-	FThreadSafeCounter AsyncReallocateCounter;
 
 #if WITH_EDITORONLY_DATA
 	/** Pending async derived data streaming tasks															*/

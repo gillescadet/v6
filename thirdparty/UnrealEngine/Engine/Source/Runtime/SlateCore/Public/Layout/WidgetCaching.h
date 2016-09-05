@@ -12,11 +12,9 @@ class SLATECORE_API FCachedWidgetNode
 public:
 	void Initialize(const FPaintArgs& Args, TSharedRef<SWidget> InWidget, const FGeometry& InGeometry, const FSlateRect& InClippingRect);
 
-	void RecordHittestGeometry(FHittestGrid& Grid, int32 LastHittestIndex, int32 LayerId);
+	void RecordHittestGeometry(FHittestGrid& Grid, int32 LastHittestIndex);
 
 public:
-
-	void RecordHittestGeometryInternal(FHittestGrid& Grid, int32 LastHittestIndex, int32 LayerId);
 
 	TArray< FCachedWidgetNode*, TInlineAllocator<4> > Children;
 

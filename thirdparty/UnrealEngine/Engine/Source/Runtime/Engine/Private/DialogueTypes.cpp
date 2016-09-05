@@ -15,43 +15,41 @@ bool operator!=(const FDialogueContext& LHS, const FDialogueContext& RHS)
 		LHS.Targets != RHS.Targets;
 }
 
-FDialogueContext::FDialogueContext()
-	: Speaker(nullptr)
+FDialogueContext::FDialogueContext() : Speaker(NULL)
 {
 	Targets.AddZeroed();
 }
 
-FString FDialogueContext::GetContextHash() const
+FString FDialogueContext::GetLocalizationKey() const
 {
-	uint32 SpeakerHash = 0;
-	if (Speaker)
+	FString Key;
+	if( Speaker )
 	{
-		SpeakerHash = FCrc::MemCrc32(&Speaker->LocalizationGUID, sizeof(FGuid), SpeakerHash);
+		Key = Speaker->LocalizationGUID.ToString();
 	}
 
-	TArray<FGuid> UniqueSortedTargetGUIDs;
-	for (const UDialogueVoice* Target : Targets)
+	TArray<FString> UniqueSortedTargets;
+	for(const UDialogueVoice* Target : Targets)
 	{
-		if (Target)
+		if( Target )
 		{
-			UniqueSortedTargetGUIDs.AddUnique(Target->LocalizationGUID);
+			UniqueSortedTargets.AddUnique( Target->LocalizationGUID.ToString() );
 		}
 	}
-	UniqueSortedTargetGUIDs.Sort([](const FGuid& One, const FGuid& Two) -> bool
+	UniqueSortedTargets.Sort( TLess<FString>() );
+	for(const FString& TargetKey : UniqueSortedTargets)
 	{
-		return One.ToString() < Two.ToString();
-	});
-
-	uint32 TargetHash = 0;
-	for (const FGuid& TargetGUID : UniqueSortedTargetGUIDs)
-	{
-		TargetHash = FCrc::MemCrc32(&TargetGUID, sizeof(FGuid), TargetHash);
+		Key = Key + TEXT(" ") + TargetKey;
 	}
-
-	return FString::Printf(TEXT("%08X%08X"), SpeakerHash, TargetHash);
+	return Key;
 }
 
-FDialogueWaveParameter::FDialogueWaveParameter()
+FDialogueWaveParameter::FDialogueWaveParameter() : DialogueWave(NULL)
 {
 
+}
+
+UDialogueTypes::UDialogueTypes(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
 }

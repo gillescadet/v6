@@ -6,6 +6,9 @@ public class D3D11RHI : ModuleRules
 {
 	public D3D11RHI(TargetInfo Target)
 	{
+		// v6: give more precision
+		Definitions.Add("DEPTH_32_BIT_CONVERSION=1");
+		
 		PrivateIncludePaths.Add("Runtime/Windows/D3D11RHI/Private");
 
 		PrivateDependencyModuleNames.AddRange(
@@ -19,8 +22,8 @@ public class D3D11RHI : ModuleRules
 			}
 			);
 
-		AddEngineThirdPartyPrivateStaticDependencies(Target, "DX11");
-        AddEngineThirdPartyPrivateStaticDependencies(Target, "NVAPI");
+		AddThirdPartyPrivateStaticDependencies(Target, "DX11");
+        AddThirdPartyPrivateStaticDependencies(Target, "NVAPI");
 
 		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
 		{

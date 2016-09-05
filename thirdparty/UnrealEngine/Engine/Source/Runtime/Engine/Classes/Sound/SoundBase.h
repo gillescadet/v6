@@ -26,10 +26,6 @@ class ENGINE_API USoundBase : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
-private:
-	static USoundClass* DefaultSoundClassObject;
-	static USoundConcurrency* DefaultSoundConcurrencyObject;
-
 protected:
 	/** Sound class this sound belongs to */
 	UPROPERTY(EditAnywhere, Category=Sound, meta=(DisplayName = "Sound Class"))
@@ -70,7 +66,7 @@ public:
 	USoundAttenuation* AttenuationSettings;
 
 	/** Sound priority (higher value is higher priority) used for concurrency resolution. This priority value is weighted against the final volume of the sound. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Concurrency, meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "100.0", UIMax = "100.0") )
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Concurrency, meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "100.0", UIMax = "100.0"))
 	float Priority;
 
 public:	
@@ -100,14 +96,6 @@ public:
 
 	virtual float GetVolumeMultiplier();
 	virtual float GetPitchMultiplier();
-
-	/**
-	  * Returns the subtitle priority
-	  */
-	virtual float GetSubtitlePriority() const { return DEFAULT_SUBTITLE_PRIORITY; };
-	
-	/** Returns whether or not any part of this sound wants interior volumes applied to it */
-	virtual bool ShouldApplyInteriorVolumes() const;
 
 	/** Returns whether or not this sound is looping. */
 	bool IsLooping();

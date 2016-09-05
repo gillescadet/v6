@@ -11,8 +11,6 @@ class UEdGraphSchema;
 class UEdGraphPin;
 class SGraphNode;
 struct FEdGraphPinType;
-struct FSlateIcon;
-
 
 /** Enum used to define which way data flows into or out of this pin. */
 UENUM()
@@ -102,11 +100,9 @@ class ENGINE_API UEdGraphNode : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
-	TArray<UEdGraphPin*> Pins;
-
 	/** List of connector pins */
 	UPROPERTY()
-	TArray<class UEdGraphPin_Deprecated*> DeprecatedPins;
+	TArray<class UEdGraphPin*> Pins;
 
 	/** X position of node in the editor */
 	UPROPERTY()
@@ -138,10 +134,6 @@ class ENGINE_API UEdGraphNode : public UObject
 	/** If true, this node can be renamed in the editor */
 	UPROPERTY()
 	uint32 bCanRenameNode:1;
-
-	/** Note for a node that lingers until saved */
-	UPROPERTY(Transient)
-	FText NodeUpgradeMessage;
 #endif // WITH_EDITORONLY_DATA
 
 	/** Comment string that is drawn on the node */
@@ -218,13 +210,8 @@ public:
 	// UObject interface
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	virtual void Serialize(FArchive& Ar) override;
-	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
 	virtual void PostLoad() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-	virtual void PostEditUndo() override;
-	virtual void ExportCustomProperties(FOutputDevice& Out, uint32 Indent) override;
-	virtual void ImportCustomProperties(const TCHAR* SourceText, FFeedbackContext* Warn) override;
-	virtual void BeginDestroy() override;
 	// End of UObject interface
 
 	/** widget representing this node if it exists; Note: This is not safe to use in general and will be removed in the future, as there is no guarantee that only one graph editor/panel is viewing a given graph */
@@ -236,21 +223,18 @@ public:
 	/** Create a new pin on this node using the supplied pin type, and return the new pin */
 	UEdGraphPin* CreatePin(EEdGraphPinDirection Dir, const FEdGraphPinType& InPinType, const FString& PinName, int32 Index = INDEX_NONE);
 
-	/** Destroys the specified pin, does not modify its owning pin's Pins list */
-	static void DestroyPin(UEdGraphPin* Pin);
+	// Allocates a pin from the pool
+	static UEdGraphPin* AllocatePinFromPool(UEdGraphNode* OuterNode);
 
-	/** Find a pin on this node with the supplied name and optional direction */
-	UEdGraphPin* FindPin(const FString& PinName, const EEdGraphPinDirection Direction = EGPD_MAX) const;
+	// Returns the specified pin to the pool
+	static void ReturnPinToPool(UEdGraphPin* OldPin);
 
-	/** Find a pin on this node with the supplied name and optional direction and assert if it is not present */
-	UEdGraphPin* FindPinChecked(const FString& PinName, const EEdGraphPinDirection Direction = EGPD_MAX) const;
+	/** Find a pin on this node with the supplied name */
+	UEdGraphPin* FindPin(const FString& PinName) const;
+
+	/** Find a pin on this node with the supplied name and assert if it is not present */
+	UEdGraphPin* FindPinChecked(const FString& PinName) const;
 	
-	/** Find the pin on this node with the supplied guid */
-	UEdGraphPin* FindPinById(const FGuid PinId) const;
-
-	/** Find the pin on this node with the supplied guid and assert if it is not present */
-	UEdGraphPin* FindPinByIdChecked(const FGuid PinId) const;
-
 	/** Find a pin on this node with the supplied name and remove it, returns TRUE if successful */
 	bool RemovePin(UEdGraphPin* Pin);
 
@@ -392,12 +376,8 @@ public:
 	 */
 	virtual FString GetDocumentationExcerptName() const;
 
-	/** @return Icon to use in menu or on node */
-	DEPRECATED(4.13, "Please override 'virtual FSlateIcon GetIconAndTint(FLinearColor& OutColor) const;' instead.")
-	virtual FName GetPaletteIcon(FLinearColor& OutColor) const { return NAME_None; }
-
-	/** @return Icon to use in menu or on node */
-	virtual FSlateIcon GetIconAndTint(FLinearColor& OutColor) const;
+	/** @return name or brush to use in menu or on node */
+	virtual FName GetPaletteIcon(FLinearColor& OutColor) const { return TEXT("GraphEditor.Default_16x"); }
 
 	/** Should we show the Palette Icon for this node on the node title */
 	virtual bool ShowPaletteIconOnNode() const { return false; }
@@ -513,8 +493,6 @@ public:
 	/** Create a visual widget to represent this node in a graph editor or graph panel.  If not implemented, the default node factory will be used. */
 	virtual TSharedPtr<SGraphNode> CreateVisualWidget() { return TSharedPtr<SGraphNode>(); }
 
-	/** Adds an upgrade note to this node */
-	void AddNodeUpgradeNote(FText InUpgradeNote);
 #endif // WITH_EDITOR
 
 };

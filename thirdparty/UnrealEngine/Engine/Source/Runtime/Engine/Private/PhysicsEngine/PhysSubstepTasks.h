@@ -11,24 +11,12 @@ class PhysXCompletionTask : public PxLightCpuTask
 {
 	FGraphEventRef EventToFire;
 	uint32 Scene;
-
-	// Scratch memory for call to PxScene::simulate. This is owned by the FPhysScene that spawned this
-	// task and is guaranteed to remain valid till FPhysScene destruction - can be nullptr if size
-	// was set to zero or a buffer isn't required for this scene
-	FSimulationScratchBuffer* ScratchBuffer;
-
 public:
-	PhysXCompletionTask()
-		: Scene(0)
-		, ScratchBuffer(nullptr)
-	{}
-
-	PhysXCompletionTask(FGraphEventRef& InEventToFire, uint32 InScene, PxTaskManager* InTaskManager, FSimulationScratchBuffer* InScratchBuffer = nullptr)
+	PhysXCompletionTask(FGraphEventRef& InEventToFire, uint32 InScene, PxTaskManager* TaskManager)
 		: EventToFire(InEventToFire)
 		, Scene(InScene)
-		, ScratchBuffer(InScratchBuffer)
 	{
-		setContinuation(*InTaskManager, NULL);
+		setContinuation(*TaskManager, NULL);
 	}
 	virtual void run()
 	{
@@ -48,18 +36,11 @@ public:
 	{
 		return "CompleteSimulate";
 	}
-
-	uint8* GetScratchBufferData()
-	{
-		return ScratchBuffer ? ScratchBuffer->Buffer : nullptr;
-	}
-
-	int32 GetScratchBufferSize()
-	{
-		return ScratchBuffer ? ScratchBuffer->BufferSize : 0;
-	}
 };
 #endif	//#if WITH_PHYSX
+
+
+#if WITH_SUBSTEPPING
 
 
 /** Hold information about kinematic target */
@@ -206,3 +187,5 @@ private:
 #endif
 
 };
+
+#endif //if WITH_SUBSTEPPING

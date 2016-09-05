@@ -20,29 +20,11 @@
 #include "Components/DecalComponent.h"
 #include "LandscapeProxy.h"
 #include "MessageLog.h"
-#include "UObjectToken.h"
-#include "Components/HierarchicalInstancedStaticMeshComponent.h"
-#include "Components/LineBatchComponent.h"
-#include "PhysicsEngine/PhysicsSettings.h"
-#include "PhysicsEngine/BodySetup.h"
 
 #define LOCTEXT_NAMESPACE "GameplayStatics"
 
 static const int UE4_SAVEGAME_FILE_TYPE_TAG = 0x53415647;		// "sAvG"
-
-struct FSaveGameFileVersion
-{
-	enum Type
-	{
-		InitialVersion = 1,
-		// serializing custom versions into the savegame data to handle that type of versioning
-		AddedCustomVersions = 2,
-
-		// -----<new versions can be added above this line>-------------------------------------------------
-		VersionPlusOne,
-		LatestVersion = VersionPlusOne - 1
-	};
-};
+static const int UE4_SAVEGAME_FILE_VERSION = 1;
 
 //////////////////////////////////////////////////////////////////////////
 // UGameplayStatics
@@ -127,30 +109,6 @@ void UGameplayStatics::RemovePlayer(APlayerController* PlayerController, bool bD
 	}
 }
 
-int32 UGameplayStatics::GetPlayerControllerID(APlayerController* PlayerController)
-{
-	if (PlayerController)
-	{
-		if (ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
-		{
-			return LocalPlayer->GetControllerId();
-		}
-	}
-
-	return INDEX_NONE;
-}
-
-void UGameplayStatics::SetPlayerControllerID(APlayerController* PlayerController, int32 ControllerId)
-{
-	if (PlayerController)
-	{
-		if (ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
-		{
-			LocalPlayer->SetControllerId(ControllerId);
-		}
-	}
-}
-
 AGameMode* UGameplayStatics::GetGameMode(UObject* WorldContextObject)
 {
 	UWorld* const World = GEngine->GetWorldFromContextObject(WorldContextObject);
@@ -177,17 +135,14 @@ float UGameplayStatics::GetGlobalTimeDilation(UObject* WorldContextObject)
 void UGameplayStatics::SetGlobalTimeDilation(UObject* WorldContextObject, float TimeDilation)
 {
 	UWorld* const World = GEngine->GetWorldFromContextObject( WorldContextObject );
-	if (World != nullptr)
+	if(World != nullptr)
 	{
-		AWorldSettings* const WorldSettings = World->GetWorldSettings();
-		if (WorldSettings != nullptr)
+		if (TimeDilation < 0.0001f || TimeDilation > 20.f)
 		{
-			float const ActualTimeDilation = WorldSettings->SetTimeDilation(TimeDilation);
-			if (TimeDilation != ActualTimeDilation)
-			{
-				UE_LOG(LogBlueprintUserMessages, Warning, TEXT("Time Dilation must be between %f and %f.  Clamped value to that range."), WorldSettings->MinGlobalTimeDilation, WorldSettings->MaxGlobalTimeDilation);
-			}
+			UE_LOG(LogBlueprintUserMessages, Warning, TEXT("Time Dilation must be between 0.0001 and 20.  Clamping value to that range."));
+			TimeDilation = FMath::Clamp(TimeDilation, 0.0001f, 20.0f);
 		}
+		World->GetWorldSettings()->TimeDilation = TimeDilation;
 	}
 }
 
@@ -511,12 +466,7 @@ ULevelStreaming* UGameplayStatics::GetStreamingLevel(UObject* WorldContextObject
 	{
 		if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject))
 		{
-			FString SearchPackageName = FStreamLevelAction::MakeSafeLevelName(InPackageName, World);
-			if (FPackageName::IsShortPackageName(SearchPackageName))
-			{
-				// Make sure MyMap1 and Map1 names do not resolve to a same streaming level
-				SearchPackageName = TEXT("/") + SearchPackageName;
-			}
+			const FString SearchPackageName = FStreamLevelAction::MakeSafeLevelName(InPackageName, World);
 
 			for (ULevelStreaming* LevelStreaming : World->StreamingLevels)
 			{
@@ -670,25 +620,6 @@ void UGameplayStatics::GetAllActorsWithInterface(UObject* WorldContextObject, TS
 	}
 }
 
-void UGameplayStatics::GetAllActorsWithTag(UObject* WorldContextObject, FName Tag, TArray<AActor*>& OutActors)
-{
-	OutActors.Empty();
-
-	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
-
-	// We do nothing if no tag is provided, rather than giving ALL actors!
-	if (!Tag.IsNone() && World)
-	{
-		for (FActorIterator It(World); It; ++It)
-		{
-			AActor* Actor = *It;
-			if (Actor && !Actor->IsPendingKill() && Actor->ActorHasTag(Tag))
-			{
-				OutActors.Add(Actor);
-			}
-		}
-	}
-}
 
 void UGameplayStatics::PlayWorldCameraShake(UObject* WorldContextObject, TSubclassOf<class UCameraShake> Shake, FVector Epicenter, float InnerRadius, float OuterRadius, float Falloff, bool bOrientShakeTowardsEpicenter)
 {
@@ -719,27 +650,13 @@ UParticleSystemComponent* UGameplayStatics::SpawnEmitterAtLocation(UObject* Worl
 		if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject))
 		{
 			UParticleSystemComponent* PSC = CreateParticleSystem(EmitterTemplate, World, World->GetWorldSettings(), bAutoDestroy);
-
-			PSC->bAbsoluteLocation = true;
-			PSC->bAbsoluteRotation = true;
-			PSC->bAbsoluteScale = true;
-			PSC->RelativeLocation = SpawnLocation;
-			PSC->RelativeRotation = SpawnRotation;
-			PSC->RelativeScale3D = FVector(1.f);
+			PSC->SetAbsolute(true, true, true);
+			PSC->SetWorldLocationAndRotation(SpawnLocation, SpawnRotation);
+			PSC->SetRelativeScale3D(FVector(1.f));
 
 			PSC->RegisterComponentWithWorld(World);
 
 			PSC->ActivateSystem(true);
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-			if (PSC->Template && PSC->Template->IsImmortal())
-			{
-				UE_LOG(LogParticles, Warning, TEXT("GameplayStatics::SpawnEmitterAtLocation spawned potentially immortal particle system! %s (%s) may stay in world despite never spawning particles after burst spawning is over."),
-					*(PSC->GetPathName()), *(PSC->Template->GetPathName())
-					);
-			}
-#endif
-
 			return PSC;
 		}
 	}
@@ -753,26 +670,12 @@ UParticleSystemComponent* UGameplayStatics::SpawnEmitterAtLocation(UWorld* World
 	{
 		PSC = CreateParticleSystem(EmitterTemplate, World, World->GetWorldSettings(), bAutoDestroy);
 
-		PSC->bAbsoluteLocation = true;
-		PSC->bAbsoluteRotation = true;
-		PSC->bAbsoluteScale = true;
-		PSC->RelativeLocation = SpawnTransform.GetLocation();
-		PSC->RelativeRotation = SpawnTransform.GetRotation().Rotator();
-		PSC->RelativeScale3D = SpawnTransform.GetScale3D();
+		PSC->SetAbsolute(true, true, true);
+		PSC->SetWorldTransform(SpawnTransform);
 
 		PSC->RegisterComponentWithWorld(World);
 
 		PSC->ActivateSystem(true);
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		if (PSC->Template && PSC->Template->IsImmortal())
-		{
-			UE_LOG(LogParticles, Warning, TEXT("GameplayStatics::SpawnEmitterAtLocation spawned potentially immortal particle system! %s (%s) may stay in world despite never spawning particles after burst spawning is over."),
-				*(PSC->GetPathName()), *(PSC->Template->GetPathName())
-				);
-		}
-#endif
-
 	}
 	return PSC;
 }
@@ -793,42 +696,25 @@ UParticleSystemComponent* UGameplayStatics::SpawnEmitterAttached(UParticleSystem
 			if (World && World->GetNetMode() != NM_DedicatedServer)
 			{
 				PSC = CreateParticleSystem(EmitterTemplate, World, AttachToComponent->GetOwner(), bAutoDestroy);
-				
-				PSC->SetupAttachment(AttachToComponent, AttachPointName);
-
+				PSC->AttachTo(AttachToComponent, AttachPointName);
 				if (LocationType == EAttachLocation::KeepWorldPosition)
 				{
-					const FTransform ParentToWorld = AttachToComponent->GetSocketTransform(AttachPointName);
-					const FTransform ComponentToWorld(Rotation, Location);
-					const FTransform RelativeTM = ComponentToWorld.GetRelativeTransform(ParentToWorld);
-					PSC->RelativeLocation = RelativeTM.GetLocation();
-					PSC->RelativeRotation = RelativeTM.GetRotation().Rotator();
+					PSC->SetWorldLocationAndRotation(Location, Rotation);
 				}
 				else
 				{
-					PSC->RelativeLocation = Location;
-					PSC->RelativeRotation = Rotation;
+					PSC->SetRelativeLocationAndRotation(Location, Rotation);
 				}
-				PSC->RelativeScale3D = FVector(1.f);
-
+				PSC->SetRelativeScale3D(FVector(1.f));
 				PSC->RegisterComponentWithWorld(World);
 				PSC->ActivateSystem(true);
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-				if (PSC->Template && PSC->Template->IsImmortal())
-				{
-					UE_LOG(LogParticles, Log, TEXT("GameplayStatics::SpawnEmitterAttached spawned potentially immortal particle system! %s (%s) may stay in world despite never spawning particles after burst spawning is over."),
-						*(PSC->GetPathName()), *(PSC->Template->GetPathName())
-						);
-				}
-#endif
 			}
 		}
 	}
 	return PSC;
 }
 
-void UGameplayStatics::BreakHitResult(const FHitResult& Hit, bool& bBlockingHit, bool& bInitialOverlap, float& Time, FVector& Location, FVector& ImpactPoint, FVector& Normal, FVector& ImpactNormal, UPhysicalMaterial*& PhysMat, AActor*& HitActor, UPrimitiveComponent*& HitComponent, FName& HitBoneName, int32& HitItem, int32& FaceIndex, FVector& TraceStart, FVector& TraceEnd)
+void UGameplayStatics::BreakHitResult(const FHitResult& Hit, bool& bBlockingHit, bool& bInitialOverlap, float& Time, FVector& Location, FVector& ImpactPoint, FVector& Normal, FVector& ImpactNormal, UPhysicalMaterial*& PhysMat, AActor*& HitActor, UPrimitiveComponent*& HitComponent, FName& HitBoneName, int32& HitItem, FVector& TraceStart, FVector& TraceEnd)
 {
 	bBlockingHit = Hit.bBlockingHit;
 	bInitialOverlap = Hit.bStartPenetrating;
@@ -844,60 +730,12 @@ void UGameplayStatics::BreakHitResult(const FHitResult& Hit, bool& bBlockingHit,
 	HitItem = Hit.Item;
 	TraceStart = Hit.TraceStart;
 	TraceEnd = Hit.TraceEnd;
-	FaceIndex = Hit.FaceIndex;
-}
-
-FHitResult UGameplayStatics::MakeHitResult(bool bBlockingHit, bool bInitialOverlap, float Time, FVector Location, FVector ImpactPoint, FVector Normal, FVector ImpactNormal, class UPhysicalMaterial* PhysMat, class AActor* HitActor, class UPrimitiveComponent* HitComponent, FName HitBoneName, int32 HitItem, int32 FaceIndex, FVector TraceStart, FVector TraceEnd)
-{
-	FHitResult Hit;
-	Hit.bBlockingHit = bBlockingHit;
-	Hit.bStartPenetrating = bInitialOverlap;
-	Hit.Time = Time;
-	Hit.Location = Location;
-	Hit.ImpactPoint = ImpactPoint;
-	Hit.Normal = Normal;
-	Hit.ImpactNormal = ImpactNormal;
-	Hit.PhysMaterial = PhysMat;
-	Hit.Actor = HitActor;
-	Hit.Component = HitComponent;
-	Hit.BoneName = HitBoneName;
-	Hit.Item = HitItem;
-	Hit.TraceStart = TraceStart;
-	Hit.TraceEnd = TraceEnd;
-	Hit.FaceIndex = FaceIndex;
-	return Hit;
 }
 
 EPhysicalSurface UGameplayStatics::GetSurfaceType(const struct FHitResult& Hit)
 {
 	UPhysicalMaterial* const HitPhysMat = Hit.PhysMaterial.Get();
 	return UPhysicalMaterial::DetermineSurfaceType( HitPhysMat );
-}
-
-bool UGameplayStatics::FindCollisionUV(const struct FHitResult& Hit, int32 UVChannel, FVector2D& UV)
-{
-	bool bSuccess = false;
-
-	if (!UPhysicsSettings::Get()->bSupportUVFromHitResults)
-	{
-		FMessageLog("PIE").Warning(LOCTEXT("CollisionUVNoSupport", "Calling FindCollisionUV but 'Support UV From Hit Results' is not enabled in project settings. This is required for finding UV for collision results."));
-	}
-	else
-	{
-		UPrimitiveComponent* HitPrimComp = Hit.Component.Get();
-		if (HitPrimComp)
-		{
-			UBodySetup* BodySetup = HitPrimComp->GetBodySetup();
-			if (BodySetup)
-			{
-				const FVector LocalHitPos = HitPrimComp->GetComponentToWorld().InverseTransformPosition(Hit.Location);
-
-				bSuccess = BodySetup->CalcUVAtLocation(LocalHitPos, Hit.FaceIndex, UVChannel, UV);
-			}
-		}
-	}
-
-	return bSuccess;
 }
 
 bool UGameplayStatics::AreAnyListenersWithinRange(UObject* WorldContextObject, FVector Location, float MaximumRange)
@@ -937,36 +775,7 @@ void UGameplayStatics::SetGlobalPitchModulation(UObject* WorldContextObject, flo
 
 	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
 	{
-		AudioDevice->SetGlobalPitchModulation(PitchModulation, TimeSec);
-	}
-}
-
-void UGameplayStatics::SetGlobalListenerFocusParameters(UObject* WorldContextObject, float FocusAzimuthScale, float NonFocusAzimuthScale, float FocusDistanceScale, float NonFocusDistanceScale, float FocusVolumeScale, float NonFocusVolumeScale, float FocusPriorityScale, float NonFocusPriorityScale)
-{
-	if (!GEngine || !GEngine->UseSound())
-	{
-		return;
-	}
-
-	UWorld* ThisWorld = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (!ThisWorld || !ThisWorld->bAllowAudioPlayback || ThisWorld->GetNetMode() == NM_DedicatedServer)
-	{
-		return;
-	}
-
-	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
-	{
-		FGlobalFocusSettings NewFocusSettings;
-		NewFocusSettings.FocusAzimuthScale = FMath::Max(FocusAzimuthScale, 0.0f);
-		NewFocusSettings.NonFocusAzimuthScale = FMath::Max(NonFocusAzimuthScale, 0.0f);
-		NewFocusSettings.FocusDistanceScale = FMath::Max(FocusDistanceScale, 0.0f);
-		NewFocusSettings.NonFocusDistanceScale = FMath::Max(NonFocusDistanceScale, 0.0f);
-		NewFocusSettings.FocusVolumeScale = FMath::Max(FocusVolumeScale, 0.0f);
-		NewFocusSettings.NonFocusVolumeScale = FMath::Max(NonFocusVolumeScale, 0.0f);
-		NewFocusSettings.FocusPriorityScale = FMath::Max(FocusPriorityScale, 0.0f);
-		NewFocusSettings.NonFocusPriorityScale = FMath::Max(NonFocusPriorityScale, 0.0f);
-
-		AudioDevice->SetGlobalFocusSettings(NewFocusSettings);
+		AudioDevice->GlobalPitchScale.Set(PitchModulation, TimeSec);
 	}
 }
 
@@ -983,10 +792,11 @@ void UGameplayStatics::PlaySound2D(UObject* WorldContextObject, class USoundBase
 		return;
 	}
 
+	// TODO - Audio Threading. This call would be a task call to dispatch to the audio thread
 	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
 	{
 		FActiveSound NewActiveSound;
-		NewActiveSound.SetSound(Sound);
+		NewActiveSound.Sound = Sound;
 
 		NewActiveSound.VolumeMultiplier = VolumeMultiplier;
 		NewActiveSound.PitchMultiplier = PitchMultiplier;
@@ -994,7 +804,6 @@ void UGameplayStatics::PlaySound2D(UObject* WorldContextObject, class USoundBase
 		NewActiveSound.RequestedStartTime = FMath::Max(0.f, StartTime);
 
 		NewActiveSound.bIsUISound = true;
-		NewActiveSound.bAllowSpatialization = false;
 		NewActiveSound.ConcurrencySettings = ConcurrencySettings;
 		NewActiveSound.Priority = Sound->Priority;
 
@@ -1024,7 +833,7 @@ UAudioComponent* UGameplayStatics::CreateSound2D(UObject* WorldContextObject, cl
 		AudioComponent->bAllowSpatialization = false;
 		AudioComponent->bIsUISound = true;
 		AudioComponent->bAutoDestroy = true;
-		AudioComponent->SubtitlePriority = Sound->GetSubtitlePriority();
+		AudioComponent->SubtitlePriority = 10000.f; // Fixme: pass in? Do we want that exposed to blueprints though?		
 	}
 	return AudioComponent;
 }
@@ -1083,7 +892,7 @@ UAudioComponent* UGameplayStatics::SpawnSoundAtLocation(UObject* WorldContextObj
 		AudioComponent->bAllowSpatialization	= bIsInGameWorld;
 		AudioComponent->bIsUISound				= !bIsInGameWorld;
 		AudioComponent->bAutoDestroy			= true;
-		AudioComponent->SubtitlePriority		= DEFAULT_SUBTITLE_PRIORITY; // Fixme: pass in? Do we want that exposed to blueprints though?
+		AudioComponent->SubtitlePriority		= 10000.f; // Fixme: pass in? Do we want that exposed to blueprints though?
 		AudioComponent->Play(StartTime);
 	}
 
@@ -1099,7 +908,7 @@ class UAudioComponent* UGameplayStatics::SpawnSoundAttached(class USoundBase* So
 
 	if (!AttachToComponent)
 	{
-		UE_LOG(LogScript, Warning, TEXT("UGameplayStatics::SpawnSoundAttached: NULL AttachComponent specified! Trying to spawn sound [%s],"), *Sound->GetName());
+		UE_LOG(LogScript, Warning, TEXT("UGameplayStatics::PlaySoundAttached: NULL AttachComponent specified! Trying to spawn sound [%s],"), *Sound->GetName());
 		return nullptr;
 	}
 
@@ -1122,7 +931,7 @@ class UAudioComponent* UGameplayStatics::SpawnSoundAttached(class USoundBase* So
 	{
 		const bool bIsInGameWorld = AudioComponent->GetWorld()->IsGameWorld();
 
-		AudioComponent->AttachToComponent(AttachToComponent, FAttachmentTransformRules::KeepRelativeTransform, AttachPointName);
+		AudioComponent->AttachTo(AttachToComponent, AttachPointName);
 		if (LocationType == EAttachLocation::KeepWorldPosition)
 		{
 			AudioComponent->SetWorldLocationAndRotation(Location, Rotation);
@@ -1136,7 +945,7 @@ class UAudioComponent* UGameplayStatics::SpawnSoundAttached(class USoundBase* So
 		AudioComponent->bAllowSpatialization	= bIsInGameWorld;
 		AudioComponent->bIsUISound				= !bIsInGameWorld;
 		AudioComponent->bAutoDestroy			= true;
-		AudioComponent->SubtitlePriority		= DEFAULT_SUBTITLE_PRIORITY; // Fixme: pass in? Do we want that exposed to blueprints though?
+		AudioComponent->SubtitlePriority		= 10000.f; // Fixme: pass in? Do we want that exposed to blueprints though?
 		AudioComponent->Play(StartTime);
 	}
 
@@ -1186,23 +995,6 @@ class UAudioComponent* UGameplayStatics::SpawnDialogueAttached(class UDialogueWa
 	return nullptr;
 }
 
-void UGameplayStatics::SetSubtitlesEnabled(bool bEnabled)
-{
-	if (GEngine)
-	{
-		GEngine->bSubtitlesEnabled = bEnabled;
-	}
-}
-
-bool UGameplayStatics::AreSubtitlesEnabled()
-{
-	if (GEngine)
-	{
-		return GEngine->bSubtitlesEnabled;
-	}
-	return 0;
-}
-
 void UGameplayStatics::SetBaseSoundMix(UObject* WorldContextObject, USoundMix* InSoundMix)
 {
 	if (!InSoundMix || !GEngine || !GEngine->UseSound())
@@ -1238,44 +1030,6 @@ void UGameplayStatics::PushSoundMixModifier(UObject* WorldContextObject, USoundM
 	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
 	{
 		AudioDevice->PushSoundMixModifier(InSoundMixModifier);
-	}
-}
-
-void UGameplayStatics::SetSoundMixClassOverride(UObject* WorldContextObject, class USoundMix* InSoundMixModifier, class USoundClass* InSoundClass, float Volume, float Pitch, float FadeInTime, bool bApplyToChildren)
-{
-	if (!InSoundMixModifier || !GEngine || !GEngine->UseSound())
-	{
-		return;
-	}
-
-	UWorld* ThisWorld = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (!ThisWorld || !ThisWorld->bAllowAudioPlayback)
-	{
-		return;
-	}
-
-	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
-	{
-		AudioDevice->SetSoundMixClassOverride(InSoundMixModifier, InSoundClass, Volume, Pitch, FadeInTime, bApplyToChildren);
-	}
-}
-
-void UGameplayStatics::ClearSoundMixClassOverride(UObject* WorldContextObject, class USoundMix* InSoundMixModifier, class USoundClass* InSoundClass, float FadeOutTime)
-{
-	if (!InSoundMixModifier || !GEngine || !GEngine->UseSound())
-	{
-		return;
-	}
-
-	UWorld* ThisWorld = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (!ThisWorld || !ThisWorld->bAllowAudioPlayback)
-	{
-		return;
-	}
-
-	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
-	{
-		AudioDevice->ClearSoundMixClassOverride(InSoundMixModifier, InSoundClass, FadeOutTime);
 	}
 }
 
@@ -1355,26 +1109,6 @@ void UGameplayStatics::DeactivateReverbEffect(UObject* WorldContextObject, FName
 	}
 }
 
-class UReverbEffect* UGameplayStatics::GetCurrentReverbEffect(UObject* WorldContextObject)
-{
-	if (GEngine == nullptr || !GEngine->UseSound())
-	{
-		return nullptr;
-	}
-
-	UWorld* ThisWorld = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (!ThisWorld || !ThisWorld->bAllowAudioPlayback)
-	{
-		return nullptr;
-	}
-
-	if (FAudioDevice* AudioDevice = ThisWorld->GetAudioDevice())
-	{
-		return AudioDevice->GetCurrentReverbEffect();
-	}
-	return nullptr;
-}
-
 UDecalComponent* CreateDecalComponent(class UMaterialInterface* DecalMaterial, FVector DecalSize, UWorld* World, AActor* Actor, float LifeSpan)
 {
 	UDecalComponent* DecalComp = NewObject<UDecalComponent>((Actor ? Actor : (UObject*)World));
@@ -1427,7 +1161,7 @@ UDecalComponent* UGameplayStatics::SpawnDecalAttached(class UMaterialInterface* 
 				else
 				{
 					UDecalComponent* DecalComp = CreateDecalComponent(DecalMaterial, DecalSize, AttachToComponent->GetWorld(), AttachToComponent->GetOwner(), LifeSpan);
-					DecalComp->AttachToComponent(AttachToComponent, FAttachmentTransformRules::KeepRelativeTransform, AttachPointName);
+					DecalComp->AttachTo(AttachToComponent, AttachPointName);
 					if (LocationType == EAttachLocation::KeepWorldPosition)
 					{
 						DecalComp->SetWorldLocationAndRotation(Location, Rotation);
@@ -1465,6 +1199,7 @@ USaveGame* UGameplayStatics::CreateSaveGameObjectFromBlueprint(UBlueprint* SaveG
 	return nullptr;
 }
 
+
 bool UGameplayStatics::SaveGameToSlot(USaveGame* SaveGameObject, const FString& SlotName, const int32 UserIndex)
 {
 	ISaveGameSystem* SaveSystem = IPlatformFeaturesModule::Get().GetSaveGameSystem();
@@ -1480,7 +1215,7 @@ bool UGameplayStatics::SaveGameToSlot(USaveGame* SaveGameObject, const FString& 
 		MemoryWriter << FileTypeTag;
 
 		// Write version for this file format
-		int32 SavegameFileVersion = FSaveGameFileVersion::LatestVersion;
+		int32 SavegameFileVersion = UE4_SAVEGAME_FILE_VERSION;
 		MemoryWriter << SavegameFileVersion;
 
 		// Write out engine and UE4 version information
@@ -1488,13 +1223,6 @@ bool UGameplayStatics::SaveGameToSlot(USaveGame* SaveGameObject, const FString& 
 		MemoryWriter << PackageFileUE4Version;
 		FEngineVersion SavedEngineVersion = FEngineVersion::Current();
 		MemoryWriter << SavedEngineVersion;
-
-		// Write out custom version data
-		ECustomVersionSerializationFormat::Type const CustomVersionFormat = ECustomVersionSerializationFormat::Latest;
-		int32 CustomVersionFormatInt = static_cast<int32>(CustomVersionFormat);
-		MemoryWriter << CustomVersionFormatInt;
-		FCustomVersionContainer CustomVersions = FCustomVersionContainer::GetRegistered();
-		CustomVersions.Serialize(MemoryWriter, CustomVersionFormat);
 
 		// Write the class name so we know what class to load to
 		FString SaveGameClassName = SaveGameObject->GetClass()->GetName();
@@ -1551,7 +1279,7 @@ USaveGame* UGameplayStatics::LoadGameFromSlot(const FString& SlotName, const int
 			{
 				// this is an old saved game, back up the file pointer to the beginning and assume version 1
 				MemoryReader.Seek(0);
-				SavegameFileVersion = FSaveGameFileVersion::InitialVersion;
+				SavegameFileVersion = 1;
 
 				// Note for 4.8 and beyond: if you get a crash loading a pre-4.8 version of your savegame file and 
 				// you don't want to delete it, try uncommenting these lines and changing them to use the version 
@@ -1573,16 +1301,6 @@ USaveGame* UGameplayStatics::LoadGameFromSlot(const FString& SlotName, const int
 
 				MemoryReader.SetUE4Ver(SavedUE4Version);
 				MemoryReader.SetEngineVer(SavedEngineVersion);
-
-				if (SavegameFileVersion >= FSaveGameFileVersion::AddedCustomVersions)
-				{
-					int32 CustomVersionFormat;
-					MemoryReader << CustomVersionFormat;
-
-					FCustomVersionContainer CustomVersions;
-					CustomVersions.Serialize(MemoryReader, static_cast<ECustomVersionSerializationFormat::Type>(CustomVersionFormat));
-					MemoryReader.SetCustomVersions(CustomVersions);
-				}
 			}
 			
 			// Get the class name
@@ -1668,7 +1386,8 @@ bool UGameplayStatics::SuggestProjectileVelocity(UObject* WorldContextObject, FV
 
 	UWorld* const World = GEngine->GetWorldFromContextObject(WorldContextObject);
 
-	const float GravityZ = FMath::IsNearlyEqual(OverrideGravityZ, 0.0f) ? -World->GetGravityZ() : -OverrideGravityZ;
+	const float GravityZ = (OverrideGravityZ != 0.f) ? -OverrideGravityZ : -World->GetGravityZ();
+
 
 	// v^4 - g*(g*x^2 + 2*y*v^2)
 	const float InsideTheSqrt = FMath::Square(TossSpeedSq) - GravityZ * ( (GravityZ * FMath::Square(DeltaXY)) + (2.f * DeltaZ * TossSpeedSq) );
@@ -1824,128 +1543,6 @@ bool UGameplayStatics::SuggestProjectileVelocity(UObject* WorldContextObject, FV
 	}
 
 	return bFoundAValidSolution;
-}
-
-static const FName NAME_PredictProjectilePath = FName(TEXT("PredictProjectilePath"));
-
-// note: this will automatically fall back to line test if radius is small enough
-bool UGameplayStatics::PredictProjectilePath(UObject* WorldContextObject, FHitResult& OutHit, TArray<FVector>& OutPathPositions, FVector& OutLastTraceDestination, FVector StartPos, FVector LaunchVelocity, bool bTracePath, float ProjectileRadius, const TArray<TEnumAsByte<EObjectTypeQuery> >& ObjectTypes, bool bTraceComplex, const TArray<AActor*>& ActorsToIgnore, EDrawDebugTrace::Type DrawDebugType, float DrawDebugTime, float SimFrequency /*= 30.f*/, float MaxSimTime /*= 2.f*/, float OverrideGravityZ /*= 0*/)
-{
-	OutPathPositions.Empty();
-	bool bBlockingHit = false;
-
-	UWorld const* const World = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (World && SimFrequency > KINDA_SMALL_NUMBER)
-	{
-		float const SubstepDeltaTime = 1.f / SimFrequency;
-		int32 const StepLimit = FMath::CeilToInt(SimFrequency * MaxSimTime);
-
-		const float GravityZ = FMath::IsNearlyEqual(OverrideGravityZ, 0.0f) ? World->GetGravityZ() : OverrideGravityZ;
-
-		OutPathPositions.Add(StartPos);
-
-		FVector CurrentVel = LaunchVelocity;
-		FVector TraceStart = StartPos;
-		FVector TraceEnd = TraceStart + CurrentVel * SubstepDeltaTime;
-
-		FCollisionQueryParams QueryParams(NAME_PredictProjectilePath, true);
-		QueryParams.AddIgnoredActors(ActorsToIgnore);
-		QueryParams.bTraceComplex = bTraceComplex;
-
-		FCollisionObjectQueryParams ObjQueryParams;
-		for (auto Iter = ObjectTypes.CreateConstIterator(); Iter; ++Iter)
-		{
-			const ECollisionChannel& Channel = UCollisionProfile::Get()->ConvertToCollisionChannel(false, *Iter);
-			ObjQueryParams.AddObjectTypesToQuery(Channel);
-		}
-
-		FHitResult TraceHit(0.f);
-		int32 StepCount = 0;
-		while (StepCount < StepLimit)
-		{
-			OutLastTraceDestination = TraceEnd;
-
-			if (bTracePath)
-			{
-				if (World->SweepSingleByObjectType(TraceHit, TraceStart, TraceEnd, FQuat::Identity, ObjQueryParams, FCollisionShape::MakeSphere(ProjectileRadius), QueryParams))
-				{
-					// hit! we are done
-					OutHit = TraceHit;
-					OutPathPositions.Add(OutHit.Location);
-					bBlockingHit = true;
-					break;
-				}
-			}
-
-			OutPathPositions.Add(TraceEnd);
-
-			// integrate and continue
-			TraceStart = TraceEnd;
-			CurrentVel = CurrentVel + FVector(0, 0, GravityZ * SubstepDeltaTime);
-			TraceEnd = TraceStart + CurrentVel * SubstepDeltaTime;
-
-			++StepCount;
-		}
-	}
-
-	if (DrawDebugType != EDrawDebugTrace::None)
-	{
-		bool bPersistent = DrawDebugType == EDrawDebugTrace::Persistent;
-		float LifeTime = (DrawDebugType == EDrawDebugTrace::ForDuration) ? DrawDebugTime : 0.f;
-
-		float const DrawRadius = (ProjectileRadius > 0.f) ? ProjectileRadius : 5.f;
-
-		// draw the path
-		for (FVector PathPt : OutPathPositions)
-		{
-			::DrawDebugSphere(World, PathPt, DrawRadius, 12, FColor::Green, bPersistent, LifeTime);
-		}
-		// draw the impact point
-		if (bBlockingHit)
-		{
-			::DrawDebugSphere(World, OutHit.Location, 15.f, 12, FColor::Red, bPersistent, LifeTime);
-		}
-	}
-
-	return bBlockingHit;
-}
-
-bool UGameplayStatics::SuggestProjectileVelocity_CustomArc(UObject* WorldContextObject, FVector& OutLaunchVelocity, FVector StartPos, FVector EndPos, float OverrideGravityZ /*= 0*/, float ArcParam /*= 0.5f */)
-{
-	/* Make sure the start and end aren't the same location */
-	FVector const StartToEnd = EndPos - StartPos;
-	float const StartToEndDist = StartToEnd.Size();
-
-	UWorld const* const World = GEngine->GetWorldFromContextObject(WorldContextObject);
-	if (World && StartToEndDist > KINDA_SMALL_NUMBER)
-	{
-		const float GravityZ = FMath::IsNearlyEqual(OverrideGravityZ, 0.0f) ? World->GetGravityZ() : OverrideGravityZ;
-
-		// choose arc according to the arc param
-		FVector const StartToEndDir = StartToEnd / StartToEndDist;
-		FVector LaunchDir = FMath::Lerp(FVector::UpVector, StartToEndDir, ArcParam).GetSafeNormal();
-
-		// v = sqrt ( g * dx^2 / ( (dx tan(angle) + dz) * 2 * cos(angle))^2 ) )
-
-		FRotator const LaunchRot = LaunchDir.Rotation();
-		float const Angle = FMath::DegreesToRadians(LaunchRot.Pitch);
-
-		float const Dx = StartToEnd.Size2D();
-		float const Dz = StartToEnd.Z;
-		float const NumeratorInsideSqrt = (GravityZ * FMath::Square(Dx) * 0.5f);
-		float const DenominatorInsideSqrt = (Dz - (Dx * FMath::Tan(Angle))) * FMath::Square(FMath::Cos(Angle));
-		float const InsideSqrt = NumeratorInsideSqrt / DenominatorInsideSqrt;
-		if (InsideSqrt >= 0.f)
-		{
-			// there exists a solution
-			float const Speed = FMath::Sqrt(InsideSqrt);	// this is the mag of the vertical component
-			OutLaunchVelocity = LaunchDir * Speed;
-			return true;
-		}
-	}
-
-	OutLaunchVelocity = FVector::ZeroVector;
-	return false;
 }
 
 FIntVector UGameplayStatics::GetWorldOriginLocation(UObject* WorldContextObject)

@@ -116,5 +116,4 @@ protected:
 
 	void TryToRepath();
 	void ClearPendingRepath();
-	void ClearTimers();
 };

@@ -4,11 +4,12 @@
 #include "NetworkReplayStreaming.h"
 #include "Http.h"
 #include "Runtime/Engine/Public/Tickable.h"
+#include "OnlineJsonSerializer.h"
 
 /**
  * Archive used to buffer stream over http
  */
-class HTTPNETWORKREPLAYSTREAMING_API FHttpStreamFArchive : public FArchive
+class FHttpStreamFArchive : public FArchive
 {
 public:
 	FHttpStreamFArchive() : Pos( 0 ), bAtEndOfReplay( false ) {}
@@ -102,11 +103,7 @@ class FHttpNetworkReplayStreamer;
 class FQueuedHttpRequest
 {
 public:
-	FQueuedHttpRequest( const EQueuedHttpRequestType::Type InType, TSharedPtr< class IHttpRequest > InRequest ) : Type( InType ), Request( InRequest ), RetryProgress( 0 ), MaxRetries( 0 ), RetryDelay( 0.0f ), NextRetryTime( 0.0 )
-	{
-	}
-
-	FQueuedHttpRequest( const EQueuedHttpRequestType::Type InType, TSharedPtr< class IHttpRequest > InRequest, const int32 InMaxRetries, const float InRetryDelay ) : Type( InType ), Request( InRequest ), RetryProgress( 0 ), MaxRetries( InMaxRetries ), RetryDelay( InRetryDelay ), NextRetryTime( 0.0 )
+	FQueuedHttpRequest( const EQueuedHttpRequestType::Type InType, TSharedPtr< class IHttpRequest > InRequest ) : Type( InType ), Request( InRequest )
 	{
 	}
 
@@ -116,11 +113,6 @@ public:
 
 	EQueuedHttpRequestType::Type		Type;
 	TSharedPtr< class IHttpRequest >	Request;
-
-	int32								RetryProgress;
-	int32								MaxRetries;
-	float								RetryDelay;
-	double								NextRetryTime;
 
 	virtual bool PreProcess( FHttpNetworkReplayStreamer* Streamer, const FString& ServerURL, const FString& SessionName )
 	{
@@ -150,22 +142,6 @@ public:
 };
 
 /**
-* FQueuedHttpRequestAddUser
-* Custom event so that we can defer the need to knowing SessionName until we actually send it (which we should have it by then, since requests are executed in order)
-*/
-class FQueuedHttpRequestAddUser : public FQueuedHttpRequest
-{
-public:
-	FQueuedHttpRequestAddUser( const FString& InUser, TSharedRef< class IHttpRequest > InHttpRequest );
-
-	virtual ~FQueuedHttpRequestAddUser()
-	{
-	}
-
-	virtual bool PreProcess( FHttpNetworkReplayStreamer* Streamer, const FString& ServerURL, const FString& SessionName ) override;
-};
-
-/**
 * FQueuedGotoFakeCheckpoint
 */
 class FQueuedGotoFakeCheckpoint : public FQueuedHttpRequest
@@ -178,17 +154,6 @@ public:
 	}
 
 	virtual bool PreProcess( FHttpNetworkReplayStreamer* Streamer, const FString& ServerURL, const FString& SessionName ) override;
-};
-
-class FCachedResponse
-{
-public:
-	FCachedResponse( FHttpResponsePtr InResponse, const double InLastAccessTime ) : Response( InResponse ), LastAccessTime( InLastAccessTime )
-	{
-	}
-	
-	FHttpResponsePtr	Response;
-	double				LastAccessTime;
 };
 
 /**
@@ -208,6 +173,7 @@ public:
 	virtual void		FlushCheckpoint( const uint32 TimeInMS ) override;
 	virtual void		GotoCheckpointIndex( const int32 CheckpointIndex, const FOnCheckpointReadyDelegate& Delegate ) override;
 	virtual void		GotoTimeInMS( const uint32 TimeInMS, const FOnCheckpointReadyDelegate& Delegate ) override;
+	virtual FArchive*	GetMetadataArchive() override;
 	virtual void		UpdateTotalDemoTime( uint32 TimeInMS ) override;
 	virtual uint32		GetTotalDemoTime() const override { return TotalDemoTimeInMS; }
 	virtual bool		IsDataAvailable() const override;
@@ -226,9 +192,7 @@ public:
 	virtual void		SearchEvents(const FString& EventGroup, const FOnEnumerateStreamsComplete& Delegate) override;
 	virtual void		KeepReplay( const FString& ReplayName, const bool bKeep ) override;
 	virtual ENetworkReplayError::Type GetLastError() const override;
-	virtual FString		GetReplayID() const override { return SessionName; }
-	virtual void		SetTimeBufferHintSeconds(const float InTimeBufferHintSeconds) override {}
-	
+
 	/** FHttpNetworkReplayStreamer */
 	void UploadHeader();
 	void FlushStream();
@@ -241,22 +205,16 @@ public:
 	void RefreshViewer( const bool bFinal );
 	void ConditionallyRefreshViewer();
 	void SetLastError( const ENetworkReplayError::Type InLastError );
-	virtual void CancelStreamingRequests();
+	void CancelStreamingRequests();
 	void FlushCheckpointInternal( uint32 TimeInMS );
 	virtual void AddEvent( const uint32 TimeInMS, const FString& Group, const FString& Meta, const TArray<uint8>& Data ) override;
 	virtual void AddOrUpdateEvent( const FString& Name, const uint32 TimeInMS, const FString& Group, const FString& Meta, const TArray<uint8>& Data ) override;
-	void AddRequestToQueue( const EQueuedHttpRequestType::Type Type, TSharedPtr< class IHttpRequest > Request, const int32 InMaxRetries = 0, const float InRetryDelay = 0.0f );
+	void AddRequestToQueue( const EQueuedHttpRequestType::Type Type, TSharedPtr< class IHttpRequest >	Request );
 	void AddCustomRequestToQueue( TSharedPtr< FQueuedHttpRequest > Request );
-	void AddResponseToCache( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse );
-	void CleanupResponseCache();
-	bool RetryRequest( TSharedPtr< FQueuedHttpRequest > Request, FHttpResponsePtr HttpResponse );
 	void EnumerateCheckpoints();
 	void ConditionallyEnumerateCheckpoints();
 
 	virtual void ProcessRequestInternal( TSharedPtr< class IHttpRequest > Request );
-	virtual bool SupportsCompression() const { return false; }
-	virtual bool CompressBuffer( const TArray< uint8 >& InBuffer, FHttpStreamFArchive& OutCompressed ) const { return false; }
-	virtual bool DecompressBuffer(FHttpStreamFArchive& InCompressed, TArray< uint8 >& OutBuffer) const { return false; }
 
 	/** EStreamerState - Overall state of the streamer */
 	enum class EStreamerState
@@ -271,7 +229,7 @@ public:
 
 	void HttpStartDownloadingFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded );
 	void HttpDownloadHeaderFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded );
-	void HttpDownloadFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, int32 RequestedStreamChunkIndex, bool bStreamWasLive );
+	void HttpDownloadFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, int32 RequestedStreamChunkIndex );
 	void HttpDownloadCheckpointFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded );
 	void HttpRefreshViewerFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded );
 	void HttpStartUploadingFinished( FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded );
@@ -325,12 +283,6 @@ public:
 
 	TArray< TSharedPtr< FQueuedHttpRequest > >	QueuedHttpRequests;
 	TSharedPtr< FQueuedHttpRequest >			InFlightHttpRequest;
-
-	TSet< FString >						EventGroupSet;
-
-	uint32								TotalUploadBytes;
-
-	TMap< FString, FCachedResponse >	ResponseCache;
 };
 
 class HTTPNETWORKREPLAYSTREAMING_API FHttpNetworkReplayStreamingFactory : public INetworkReplayStreamingFactory, public FTickableGameObject

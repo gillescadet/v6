@@ -183,7 +183,7 @@ public:
 	}
 
 	/** Conversion to "bool" returning true if the iterator is valid. */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{ 
 		return ObjectArray.IsValidIndex(Index); 
 	}

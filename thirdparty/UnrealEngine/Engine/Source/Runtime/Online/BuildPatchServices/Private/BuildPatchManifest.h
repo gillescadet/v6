@@ -208,7 +208,7 @@ struct FFileManifestData
 
 	int64 GetFileSize() const;
 
-	bool operator<(const FFileManifestData& Other) const;
+	FORCEINLINE bool operator<(const FFileManifestData& Other) const;
 
 private:
 	int64 FileSize;
@@ -337,7 +337,7 @@ struct FFileChunkPart
 // Required to allow private access to manifest builder for now..
 namespace BuildPatchServices
 {
-	class FManifestBuilder;
+	class FManifestBuilderImpl;
 }
 
 /**
@@ -350,8 +350,7 @@ class FBuildPatchAppManifest
 	friend class FBuildDataGenerator;
 	friend class FBuildDataFileProcessor;
 	friend class FBuildPatchInstaller;
-	friend class BuildPatchServices::FManifestBuilder;
-	friend class FBuildMergeManifests;
+	friend class BuildPatchServices::FManifestBuilderImpl;
 public:
 
 	/**
@@ -406,7 +405,7 @@ public:
 	 * @param Filename		The file to load JSON from
 	 * @return		True if successful.
 	 */
-	bool LoadFromFile(const FString& Filename);
+	bool LoadFromFile(FString Filename);
 
 	/**
 	 * Sets up the object from the passed in data

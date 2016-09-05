@@ -11,13 +11,6 @@
 /** Macro to convert from CollisionResponseContainer to bit flag **/
 #define CRC_TO_BITFIELD(x)	(1<<(x))
 
-enum class EQueryMobilityType
-{
-	Any,
-	Static,	//Any shape that is considered static by physx (static mobility)
-	Dynamic	//Any shape that is considered dynamic by physx (movable/stationary mobility)
-};
-
 /** Structure that defines parameters passed into collision function */
 struct ENGINE_API FCollisionQueryParams
 {
@@ -33,9 +26,6 @@ struct ENGINE_API FCollisionQueryParams
 	/** Whether we should trace against complex collision */
 	bool bTraceComplex;
 
-	/** Filters query by mobility types (static vs stationary/movable)*/
-	EQueryMobilityType MobilityType;
-
 	/** Whether we want to find out initial overlap or not. If true, it will return if this was initial overlap. */
 	bool bFindInitialOverlaps;
 
@@ -49,10 +39,7 @@ struct ENGINE_API FCollisionQueryParams
 	bool bIgnoreBlocks;
 
 	/** TArray typedef of components to ignore. */
-	typedef TArray<uint32, TInlineAllocator<8>> IgnoreComponentsArrayType;
-
-	/** TArray typedef of actors to ignore. */
-	typedef TArray<uint32, TInlineAllocator<4>> IgnoreActorsArrayType;
+	typedef TArray<uint32, TInlineAllocator<NumInlinedActorComponents>> IgnoreComponentsArrayType;
 
 	/** Extra filtering done on the query. See declaration for filtering logic */
 	FMaskFilter IgnoreMask;
@@ -65,21 +52,12 @@ private:
 	/** Set of components to ignore during the trace */
 	mutable IgnoreComponentsArrayType IgnoreComponents;
 
-	/** Set of actors to ignore during the trace */
-	IgnoreActorsArrayType IgnoreActors;
-
 	void Internal_AddIgnoredComponent(const UPrimitiveComponent* InIgnoreComponent);
 
 public:
 
 	/** Returns set of unique components to ignore during the trace. Elements are guaranteed to be unique (they are made so internally if they are not already). */
 	const IgnoreComponentsArrayType& GetIgnoredComponents() const;
-
-	/** Returns set of actors to ignore during the trace. Note that elements are NOT guaranteed to be unique. This is less important for actors since it's less likely that duplicates are added.*/
-	const IgnoreActorsArrayType& GetIgnoredActors() const
-	{
-		return IgnoreActors;
-	}
 
 	/** Clears the set of components to ignore during the trace. */
 	void ClearIgnoredComponents()
@@ -107,7 +85,6 @@ public:
 	FCollisionQueryParams(bool bInTraceComplex)
 	{
 		bTraceComplex = bInTraceComplex;
-		MobilityType = EQueryMobilityType::Any;
 		TraceTag = NAME_None;
 		bTraceAsyncScene = false;
 		bFindInitialOverlaps = true;
@@ -121,7 +98,6 @@ public:
 	FCollisionQueryParams()
 	{
 		bTraceComplex = false;
-		MobilityType = EQueryMobilityType::Any;
 		TraceTag = NAME_None;
 		bTraceAsyncScene = false;
 		bFindInitialOverlaps = true;
@@ -140,9 +116,6 @@ public:
 
 	/** Add an actor for this trace to ignore */
 	void AddIgnoredActor(const AActor* InIgnoreActor);
-
-	/** Add an actor by ID for this trace to ignore */
-	void AddIgnoredActor(const uint32 InIgnoreActorID);
 
 	/** Add a collection of actors for this trace to ignore */
 	void AddIgnoredActors(const TArray<AActor*>& InIgnoreActors);

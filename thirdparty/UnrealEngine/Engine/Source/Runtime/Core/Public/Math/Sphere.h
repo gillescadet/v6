@@ -10,10 +10,10 @@ class FSphere
 {
 public:
 
-	/** The sphere's center point. */
+	/** Holds the sphere's center. */
 	FVector Center;
 
-	/** The sphere's radius. */
+	/** Holds the sphere's radius. */
 	float W;
 
 public:
@@ -26,7 +26,7 @@ public:
 	 *
 	 * @param int32 Passing int32 sets up zeroed sphere.
 	 */
-	FSphere(int32)
+	FSphere( int32 )
 		: Center(0.0f, 0.0f, 0.0f)
 		, W(0)
 	{ }
@@ -37,7 +37,7 @@ public:
 	 * @param InV Center of sphere.
 	 * @param InW Radius of sphere.
 	 */
-	FSphere(FVector InV, float InW)
+	FSphere( FVector InV, float InW )
 		: Center(InV)
 		, W(InW)
 	{ }
@@ -47,7 +47,7 @@ public:
 	 *
 	 * @param EForceInit Force Init Enum.
 	 */
-	explicit FORCEINLINE FSphere(EForceInit)
+	explicit FORCEINLINE FSphere( EForceInit )
 		: Center(ForceInit)
 		, W(0.0f)
 	{ }
@@ -58,7 +58,7 @@ public:
 	 * @param Pts Pointer to list of points this sphere must contain.
 	 * @param Count How many points are in the list.
 	 */
-	CORE_API FSphere(const FVector* Pts, int32 Count);
+	CORE_API FSphere( const FVector* Pts, int32 Count );
 
 public:
 
@@ -69,7 +69,7 @@ public:
 	 * @param Tolerance Error Tolerance.
 	 * @return true if spheres are equal within specified tolerance, otherwise false.
 	 */
-	bool Equals(const FSphere& Sphere, float Tolerance = KINDA_SMALL_NUMBER) const
+	bool Equals( const FSphere& Sphere, float Tolerance = KINDA_SMALL_NUMBER ) const
 	{
 		return Center.Equals(Sphere.Center, Tolerance) && FMath::Abs(W - Sphere.W) <= Tolerance;
 	}
@@ -81,7 +81,7 @@ public:
 	 * @param Tolerance Error Tolerance.
 	 * @return true if sphere is inside another, otherwise false.
 	 */
-	bool IsInside(const FSphere& Other, float Tolerance = KINDA_SMALL_NUMBER) const
+	bool IsInside( const FSphere& Other, float Tolerance = KINDA_SMALL_NUMBER ) const
 	{
 		if (W > Other.W + Tolerance)
 		{
@@ -90,6 +90,7 @@ public:
 
 		return (Center - Other.Center).SizeSquared() <= FMath::Square(Other.W + Tolerance - W);
 	}
+
 
 	/**
 	* Checks whether the given location is inside this sphere.
@@ -102,6 +103,7 @@ public:
 		return (Center - In).SizeSquared() <= FMath::Square(W + Tolerance);
 	}
 
+	
 	/**
 	 * Test whether this sphere intersects another.
 	 * 
@@ -109,7 +111,7 @@ public:
 	 * @param  Tolerance Error tolerance.
 	 * @return true if spheres intersect, false otherwise.
 	 */
-	FORCEINLINE bool Intersects(const FSphere& Other, float Tolerance = KINDA_SMALL_NUMBER) const
+	FORCEINLINE bool Intersects( const FSphere& Other, float Tolerance = KINDA_SMALL_NUMBER ) const
 	{
 		return (Center - Other.Center).SizeSquared() <= FMath::Square(FMath::Max(0.f, Other.W + W + Tolerance));
 	}
@@ -120,7 +122,7 @@ public:
 	 * @param M Matrix to transform by.
 	 * @return Result of transformation.
 	 */
-	CORE_API FSphere TransformBy(const FMatrix& M) const;
+	CORE_API FSphere TransformBy( const FMatrix& M ) const;
 
 	/**
 	 * Get result of Transforming sphere with Transform.
@@ -128,12 +130,11 @@ public:
 	 * @param M Transform information.
 	 * @return Result of transformation.
 	 */
-	CORE_API FSphere TransformBy(const FTransform& M) const;
+	CORE_API FSphere TransformBy( const FTransform& M ) const;
 
 	/**
 	 * Get volume of the current sphere
-	 *
-	 * @return Volume (in Unreal units).
+	 * 
 	 */
 	CORE_API float GetVolume() const;
 
@@ -143,7 +144,7 @@ public:
 	 * @param Other the bounding volume to increase the bounding volume to.
 	 * @return Reference to this bounding volume after resizing to include the other bounding volume.
 	 */
-	CORE_API FSphere& operator+=(const FSphere& Other);
+	CORE_API FSphere& operator+=( const FSphere& Other );
 
 	/**
 	 * Gets the result of addition to this bounding volume.
@@ -151,7 +152,7 @@ public:
 	 * @param Other The other volume to add to this.
 	 * @return A new bounding volume.
 	 */
-	FSphere operator+(const FSphere& Other) const
+	FSphere operator+( const FSphere& Other ) const
 	{
 		return FSphere(*this) += Other;
 	}
@@ -165,10 +166,25 @@ public:
 	 * @param Sphere The sphere to serialize.
 	 * @return The archive.
 	 */
-	friend FArchive& operator<<(FArchive& Ar, FSphere& Sphere)
+	friend FArchive& operator<<( FArchive& Ar, FSphere& Sphere )
 	{
 		Ar << Sphere.Center << Sphere.W;
 
 		return Ar;
 	}
+};
+
+struct FCapsuleShape
+{
+	FVector Center;
+	float Radius;
+	FVector Orientation;
+	float Length;
+
+	FCapsuleShape(FVector InCenter, float InRadius, FVector InOrientation, float InLength) :
+		Center(InCenter),
+		Radius(InRadius),
+		Orientation(InOrientation),
+		Length(InLength)
+	{}
 };

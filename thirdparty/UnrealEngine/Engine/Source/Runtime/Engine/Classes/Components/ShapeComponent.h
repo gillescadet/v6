@@ -4,11 +4,6 @@
 #include "Components/PrimitiveComponent.h"
 #include "ShapeComponent.generated.h"
 
-namespace physx
-{
-	class PxShape;
-}
-
 /**
  * ShapeComponent is a PrimitiveComponent that is represented by a simple geometrical shape (sphere, capsule, box, etc).
  */
@@ -27,39 +22,15 @@ class ENGINE_API UShapeComponent : public UPrimitiveComponent
 
 	/** Only show this component if the actor is selected */
 	UPROPERTY()
-	uint8 bDrawOnlyIfSelected:1;
+	uint32 bDrawOnlyIfSelected:1;
 
 	/** If true it allows Collision when placing even if collision is not enabled*/
 	UPROPERTY()
-	uint8 bShouldCollideWhenPlacing:1;
+	uint32 bShouldCollideWhenPlacing:1;
 
 	/** If set, shape will be exported for navigation as dynamic modifier instead of using regular collision data */
 	UPROPERTY(EditAnywhere, Category = Navigation)
-	uint8 bDynamicObstacle : 1;
-
-protected:
-	/** If the body setup can be shared (i.e. there have been no alterations compared to the CDO)*/
-	uint8 bUseArchetypeBodySetup : 1;
-
-	/** Checks if a shared body setup is available (and if we're eligible for it). If successful you must still check for staleness */
-	template<typename ComponentType>
-	bool PrepareSharedBodySetup()
-	{
-		bool bSuccess = bUseArchetypeBodySetup;
-		if (bUseArchetypeBodySetup && ShapeBodySetup == nullptr)
-		{
-			ShapeBodySetup = CastChecked<ComponentType>(GetArchetype())->GetBodySetup();
-			bSuccess = ShapeBodySetup != nullptr;
-		}
-
-		return bSuccess;
-	}
-
-	template <typename ShapeElemType> void AddShapeToGeomArray();
-	template <typename ShapeElemType> void SetShapeToNewGeom(physx::PxShape* PShape);
-	template <typename ShapeElemType> void CreateShapeBodySetupIfNeeded();
-
-public:
+	uint32 bDynamicObstacle : 1;
 
 	/** Navigation area type (empty = default obstacle) */
 	UPROPERTY(EditAnywhere, Category = Navigation)
@@ -92,10 +63,8 @@ public:
 
 	/** Update the body setup parameters based on shape information*/
 	virtual void UpdateBodySetup();
+
 };
 
-enum class EShapeBodySetupHelper
-{
-	InvalidateSharingIfStale,
-	UpdateBodySetup
-};
+
+

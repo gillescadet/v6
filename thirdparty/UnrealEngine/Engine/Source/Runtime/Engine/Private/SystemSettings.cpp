@@ -65,15 +65,37 @@ FSystemSettingsData::FSystemSettingsData()
 class FSetCVarFromIni
 {
 public:
-	const FString& IniFilename;
-
-	FSetCVarFromIni(const FString& InIniFilename)
-		: IniFilename(InIniFilename)
-	{}
-
-	void OnEntry(const TCHAR *Key, const TCHAR* Value)
+	static void OnEntry(const TCHAR *Key, const TCHAR* Value)
 	{
-		OnSetCVarFromIniEntry(*IniFilename, Key, Value, ECVF_SetBySystemSettingsIni);
+		IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Key);
+
+		if(CVar)
+		{
+			if (!CVar->TestFlags(EConsoleVariableFlags::ECVF_Cheat))
+			{
+				// Set if the variable exists.
+
+				// to be more compatible with non console variable boolean system settings we allow verbal values
+
+				if (FCString::Stricmp(Value, TEXT("True")) == 0
+					|| FCString::Stricmp(Value, TEXT("Yes")) == 0
+					|| FCString::Stricmp(Value, TEXT("On")) == 0)
+				{
+					CVar->Set(1, ECVF_SetBySystemSettingsIni);
+				}
+				else
+				if (FCString::Stricmp(Value, TEXT("False")) == 0
+					|| FCString::Stricmp(Value, TEXT("No")) == 0
+					|| FCString::Stricmp(Value, TEXT("Off")) == 0)
+				{
+					CVar->Set(0, ECVF_SetBySystemSettingsIni);
+				}
+				else
+				{
+					CVar->Set(Value, ECVF_SetBySystemSettingsIni);
+				}
+			}
+		}
 	}
 };
 
@@ -90,12 +112,7 @@ void FSystemSettingsData::LoadFromIni( const TCHAR* IniSection, const FString& I
 
 	// Read all console variables from .ini
 	{
-		FSetCVarFromIni Delegate(IniFilename);
-		FKeyValueSink Visitor;
-
-		Visitor.BindRaw(&Delegate, &FSetCVarFromIni::OnEntry);
-
-		GConfig->ForEachEntry(Visitor, IniSection, IniFilename);
+		GConfig->ForEachEntry(FKeyValueSink::CreateStatic(&FSetCVarFromIni::OnEntry), IniSection, IniFilename);
 
 		IConsoleManager::Get().CallAllConsoleVariableSinks();
 	}
@@ -136,11 +153,7 @@ void FSystemSettings::RegisterShowFlagConsoleVariables()
 				ShowFlagIndex,
 				(uint8*)&This.Force0Mask,
 				(uint8*)&This.Force1Mask,
-				TEXT("Allows to override a specific showflag (works in editor and game, \"show\" only works in game and UI only in editor)\n")
-				TEXT("Useful to run a build many time with the same showflags (when put in consolevariables.ini like \"showflag.abc=0\")\n")
-				TEXT(" 0: force the showflag to be OFF\n")
-				TEXT(" 1: force the showflag to be ON\n")
-				TEXT(" 2: do not override this showflag (default)"),
+				TEXT("ShowFlag 0:force off, 1:force on, 2 or other value to not apply any adjustments"),
 				ECVF_Cheat);
 
 			return true;
@@ -221,7 +234,7 @@ void FSystemSettings::Initialize( bool bSetupForEditor )
 
 	IConsoleManager::Get().RegisterConsoleVariableSink_Handle(FConsoleCommandDelegate::CreateRaw(this, &FSystemSettings::CVarSink));
 
-	// initialize a critical texture streaming value used by texture loading, etc
+	// intialize a critical texture streaming value used by texture loading, etc
 	int32 MinTextureResidentMipCount = 7;
 	GConfig->GetInt(TEXT("TextureStreaming"), TEXT("MinTextureResidentMipCount"), MinTextureResidentMipCount, GEngineIni);
 	UTexture2D::SetMinTextureResidentMipCount(MinTextureResidentMipCount);

@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "MovieSceneCaptureProtocolSettings.h"
 #include "MovieSceneCaptureProtocolRegistry.generated.h"
 
 struct IMovieSceneCaptureProtocol;
@@ -56,13 +55,13 @@ public:
 	}
 
 	/** Create a new settings type for the specified protocol ID */
-	UMovieSceneCaptureProtocolSettings* FactorySettingsType(FCaptureProtocolID InProtocolID, UObject* Outer)
+	UObject* FactorySettingsType(FCaptureProtocolID InProtocolID, UObject* Outer)
 	{
 		if (const FMovieSceneCaptureProtocolInfo* Info = Register.Find(InProtocolID))
 		{
 			if (Info->SettingsClassType)
 			{
-				return NewObject<UMovieSceneCaptureProtocolSettings>(Outer, Info->SettingsClassType);
+				return NewObject<UObject>(Outer, Info->SettingsClassType);
 			}
 		}
 		return nullptr;

@@ -40,10 +40,6 @@ class UParticleModuleTypeDataBase : public UParticleModule
 	virtual bool		SupportsSubUV() const	{ return false; }
 	// @todo document
 	virtual bool		IsAMeshEmitter() const	{ return false; }
-
-	/** Determine if motion blur is enabled for the owning emitter. */
-	virtual bool		IsMotionBlurEnabled() const  { return false; }
-
 };
 
 

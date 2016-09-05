@@ -17,7 +17,6 @@ UAnimCompress_RemoveEverySecondKey::UAnimCompress_RemoveEverySecondKey(const FOb
 	MinKeys = 10;
 }
 
-#if WITH_EDITOR
 void UAnimCompress_RemoveEverySecondKey::DoReduction(UAnimSequence* AnimSeq, const TArray<FBoneData>& BoneData)
 {
 #if WITH_EDITORONLY_DATA
@@ -54,14 +53,5 @@ void UAnimCompress_RemoveEverySecondKey::DoReduction(UAnimSequence* AnimSeq, con
 	AnimationFormat_SetInterfaceLinks(*AnimSeq);
 	AnimSeq->CompressionScheme = static_cast<UAnimCompress*>( StaticDuplicateObject( this, AnimSeq ) );
 #endif // WITH_EDITORONLY_DATA
-}
+};
 
-void UAnimCompress_RemoveEverySecondKey::PopulateDDCKey(FArchive& Ar)
-{
-	Super::PopulateDDCKey(Ar);
-	Ar << MinKeys;
-	bool bVal = bStartAtSecondKey;
-	Ar << bVal;
-}
-
-#endif // WITH_EDITOR

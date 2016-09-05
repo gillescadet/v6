@@ -9,7 +9,6 @@
 #endif
 #include "AI/Navigation/NavLinkHostInterface.h"
 #include "AI/Navigation/NavAreas/NavArea.h"
-#include "AI/Navigation/RecastNavMesh.h"
 
 //----------------------------------------------------------------------//
 // UNavLinkRenderingComponent
@@ -103,7 +102,7 @@ FNavLinkRenderingProxy::FNavLinkRenderingProxy(const UPrimitiveComponent* InComp
 
 	if (LinkOwnerActor != NULL && LinkOwnerHost != NULL)
 	{
-		const FTransform LinkOwnerLocalToWorld = LinkOwnerActor->ActorToWorld();
+		const FTransform LocalToWorld = LinkOwnerActor->ActorToWorld();
 		TArray<TSubclassOf<UNavLinkDefinition> > NavLinkClasses;
 		LinkOwnerHost->GetNavigationLinksClasses(NavLinkClasses);
 
@@ -111,8 +110,8 @@ FNavLinkRenderingProxy::FNavLinkRenderingProxy(const UPrimitiveComponent* InComp
 		{
 			if (NavLinkClasses[NavLinkClassIdx] != NULL)
 			{
-				StorePointLinks(LinkOwnerLocalToWorld, UNavLinkDefinition::GetLinksDefinition(NavLinkClasses[NavLinkClassIdx]));
-				StoreSegmentLinks(LinkOwnerLocalToWorld, UNavLinkDefinition::GetSegmentLinksDefinition(NavLinkClasses[NavLinkClassIdx]));
+				StorePointLinks(LocalToWorld, UNavLinkDefinition::GetLinksDefinition(NavLinkClasses[NavLinkClassIdx]));
+				StoreSegmentLinks(LocalToWorld, UNavLinkDefinition::GetSegmentLinksDefinition(NavLinkClasses[NavLinkClassIdx]));
 			}
 		}
 
@@ -120,20 +119,20 @@ FNavLinkRenderingProxy::FNavLinkRenderingProxy(const UPrimitiveComponent* InComp
 		TArray<FNavigationSegmentLink> SegmentLinks;
 		if (LinkOwnerHost->GetNavigationLinksArray(PointLinks, SegmentLinks))
 		{
-			StorePointLinks(LinkOwnerLocalToWorld, PointLinks);
-			StoreSegmentLinks(LinkOwnerLocalToWorld, SegmentLinks);
+			StorePointLinks(LocalToWorld, PointLinks);
+			StoreSegmentLinks(LocalToWorld, SegmentLinks);
 		}
 	}
 }
 
-void FNavLinkRenderingProxy::StorePointLinks(const FTransform& InLocalToWorld, const TArray<FNavigationLink>& LinksArray)
+void FNavLinkRenderingProxy::StorePointLinks(const FTransform& LocalToWorld, const TArray<FNavigationLink>& LinksArray)
 {
 	const FNavigationLink* Link = LinksArray.GetData();
 	for (int32 LinkIndex = 0; LinkIndex < LinksArray.Num(); ++LinkIndex, ++Link)
 	{	
 		FNavLinkDrawing LinkDrawing;
-		LinkDrawing.Left = InLocalToWorld.TransformPosition(Link->Left);
-		LinkDrawing.Right = InLocalToWorld.TransformPosition(Link->Right);
+		LinkDrawing.Left = LocalToWorld.TransformPosition(Link->Left);
+		LinkDrawing.Right = LocalToWorld.TransformPosition(Link->Right);
 		LinkDrawing.Direction = Link->Direction;
 		LinkDrawing.Color = UNavArea::GetColor(Link->AreaClass);
 		LinkDrawing.SnapRadius = Link->SnapRadius;
@@ -143,16 +142,16 @@ void FNavLinkRenderingProxy::StorePointLinks(const FTransform& InLocalToWorld, c
 	}
 }
 
-void FNavLinkRenderingProxy::StoreSegmentLinks(const FTransform& InLocalToWorld, const TArray<FNavigationSegmentLink>& LinksArray)
+void FNavLinkRenderingProxy::StoreSegmentLinks(const FTransform& LocalToWorld, const TArray<FNavigationSegmentLink>& LinksArray)
 {
 	const FNavigationSegmentLink* Link = LinksArray.GetData();
 	for (int32 LinkIndex = 0; LinkIndex < LinksArray.Num(); ++LinkIndex, ++Link)
 	{	
 		FNavLinkSegmentDrawing LinkDrawing;
-		LinkDrawing.LeftStart = InLocalToWorld.TransformPosition(Link->LeftStart);
-		LinkDrawing.LeftEnd = InLocalToWorld.TransformPosition(Link->LeftEnd);
-		LinkDrawing.RightStart = InLocalToWorld.TransformPosition(Link->RightStart);
-		LinkDrawing.RightEnd = InLocalToWorld.TransformPosition(Link->RightEnd);
+		LinkDrawing.LeftStart = LocalToWorld.TransformPosition(Link->LeftStart);
+		LinkDrawing.LeftEnd = LocalToWorld.TransformPosition(Link->LeftEnd);
+		LinkDrawing.RightStart = LocalToWorld.TransformPosition(Link->RightStart);
+		LinkDrawing.RightEnd = LocalToWorld.TransformPosition(Link->RightEnd);
 		LinkDrawing.Direction = Link->Direction;
 		LinkDrawing.Color = UNavArea::GetColor(Link->AreaClass);
 		LinkDrawing.SnapRadius = Link->SnapRadius;

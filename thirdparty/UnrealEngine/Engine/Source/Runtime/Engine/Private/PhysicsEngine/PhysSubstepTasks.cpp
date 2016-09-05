@@ -4,6 +4,8 @@
 #include "PhysicsPublic.h"
 #include "PhysicsEngine/PhysicsSettings.h"
 
+#if WITH_SUBSTEPPING
+
 #if WITH_PHYSX
 #include "PhysXSupport.h"
 #include "../Vehicles/PhysXVehicleManager.h"
@@ -267,7 +269,7 @@ void FPhysSubstepTask::SubstepInterpolation(float InAlpha, float DeltaTime)
 	PxScene * PScene = PAScene;
 	SCOPED_SCENE_WRITE_LOCK(PScene);
 #endif
-
+	
 	/** Note: We lock the entire scene before iterating. The assumption is that removing an FBodyInstance from the map will also be wrapped by this lock */
 	
 	
@@ -289,14 +291,14 @@ void FPhysSubstepTask::SubstepInterpolation(float InAlpha, float DeltaTime)
 
 		if (!IsKinematicHelper(PRigidBody))
 		{
-		ApplyCustomPhysics(PhysTarget, BodyInstance, DeltaTime);
-		ApplyForces_AssumesLocked(PhysTarget, BodyInstance);
-		ApplyTorques_AssumesLocked(PhysTarget, BodyInstance);
-		ApplyRadialForces_AssumesLocked(PhysTarget, BodyInstance);
+			ApplyCustomPhysics(PhysTarget, BodyInstance, DeltaTime);
+			ApplyForces_AssumesLocked(PhysTarget, BodyInstance);
+			ApplyTorques_AssumesLocked(PhysTarget, BodyInstance);
+			ApplyRadialForces_AssumesLocked(PhysTarget, BodyInstance);
 		}else
 		{
-		InterpolateKinematicActor_AssumesLocked(PhysTarget, BodyInstance, InAlpha);
-	}
+			InterpolateKinematicActor_AssumesLocked(PhysTarget, BodyInstance, InAlpha);
+		}
 	}
 
 	/** Final substep */
@@ -359,7 +361,7 @@ void FPhysSubstepTask::SubstepSimulationStart()
 	PhysXCompletionTask* SubstepTask = new PhysXCompletionTask(CompletionEvent,
 		 PST_MAX //we don't care about sub-step time. The full time is recorded by FullSimulationTask
 		,PAScene->getTaskManager());
-	ENamedThreads::Type NamedThread = PhysSingleThreadedMode() ? ENamedThreads::GameThread : ENamedThreads::SetTaskPriority(ENamedThreads::GameThread, ENamedThreads::HighTaskPriority);
+	ENamedThreads::Type NamedThread = PhysSingleThreadedMode() ? ENamedThreads::GameThread : ENamedThreads::HiPri(ENamedThreads::AnyThread);
 
 	DECLARE_CYCLE_STAT(TEXT("FDelegateGraphTask.ProcessPhysSubstepSimulation"),
 		STAT_FDelegateGraphTask_ProcessPhysSubstepSimulation,
@@ -367,7 +369,7 @@ void FPhysSubstepTask::SubstepSimulationStart()
 
 	FDelegateGraphTask::CreateAndDispatchWhenReady(
 		FDelegateGraphTask::FDelegate::CreateRaw(this, &FPhysSubstepTask::SubstepSimulationEnd),
-		GET_STATID(STAT_FDelegateGraphTask_ProcessPhysSubstepSimulation), CompletionEvent, ENamedThreads::GameThread, NamedThread);
+		GET_STATID(STAT_FDelegateGraphTask_ProcessPhysSubstepSimulation), CompletionEvent, NamedThread, NamedThread);
 
 	++CurrentSubStep;	
 
@@ -393,10 +395,10 @@ void FPhysSubstepTask::SubstepSimulationStart()
 	SubstepInterpolation(Interpolation, DeltaTime);
 
 #if WITH_APEX
-	PAScene->simulate(DeltaTime, bLastSubstep, SubstepTask, FullSimulationTask->GetScratchBufferData(), FullSimulationTask->GetScratchBufferSize());
+	PAScene->simulate(DeltaTime, bLastSubstep, SubstepTask);
 #else
 	PAScene->lockWrite();
-	PAScene->simulate(DeltaTime, SubstepTask, FullSimulationTask->GetScratchBufferData(), FullSimulationTask->GetScratchBufferSize());
+	PAScene->simulate(DeltaTime, SubstepTask);
 	PAScene->unlockWrite();
 #endif
 	SubstepTask->removeReference();
@@ -447,3 +449,5 @@ void FPhysSubstepTask::SetVehicleManager(FPhysXVehicleManager * InVehicleManager
 {
 	VehicleManager = InVehicleManager;
 }
+
+#endif //if WITH_SUBSTEPPING

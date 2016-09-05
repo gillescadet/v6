@@ -4,7 +4,6 @@
 #include "PropertyHelper.h"
 #include "LinkerPlaceholderClass.h"
 #include "LinkerPlaceholderExportObject.h"
-#include "BlueprintSupport.h" // for IsInBlueprintPackage()
 
 /*-----------------------------------------------------------------------------
 	UObjectPropertyBase.
@@ -134,7 +133,7 @@ FString UObjectPropertyBase::GetExportPath(const UObject* Object, const UObject*
 	if (PortFlags & PPF_ExportsNotFullyQualified)
 	{
 		StopOuter = (ExportRootScope || (Parent == nullptr)) ? ExportRootScope : Parent->GetOutermost();
-		bExportFullyQualified = StopOuter && !Object->IsIn(StopOuter);
+		bExportFullyQualified = !Object->IsIn(StopOuter);
 
 		// Also don't fully qualify the name if it's a sibling of the root scope, since it may be included in the exported set of objects
 		if (bExportFullyQualified)
@@ -232,12 +231,7 @@ void UObjectPropertyBase::ExportTextItem( FString& ValueStr, const void* Propert
 bool UObjectPropertyBase::ParseObjectPropertyValue( const UProperty* Property, UObject* OwnerObject, UClass* RequiredMetaClass, uint32 PortFlags, const TCHAR*& Buffer, UObject*& out_ResolvedValue )
 {
 	check(Property);
-	if (!RequiredMetaClass)
-	{
-		UE_LOG(LogProperty, Error, TEXT("ParseObjectPropertyValue Error: RequiredMetaClass is null, for property: %s "), *Property->GetFullName());
-		out_ResolvedValue = nullptr;
-		return false;
-	}
+	check(RequiredMetaClass);
 
  	const TCHAR* InBuffer = Buffer;
 
@@ -412,27 +406,10 @@ UObject* UObjectPropertyBase::FindImportedObject( const UProperty* Property, UOb
 		// If we still can't find it, try to load it. (Only try to load fully qualified names)
 		if(!Result && Dot)
 		{
-#if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-			FLinkerLoad* Linker = (OwnerObject != nullptr) ? OwnerObject->GetClass()->GetLinker() : nullptr;
-			const bool bDeferAssetImports = (Linker != nullptr) && (Linker->LoadFlags & LOAD_DeferDependencyLoads);
+			uint32 LoadFlags = LOAD_NoWarn | LOAD_FindIfFail;
 
-			if (bDeferAssetImports)
-			{
-				Result = Linker->RequestPlaceholderValue(ObjectClass, Text);
-			}
-			
-			if (Result == nullptr)
-#endif // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
-			{
-				uint32 LoadFlags = LOAD_NoWarn | LOAD_FindIfFail;
-
-				UE_LOG(LogProperty, Verbose, TEXT("FindImportedObject is attempting to import [%s] (class = %s) with StaticLoadObject"), Text, *GetFullNameSafe(ObjectClass));
-				Result = StaticLoadObject(ObjectClass, NULL, Text, NULL, LoadFlags, NULL);
-
-#if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-				check(!bDeferAssetImports || !Result || !FBlueprintSupport::IsInBlueprintPackage(Result));
-#endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-			}
+			UE_LOG(LogProperty, Verbose, TEXT("FindImportedObject is attempting to import [%s] (class = %s) with StaticLoadObject"), Text, *GetFullNameSafe(ObjectClass));
+			Result = StaticLoadObject(ObjectClass, NULL, Text, NULL, LoadFlags, NULL);
 		}
 	}
 
@@ -478,10 +455,10 @@ void UObjectPropertyBase::CheckValidObject(void* Value) const
 #if USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING
 		FLinkerLoad* PropertyLinker = GetLinker();
 		bool const bIsDeferringValueLoad = ((PropertyLinker == nullptr) || (PropertyLinker->LoadFlags & LOAD_DeferDependencyLoads)) &&
-			(Object->IsA<ULinkerPlaceholderExportObject>() || Object->IsA<ULinkerPlaceholderClass>());
+			Object->IsA<ULinkerPlaceholderExportObject>();
 
 #if USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
-		check( bIsDeferringValueLoad || (!Object->IsA<ULinkerPlaceholderExportObject>() && !Object->IsA<ULinkerPlaceholderClass>()) );
+		check(bIsDeferringValueLoad || !Object->IsA<ULinkerPlaceholderExportObject>());
 #endif // USE_DEFERRED_DEPENDENCY_CHECK_VERIFICATION_TESTS
 
 #else  // USE_CIRCULAR_DEPENDENCY_LOAD_DEFERRING 

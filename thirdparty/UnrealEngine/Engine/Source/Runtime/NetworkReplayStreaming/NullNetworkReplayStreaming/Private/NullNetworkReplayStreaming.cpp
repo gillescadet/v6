@@ -7,7 +7,7 @@
 DEFINE_LOG_CATEGORY_STATIC( LogNullReplay, Log, All );
 
 /* Class to hold stream event information */
-class FNullCheckpointListItem : public FJsonSerializable
+class FNullCheckpointListItem : public FOnlineJsonSerializable
 {
 public:
 	FNullCheckpointListItem() : Time1(0), Time2(0) {}
@@ -17,13 +17,13 @@ public:
 	uint32		Time1;
 	uint32		Time2;
 
-	// FJsonSerializable
-	BEGIN_JSON_SERIALIZER
-		JSON_SERIALIZE( "group",			Group );
-		JSON_SERIALIZE( "meta",			Metadata );
-		JSON_SERIALIZE( "time1",			Time1 );
-		JSON_SERIALIZE( "time2",			Time2 );
-	END_JSON_SERIALIZER
+	// FOnlineJsonSerializable
+	BEGIN_ONLINE_JSON_SERIALIZER
+		ONLINE_JSON_SERIALIZE( "group",			Group );
+		ONLINE_JSON_SERIALIZE( "meta",			Metadata );
+		ONLINE_JSON_SERIALIZE( "time1",			Time1 );
+		ONLINE_JSON_SERIALIZE( "time2",			Time2 );
+	END_ONLINE_JSON_SERIALIZER
 };
 
 /**
@@ -85,9 +85,9 @@ static FString GetDemoFilename(const FString& StreamName)
 	return GetStreamFullBaseFilename(StreamName) + TEXT(".demo");
 }
 
-static FString GetFinalFilename(const FString& StreamName)
+static FString GetMetadataFilename(const FString& StreamName)
 {
-	return GetStreamFullBaseFilename(StreamName) + TEXT(".final");
+	return GetStreamFullBaseFilename(StreamName) + TEXT(".metadata");
 }
 
 static FString GetCheckpointFilename( const FString& StreamName, int32 Index )
@@ -241,10 +241,9 @@ void FNullNetworkReplayStreamer::StopStreaming()
 		WriteReplayInfo(CurrentStreamName, ReplayInfo);
 	}
 
-	TUniquePtr<FArchive> FinalFile( IFileManager::Get().CreateFileWriter( *GetFinalFilename( CurrentStreamName ) ) );
-
 	HeaderAr.Reset();
 	FileAr.Reset();
+	MetadataFileAr.Reset();
 
 	CurrentStreamName.Empty();
 	StreamerState = EStreamerState::Idle;
@@ -258,6 +257,31 @@ FArchive* FNullNetworkReplayStreamer::GetHeaderArchive()
 FArchive* FNullNetworkReplayStreamer::GetStreamingArchive()
 {
 	return FileAr.Get();
+}
+
+FArchive* FNullNetworkReplayStreamer::GetMetadataArchive()
+{
+	check( StreamerState != EStreamerState::Idle );
+
+	// Create the metadata archive on-demand
+	if (!MetadataFileAr)
+	{
+		switch (StreamerState)
+		{
+			case EStreamerState::Recording:
+				MetadataFileAr.Reset( IFileManager::Get().CreateFileWriter( *GetMetadataFilename(CurrentStreamName) ) );
+				break;
+
+			case EStreamerState::Playback:
+				MetadataFileAr.Reset( IFileManager::Get().CreateFileReader( *GetMetadataFilename(CurrentStreamName) ) );
+				break;
+
+			default:
+				break;
+		}
+	}
+
+	return MetadataFileAr.Get();
 }
 
 void FNullNetworkReplayStreamer::UpdateTotalDemoTime(uint32 TimeInMS)
@@ -281,8 +305,8 @@ bool FNullNetworkReplayStreamer::IsLive() const
 
 bool FNullNetworkReplayStreamer::IsNamedStreamLive( const FString& StreamName ) const
 {
-	// If the final file doesn't exist, this is a live stream.
-	return !IFileManager::Get().FileExists(*GetFinalFilename(StreamName));
+	// If the metadata file doesn't exist, this is a live stream.
+	return !IFileManager::Get().FileExists(*GetMetadataFilename(StreamName));
 }
 
 void FNullNetworkReplayStreamer::DeleteFinishedStream( const FString& StreamName, const FOnDeleteFinishedStreamComplete& Delegate ) const

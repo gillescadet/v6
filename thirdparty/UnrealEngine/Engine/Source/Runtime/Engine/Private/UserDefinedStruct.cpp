@@ -6,7 +6,6 @@
 #include "StructureEditorUtils.h"
 #endif //WITH_EDITOR
 #include "Engine/UserDefinedStruct.h"
-#include "TextReferenceCollector.h"
 
 #if WITH_EDITORONLY_DATA
 namespace
@@ -28,31 +27,6 @@ namespace
 			PropertyLocalizationDataGatherer.GatherLocalizationDataFromChildTextProperties(PathToObject, *PropIt, PropIt->ContainerPtrToValuePtr<void>(StructData.GetStructMemory()), GatherTextFlags);
 		}
 	}
-
-	void CollectUserDefinedStructTextReferences(UObject* Object, FArchive& Ar)
-	{
-		UUserDefinedStruct* const UserDefinedStruct = CastChecked<UUserDefinedStruct>(Object);
-
-		// User Defined Structs need some special handling as they store their default data in a way that serialize doesn't pick up
-		UUserDefinedStructEditorData* UDSEditorData = Cast<UUserDefinedStructEditorData>(UserDefinedStruct->EditorData);
-		if (UDSEditorData)
-		{
-			for (const FStructVariableDescription& StructVariableDesc : UDSEditorData->VariablesDescriptions)
-			{
-				static const FString TextCategory = TEXT("text"); // Must match UEdGraphSchema_K2::PC_Text
-				if (StructVariableDesc.Category == TextCategory)
-				{
-					FText StructVariableValue;
-					if (FTextStringHelper::ReadFromString(*StructVariableDesc.DefaultValue, StructVariableValue))
-					{
-						Ar << StructVariableValue;
-					}
-				}
-			}
-		}
-
-		UserDefinedStruct->Serialize(Ar);
-	}
 }
 #endif
 
@@ -60,8 +34,13 @@ UUserDefinedStruct::UUserDefinedStruct(const FObjectInitializer& ObjectInitializ
 	: Super(ObjectInitializer)
 {
 #if WITH_EDITORONLY_DATA
-	{ static const FAutoRegisterLocalizationDataGatheringCallback AutomaticRegistrationOfLocalizationGatherer(UUserDefinedStruct::StaticClass(), &GatherUserDefinedStructForLocalization); }
-	{ static const FAutoRegisterTextReferenceCollectorCallback AutomaticRegistrationOfTextReferenceCollector(UUserDefinedStruct::StaticClass(), &CollectUserDefinedStructTextReferences); }
+	static struct FAutomaticRegistrationOfLocalizationGatherer
+	{
+		FAutomaticRegistrationOfLocalizationGatherer()
+		{
+			FPropertyLocalizationDataGatherer::GetTypeSpecificLocalizationDataGatheringCallbacks().Add(UUserDefinedStruct::StaticClass(), &GatherUserDefinedStructForLocalization);
+		}
+	} AutomaticRegistrationOfLocalizationGatherer;
 #endif
 }
 

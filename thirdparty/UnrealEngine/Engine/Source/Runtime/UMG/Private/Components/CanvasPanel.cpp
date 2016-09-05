@@ -28,21 +28,21 @@ UClass* UCanvasPanel::GetSlotClass() const
 	return UCanvasPanelSlot::StaticClass();
 }
 
-void UCanvasPanel::OnSlotAdded(UPanelSlot* InSlot)
+void UCanvasPanel::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyCanvas.IsValid() )
 	{
-		CastChecked<UCanvasPanelSlot>(InSlot)->BuildSlot(MyCanvas.ToSharedRef());
+		Cast<UCanvasPanelSlot>(Slot)->BuildSlot(MyCanvas.ToSharedRef());
 	}
 }
 
-void UCanvasPanel::OnSlotRemoved(UPanelSlot* InSlot)
+void UCanvasPanel::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyCanvas.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyCanvas->RemoveSlot(Widget.ToSharedRef());
@@ -54,9 +54,9 @@ TSharedRef<SWidget> UCanvasPanel::RebuildWidget()
 {
 	MyCanvas = SNew(SConstraintCanvas);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UCanvasPanelSlot* TypedSlot = Cast<UCanvasPanelSlot>(PanelSlot) )
+		if ( UCanvasPanelSlot* TypedSlot = Cast<UCanvasPanelSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyCanvas.ToSharedRef());
@@ -78,13 +78,13 @@ TSharedPtr<SConstraintCanvas> UCanvasPanel::GetCanvasWidget() const
 
 bool UCanvasPanel::GetGeometryForSlot(int32 SlotIndex, FGeometry& ArrangedGeometry) const
 {
-	UCanvasPanelSlot* PanelSlot = CastChecked<UCanvasPanelSlot>(Slots[SlotIndex]);
-	return GetGeometryForSlot(PanelSlot, ArrangedGeometry);
+	UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Slots[SlotIndex]);
+	return GetGeometryForSlot(Slot, ArrangedGeometry);
 }
 
-bool UCanvasPanel::GetGeometryForSlot(UCanvasPanelSlot* InSlot, FGeometry& ArrangedGeometry) const
+bool UCanvasPanel::GetGeometryForSlot(UCanvasPanelSlot* Slot, FGeometry& ArrangedGeometry) const
 {
-	if ( InSlot->Content == nullptr )
+	if ( Slot->Content == nullptr )
 	{
 		return false;
 	}
@@ -97,7 +97,7 @@ bool UCanvasPanel::GetGeometryForSlot(UCanvasPanelSlot* InSlot, FGeometry& Arran
 
 		for ( int32 ChildIndex = 0; ChildIndex < ArrangedChildren.Num(); ChildIndex++ )
 		{
-			if ( ArrangedChildren[ChildIndex].Widget == InSlot->Content->GetCachedWidget() )
+			if ( ArrangedChildren[ChildIndex].Widget == Slot->Content->GetCachedWidget() )
 			{
 				ArrangedGeometry = ArrangedChildren[ChildIndex].Geometry;
 				return true;
@@ -109,6 +109,11 @@ bool UCanvasPanel::GetGeometryForSlot(UCanvasPanelSlot* InSlot, FGeometry& Arran
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UCanvasPanel::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.Canvas");
+}
 
 const FText UCanvasPanel::GetPaletteCategory()
 {

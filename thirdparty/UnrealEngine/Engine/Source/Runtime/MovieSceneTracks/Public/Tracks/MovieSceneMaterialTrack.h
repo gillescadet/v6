@@ -7,15 +7,11 @@
 #include "MovieSceneMaterialTrack.generated.h"
 
 
-class IMovieSceneTrackInstance;
-class UMovieSceneSection;
-
-
 /**
  * Handles manipulation of material parameters in a movie scene.
  */
-UCLASS()
-class MOVIESCENETRACKS_API UMovieSceneMaterialTrack
+UCLASS( MinimalAPI )
+class UMovieSceneMaterialTrack
 	: public UMovieSceneNameableTrack
 {
 	GENERATED_UCLASS_BODY()
@@ -41,7 +37,7 @@ public:
 	 * @param Time The time to add the new key.
 	 * @param The value for the new key.
 	 */
-	void AddScalarParameterKey(FName ParameterName, float Position, float Value);
+	void MOVIESCENETRACKS_API AddScalarParameterKey( FName ParameterName, float Position, float Value );
 
 	/**
 	* Adds a color parameter key to the track.
@@ -49,7 +45,7 @@ public:
 	* @param Time The time to add the new key.
 	* @param The value for the new key.
 	*/
-	void AddColorParameterKey(FName ParameterName, float Position, FLinearColor Value);
+	void MOVIESCENETRACKS_API AddColorParameterKey( FName ParameterName, float Position, FLinearColor Value );
 
 	/**
 	 * Gets the animated values for this track.
@@ -57,7 +53,7 @@ public:
 	 * @param OutScalarValues An array of FScalarParameterNameAndValue objects representing each animated scalar parameter and it's animated value.
 	 * @param OutVectorValues An array of FVectorParameterNameAndValue objects representing each animated vector parameter and it's animated value.
 	 */
-	void Eval(float Position, TArray<FScalarParameterNameAndValue>& OutScalarValues, TArray<FColorParameterNameAndValue>& OutVectorValues) const;
+	void Eval( float Position, TArray<FScalarParameterNameAndValue>& OutScalarValues, TArray<FColorParameterNameAndValue>& OutVectorValues ) const;
 
 private:
 
@@ -70,7 +66,7 @@ private:
 /**
  * A material track which is specialized for animation materials which are owned by actor components.
  */
-UCLASS(MinimalAPI)
+UCLASS( MinimalAPI )
 class UMovieSceneComponentMaterialTrack
 	: public UMovieSceneMaterialTrack
 {
@@ -81,10 +77,9 @@ public:
 	// UMovieSceneTrack interface
 
 	virtual TSharedPtr<IMovieSceneTrackInstance> CreateInstance() override;
-	virtual FName GetTrackName() const { return FName( *FString::FromInt(MaterialIndex) ); }
 
 #if WITH_EDITORONLY_DATA
-	virtual FText GetDefaultDisplayName() const override;
+	virtual FText GetDisplayName() const override;
 #endif
 
 public:

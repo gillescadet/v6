@@ -176,10 +176,6 @@ public:
 	/** Accessor and initializer **/
 	ENGINE_API static UCollisionProfile* Get();
 
-	/** Begin UObject interface */
-	virtual void PostReloadConfig(class UProperty* PropertyThatWasLoaded) override;
-	/** End UObject interface */
-
 	/** Fill up the array with the profile names **/
 	ENGINE_API static void GetProfileNames(TArray<TSharedPtr<FName>>& OutNameList);
 
@@ -216,19 +212,19 @@ public:
 	ENGINE_API FName ReturnChannelNameFromContainerIndex(int32 ContainerIndex)  const;
 
 	/** Convert ObjectType or TraceType to CollisionChannel */
-	ENGINE_API ECollisionChannel ConvertToCollisionChannel(bool TraceType, int32 Index) const;
+	ECollisionChannel ConvertToCollisionChannel(bool TraceType, int32 Index) const;
 
 	/** 
 	 * Convert collision channel to ObjectTypeQuery. Note: performs a search of object types.
 	 * @return ObjectTypeQuery_MAX if the conversion was not possible 
 	 */
-	ENGINE_API EObjectTypeQuery ConvertToObjectType(ECollisionChannel CollisionChannel) const;
+	EObjectTypeQuery ConvertToObjectType(ECollisionChannel CollisionChannel) const;
 
 	/** 
 	 * Convert collision channel to TraceTypeQuery. Note: performs a search of object types.
 	 * @return TraceTypeQuery_MAX if the conversion was not possible 
 	 */
-	ENGINE_API ETraceTypeQuery ConvertToTraceType(ECollisionChannel CollisionChannel) const;
+	ETraceTypeQuery ConvertToTraceType(ECollisionChannel CollisionChannel) const;
 
 	/* custom collision profile name that you can modify what you'd like */
 	ENGINE_API static FName CustomCollisionProfileName;

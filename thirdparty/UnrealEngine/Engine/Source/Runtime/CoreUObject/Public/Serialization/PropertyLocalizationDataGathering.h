@@ -12,20 +12,15 @@ enum class EPropertyLocalizationGathererTextFlags : uint8
 	None = 0,
 
 	/**
-	 * Force the HasScript flag to be set, even if the object in question doesn't contain bytecode.
-	 */
-	ForceHasScript = 1<<0,
-
-	/**
 	 * Force text gathered from object properties to be treated as editor-only data.
 	 * @note Does not apply to properties gathered from script data (see ForceEditorOnlyScriptData).
 	 */
-	ForceEditorOnlyProperties = 1<<1,
+	ForceEditorOnlyProperties = 1<<0,
 
 	/**
 	 * Force text gathered from script data to be treated as editor-only data.
 	 */
-	ForceEditorOnlyScriptData = 1<<2,
+	ForceEditorOnlyScriptData = 1<<1,
 
 	/**
 	 * Force all gathered text to be treated as editor-only data.
@@ -34,32 +29,13 @@ enum class EPropertyLocalizationGathererTextFlags : uint8
 };
 ENUM_CLASS_FLAGS(EPropertyLocalizationGathererTextFlags);
 
-enum class EPropertyLocalizationGathererResultFlags : uint8
-{
-	/**
-	 * The call resulted in no text or script data being added to the array.
-	 */
-	Empty = 0,
-
-	/**
-	 * The call resulted in text data being added to the array.
-	 */
-	HasText = 1<<0,
-
-	/**
-	 * The call resulted in script data being added to the array.
-	 */
-	HasScript = 1<<1,
-};
-ENUM_CLASS_FLAGS(EPropertyLocalizationGathererResultFlags);
-
 class COREUOBJECT_API FPropertyLocalizationDataGatherer
 {
 public:
-	typedef TFunction<void(const UObject* const, FPropertyLocalizationDataGatherer&, const EPropertyLocalizationGathererTextFlags)> FLocalizationDataGatheringCallback;
+	typedef TFunction<void (const UObject* const, FPropertyLocalizationDataGatherer&, const EPropertyLocalizationGathererTextFlags)> FLocalizationDataGatheringCallback;
 	typedef TMap<const UClass*, FLocalizationDataGatheringCallback> FLocalizationDataGatheringCallbackMap;
 
-	FPropertyLocalizationDataGatherer(TArray<FGatherableTextData>& InOutGatherableTextDataArray, const UPackage* const InPackage, EPropertyLocalizationGathererResultFlags& OutResultFlags);
+	FPropertyLocalizationDataGatherer(TArray<FGatherableTextData>& InGatherableTextDataArray, const UPackage* const InPackage);
 
 	void GatherLocalizationDataFromObjectWithCallbacks(const UObject* Object, const EPropertyLocalizationGathererTextFlags GatherTextFlags);
 	void GatherLocalizationDataFromObject(const UObject* Object, const EPropertyLocalizationGathererTextFlags GatherTextFlags);
@@ -116,20 +92,8 @@ private:
 		uint32 KeyHash;
 	};
 
-	bool ShouldProcessObject(const UObject* Object, const EPropertyLocalizationGathererTextFlags GatherTextFlags);
-
 	TArray<FGatherableTextData>& GatherableTextDataArray;
 	const UPackage* Package;
-	EPropertyLocalizationGathererResultFlags& ResultFlags;
 	TSet<const UObject*> AllObjectsInPackage;
 	TSet<FObjectAndGatherFlags> ProcessedObjects;
-};
-
-/** Struct to automatically register a callback when it's constructed */
-struct FAutoRegisterLocalizationDataGatheringCallback
-{
-	FORCEINLINE FAutoRegisterLocalizationDataGatheringCallback(const UClass* InClass, const FPropertyLocalizationDataGatherer::FLocalizationDataGatheringCallback& InCallback)
-	{
-		FPropertyLocalizationDataGatherer::GetTypeSpecificLocalizationDataGatheringCallbacks().Add(InClass, InCallback);
-	}
 };

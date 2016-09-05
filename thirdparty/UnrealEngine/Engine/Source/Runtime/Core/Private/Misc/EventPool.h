@@ -77,7 +77,10 @@ public:
 		check(Event);
 		check(Event->IsManualReset() == (PoolType == EEventPoolTypes::ManualReset));
 
-		Event->Reset();
+		if (PoolType == EEventPoolTypes::ManualReset)
+		{
+			Event->Reset();
+		}
 
 		Pool.Push(Event);
 	}
@@ -85,5 +88,5 @@ public:
 private:
 
 	/** Holds the collection of recycled events. */
-	TLockFreePointerListUnordered<FEvent, PLATFORM_CACHE_LINE_SIZE> Pool;
+	TLockFreePointerListUnordered<FEvent> Pool;
 };

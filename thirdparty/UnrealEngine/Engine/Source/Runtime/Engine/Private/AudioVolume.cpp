@@ -6,18 +6,9 @@
 
 #include "EnginePrivate.h"
 #include "AudioDevice.h"
-#include "AudioThread.h"
 #include "Components/BrushComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Sound/ReverbEffect.h"
-
-bool FReverbSettings::operator==(const FReverbSettings& Other) const
-{
-	return (bApplyReverb == Other.bApplyReverb
-			&& ReverbEffect == Other.ReverbEffect
-			&& Volume == Other.Volume
-			&& FadeTime == Other.FadeTime);
-}
 
 void FReverbSettings::PostSerialize(const FArchive& Ar)
 {
@@ -161,117 +152,50 @@ void AAudioVolume::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutL
 	DOREPLIFETIME(AAudioVolume, bEnabled);
 }
 
-FAudioVolumeProxy::FAudioVolumeProxy(const AAudioVolume* AudioVolume)
-	: AudioVolumeID(AudioVolume->GetUniqueID())
-	, WorldID(AudioVolume->GetWorld()->GetUniqueID())
-	, Priority(AudioVolume->GetPriority())
-	, ReverbSettings(AudioVolume->GetReverbSettings())
-	, InteriorSettings(AudioVolume->GetInteriorSettings())
-	, BodyInstance(AudioVolume->GetBrushComponent()->GetBodyInstance())
-{
-}
-
-void AAudioVolume::AddProxy() const
-{
-	UWorld* World = GetWorld();
-
-	if (FAudioDevice* AudioDevice = World->GetAudioDevice())
-	{
-		DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.AddAudioVolumeProxy"), STAT_AudioAddAudioVolumeProxy, STATGROUP_TaskGraphTasks);
-
-		FAudioVolumeProxy Proxy(this);
-
-		FAudioThread::RunCommandOnAudioThread([AudioDevice, Proxy]()
-		{
-			AudioDevice->AddAudioVolumeProxy(Proxy);
-		}, GET_STATID(STAT_AudioAddAudioVolumeProxy));
-	}
-}
-
-void FAudioDevice::AddAudioVolumeProxy(const FAudioVolumeProxy& Proxy)
-{
-	check(IsInAudioThread());
-
-	AudioVolumeProxies.Add(Proxy.AudioVolumeID, Proxy);
-	AudioVolumeProxies.ValueSort([](const FAudioVolumeProxy& A, const FAudioVolumeProxy& B) { return A.Priority > B.Priority; });
-
-	InvalidateCachedInteriorVolumes();
-}
-
-
-void AAudioVolume::RemoveProxy() const
-{
-	// World will be NULL during exit purge.
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		if (FAudioDevice* AudioDevice = World->GetAudioDevice())
-		{
-			DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.RemoveAudioVolumeProxy"), STAT_AudioRemoveAudioVolumeProxy, STATGROUP_TaskGraphTasks);
-
-			const uint32 AudioVolumeID = GetUniqueID();
-			FAudioThread::RunCommandOnAudioThread([AudioDevice, AudioVolumeID]()
-			{
-				AudioDevice->RemoveAudioVolumeProxy(AudioVolumeID);
-			}, GET_STATID(STAT_AudioRemoveAudioVolumeProxy));
-		}
-	}
-}
-
-void FAudioDevice::RemoveAudioVolumeProxy(const uint32 AudioVolumeID)
-{
-	check(IsInAudioThread());
-
-	AudioVolumeProxies.Remove(AudioVolumeID);
-
-	InvalidateCachedInteriorVolumes();
-}
-
-void AAudioVolume::UpdateProxy() const
-{
-	UWorld* World = GetWorld();
-
-	if (FAudioDevice* AudioDevice = World->GetAudioDevice())
-	{
-		DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.UpdateAudioVolumeProxy"), STAT_AudioUpdateAudioVolumeProxy, STATGROUP_TaskGraphTasks);
-
-		FAudioVolumeProxy Proxy(this);
-
-		FAudioThread::RunCommandOnAudioThread([AudioDevice, Proxy]()
-		{
-			AudioDevice->UpdateAudioVolumeProxy(Proxy);
-		}, GET_STATID(STAT_AudioUpdateAudioVolumeProxy));
-	}
-}
-
-void FAudioDevice::UpdateAudioVolumeProxy(const FAudioVolumeProxy& NewProxy)
-{
-	check(IsInAudioThread());
-
-	if (FAudioVolumeProxy* CurrentProxy = AudioVolumeProxies.Find(NewProxy.AudioVolumeID))
-	{
-		const float CurrentPriority = CurrentProxy->Priority;
-
-		*CurrentProxy = NewProxy;
-
-		if (CurrentPriority != NewProxy.Priority)
-		{
-			AudioVolumeProxies.ValueSort([](const FAudioVolumeProxy& A, const FAudioVolumeProxy& B) { return A.Priority > B.Priority; });
-		}
-	}
-}
-
-void AAudioVolume::PostUnregisterAllComponents()
+void AAudioVolume::PostUnregisterAllComponents( void )
 {
 	// Route clear to super first.
 	Super::PostUnregisterAllComponents();
 
-	GetRootComponent()->TransformUpdated.RemoveAll(this);
-	RemoveProxy();
-
-	if (UWorld* World = GetWorld())
+	// World will be NULL during exit purge.
+	UWorld* World = GetWorld();
+	if (World)
 	{
-		World->AudioVolumes.Remove(this);
+		AAudioVolume* CurrentVolume = World->HighestPriorityAudioVolume;
+		AAudioVolume* PreviousVolume = NULL;
+
+		// Iterate over linked list, removing this volume if found.
+		while (CurrentVolume)
+		{
+			// Found.
+			if (CurrentVolume == this)
+			{
+				// Remove from linked list.
+				if (PreviousVolume)
+				{
+					PreviousVolume->NextLowerPriorityVolume = NextLowerPriorityVolume;
+				}
+				else
+				{
+					// Special case removal from first entry.
+					World->HighestPriorityAudioVolume = NextLowerPriorityVolume;
+				}
+
+				break;
+			}
+
+			// List traversal.
+			PreviousVolume = CurrentVolume;
+			CurrentVolume = CurrentVolume->NextLowerPriorityVolume;
+		}
+
+		// Reset next pointer to avoid dangling end bits and also for GC.
+		NextLowerPriorityVolume = nullptr;
+
+		if (FAudioDevice* AudioDevice = World->GetAudioDevice())
+		{
+			AudioDevice->InvalidateCachedInteriorVolumes();
+		}
 	}
 }
 
@@ -280,84 +204,61 @@ void AAudioVolume::PostRegisterAllComponents()
 	// Route update to super first.
 	Super::PostRegisterAllComponents();
 
-	GetRootComponent()->TransformUpdated.AddUObject(this, &AAudioVolume::TransformUpdated);
-	AddProxy();
-
 	UWorld* World = GetWorld();
-	World->AudioVolumes.Add(this);
-	World->AudioVolumes.Sort([](const AAudioVolume& A, const AAudioVolume& B) { return (A.GetPriority() > B.GetPriority()); });
-}
+	AAudioVolume* CurrentVolume = World->HighestPriorityAudioVolume;
+	AAudioVolume* PreviousVolume = nullptr;
 
-void AAudioVolume::TransformUpdated(USceneComponent* InRootComponent, EUpdateTransformFlags UpdateTransformFlags, ETeleportType Teleport)
-{
-	UpdateProxy();
-}
-
-void AAudioVolume::SetEnabled(const bool bNewEnabled)
-{
-	if (bNewEnabled != bEnabled)
+	// Find where to insert in sorted linked list.
+	if (CurrentVolume)
 	{
-		bEnabled = bNewEnabled;
-		if (bEnabled)
+		// Avoid double insertion!
+		while (CurrentVolume && CurrentVolume != this)
 		{
-			AddProxy();
-		}
-		else
-		{
-			RemoveProxy();
-		}
-	}
-}
+			// We use > instead of >= to be sure that we are not inserting twice in the case of multiple volumes having
+			// the same priority and the current one already having being inserted after one with the same priority.
+			if (Priority > CurrentVolume->Priority)
+			{
+				if (PreviousVolume)
+				{
+					// Insert before current node by fixing up previous to point to current.
+					PreviousVolume->NextLowerPriorityVolume = this;
+				}
+				else
+				{
+					// Special case for insertion at the beginning.
+					World->HighestPriorityAudioVolume = this;
+				}
 
-void AAudioVolume::OnRep_bEnabled()
-{
-	if (bEnabled)
-	{
-		AddProxy();
+				// Point to current volume, finalizing insertion.
+				NextLowerPriorityVolume = CurrentVolume;
+				return;
+			}
+
+			// List traversal.
+			PreviousVolume = CurrentVolume;
+			CurrentVolume = CurrentVolume->NextLowerPriorityVolume;
+		}
+
+		// We're the lowest priority volume, insert at the end.
+		if (!CurrentVolume)
+		{
+			checkSlow(PreviousVolume);
+			PreviousVolume->NextLowerPriorityVolume = this;
+			NextLowerPriorityVolume = nullptr;
+		}
 	}
 	else
 	{
-		RemoveProxy();
+		// First volume in the world info.
+		World->HighestPriorityAudioVolume = this;
+		NextLowerPriorityVolume	= nullptr;
 	}
-}
 
-void AAudioVolume::SetPriority(const float NewPriority)
-{
-	if (NewPriority != Priority)
+	if (FAudioDevice* AudioDevice = World->GetAudioDevice())
 	{
-		Priority = NewPriority;
-		GetWorld()->AudioVolumes.Sort([](const AAudioVolume& A, const AAudioVolume& B) { return (A.GetPriority() > B.GetPriority()); });
-		if (bEnabled)
-		{
-			UpdateProxy();
-		}
+		AudioDevice->InvalidateCachedInteriorVolumes();
 	}
 }
-
-void AAudioVolume::SetInteriorSettings(const FInteriorSettings& NewInteriorSettings)
-{
-	if (NewInteriorSettings != AmbientZoneSettings)
-	{
-		AmbientZoneSettings = NewInteriorSettings;
-		if (bEnabled)
-		{
-			UpdateProxy();
-		}
-	}
-}
-
-void AAudioVolume::SetReverbSettings(const FReverbSettings& NewReverbSettings)
-{
-	if (NewReverbSettings != Settings)
-	{
-		Settings = NewReverbSettings;
-		if (bEnabled)
-		{
-			UpdateProxy();
-		}
-	}
-}
-
 
 #if WITH_EDITOR
 void AAudioVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
@@ -369,27 +270,5 @@ void AAudioVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 	AmbientZoneSettings.InteriorLPFTime = FMath::Max<float>( 0.01f, AmbientZoneSettings.InteriorLPFTime );
 	AmbientZoneSettings.ExteriorTime = FMath::Max<float>( 0.01f, AmbientZoneSettings.ExteriorTime );
 	AmbientZoneSettings.ExteriorLPFTime = FMath::Max<float>( 0.01f, AmbientZoneSettings.ExteriorLPFTime );
-
-	if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AAudioVolume, Priority))
-	{
-		GetWorld()->AudioVolumes.Sort([](const AAudioVolume& A, const AAudioVolume& B) { return (A.GetPriority() > B.GetPriority()); });
-	}
-
-	if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AAudioVolume, bEnabled))
-	{
-		if (bEnabled)
-		{
-			AddProxy();
-		}
-		else
-		{
-			RemoveProxy();
-		}
-	}
-	else if (bEnabled)
-	{
-		UpdateProxy();
-	}
-
 }
 #endif // WITH_EDITOR

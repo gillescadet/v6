@@ -41,7 +41,7 @@ void UParticleModuleParameterDynamic::InitializeDefaults()
 {
 	for(int32 ParamIdx = 0; ParamIdx < DynamicParams.Num(); ++ParamIdx)
 	{
-		if(!DynamicParams[ParamIdx].ParamValue.IsCreated())
+		if(!DynamicParams[ParamIdx].ParamValue.Distribution)
 		{
 			DynamicParams[ParamIdx].ParamValue.Distribution = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionParam1"));
 		}
@@ -357,14 +357,13 @@ void UParticleModuleParameterDynamic::PostEditChangeProperty(FPropertyChangedEve
 {
 	InitializeDefaults();
 	UpdateUsageFlags();
-	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif // WITH_EDITOR
 
 void UParticleModuleParameterDynamic::GetCurveObjects(TArray<FParticleCurvePair>& OutCurves)
 {
 	FParticleCurvePair* NewCurve;
-	
+
 	for (int32 ParamIndex = 0; ParamIndex < 4; ParamIndex++)
 	{
 		NewCurve = new(OutCurves) FParticleCurvePair;

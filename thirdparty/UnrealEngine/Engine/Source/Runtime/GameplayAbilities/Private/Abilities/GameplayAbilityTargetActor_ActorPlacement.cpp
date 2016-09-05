@@ -37,7 +37,7 @@ void AGameplayAbilityTargetActor_ActorPlacement::StartTargeting(UGameplayAbility
 	}
 	if (AGameplayAbilityWorldReticle* CachedReticleActor = ReticleActor.Get())
 	{
-		ActorVisualizationReticle->AttachToActor(CachedReticleActor, FAttachmentTransformRules::KeepRelativeTransform);
+		ActorVisualizationReticle->AttachRootComponentToActor(CachedReticleActor);
 	}
 	else
 	{

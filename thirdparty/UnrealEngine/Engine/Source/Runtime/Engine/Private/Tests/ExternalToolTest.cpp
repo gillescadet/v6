@@ -4,8 +4,6 @@
 #include "AutomationTestCommon.h"
 #include "Tests/AutomationTestSettings.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
-
 DEFINE_LOG_CATEGORY_STATIC(LogBaseAutomationTests, Log, All);
 
 /**
@@ -176,5 +174,3 @@ bool FRunExternalToolTest::RunTest(const FString& Parameters)
 
 	return true;
 }
-
-#endif //WITH_DEV_AUTOMATION_TESTS

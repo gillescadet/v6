@@ -11,7 +11,7 @@ class UAISense_Damage;
 UCLASS(meta = (DisplayName = "AI Damage sense config"))
 class AIMODULE_API UAISenseConfig_Damage : public UAISenseConfig
 {
-	GENERATED_UCLASS_BODY()
+	GENERATED_BODY()
 
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Sense", NoClear, config)

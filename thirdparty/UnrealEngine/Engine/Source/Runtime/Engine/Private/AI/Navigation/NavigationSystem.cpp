@@ -262,7 +262,6 @@ FNavigationSystemExec UNavigationSystem::ExecHandler;
 UNavigationSystem::FOnNavigationDirty UNavigationSystem::NavigationDirtyEvent;
 
 bool UNavigationSystem::bUpdateNavOctreeOnComponentChange = true;
-bool UNavigationSystem::bStaticRuntimeNavigation = false;
 //----------------------------------------------------------------------//
 // life cycle stuff                                                                
 //----------------------------------------------------------------------//
@@ -317,19 +316,13 @@ UNavigationSystem::UNavigationSystem(const FObjectInitializer& ObjectInitializer
 
 UNavigationSystem::~UNavigationSystem()
 {
-	CleanUp(ECleanupMode::CleanupUnsafe);
-
+	CleanUp();
 #if WITH_EDITOR
 	if (GIsEditor)
 	{
 		GLevelEditorModeTools().OnEditorModeChanged().RemoveAll(this);
 	}
 #endif // WITH_EDITOR
-}
-
-void UNavigationSystem::ConfigureAsStatic()
-{
-	bStaticRuntimeNavigation = true;
 }
 
 void UNavigationSystem::DoInitialSetup()
@@ -370,6 +363,14 @@ void UNavigationSystem::UpdateAbstractNavData()
 		FNavDataConfig DummyConfig;
 		DummyConfig.NavigationDataClass = AAbstractNavData::StaticClass();
 		AbstractNavData = CreateNavigationDataInstance(DummyConfig);
+	}
+
+	if (AbstractNavData->IsRegistered() == false)
+	{
+		// fake registration since it's a special navigation data type 
+		// and it would get discarded for not implementing any particular
+		// navigation agent
+		AbstractNavData->OnRegistered();
 	}
 }
 
@@ -706,6 +707,21 @@ void UNavigationSystem::OnWorldInitDone(FNavigationSystemRunMode Mode)
 				}
 			}
 		}
+
+		if (!World->IsGameWorld() && World->GetLevels().Num() > 1)
+		{
+			// this is a bit of a @hack for the time being until we reorganize navigation data instances (4.9?)
+			// the point of this hack is to force editor-time navmesh rebuilding if we have any sublevels
+			// since currently there's no information regarding whether we already have all navigation built 
+			// for all the actors in sublevels
+			for (ANavigationData* NavData : NavDataSet)
+			{
+				if (NavData)
+				{
+					NavData->MarkAsNeedingUpdate();
+				}
+			}
+		}
 	}
 
 	if (Mode == FNavigationSystemRunMode::EditorMode && bGenerateNavigationOnlyAroundNavigationInvokers)
@@ -1017,15 +1033,6 @@ void UNavigationSystem::AbortAsyncFindPathRequest(uint32 AsynPathQueryID)
 	}
 }
 
-FAutoConsoleTaskPriority CPrio_TriggerAsyncQueries(
-	TEXT("TaskGraph.TaskPriorities.NavTriggerAsyncQueries"),
-	TEXT("Task and thread priority for UNavigationSystem::PerformAsyncQueries."),
-	ENamedThreads::BackgroundThreadPriority, // if we have background priority task threads, then use them...
-	ENamedThreads::NormalTaskPriority, // .. at normal task priority
-	ENamedThreads::NormalTaskPriority // if we don't have background threads, then use normal priority threads at normal task priority instead
-	);
-
-
 void UNavigationSystem::TriggerAsyncQueries(TArray<FAsyncPathFindingQuery>& PathFindingQueries)
 {
 	DECLARE_CYCLE_STAT(TEXT("FSimpleDelegateGraphTask.NavigationSystem batched async queries"),
@@ -1034,7 +1041,7 @@ void UNavigationSystem::TriggerAsyncQueries(TArray<FAsyncPathFindingQuery>& Path
 
 	FSimpleDelegateGraphTask::CreateAndDispatchWhenReady(
 		FSimpleDelegateGraphTask::FDelegate::CreateUObject(this, &UNavigationSystem::PerformAsyncQueries, PathFindingQueries),
-		GET_STATID(STAT_FSimpleDelegateGraphTask_NavigationSystemBatchedAsyncQueries), nullptr, CPrio_TriggerAsyncQueries.Get());
+		GET_STATID(STAT_FSimpleDelegateGraphTask_NavigationSystemBatchedAsyncQueries));
 }
 
 static void AsyncQueryDone(FAsyncPathFindingQuery Query)
@@ -1209,18 +1216,11 @@ void UNavigationSystem::SimpleMoveToActor(AController* Controller, const AActor*
 		return;
 	}
 
-	const bool bAlreadyAtGoal = PFollowComp->HasReached(*Goal, EPathFollowingReachMode::OverlapAgentAndGoal);
-
-	// script source, keep only one move request at time
-	if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
+	if (PFollowComp->HasReached(*Goal))
 	{
-		PFollowComp->AbortMove(*NavSys, FPathFollowingResultFlags::ForcedScript | FPathFollowingResultFlags::NewRequest
-			, FAIRequestID::AnyRequest, bAlreadyAtGoal ? EPathFollowingVelocityMode::Reset : EPathFollowingVelocityMode::Keep);
-	}
-
-	if (bAlreadyAtGoal)
-	{
-		PFollowComp->RequestMoveWithImmediateFinish(EPathFollowingResult::Success);
+		// make sure previous move request gets aborted
+		PFollowComp->AbortMove(TEXT("Aborting move due to new move request finishing with AlreadyAtGoal"), FAIRequestID::AnyRequest);
+		PFollowComp->SetLastMoveAtGoal(true);
 	}
 	else
 	{
@@ -1232,11 +1232,13 @@ void UNavigationSystem::SimpleMoveToActor(AController* Controller, const AActor*
 			if (Result.IsSuccessful())
 			{
 				Result.Path->SetGoalActorObservation(*Goal, 100.0f);
-				PFollowComp->RequestMove(FAIMoveRequest(Goal), Result.Path);
+
+				PFollowComp->RequestMove(Result.Path, Goal);
 			}
 			else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
 			{
-				PFollowComp->RequestMoveWithImmediateFinish(EPathFollowingResult::Invalid);
+				PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
+				PFollowComp->SetLastMoveAtGoal(false);
 			}
 		}
 	}
@@ -1273,18 +1275,11 @@ void UNavigationSystem::SimpleMoveToLocation(AController* Controller, const FVec
 		return;
 	}
 
-	const bool bAlreadyAtGoal = PFollowComp->HasReached(GoalLocation, EPathFollowingReachMode::OverlapAgent);
-
-	// script source, keep only one move request at time
-	if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
+	if (PFollowComp->HasReached(GoalLocation))
 	{
-		PFollowComp->AbortMove(*NavSys, FPathFollowingResultFlags::ForcedScript | FPathFollowingResultFlags::NewRequest
-			, FAIRequestID::AnyRequest, bAlreadyAtGoal ? EPathFollowingVelocityMode::Reset : EPathFollowingVelocityMode::Keep);
-	}
-
-	if (bAlreadyAtGoal)
-	{
-		PFollowComp->RequestMoveWithImmediateFinish(EPathFollowingResult::Success);
+		// make sure previous move request gets aborted
+		PFollowComp->AbortMove(TEXT("Aborting move due to new move request finishing with AlreadyAtGoal"), FAIRequestID::AnyRequest);
+		PFollowComp->SetLastMoveAtGoal(true);
 	}
 	else
 	{
@@ -1295,11 +1290,12 @@ void UNavigationSystem::SimpleMoveToLocation(AController* Controller, const FVec
 			FPathFindingResult Result = NavSys->FindPathSync(Query);
 			if (Result.IsSuccessful())
 			{
-				PFollowComp->RequestMove(FAIMoveRequest(GoalLocation), Result.Path);
+				PFollowComp->RequestMove(Result.Path, NULL);
 			}
 			else if (PFollowComp->GetStatus() != EPathFollowingStatus::Idle)
 			{
-				PFollowComp->RequestMoveWithImmediateFinish(EPathFollowingResult::Invalid);
+				PFollowComp->AbortMove(TEXT("Aborting move due to new move request failing to generate a path"), FAIRequestID::AnyRequest);
+				PFollowComp->SetLastMoveAtGoal(false);
 			}
 		}
 	}
@@ -1368,9 +1364,10 @@ UNavigationPath* UNavigationSystem::FindPathToLocationSynchronously(UObject* Wor
 		}
 
 		check(NavigationData);
+		FPathFindingQuery Query(PathfindingContext, *NavigationData, PathStart, PathEnd);
+		Query.QueryFilter = UNavigationQueryFilter::GetQueryFilter(*NavigationData, FilterClass);
 
-		const FPathFindingQuery Query(PathfindingContext, *NavigationData, PathStart, PathEnd, UNavigationQueryFilter::GetQueryFilter(*NavigationData, PathfindingContext, FilterClass));
-		const FPathFindingResult Result = NavSys->FindPathSync(Query, EPathFindingMode::Regular);
+		FPathFindingResult Result = NavSys->FindPathSync(Query, EPathFindingMode::Regular);
 		if (Result.IsSuccessful())
 		{
 			ResultPath->SetPath(Result.Path);
@@ -1416,7 +1413,7 @@ bool UNavigationSystem::NavigationRaycast(UObject* WorldContextObject, const FVe
 
 		if (NavData != NULL)
 		{
-			bRaycastBlocked = NavData->Raycast(RayStart, RayEnd, HitLocation, UNavigationQueryFilter::GetQueryFilter(*NavData, Querier, FilterClass));
+			bRaycastBlocked = NavData->Raycast(RayStart, RayEnd, HitLocation, UNavigationQueryFilter::GetQueryFilter(*NavData, FilterClass));
 		}
 	}
 
@@ -1442,10 +1439,9 @@ const ANavigationData* UNavigationSystem::GetNavDataForProps(const FNavAgentProp
 		return MainNavData;
 	}
 	
-	const TWeakObjectPtr<ANavigationData>* NavDataForAgent = AgentToNavDataMap.Find(AgentProperties);
-	const ANavigationData* NavDataInstance = NavDataForAgent ? NavDataForAgent->Get() : nullptr;
+	const ANavigationData* const* NavDataForAgent = AgentToNavDataMap.Find(AgentProperties);
 
-	if (NavDataInstance == nullptr)
+	if (NavDataForAgent == NULL)
 	{
 		TArray<FNavAgentProperties> AgentPropertiesList;
 		int32 NumNavDatas = AgentToNavDataMap.GetKeys(AgentPropertiesList);
@@ -1498,11 +1494,10 @@ const ANavigationData* UNavigationSystem::GetNavDataForProps(const FNavAgentProp
 		if (BestFitNavAgent.IsValid())
 		{
 			NavDataForAgent = AgentToNavDataMap.Find(BestFitNavAgent);
-			NavDataInstance = NavDataForAgent ? NavDataForAgent->Get() : nullptr;
 		}
 	}
 
-	return NavDataInstance ? NavDataInstance : MainNavData;
+	return NavDataForAgent != NULL && *NavDataForAgent != NULL ? *NavDataForAgent : MainNavData;
 }
 
 ANavigationData* UNavigationSystem::GetMainNavData(FNavigationSystem::ECreateIfEmpty CreateNewIfNoneFound)
@@ -1811,53 +1806,38 @@ UNavigationSystem::ERegistrationResult UNavigationSystem::RegisterNavData(ANavig
 	if (NavConfig.IsValid() == true)
 	{
 		// check if this kind of agent has already its navigation implemented
-		TWeakObjectPtr<ANavigationData>* NavDataForAgent = AgentToNavDataMap.Find(NavConfig);
-		ANavigationData* NavDataInstanceForAgent = NavDataForAgent ? NavDataForAgent->Get() : nullptr;
-
-		if (NavDataInstanceForAgent == nullptr)
+		ANavigationData** NavDataForAgent = AgentToNavDataMap.Find(NavConfig);
+		if (NavDataForAgent == NULL || *NavDataForAgent == NULL || (*NavDataForAgent)->IsPendingKill() == true)
 		{
-			if (NavData->IsA(AAbstractNavData::StaticClass()) == false)
+			// ok, so this navigation agent doesn't have its navmesh registered yet, but do we want to support it?
+			bool bAgentSupported = false;
+			
+			for (int32 AgentIndex = 0; AgentIndex < SupportedAgents.Num(); ++AgentIndex)
 			{
-				// ok, so this navigation agent doesn't have its navmesh registered yet, but do we want to support it?
-				bool bAgentSupported = false;
-
-				for (int32 AgentIndex = 0; AgentIndex < SupportedAgents.Num(); ++AgentIndex)
+				if (NavData->GetClass() == SupportedAgents[AgentIndex].NavigationDataClass && SupportedAgents[AgentIndex].IsEquivalent(NavConfig) == true)
 				{
-					if (NavData->GetClass() == SupportedAgents[AgentIndex].NavigationDataClass && SupportedAgents[AgentIndex].IsEquivalent(NavConfig) == true)
+					// it's supported, then just in case it's not a precise match (IsEquivalent succeeds with some precision) 
+					// update NavData with supported Agent
+					bAgentSupported = true;
+
+					NavData->SetConfig(SupportedAgents[AgentIndex]);
+					if (!NavData->IsA(AAbstractNavData::StaticClass()))
 					{
-						// it's supported, then just in case it's not a precise match (IsEquivalent succeeds with some precision) 
-						// update NavData with supported Agent
-						bAgentSupported = true;
-
-						NavData->SetConfig(SupportedAgents[AgentIndex]);
 						AgentToNavDataMap.Add(SupportedAgents[AgentIndex], NavData);
-						NavData->SetSupportsDefaultAgent(AgentIndex == 0);
-						NavData->ProcessNavAreas(NavAreaClasses, AgentIndex);
-
-						OnNavDataRegisteredEvent.Broadcast(NavData);
-
-						NavDataSet.AddUnique(NavData);
-						NavData->OnRegistered();
-
-						break;
 					}
-				}
-				Result = bAgentSupported == true ? RegistrationSuccessful : RegistrationFailed_AgentNotValid;
-			}
-			else
-			{
-				// fake registration since it's a special navigation data type 
-				// and it would get discarded for not implementing any particular
-				// navigation agent
-				// Node that we don't add abstract navigation data to NavDataSet
-				NavData->OnRegistered();
 
-				Result = RegistrationSuccessful;
+					NavData->SetSupportsDefaultAgent(AgentIndex == 0);
+					NavData->ProcessNavAreas(NavAreaClasses, AgentIndex);
+
+					OnNavDataRegisteredEvent.Broadcast(NavData);
+					break;
+				}
 			}
+
+			Result = bAgentSupported == true ? RegistrationSuccessful : RegistrationFailed_AgentNotValid;
 		}
-		else if (NavDataInstanceForAgent == NavData)
+		else if (*NavDataForAgent == NavData)
 		{
-			ensure(NavDataSet.Find(NavData) != INDEX_NONE);
 			// let's treat double registration of the same nav data with the same agent as a success
 			Result = RegistrationSuccessful;
 		}
@@ -1872,6 +1852,11 @@ UNavigationSystem::ERegistrationResult UNavigationSystem::RegisterNavData(ANavig
 		Result = RegistrationFailed_AgentNotValid;
 	}
 
+	if (Result == RegistrationSuccessful)
+	{
+		NavDataSet.AddUnique(NavData);
+		NavData->OnRegistered();
+	}
 	// @todo else might consider modifying this NavData to implement navigation for one of the supported agents
 	// care needs to be taken to not make it implement navigation for agent who's real implementation has 
 	// not been loaded yet.
@@ -1910,13 +1895,10 @@ INavLinkCustomInterface* UNavigationSystem::GetCustomLink(uint32 UniqueLinkId) c
 
 void UNavigationSystem::UpdateCustomLink(const INavLinkCustomInterface* CustomLink)
 {
-	for (TMap<FNavAgentProperties, TWeakObjectPtr<ANavigationData> >::TIterator It(AgentToNavDataMap); It; ++It)
+	for (TMap<FNavAgentProperties, ANavigationData*>::TIterator It(AgentToNavDataMap); It; ++It)
 	{
-		ANavigationData* NavData = It.Value().Get();
-		if (NavData)
-		{
-			NavData->UpdateCustomLink(CustomLink);
-		}
+		ANavigationData* NavData = It.Value();
+		NavData->UpdateCustomLink(CustomLink);
 	}
 }
 
@@ -2479,10 +2461,6 @@ const FNavigationRelevantData* UNavigationSystem::GetDataForObject(const UObject
 
 void UNavigationSystem::UpdateActorInNavOctree(AActor& Actor)
 {
-	if (IsNavigationSystemStatic())
-	{
-		return;
-	}
 	SCOPE_CYCLE_COUNTER(STAT_DebugNavOctree);
 
 	INavRelevantInterface* NavElement = Cast<INavRelevantInterface>(&Actor);
@@ -2512,7 +2490,7 @@ void UNavigationSystem::UpdateComponentInNavOctree(UActorComponent& Comp)
 		if (NavElement)
 		{
 			AActor* OwnerActor = Comp.GetOwner();
-			if (OwnerActor)
+			if (ensure(OwnerActor))
 			{
 				UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(OwnerActor->GetWorld());
 				if (NavSys)
@@ -2572,7 +2550,22 @@ void UNavigationSystem::UpdateNavOctreeAfterMove(USceneComponent* Comp)
 	AActor* OwnerActor = Comp->GetOwner();
 	if (OwnerActor && OwnerActor->GetRootComponent() == Comp)
 	{
-		UpdateActorAndComponentsInNavOctree(*OwnerActor, true);
+		UpdateActorInNavOctree(*OwnerActor);
+
+		TInlineComponentArray<UActorComponent*> Components;
+		OwnerActor->GetComponents(Components);
+
+		for (int32 ComponentIndex = 0; ComponentIndex < Components.Num(); ComponentIndex++)
+		{
+			UActorComponent* const Component = Components[ComponentIndex];
+			// updating only INavRelevantInterfaces here on purpose, all the rest will get updated automatically
+			if (Component && Cast<INavRelevantInterface>(Component))
+			{
+				UpdateComponentInNavOctree(*Component);
+			}
+		}
+
+		UpdateAttachedActorsInNavOctree(*OwnerActor);
 	}
 }
 
@@ -2735,11 +2728,6 @@ bool UNavigationSystem::UpdateNavOctreeElementBounds(UActorComponent* Comp, cons
 
 void UNavigationSystem::OnComponentRegistered(UActorComponent* Comp)
 {
-	if (IsNavigationSystemStatic())
-	{
-		return;
-	}
-
 	SCOPE_CYCLE_COUNTER(STAT_DebugNavOctree);
 	INavRelevantInterface* NavInterface = Cast<INavRelevantInterface>(Comp);
 	if (NavInterface)
@@ -2758,11 +2746,6 @@ void UNavigationSystem::OnComponentRegistered(UActorComponent* Comp)
 
 void UNavigationSystem::OnComponentUnregistered(UActorComponent* Comp)
 {
-	if (IsNavigationSystemStatic())
-	{
-		return;
-	}
-
 	SCOPE_CYCLE_COUNTER(STAT_DebugNavOctree);
 	INavRelevantInterface* NavInterface = Cast<INavRelevantInterface>(Comp);
 	if (NavInterface)
@@ -2783,11 +2766,6 @@ void UNavigationSystem::OnComponentUnregistered(UActorComponent* Comp)
 
 void UNavigationSystem::OnActorRegistered(AActor* Actor)
 {
-	if (IsNavigationSystemStatic())
-	{
-		return;
-	}
-
 	SCOPE_CYCLE_COUNTER(STAT_DebugNavOctree);
 	INavRelevantInterface* NavInterface = Cast<INavRelevantInterface>(Actor);
 	if (NavInterface)
@@ -2802,11 +2780,6 @@ void UNavigationSystem::OnActorRegistered(AActor* Actor)
 
 void UNavigationSystem::OnActorUnregistered(AActor* Actor)
 {
-	if (IsNavigationSystemStatic())
-	{
-		return;
-	}
-
 	SCOPE_CYCLE_COUNTER(STAT_DebugNavOctree);
 	INavRelevantInterface* NavInterface = Cast<INavRelevantInterface>(Actor);
 	if (NavInterface)
@@ -2844,12 +2817,6 @@ void UNavigationSystem::ReleaseInitialBuildingLock()
 
 void UNavigationSystem::InitializeLevelCollisions()
 {
-	if (IsNavigationSystemStatic())
-	{
-		bInitialLevelsAdded = true;
-		return;
-	}
-
 	UWorld* World = GetWorld();
 	if (!bInitialLevelsAdded && UNavigationSystem::GetCurrent(World) == this)
 	{
@@ -2903,7 +2870,7 @@ void UNavigationSystem::OnEditorModeChanged(FEdMode* Mode, bool IsEntering)
 
 void UNavigationSystem::OnNavigationBoundsUpdated(ANavMeshBoundsVolume* NavVolume)
 {
-	if (NavVolume == nullptr || IsNavigationSystemStatic())
+	if (NavVolume == NULL)
 	{
 		return;
 	}
@@ -2920,7 +2887,7 @@ void UNavigationSystem::OnNavigationBoundsUpdated(ANavMeshBoundsVolume* NavVolum
 
 void UNavigationSystem::OnNavigationBoundsAdded(ANavMeshBoundsVolume* NavVolume)
 {
-	if (NavVolume == nullptr || IsNavigationSystemStatic())
+	if (NavVolume == NULL)
 	{
 		return;
 	}
@@ -2937,7 +2904,7 @@ void UNavigationSystem::OnNavigationBoundsAdded(ANavMeshBoundsVolume* NavVolume)
 
 void UNavigationSystem::OnNavigationBoundsRemoved(ANavMeshBoundsVolume* NavVolume)
 {
-	if (NavVolume == nullptr || IsNavigationSystemStatic())
+	if (NavVolume == NULL)
 	{
 		return;
 	}
@@ -3045,7 +3012,7 @@ void UNavigationSystem::PerformNavigationBoundsUpdate(const TArray<FNavigationBo
 				}
 				else
 				{
-					AddNavigationBounds(Request.NavBounds);
+					ExistingElementId = RegisteredNavBounds.Add(Request.NavBounds);
 				}
 
 				UpdatedAreas.Add(Request.NavBounds.AreaBox);
@@ -3073,11 +3040,6 @@ void UNavigationSystem::PerformNavigationBoundsUpdate(const TArray<FNavigationBo
 	}
 }
 
-void UNavigationSystem::AddNavigationBounds(const FNavigationBounds& NewBounds)
-{
-	RegisteredNavBounds.Add(NewBounds);
-}
-
 void UNavigationSystem::GatherNavigationBounds()
 {
 	// Gather all available navigation bounds
@@ -3092,8 +3054,7 @@ void UNavigationSystem::GatherNavigationBounds()
 			NavBounds.AreaBox = V->GetComponentsBoundingBox(true);
 			NavBounds.Level = V->GetLevel();
 			NavBounds.SupportedAgents = V->SupportedAgents;
-
-			AddNavigationBounds(NavBounds);
+			RegisteredNavBounds.Add(NavBounds);
 		}
 	}
 }
@@ -3219,12 +3180,13 @@ void UNavigationSystem::SpawnMissingNavigationData()
 
 ANavigationData* UNavigationSystem::CreateNavigationDataInstance(const FNavDataConfig& NavConfig)
 {
+	TSubclassOf<ANavigationData> NavDataClass = NavConfig.NavigationDataClass;
 	UWorld* World = GetWorld();
 	check(World);
 
 	FActorSpawnParameters SpawnInfo;
 	SpawnInfo.OverrideLevel = World->PersistentLevel;
-	ANavigationData* Instance = World->SpawnActor<ANavigationData>(*NavConfig.NavigationDataClass, SpawnInfo);
+	ANavigationData* Instance = World->SpawnActor<ANavigationData>(*NavDataClass, SpawnInfo);
 
 	if (Instance != NULL)
 	{
@@ -3237,13 +3199,6 @@ ANavigationData* UNavigationSystem::CreateNavigationDataInstance(const FNavDataC
 			UObject* ExistingObject = StaticFindObject(/*Class=*/ NULL, Instance->GetOuter(), *StrName, true);
 			if (ExistingObject != NULL)
 			{
-				ANavigationData* ExistingNavigationData = Cast<ANavigationData>(ExistingObject);
-				if (ExistingNavigationData)
-				{
-					UnregisterNavData(ExistingNavigationData);
-					AgentToNavDataMap.Remove(ExistingNavigationData->GetConfig());
-				}
-
 				ExistingObject->Rename(NULL, NULL, REN_DontCreateRedirectors | REN_ForceGlobalUnique | REN_DoNotDirty | REN_NonTransactional);
 			}
 
@@ -3377,7 +3332,7 @@ int32 UNavigationSystem::GetNumRunningBuildTasks() const
 
 void UNavigationSystem::OnLevelAddedToWorld(ULevel* InLevel, UWorld* InWorld)
 {
-	if ((IsNavigationSystemStatic() == false) && (InWorld == GetWorld()))
+	if (InWorld == GetWorld())
 	{
 		AddLevelCollisionToOctree(InLevel);
 
@@ -3396,7 +3351,7 @@ void UNavigationSystem::OnLevelAddedToWorld(ULevel* InLevel, UWorld* InWorld)
 
 void UNavigationSystem::OnLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld)
 {
-	if ((IsNavigationSystemStatic() == false) && (InWorld == GetWorld()))
+	if (InWorld == GetWorld())
 	{
 		RemoveLevelCollisionFromOctree(InLevel);
 
@@ -3643,12 +3598,29 @@ FVector UNavigationSystem::ProjectPointToNavigation(UObject* WorldContextObject,
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
 		if (UseNavData)
 		{
-			NavSys->ProjectPointToNavigation(Point, ProjectedPoint, QueryExtent.IsNearlyZero() ? INVALID_NAVEXTENT : QueryExtent, UseNavData,
-				UNavigationQueryFilter::GetQueryFilter(*UseNavData, WorldContextObject, FilterClass));
+			NavSys->ProjectPointToNavigation(Point, ProjectedPoint, QueryExtent.IsNearlyZero() ? INVALID_NAVEXTENT : QueryExtent, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
 		}
 	}
 
 	return ProjectedPoint.Location;
+}
+
+FVector UNavigationSystem::GetRandomPoint(UObject* WorldContextObject, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
+{
+	FNavLocation RandomPoint;
+
+	UWorld* World = GEngine->GetWorldFromContextObject( WorldContextObject );
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(World);
+	if (NavSys)
+	{
+		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
+		if (UseNavData)
+		{
+			NavSys->GetRandomPoint(RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
+		}
+	}
+
+	return RandomPoint.Location;
 }
 
 FVector UNavigationSystem::GetRandomReachablePointInRadius(UObject* WorldContext, const FVector& Origin, float Radius, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
@@ -3662,7 +3634,7 @@ FVector UNavigationSystem::GetRandomReachablePointInRadius(UObject* WorldContext
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
 		if (UseNavData)
 		{
-			NavSys->GetRandomReachablePointInRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, WorldContext, FilterClass));
+			NavSys->GetRandomReachablePointInRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
 		}
 	}
 
@@ -3680,7 +3652,7 @@ FVector UNavigationSystem::GetRandomPointInNavigableRadius(UObject* WorldContext
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
 		if (UseNavData)
 		{
-			NavSys->GetRandomPointInNavigableRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, WorldContext, FilterClass));
+			NavSys->GetRandomPointInNavigableRadius(Origin, Radius, RandomPoint, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
 		}
 	}
 
@@ -3696,7 +3668,7 @@ ENavigationQueryResult::Type UNavigationSystem::GetPathCost(UObject* WorldContex
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
 		if (UseNavData)
 		{
-			return NavSys->GetPathCost(PathStart, PathEnd, OutPathCost, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, WorldContextObject, FilterClass));
+			return NavSys->GetPathCost(PathStart, PathEnd, OutPathCost, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
 		}
 	}
 
@@ -3714,7 +3686,7 @@ ENavigationQueryResult::Type UNavigationSystem::GetPathLength(UObject* WorldCont
 		ANavigationData* UseNavData = NavData ? NavData : NavSys->GetMainNavData(FNavigationSystem::DontCreate);
 		if (UseNavData)
 		{
-			return NavSys->GetPathLength(PathStart, PathEnd, OutPathLength, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, WorldContextObject, FilterClass));
+			return NavSys->GetPathLength(PathStart, PathEnd, OutPathLength, UseNavData, UNavigationQueryFilter::GetQueryFilter(*UseNavData, FilterClass));
 		}
 	}
 
@@ -3734,25 +3706,12 @@ bool UNavigationSystem::IsNavigationBeingBuilt(UObject* WorldContextObject)
 	return false;
 }
 
-bool UNavigationSystem::IsNavigationBeingBuiltOrLocked(UObject* WorldContextObject)
-{
-	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject);
-	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(World);
-
-	if (NavSys)
-	{
-		return NavSys->IsNavigationBuildingLocked() || NavSys->HasDirtyAreasQueued() || NavSys->IsNavigationBuildInProgress();
-	}
-
-	return false;
-}
-
 //----------------------------------------------------------------------//
 // HACKS!!!
 //----------------------------------------------------------------------//
 bool UNavigationSystem::ShouldGeneratorRun(const FNavDataGenerator* Generator) const
 {
-	if (Generator != NULL && (IsNavigationSystemStatic() == false))
+	if (Generator != NULL)
 	{
 		for (int32 NavDataIndex = 0; NavDataIndex < NavDataSet.Num(); ++NavDataIndex)
 		{
@@ -4044,6 +4003,32 @@ void UNavigationSystem::UnregisterNavigationInvoker(AActor* Invoker)
 //----------------------------------------------------------------------//
 // DEPRECATED
 //----------------------------------------------------------------------//
+void UNavigationSystem::RegisterCustomLink(INavLinkCustomInterface* CustomLink)
+{
+	if (CustomLink)
+	{
+		RegisterCustomLink(*CustomLink);
+	}
+}
+
+void UNavigationSystem::UnregisterCustomLink(INavLinkCustomInterface* CustomLink)
+{
+	if (CustomLink)
+	{
+		UnregisterCustomLink(*CustomLink);
+	}
+}
+
+FVector UNavigationSystem::GetRandomPointInRadius(UObject* WorldContextObject, const FVector& Origin, float Radius, ANavigationData* NavData, TSubclassOf<UNavigationQueryFilter> FilterClass)
+{
+	return UNavigationSystem::GetRandomReachablePointInRadius(WorldContextObject, Origin, Radius, NavData, FilterClass);
+}
+
+bool UNavigationSystem::GetRandomPointInRadius(const FVector& Origin, float Radius, FNavLocation& ResultLocation, ANavigationData* NavData, FSharedConstNavQueryFilter QueryFilter) const
+{
+	return GetRandomReachablePointInRadius(Origin, Radius, ResultLocation, NavData, QueryFilter);
+}
+
 void UNavigationSystem::UpdateNavOctree(AActor* Actor)
 {
 	if (Actor)

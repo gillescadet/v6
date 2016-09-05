@@ -4,7 +4,6 @@
 
 #include "Core.h"
 #include "Http.h"
-#include "IHttpThreadedRequest.h"
 
 #include "GenericPlatform/GenericPlatformHttp.h"
 #include "PlatformHttp.h"

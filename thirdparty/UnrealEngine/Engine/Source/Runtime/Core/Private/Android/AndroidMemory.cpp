@@ -1,11 +1,10 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "CorePrivatePCH.h"
-#include "MallocBinned.h"
+#include "MallocBinned2.h"
 #include "MallocAnsi.h"
 #include "unistd.h"
 #include <jni.h>
-#include <sys/mman.h>
 
 #define JNI_CURRENT_VERSION JNI_VERSION_1_6
 extern JavaVM* GJavaVM;
@@ -92,25 +91,18 @@ FMalloc* FAndroidPlatformMemory::BaseAllocator()
 	// this then causes the MemoryLimit to be 0 and crashing the app
 	uint64 MemoryLimit = FMath::Min<uint64>( uint64(1) << FMath::CeilLogTwo(MemoryConstants.TotalPhysical), 0x100000000);
 
-#if PLATFORM_ANDROID_ARM64
-	// todo: track down why FMallocBinned is failing on ARM64
-	return new FMallocAnsi();
-#else
-	return new FMallocBinned(MemoryConstants.PageSize, MemoryLimit);
-#endif
+	//return new FMallocAnsi();
+	return new FMallocBinned2(MemoryConstants.PageSize, MemoryLimit);
 }
 
-void* FAndroidPlatformMemory::BinnedAllocFromOS(SIZE_T Size)
+void* FAndroidPlatformMemory::BinnedAllocFromOS( SIZE_T Size )
 {
-	return mmap(nullptr, Size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+	// valloc was deprecated, this is a functional equivalent, for SDK 21
+	const FPlatformMemoryConstants& MemoryConstants = FPlatformMemory::GetConstants();
+	return memalign(MemoryConstants.PageSize, Size);
 }
 
-void FAndroidPlatformMemory::BinnedFreeToOS(void* Ptr, SIZE_T Size)
+void FAndroidPlatformMemory::BinnedFreeToOS( void* Ptr )
 {
-	if (munmap(Ptr, Size) != 0)
-	{
-		const int ErrNo = errno;
-		UE_LOG(LogHAL, Fatal, TEXT("munmap(addr=%p, len=%llu) failed with errno = %d (%s)"), Ptr, Size,
-			ErrNo, StringCast< TCHAR >(strerror(ErrNo)).Get());
-	}
+	free(Ptr);
 }

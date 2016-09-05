@@ -22,9 +22,7 @@ UPawnAction_Move::UPawnAction_Move(const FObjectInitializer& ObjectInitializer)
 
 void UPawnAction_Move::BeginDestroy()
 {
-	ClearTimers();
 	ClearPath();
-
 	Super::BeginDestroy();
 }
 
@@ -83,7 +81,7 @@ EPathFollowingRequestResult::Type UPawnAction_Move::RequestMove(AAIController& C
 	MoveReq.SetProjectGoalLocation(bProjectGoalToNavigation);
 	MoveReq.SetNavigationFilter(FilterClass);
 	MoveReq.SetAcceptanceRadius(AcceptableRadius);
-	MoveReq.SetReachTestIncludesAgentRadius(bFinishOnOverlap);
+	MoveReq.SetStopOnOverlap(bFinishOnOverlap);
 	MoveReq.SetCanStrafe(bAllowStrafe);
 
 	if (GoalActor != NULL)
@@ -209,14 +207,13 @@ bool UPawnAction_Move::Resume()
 
 EPawnActionAbortState::Type UPawnAction_Move::PerformAbort(EAIForceParam::Type ShouldForce)
 {
-	ClearTimers();
 	ClearPath();
 
 	AAIController* MyController = Cast<AAIController>(GetController());
 
 	if (MyController && MyController->GetPathFollowingComponent())
 	{
-		MyController->GetPathFollowingComponent()->AbortMove(*this, FPathFollowingResultFlags::OwnerFinished, RequestID);
+		MyController->GetPathFollowingComponent()->AbortMove(TEXT("BehaviorTree abort"), RequestID);
 	}
 
 	return Super::PerformAbort(ShouldForce);
@@ -224,7 +221,7 @@ EPawnActionAbortState::Type UPawnAction_Move::PerformAbort(EAIForceParam::Type S
 
 void UPawnAction_Move::HandleAIMessage(UBrainComponent*, const FAIMessage& Message)
 {
-	if (Message.MessageName == UBrainComponent::AIMessage_MoveFinished && Message.HasFlag(FPathFollowingResultFlags::NewRequest))
+	if (Message.MessageName == UBrainComponent::AIMessage_MoveFinished && Message.HasFlag(EPathFollowingMessage::OtherRequest))
 	{
 		// move was aborted by another request from different action, don't finish yet
 		return;
@@ -238,9 +235,7 @@ void UPawnAction_Move::HandleAIMessage(UBrainComponent*, const FAIMessage& Messa
 
 void UPawnAction_Move::OnFinished(EPawnActionResult::Type WithResult)
 {
-	ClearTimers();
 	ClearPath();
-
 	Super::OnFinished(WithResult);
 }
 
@@ -292,7 +287,10 @@ void UPawnAction_Move::OnPathUpdated(FNavigationPath* UpdatedPath, ENavPathEvent
 	// log new path when action is paused, otherwise it will be logged by path following component's update
 	if (Event == ENavPathEvent::UpdatedDueToGoalMoved || Event == ENavPathEvent::UpdatedDueToNavigationChanged)
 	{
-		bool bShouldLog = UpdatedPath && IsPaused();
+		if (IsPaused() && UpdatedPath)
+		{
+			UPathFollowingComponent::LogPathHelper(MyOwner, UpdatedPath, UpdatedPath->GetGoalActor());
+		}
 
 		// make sure it's still satisfying partial path condition
 		if (UpdatedPath && UpdatedPath->IsPartial())
@@ -302,16 +300,8 @@ void UPawnAction_Move::OnPathUpdated(FNavigationPath* UpdatedPath, ENavPathEvent
 			{
 				UE_VLOG(MyOwner, LogPawnAction, Log, TEXT(">> partial path is not allowed, aborting"));
 				GetOwnerComponent()->AbortAction(*this);
-				bShouldLog = true;
 			}
 		}
-
-#if ENABLE_VISUAL_LOG
-		if (bShouldLog)
-		{
-			UPathFollowingComponent::LogPathHelper(MyOwner, UpdatedPath, UpdatedPath->GetGoalActor());
-		}
-#endif
 	}
 }
 
@@ -337,37 +327,19 @@ void UPawnAction_Move::TryToRepath()
 
 void UPawnAction_Move::ClearPendingRepath()
 {
-	if (TimerHandle_TryToRepath.IsValid())
+	if (GetWorld())
 	{
-		UWorld* World = GetWorld();
-		if (World)
-		{
-			World->GetTimerManager().ClearTimer(TimerHandle_TryToRepath);
-			TimerHandle_TryToRepath.Invalidate();
-		}
-	}
-}
-
-void UPawnAction_Move::ClearTimers()
-{
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		World->GetTimerManager().ClearTimer(TimerHandle_DeferredPerformMoveAction);
-		World->GetTimerManager().ClearTimer(TimerHandle_TryToRepath);
-
-		TimerHandle_DeferredPerformMoveAction.Invalidate();
-		TimerHandle_TryToRepath.Invalidate();
+		GetWorld()->GetTimerManager().ClearTimer(TimerHandle_TryToRepath);
 	}
 }
 
 bool UPawnAction_Move::CheckAlreadyAtGoal(AAIController& Controller, const FVector& TestLocation, float Radius)
 {
-	const bool bAlreadyAtGoal = Controller.GetPathFollowingComponent()->HasReached(TestLocation, EPathFollowingReachMode::OverlapAgentAndGoal, Radius);
+	const bool bAlreadyAtGoal = Controller.GetPathFollowingComponent()->HasReached(TestLocation, Radius);
 	if (bAlreadyAtGoal)
 	{
-		UE_VLOG(&Controller, LogPawnAction, Log, TEXT("New move request already at goal, aborting active movement"));
-		Controller.GetPathFollowingComponent()->RequestMoveWithImmediateFinish(EPathFollowingResult::Success);
+		Controller.GetPathFollowingComponent()->AbortMove(TEXT("Aborting move due to new move request finishing with AlreadyAtGoal"), FAIRequestID::AnyRequest, true, false, EPathFollowingMessage::OtherRequest);
+		Controller.GetPathFollowingComponent()->SetLastMoveAtGoal(true);
 	}
 
 	return bAlreadyAtGoal;
@@ -375,11 +347,11 @@ bool UPawnAction_Move::CheckAlreadyAtGoal(AAIController& Controller, const FVect
 
 bool UPawnAction_Move::CheckAlreadyAtGoal(AAIController& Controller, const AActor& TestGoal, float Radius)
 {
-	const bool bAlreadyAtGoal = Controller.GetPathFollowingComponent()->HasReached(TestGoal, EPathFollowingReachMode::OverlapAgentAndGoal, Radius);
+	const bool bAlreadyAtGoal = Controller.GetPathFollowingComponent()->HasReached(TestGoal, Radius);
 	if (bAlreadyAtGoal)
 	{
-		UE_VLOG(&Controller, LogPawnAction, Log, TEXT("New move request already at goal, aborting active movement"));
-		Controller.GetPathFollowingComponent()->RequestMoveWithImmediateFinish(EPathFollowingResult::Success);
+		Controller.GetPathFollowingComponent()->AbortMove(TEXT("Aborting move due to new move request finishing with AlreadyAtGoal"), FAIRequestID::AnyRequest, true, false, EPathFollowingMessage::OtherRequest);
+		Controller.GetPathFollowingComponent()->SetLastMoveAtGoal(true);
 	}
 
 	return bAlreadyAtGoal;

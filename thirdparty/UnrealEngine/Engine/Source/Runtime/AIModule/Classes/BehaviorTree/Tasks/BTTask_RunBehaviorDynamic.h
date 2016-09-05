@@ -27,7 +27,7 @@ class AIMODULE_API UBTTask_RunBehaviorDynamic : public UBTTaskNode
 #endif // WITH_EDITOR
 
 	bool HasMatchingTag(const FGameplayTag& Tag) const;
-	bool SetBehaviorAsset(UBehaviorTree* NewBehaviorAsset);
+	void SetBehaviorAsset(UBehaviorTree* NewBehaviorAsset);
 
 protected:
 

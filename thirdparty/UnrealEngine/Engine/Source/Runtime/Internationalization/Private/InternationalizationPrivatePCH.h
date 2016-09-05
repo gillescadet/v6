@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "Core.h"
+#include "Internationalization.h"
 
 
 /* Private dependencies

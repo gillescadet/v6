@@ -1,6 +1,8 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
+#if WITH_FANCY_TEXT
+
 class SLATE_API FSlateTextLayout : public FTextLayout
 {
 public:
@@ -9,9 +11,9 @@ public:
 
 	FChildren* GetChildren();
 
-	virtual void ArrangeChildren( const FGeometry& AllottedGeometry, FArrangedChildren& ArrangedChildren ) const;
+	void ArrangeChildren( const FGeometry& AllottedGeometry, FArrangedChildren& ArrangedChildren ) const;
 
-	virtual int32 OnPaint( const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled ) const;
+	int32 OnPaint( const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled ) const;
 
 	virtual void EndLayout() override;
 
@@ -20,31 +22,27 @@ public:
 	void SetDefaultTextStyle(FTextBlockStyle InDefaultTextStyle);
 	const FTextBlockStyle& GetDefaultTextStyle() const;
 
-	void SetIsPassword(const TAttribute<bool>& InIsPassword);
-
 protected:
 
 	FSlateTextLayout(FTextBlockStyle InDefaultTextStyle);
 
-	virtual int32 OnPaintHighlights(const FPaintArgs& Args, const FTextLayout::FLineView& LineView, const TArray<FLineViewHighlight>& Highlights, const FTextBlockStyle& DefaultTextStyle, const FGeometry& AllottedGeometry, const FSlateRect& ClippingRect, FSlateWindowElementList& OutDrawElements, const int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const;
+	int32 OnPaintHighlights(const FPaintArgs& Args, const FTextLayout::FLineView& LineView, const TArray<FLineViewHighlight>& Highlights, const FTextBlockStyle& DefaultTextStyle, const FGeometry& AllottedGeometry, const FSlateRect& ClippingRect, FSlateWindowElementList& OutDrawElements, const int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const;
 
-	virtual void AggregateChildren();
+	void AggregateChildren();
 
 	virtual TSharedRef<IRun> CreateDefaultTextRun(const TSharedRef<FString>& NewText, const FTextRange& NewRange) const override;
-
-protected:
-	/** Default style used by the TextLayout */
-	FTextBlockStyle DefaultTextStyle;
 
 private:
 
 	TSlotlessChildren< SWidget > Children;
 
-	/** This this layout displaying a password? */
-	TAttribute<bool> bIsPassword;
+	/** Default style used by the TextLayout */
+	FTextBlockStyle DefaultTextStyle;
 
 	/** The localized fallback font revision the last time the text layout was updated. Used to force a flush if the font changes. */
-	uint16 LocalizedFallbackFontRevision;
+	int32 LocalizedFallbackFontRevision;
 
 	friend class FSlateTextLayoutFactory;
 };
+
+#endif //WITH_FANCY_TEXT

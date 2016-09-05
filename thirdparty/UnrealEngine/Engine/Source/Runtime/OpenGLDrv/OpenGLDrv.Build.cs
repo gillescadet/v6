@@ -24,16 +24,16 @@ public class OpenGLDrv : ModuleRules
 		DynamicallyLoadedModuleNames.Add("ImageWrapper");
 
         if (Target.Platform != UnrealTargetPlatform.HTML5)
-		    AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenGL");
+		    AddThirdPartyPrivateStaticDependencies(Target, "OpenGL");
 
 		if (Target.Platform == UnrealTargetPlatform.HTML5 && Target.Architecture == "-win32")
 		{
-		    AddEngineThirdPartyPrivateStaticDependencies(Target, "ANGLE"); 
+		    AddThirdPartyPrivateStaticDependencies(Target, "ANGLE"); 
 		}
 
 		if (Target.Platform == UnrealTargetPlatform.Linux || Target.Platform == UnrealTargetPlatform.HTML5)
 		{
-			AddEngineThirdPartyPrivateStaticDependencies(Target, "SDL2");
+			AddThirdPartyPrivateStaticDependencies(Target, "SDL2");
 		}
 
 		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
@@ -44,14 +44,6 @@ public class OpenGLDrv : ModuleRules
 					"TaskGraph"
                 }
 			);
-		}
-
-		if(Target.Platform != UnrealTargetPlatform.Win32 && Target.Platform != UnrealTargetPlatform.Win64 && 
-			Target.Platform != UnrealTargetPlatform.Mac && Target.Platform != UnrealTargetPlatform.IOS && 
-			Target.Platform != UnrealTargetPlatform.Android && Target.Platform != UnrealTargetPlatform.HTML5 && 
-			Target.Platform != UnrealTargetPlatform.Linux)
-		{
-			PrecompileForTargets = PrecompileTargetsType.None;
 		}
 	}
 }

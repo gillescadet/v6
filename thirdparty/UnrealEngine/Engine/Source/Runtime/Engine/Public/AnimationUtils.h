@@ -4,7 +4,8 @@
 	AnimationUtils.h: Skeletal mesh animation utilities.
 =============================================================================*/ 
 
-#pragma once
+#ifndef __ANIMATIONUTILS_H__
+#define __ANIMATIONUTILS_H__
 
 #include "Animation/AnimSequence.h"
 
@@ -115,7 +116,7 @@ public:
 	*/
 	static void BuildComponentSpaceTransform(FTransform& OutTransform,
 												int32 BoneIndex,
-												const TArray<FTransform>& BoneSpaceTransforms,
+												const TArray<FTransform>& LocalAtoms,
 												const TArray<FBoneData>& BoneData);
 
 	static void BuildSkeletonMetaData(USkeleton* Skeleton, TArray<FBoneData>& OutBoneData);
@@ -134,27 +135,28 @@ public:
 
 	/**
 	 * Utility function to compress an animation. If the animation is currently associated with a codec, it will be used to 
-	 * compress the animation. Otherwise, the default codec will be used. The CompressContext can specify whether an
-	 * alternative compression codec can be used. If the alternative codec produces better compression and the accuracy
-	 * of the compressed animation remains within tolerances, the alternative codec will be used. 
+	 * compress the animation. Otherwise, the default codec will be used. If AllowAlternateCompressor is true, an
+	 * alternative compression codec will also be tested. If the alternative codec produces better compression and 
+	 * the accuracy of the compressed animation remains within tolerances, the alternative codec will be used. 
 	 * See GetAlternativeCompressionThreshold for information on the tolerance value used.
 	 *
-	 * @param	AnimSeq				The anim sequence to compress.
-	 * @param	CompressContext		Context for applying compression, tracking memory saved etc
-	 * @return						None.
+	 * @param	AnimSeq		The anim sequence to compress.
+	 * @param	AllowAlternateCompressor	true if an alternative compressor is permitted.
+	 * @param	bOutput		If false don't generate output or compute memory savings.
+	 * @return				None.
 	 */
-	ENGINE_API static void CompressAnimSequence(UAnimSequence* AnimSeq, FAnimCompressContext& CompressContext);
+	ENGINE_API static void CompressAnimSequence(UAnimSequence* AnimSeq, bool AllowAlternateCompressor = false, bool bOutput = false);
 
 	/**
-	 * Utility function to compress an animation. If the animation is currently associated with a codec, it will be used to
-	 * compress the animation. Otherwise, the default codec will be used. The CompressContext can specify whether an
-	 * alternative compression codec can be used. If the alternative codec produces better compression and the accuracy
-	 * of the compressed animation remains within tolerances, the alternative codec will be used.
+	 * Utility function to compress an animation. If the animation is currently associated with a codec, it will be used to 
+	 * compress the animation. Otherwise, the default codec will be used. If AllowAlternateCompressor is true, an
+	 * alternative compression codec will also be tested. If the alternative codec produces better compression and 
+	 * the accuracy of the compressed animation remains within tolerances, the alternative codec will be used. 
 	 * See GetAlternativeCompressionThreshold for information on the tolerance value used.
 	 *
-	 * @param	AnimSeq									The anim sequence to compress.
-	 * @param	CompressContext							Context for applying compression, tracking memory saved etc*
-	 * @param	MasterTolerance							The alternate error threshold (0.0 means don't try anything other than the current / default scheme)
+	 * @param	AnimSeq		The anim sequence to compress.
+	 * @param	MasterTolerance	The alternate error threshold (0.0 means don't try anything other than the current / default scheme)
+	 * @param	bOutput		If false don't generate output or compute memory savings.
 	 * @param	bFirstRecompressUsingCurrentOrDefault	If true, then the animation will be first recompressed with it's current compressor if non-NULL, or with the global default compressor (specified in the engine ini)
 	 * @param	bForceBelowThreshold					If true and the existing compression error is greater than MasterTolerance, then any compression technique (even one that increases the size) with a lower error will be used until it falls below the threshold
 	 * @param	bRaiseMaxErrorToExisting				If true and the existing compression error is greater than MasterTolerance, then MasterTolerance will be effectively raised to the existing error level
@@ -167,8 +169,8 @@ public:
 	 */
 	static void CompressAnimSequenceExplicit(
 		UAnimSequence* AnimSeq,
-		FAnimCompressContext& CompressContext,
 		float MasterTolerance,
+		bool bOutput,
 		bool bFirstRecompressUsingCurrentOrDefault,
 		bool bForceBelowThreshold,
 		bool bRaiseMaxErrorToExisting,
@@ -263,10 +265,13 @@ public:
 		const FQuat& RotationNudge,
 		const FVector& ScaleNudge,
 		TArray<FAnimPerturbationError>& InducedErrors);
-
+private:
 	/**
 	 * @return		The default animation compression algorithm singleton, instantiating it if necessary.
 	 */
-	ENGINE_API static UAnimCompress* GetDefaultAnimationCompressionAlgorithm();
+	static UAnimCompress* GetDefaultAnimationCompressionAlgorithm();
 
 };
+
+
+#endif // __ANIMATIONUTILS_H__

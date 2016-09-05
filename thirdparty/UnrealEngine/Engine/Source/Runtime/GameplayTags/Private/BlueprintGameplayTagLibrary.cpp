@@ -89,19 +89,14 @@ bool UBlueprintGameplayTagLibrary::NotEqual_TagContainerTagContainer(FGameplayTa
 {
 	FGameplayTagContainer TagContainer;
 
-	const FString OpenParenthesesStr(TEXT("("));
-	const FString CloseParenthesesStr(TEXT(")"));
-
 	// Convert string to Tag Container before compare
-	FString TagString = MoveTemp(B);
-	if (TagString.StartsWith(OpenParenthesesStr, ESearchCase::CaseSensitive) && TagString.EndsWith(CloseParenthesesStr, ESearchCase::CaseSensitive))
+	FString TagString = B;
+	if (TagString.StartsWith(TEXT("(")) && TagString.EndsWith(TEXT(")")))
 	{
 		TagString = TagString.LeftChop(1);
 		TagString = TagString.RightChop(1);
 
-		const FString EqualStr(TEXT("="));
-
-		TagString.Split(EqualStr, nullptr, &TagString, ESearchCase::CaseSensitive);
+		TagString.Split("=", NULL, &TagString);
 
 		TagString = TagString.LeftChop(1);
 		TagString = TagString.RightChop(1);
@@ -109,60 +104,42 @@ bool UBlueprintGameplayTagLibrary::NotEqual_TagContainerTagContainer(FGameplayTa
 		FString ReadTag;
 		FString Remainder;
 
-		const FString CommaStr(TEXT(","));
-		const FString QuoteStr(TEXT("\""));
-
-		while (TagString.Split(CommaStr, &ReadTag, &Remainder, ESearchCase::CaseSensitive))
+		while (TagString.Split(TEXT(","), &ReadTag, &Remainder))
 		{
-			ReadTag.Split(EqualStr, nullptr, &ReadTag, ESearchCase::CaseSensitive);
-			if (ReadTag.EndsWith(CloseParenthesesStr, ESearchCase::CaseSensitive))
+			ReadTag.Split("=", NULL, &ReadTag);
+			if (ReadTag.EndsWith(TEXT(")")))
 			{
 				ReadTag = ReadTag.LeftChop(1);
-				if (ReadTag.StartsWith(QuoteStr, ESearchCase::CaseSensitive) && ReadTag.EndsWith(QuoteStr, ESearchCase::CaseSensitive))
+				if (ReadTag.StartsWith(TEXT("\"")) && ReadTag.EndsWith(TEXT("\"")))
 				{
 					ReadTag = ReadTag.LeftChop(1);
 					ReadTag = ReadTag.RightChop(1);
 				}
 			}
 			TagString = Remainder;
-
-			const FGameplayTag Tag = IGameplayTagsModule::Get().GetGameplayTagsManager().RequestGameplayTag(FName(*ReadTag));
+			FGameplayTag Tag = IGameplayTagsModule::Get().GetGameplayTagsManager().RequestGameplayTag(FName(*ReadTag));
 			TagContainer.AddTag(Tag);
 		}
 		if (Remainder.IsEmpty())
 		{
-			Remainder = MoveTemp(TagString);
+			Remainder = TagString;
 		}
 		if (!Remainder.IsEmpty())
 		{
-			Remainder.Split(EqualStr, nullptr, &Remainder, ESearchCase::CaseSensitive);
-			if (Remainder.EndsWith(CloseParenthesesStr, ESearchCase::CaseSensitive))
+			Remainder.Split("=", NULL, &Remainder);
+			if (Remainder.EndsWith(TEXT(")")))
 			{
 				Remainder = Remainder.LeftChop(1);
-				if (Remainder.StartsWith(QuoteStr, ESearchCase::CaseSensitive) && Remainder.EndsWith(QuoteStr, ESearchCase::CaseSensitive))
+				if (Remainder.StartsWith(TEXT("\"")) && Remainder.EndsWith(TEXT("\"")))
 				{
 					Remainder = Remainder.LeftChop(1);
 					Remainder = Remainder.RightChop(1);
 				}
 			}
-			const FGameplayTag Tag = IGameplayTagsModule::Get().GetGameplayTagsManager().RequestGameplayTag(FName(*Remainder));
+			FGameplayTag Tag = IGameplayTagsModule::Get().GetGameplayTagsManager().RequestGameplayTag(FName(*Remainder));
 			TagContainer.AddTag(Tag);
 		}
 	}
 
 	return A != TagContainer;
-}
-FString UBlueprintGameplayTagLibrary::GetDebugStringFromGameplayTagContainer(const FGameplayTagContainer& TagContainer)
-{
-	return TagContainer.ToStringSimple();
-}
-
-FString UBlueprintGameplayTagLibrary::GetDebugStringFromGameplayTag(const FGameplayTag& GameplayTag)
-{
-	return GameplayTag.ToString();
-}
-
-bool UBlueprintGameplayTagLibrary::IsGameplayTagValid(const FGameplayTag& TagContainer)
-{
-	return TagContainer.IsValid();
 }

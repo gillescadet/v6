@@ -89,45 +89,12 @@ bool ShouldDebugCompositionGraph()
 #endif
 }
 
-void Test()
-{
-	struct ObjectSize4
-	{
-		void SetBaseValues(){}
-		static FName GetFName()
-		{
- 			static const FName Name(TEXT("ObjectSize4"));
- 			return Name;
-		}
-		uint8 Data[4];
-	};
- 
-	MS_ALIGN(16) struct ObjectAligned16
-	{
-		void SetBaseValues(){}
-		static FName GetFName()
-		{
- 			static const FName Name(TEXT("ObjectAligned16"));
- 			return Name;
-		}
-		uint8 Data[16];
-	} GCC_ALIGN(16);
-
-	// https://udn.unrealengine.com/questions/274066/fblendablemanager-returning-wrong-or-misaligned-da.html
-	FBlendableManager Manager;
-	Manager.GetSingleFinalData<ObjectSize4>();
-	ObjectAligned16& AlignedData = Manager.GetSingleFinalData<ObjectAligned16>();
-
-	check((reinterpret_cast<ptrdiff_t>(&AlignedData) & 16) == 0);
-}
-
 void ExecuteCompositionGraphDebug()
 {
 	ENQUEUE_UNIQUE_RENDER_COMMAND(
 		StartDebugCompositionGraph,
 	{
 		GDebugCompositionGraphFrames = 1;
-		Test();
 	}
 	);
 }
@@ -148,7 +115,7 @@ void CompositionGraph_OnStartFrame()
 #endif
 }
 
-FRenderingCompositePassContext::FRenderingCompositePassContext(FRHICommandListImmediate& InRHICmdList, const FViewInfo& InView)
+FRenderingCompositePassContext::FRenderingCompositePassContext(FRHICommandListImmediate& InRHICmdList, FViewInfo& InView/*, const FSceneRenderTargetItem& InRenderTargetItem*/)
 	: View(InView)
 	, ViewState((FSceneViewState*)InView.State)
 	, Pass(0)
@@ -781,42 +748,23 @@ void FPostProcessPassParameters::Bind(const FShaderParameterMap& ParameterMap)
 
 void FPostProcessPassParameters::SetPS(const FPixelShaderRHIParamRef& ShaderRHI, const FRenderingCompositePassContext& Context, FSamplerStateRHIParamRef Filter, EFallbackColor FallbackColor, FSamplerStateRHIParamRef* FilterOverrideArray)
 {
-	Set(ShaderRHI, Context, Context.RHICmdList, Filter, FallbackColor, FilterOverrideArray);
+	Set(ShaderRHI, Context, Filter, FallbackColor, FilterOverrideArray);
 }
 
-template< typename TRHICmdList >
-void FPostProcessPassParameters::SetCS(const FComputeShaderRHIParamRef& ShaderRHI, const FRenderingCompositePassContext& Context, TRHICmdList& RHICmdList, FSamplerStateRHIParamRef Filter, EFallbackColor FallbackColor, FSamplerStateRHIParamRef* FilterOverrideArray)
+void FPostProcessPassParameters::SetCS(const FComputeShaderRHIParamRef& ShaderRHI, const FRenderingCompositePassContext& Context, FSamplerStateRHIParamRef Filter, EFallbackColor FallbackColor, FSamplerStateRHIParamRef* FilterOverrideArray)
 {
-	Set(ShaderRHI, Context, RHICmdList, Filter, FallbackColor, FilterOverrideArray);
+	Set(ShaderRHI, Context, Filter, FallbackColor, FilterOverrideArray);
 }
-template void FPostProcessPassParameters::SetCS< FRHICommandListImmediate >(
-	const FComputeShaderRHIParamRef& ShaderRHI,
-	const FRenderingCompositePassContext& Context,
-	FRHICommandListImmediate& RHICmdList,
-	FSamplerStateRHIParamRef Filter,
-	EFallbackColor FallbackColor,
-	FSamplerStateRHIParamRef* FilterOverrideArray
-	);
-
-template void FPostProcessPassParameters::SetCS< FRHIAsyncComputeCommandListImmediate >(
-	const FComputeShaderRHIParamRef& ShaderRHI,
-	const FRenderingCompositePassContext& Context,
-	FRHIAsyncComputeCommandListImmediate& RHICmdList,
-	FSamplerStateRHIParamRef Filter,
-	EFallbackColor FallbackColor,
-	FSamplerStateRHIParamRef* FilterOverrideArray
-	);
 
 void FPostProcessPassParameters::SetVS(const FVertexShaderRHIParamRef& ShaderRHI, const FRenderingCompositePassContext& Context, FSamplerStateRHIParamRef Filter, EFallbackColor FallbackColor, FSamplerStateRHIParamRef* FilterOverrideArray)
 {
-	Set(ShaderRHI, Context, Context.RHICmdList, Filter, FallbackColor, FilterOverrideArray);
+	Set(ShaderRHI, Context, Filter, FallbackColor, FilterOverrideArray);
 }
 
-template< typename ShaderRHIParamRef, typename TRHICmdList >
+template< typename ShaderRHIParamRef >
 void FPostProcessPassParameters::Set(
 	const ShaderRHIParamRef& ShaderRHI,
 	const FRenderingCompositePassContext& Context,
-	TRHICmdList& RHICmdList,
 	FSamplerStateRHIParamRef Filter,
 	EFallbackColor FallbackColor,
 	FSamplerStateRHIParamRef* FilterOverrideArray)
@@ -831,6 +779,8 @@ void FPostProcessPassParameters::Set(
 	check(FilterOverrideArray || Filter);
 	// but not both
 	check(!FilterOverrideArray || !Filter);
+
+	FRHICommandListImmediate& RHICmdList = Context.RHICmdList;
 
 	if(BilinearTextureSampler0.IsBound())
 	{
@@ -960,23 +910,21 @@ void FPostProcessPassParameters::Set(
 	// todo warning if Input[] or InputSize[] is bound but not available, maybe set a specific input texture (blinking?)
 }
 
-#define IMPLEMENT_POST_PROCESS_PARAM_SET( ShaderRHIParamRef, TRHICmdList ) \
+#define IMPLEMENT_POST_PROCESS_PARAM_SET( ShaderRHIParamRef ) \
 	template void FPostProcessPassParameters::Set< ShaderRHIParamRef >( \
 		const ShaderRHIParamRef& ShaderRHI,				\
 		const FRenderingCompositePassContext& Context,	\
-		TRHICmdList& RHICmdList,						\
 		FSamplerStateRHIParamRef Filter,				\
 		EFallbackColor FallbackColor,					\
 		FSamplerStateRHIParamRef* FilterOverrideArray	\
 	);
 
-IMPLEMENT_POST_PROCESS_PARAM_SET( FVertexShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FHullShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FDomainShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FGeometryShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FPixelShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FComputeShaderRHIParamRef, FRHICommandListImmediate );
-IMPLEMENT_POST_PROCESS_PARAM_SET( FComputeShaderRHIParamRef, FRHIAsyncComputeCommandListImmediate );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FVertexShaderRHIParamRef );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FHullShaderRHIParamRef );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FDomainShaderRHIParamRef );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FGeometryShaderRHIParamRef );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FPixelShaderRHIParamRef );
+IMPLEMENT_POST_PROCESS_PARAM_SET( FComputeShaderRHIParamRef );
 
 FArchive& operator<<(FArchive& Ar, FPostProcessPassParameters& P)
 {

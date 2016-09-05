@@ -158,6 +158,7 @@ public:
 	//~ End UObject Interface
 
 #if WITH_EDITOR
+	virtual const FSlateBrush* GetEditorIcon() override;
 	virtual const FText GetPaletteCategory() override;
 #endif
 	//~ End UWidget Interface
@@ -174,19 +175,19 @@ protected:
 
 protected:
 	/** Whether the optional MinValue attribute of the widget is set */
-	UPROPERTY(EditAnywhere, Category = Content, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_MinValue : 1;
 
 	/** Whether the optional MaxValue attribute of the widget is set */
-	UPROPERTY(EditAnywhere, Category = Content, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_MaxValue : 1;
 
 	/** Whether the optional MinSliderValue attribute of the widget is set */
-	UPROPERTY(EditAnywhere, Category = Content, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_MinSliderValue : 1;
 
 	/** Whether the optional MaxSliderValue attribute of the widget is set */
-	UPROPERTY(EditAnywhere, Category = Content, meta=(InlineEditConditionToggle))
+	UPROPERTY()
 	uint32 bOverride_MaxSliderValue : 1;
 
 	/** The minimum allowable value that can be manually entered into the spin box */

@@ -40,7 +40,7 @@ struct FAnimLinkableElement
 
 	FAnimLinkableElement()
 	: LinkedMontage(nullptr)
-	, SlotIndex(0)
+	, SlotIndex(INDEX_NONE)
 	, SegmentIndex(INDEX_NONE)
 	, LinkMethod(EAnimLinkMethod::Absolute)
 	, CachedLinkMethod(LinkMethod)

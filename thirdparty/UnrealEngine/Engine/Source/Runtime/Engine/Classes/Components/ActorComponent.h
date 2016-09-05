@@ -8,7 +8,6 @@
 #include "ActorComponent.generated.h"
 
 struct FReplicationFlags;
-class UWorld;
 
 UENUM()
 enum class EComponentCreationMethod : uint8
@@ -24,44 +23,16 @@ enum class EComponentCreationMethod : uint8
 };
 
 
-/** Information about how to update transform*/
-enum class EUpdateTransformFlags : int32
+/** Whether to teleport physics body or not */
+enum class ETeleportType
 {
-	None = 0x0,
-	SkipPhysicsUpdate = 0x1,	//Don't update the underlying physics
-	PropagateFromParent = 0x2	//The update is coming as a result of the parent updating (i.e. not called directly)
-
+	/** Do not teleport physics body. This means velocity will reflect the movement between initial and final position, and collisions along the way will occur */
+	None,
+	/** Teleport physics body so that velocity remains the same and no collision occurs */
+	TeleportPhysics
 };
 
-CONSTEXPR inline EUpdateTransformFlags operator|(EUpdateTransformFlags Left, EUpdateTransformFlags Right)
-{
-	return static_cast<EUpdateTransformFlags> ( static_cast<int32> (Left) | static_cast<int32> (Right) );
-}
-
-CONSTEXPR inline EUpdateTransformFlags operator&(EUpdateTransformFlags Left, EUpdateTransformFlags Right)
-{
-	return static_cast<EUpdateTransformFlags> (static_cast<int32> (Left) & static_cast<int32> (Right));
-}
-
-CONSTEXPR inline bool operator !(EUpdateTransformFlags Value)
-{
-	return Value == EUpdateTransformFlags::None;
-}
-
-CONSTEXPR inline EUpdateTransformFlags operator ~(EUpdateTransformFlags Value)
-{
-	return static_cast<EUpdateTransformFlags>(~static_cast<int32>(Value));
-}
-
-
-FORCEINLINE EUpdateTransformFlags SkipPhysicsToEnum(bool bSkipPhysics){ return bSkipPhysics ? EUpdateTransformFlags::SkipPhysicsUpdate : EUpdateTransformFlags::None; }
-
-
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FActorComponentActivatedSignature, bool, bReset);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FActorComponentDeactivateSignature);
-
-DECLARE_MULTICAST_DELEGATE_OneParam(FActorComponentCreatePhysicsSignature, UActorComponent*);
-DECLARE_MULTICAST_DELEGATE_OneParam(FActorComponentDestroyPhysicsSignature, UActorComponent*);
+FORCEINLINE ETeleportType TeleportFlagToEnum(bool bTeleport) { return bTeleport ? ETeleportType::TeleportPhysics : ETeleportType::None; }
 
 /**
  * ActorComponent is the base class for components that define reusable behavior that can be added to different types of Actors.
@@ -76,11 +47,6 @@ class ENGINE_API UActorComponent : public UObject, public IInterface_AssetUserDa
 {
 	GENERATED_BODY()
 public:
-
-	/** Create component physics state global delegate.*/
-	static FActorComponentCreatePhysicsSignature CreatePhysicsDelegate;
-	/** Destroy component physics state global delegate.*/
-	static FActorComponentDestroyPhysicsSignature DestroyPhysicsDelegate;
 
 	/**
 	 * Default UObject constructor that takes an optional ObjectInitializer.
@@ -141,10 +107,6 @@ public:
 	/** Does this component automatically register with its owner */
 	uint32 bAutoRegister:1;
 
-protected:
-	uint32 bAllowReregistration:1;
-
-public:
 	/** Should this component be ticked in the editor */
 	uint32 bTickInEditor:1;
 
@@ -224,7 +186,7 @@ public:
 	EComponentCreationMethod CreationMethod;
 
 private:
-	mutable AActor* OwnerPrivate;
+	mutable AActor* Owner;
 
 	UPROPERTY()
 	TArray<FSimpleMemberReference> UCSModifiedProperties;
@@ -235,7 +197,6 @@ public:
 
 	void DetermineUCSModifiedProperties();
 	void GetUCSModifiedProperties(TSet<const UProperty*>& ModifiedProperties) const;
-	void RemoveUCSModifiedProperties(const TArray<UProperty*>& Properties);
 
 	bool IsEditableWhenInherited() const;
 
@@ -261,19 +222,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Components", meta=(Keywords = "Actor Owning Parent"))
 	class AActor* GetOwner() const;
 
-	virtual UWorld* GetWorld() const override final { return (WorldPrivate ? WorldPrivate : GetWorld_Uncached()); }
+	virtual class UWorld* GetWorld() const override;
 
 	/** See if this component contains the supplied tag */
 	UFUNCTION(BlueprintCallable, Category="Components")
 	bool ComponentHasTag(FName Tag) const;
 
 	//~ Begin Trigger/Activation Interface
-
-	UPROPERTY(BlueprintAssignable, Category = "Components|Activation")
-	FActorComponentActivatedSignature OnComponentActivated;
-
-	UPROPERTY(BlueprintAssignable, Category = "Components|Activation")
-	FActorComponentDeactivateSignature OnComponentDeactivated;
 
 	/**
 	 * Activates the SceneComponent
@@ -312,12 +267,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Utilities")
 	void SetTickableWhenPaused(bool bTickableWhenPaused);
 
-	/** Create any physics engine information for this component */
-	void CreatePhysicsState();
-
-	/** Shut down any physics engine structure for this component */
-	void DestroyPhysicsState();
-
 	// Networking
 
 	/** This signifies the component can be ID'd by name over the network. This only needs to be called by engine code when constructing blueprint components. */
@@ -329,7 +278,7 @@ public:
 	/** IsSupportedForNetworking means an object can be referenced over the network */
 	virtual bool IsSupportedForNetworking() const override;
 
-	/** Enable or disable replication. This is the equivalent of RemoteRole for actors (only a bool is required for components) */
+	/** Enable or disable replication. This is the equivelent of RemoteRole for actors (only a bool is required for components) */
 	UFUNCTION(BlueprintCallable, Category="Components")
 	void SetIsReplicated(bool ShouldReplicate);
 
@@ -350,50 +299,30 @@ public:
 	/** Returns whether this component is an editor-only object or not */
 	virtual bool IsEditorOnly() const { return false; }
 
-	/** Returns net role of the owning actor */
+	/** Returns neat role of the owning actor */
 	/** Returns true if we are replicating and not authorative */
 	bool	IsNetSimulating() const;
 
-	/** Get the network role of the Owner, or ROLE_None if there is no owner. */
 	ENetRole GetOwnerRole() const;
 
-	/**
-	 * Get the network mode (dedicated server, client, standalone, etc) for this component.
-	 * @see IsNetMode()
-	 */
 	ENetMode GetNetMode() const;
 
-	/**
-	* Test whether net mode is the given mode.
-	* In optimized non-editor builds this can be more efficient than GetNetMode()
-	* because it can check the static build flags without considering PIE.
-	*/
-	bool IsNetMode(ENetMode Mode) const;
-
-private:
+protected:
 
 	/** 
 	 * Pointer to the world that this component is currently registered with. 
 	 * This is only non-NULL when the component is registered.
 	 */
-	UWorld* WorldPrivate;
-
-	// If WorldPrivate isn't set this will determine the world from outers
-	UWorld* GetWorld_Uncached() const;
-
-	/** Private version without inlining that does *not* check Dedicated server build flags (which should already have been done). */
-	ENetMode InternalGetNetMode() const;
-
-protected:
+	UWorld* World;
 
 	/** "Trigger" related function. Return true if it should activate **/
 	virtual bool ShouldActivate() const;
 
 private:
-	/** Calls OnUnregister, DestroyRenderState_Concurrent and OnDestroyPhysicsState. */
+	/** Calls OnUnregister, DestroyRenderState_Concurrent and DestroyPhysicsState. */
 	void ExecuteUnregisterEvents();
 
-	/** Calls OnRegister, CreateRenderState_Concurrent and OnCreatePhysicsState. */
+	/** Calls OnRegister, CreateRenderState_Concurrent and CreatePhysicsState. */
 	void ExecuteRegisterEvents();
 
 	/* Utility function for each of the PostEditChange variations to call for the same behavior */
@@ -404,12 +333,12 @@ protected:
 	friend class FComponentRecreateRenderStateContext;
 
 	/**
-	 * Called when a component is registered, after Scene is set, but before CreateRenderState_Concurrent or OnCreatePhysicsState are called.
+	 * Called when a component is registered, after Scene is set, but before CreateRenderState_Concurrent or CreatePhysicsState are called.
 	 */
 	virtual void OnRegister();
 
 	/**
-	 * Called when a component is unregistered. Called after DestroyRenderState_Concurrent and OnDestroyPhysicsState are called.
+	 * Called when a component is unregistered. Called after DestroyRenderState_Concurrent and DestroyPhysicsState are called.
 	 */
 	virtual void OnUnregister();
 
@@ -441,10 +370,9 @@ protected:
 	virtual void DestroyRenderState_Concurrent();
 
 	/** Used to create any physics engine information for this component */
-	virtual void OnCreatePhysicsState();
-
+	virtual void CreatePhysicsState();
 	/** Used to shut down and physics engine structure for this component */
-	virtual void OnDestroyPhysicsState();
+	virtual void DestroyPhysicsState();
 
 	/** Return true if CreatePhysicsState() should be called.
 	    Ideally CreatePhysicsState() should always succeed if this returns true, but this isn't currently the case */
@@ -522,7 +450,6 @@ public:
 	 * @return  true if this component met the criteria for actually being ticked.
 	 */
 	bool SetupActorComponentTickFunction(struct FTickFunction* TickFunction);
-
 	/** 
 	 * Set this component's tick functions to be enabled or disabled. Only has an effect if the function is registered
 	 * 
@@ -541,19 +468,6 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category="Utilities")
 	bool IsComponentTickEnabled() const;
-
-	/** 
-	* Sets the tick interval for this component's primary tick function. Does not enable the tick interval. Takes effect on next tick.
-	* @param TickInterval	The duration between ticks for this component's primary tick function
-	*/
-	UFUNCTION(BlueprintCallable, Category="Utilities")
-	void SetComponentTickInterval(float TickInterval);
-
-	/** 
-	* Returns whether this component has tick enabled or not
-	*/
-	UFUNCTION(BlueprintCallable, Category="Utilities")
-	float GetComponentTickInterval() const;
 
 	/**
 	 * @param InWorld - The world to register the component with.
@@ -604,7 +518,7 @@ public:
 	void DoDeferredRenderUpdates_Concurrent();
 
 	/** Recalculate the value of our component to world transform */
-	virtual void UpdateComponentToWorld(EUpdateTransformFlags UpdateTransformFlags = EUpdateTransformFlags::None, ETeleportType Teleport = ETeleportType::None){}
+	virtual void UpdateComponentToWorld(bool bSkipPhysicsMove = false, ETeleportType Teleport = ETeleportType::None){}
 
 	/** Mark the render state as dirty - will be sent to the render thread at the end of the frame. */
 	void MarkRenderStateDirty();
@@ -715,11 +629,10 @@ public:
 	bool IsOwnerRunningUserConstructionScript() const;
 
 	/** See if this component is currently registered */
-	FORCEINLINE bool IsRegistered() const { return bRegistered; }
-
-	/** Checked whether the component class allows reregistration */
-	FORCEINLINE bool AllowReregistration() const { return bAllowReregistration; }
-
+	FORCEINLINE bool IsRegistered() const
+	{
+		return bRegistered;
+	}
 	/** Register this component, creating any rendering/physics state. Will also adds to outer Actor's Components array, if not already present. */
 	void RegisterComponent();
 
@@ -815,54 +728,20 @@ FORCEINLINE_DEBUGGABLE class AActor* UActorComponent::GetOwner() const
 	// During undo/redo the cached owner is unreliable so just used GetTypedOuter
 	if (bCanUseCachedOwner)
 	{
-		checkSlow(OwnerPrivate == GetTypedOuter<AActor>()); // verify cached value is correct
-		return OwnerPrivate;
+		checkSlow(Owner == GetTypedOuter<AActor>()); // verify cached value is correct
+		return Owner;
 	}
 	else
 	{
 		return GetTypedOuter<AActor>();
 	}
 #else
-	checkSlow(OwnerPrivate == GetTypedOuter<AActor>()); // verify cached value is correct
-	return OwnerPrivate;
+	checkSlow(Owner == GetTypedOuter<AActor>()); // verify cached value is correct
+	return Owner;
 #endif
 }
 
 FORCEINLINE bool UActorComponent::CanEverAffectNavigation() const
 {
 	return bCanEverAffectNavigation;
-}
-
-FORCEINLINE_DEBUGGABLE bool UActorComponent::IsNetSimulating() const
-{
-	return GetIsReplicated() && GetOwnerRole() != ROLE_Authority;
-}
-
-FORCEINLINE_DEBUGGABLE ENetMode UActorComponent::GetNetMode() const
-{
-	// IsRunningDedicatedServer() is a compile-time check in optimized non-editor builds.
-	if (IsRunningDedicatedServer())
-	{
-		return NM_DedicatedServer;
-	}
-
-	return InternalGetNetMode();
-}
-
-FORCEINLINE_DEBUGGABLE bool UActorComponent::IsNetMode(ENetMode Mode) const
-{
-#if UE_EDITOR
-	// Editor builds are special because of PIE, which can run a dedicated server without the app running with -server.
-	return GetNetMode() == Mode;
-#else
-	// IsRunningDedicatedServer() is a compile-time check in optimized non-editor builds.
-	if (Mode == NM_DedicatedServer)
-	{
-		return IsRunningDedicatedServer();
-	}
-	else
-	{
-		return !IsRunningDedicatedServer() && (InternalGetNetMode() == Mode);
-	}
-#endif // UE_EDITOR
 }

@@ -6,6 +6,9 @@
 #include "DataTableJSON.h"
 #include "EditorFramework/AssetImportData.h"
 
+ENGINE_API const FString FDataTableRowHandle::Unknown(TEXT("UNKNOWN"));
+ENGINE_API const FString FDataTableCategoryHandle::Unknown(TEXT("UNKNOWN"));
+
 #if WITH_EDITORONLY_DATA
 namespace
 {
@@ -32,7 +35,13 @@ UDataTable::UDataTable(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 #if WITH_EDITORONLY_DATA
-	{ static const FAutoRegisterLocalizationDataGatheringCallback AutomaticRegistrationOfLocalizationGatherer(UDataTable::StaticClass(), &GatherDataTableForLocalization); }
+	static struct FAutomaticRegistrationOfLocalizationGatherer
+	{
+		FAutomaticRegistrationOfLocalizationGatherer()
+		{
+			FPropertyLocalizationDataGatherer::GetTypeSpecificLocalizationDataGatheringCallbacks().Add(UDataTable::StaticClass(), &GatherDataTableForLocalization);
+		}
+	} AutomaticRegistrationOfLocalizationGatherer;
 #endif
 }
 
@@ -99,25 +108,6 @@ void UDataTable::SaveStructData(FArchive& Ar)
 	}
 }
 
-void UDataTable::OnPostDataImported(TArray<FString>& OutCollectedImportProblems)
-{
-	if (RowStruct && RowStruct->IsChildOf(FTableRowBase::StaticStruct()))
-	{
-		static const FString ContextString(TEXT("UDataTable::OnPostDataImport"));
-		
-		TArray<FTableRowBase*> TableRowBaseRows;
-		GetAllRows(ContextString, TableRowBaseRows);
-
-		for (FTableRowBase* CurRow : TableRowBaseRows)
-		{
-			if (CurRow)
-			{
-				CurRow->OnPostDataImport(OutCollectedImportProblems);
-			}
-		}
-	}
-}
-
 void UDataTable::Serialize( FArchive& Ar )
 {
 #if WITH_EDITORONLY_DATA
@@ -176,19 +166,6 @@ void UDataTable::AddReferencedObjects(UObject* InThis, FReferenceCollector& Coll
 #endif //WITH_EDITOR
 
 	Super::AddReferencedObjects( This, Collector );
-}
-
-SIZE_T UDataTable::GetResourceSize(EResourceSizeMode::Type Mode)
-{
-	SIZE_T ResourceSize = Super::GetResourceSize(Mode);
-
-	ResourceSize += RowMap.GetAllocatedSize();
-	if (RowStruct)
-	{
-		ResourceSize += RowMap.Num() * RowStruct->PropertiesSize;
-	}
-	
-	return ResourceSize;
 }
 
 void UDataTable::FinishDestroy()
@@ -343,7 +320,7 @@ void UDataTable::RestoreAfterStructChange()
 	RowsSerializedWithTags.Empty();
 }
 
-FString UDataTable::GetTableAsString(const EDataTableExportFlags InDTExportFlags) const
+FString UDataTable::GetTableAsString() const
 {
 	FString Result;
 
@@ -379,7 +356,7 @@ FString UDataTable::GetTableAsString(const EDataTableExportFlags InDTExportFlags
 			for(int32 PropIdx=0; PropIdx<StructProps.Num(); PropIdx++)
 			{
 				Result += TEXT(",");
-				Result += DataTableUtils::GetPropertyValueAsString(StructProps[PropIdx], RowData, InDTExportFlags);
+				Result += DataTableUtils::GetPropertyValueAsString(StructProps[PropIdx], RowData);
 			}
 			Result += TEXT("\n");			
 		}
@@ -391,34 +368,34 @@ FString UDataTable::GetTableAsString(const EDataTableExportFlags InDTExportFlags
 	return Result;
 }
 
-FString UDataTable::GetTableAsCSV(const EDataTableExportFlags InDTExportFlags) const
+FString UDataTable::GetTableAsCSV() const
 {
 	FString Result;
-	if (!FDataTableExporterCSV(InDTExportFlags, Result).WriteTable(*this))
+	if (!FDataTableExporterCSV(*this, Result).WriteTable())
 	{
 		Result = TEXT("Missing RowStruct!\n");
 	}
 	return Result;
 }
 
-FString UDataTable::GetTableAsJSON(const EDataTableExportFlags InDTExportFlags) const
+FString UDataTable::GetTableAsJSON() const
 {
 	FString Result;
-	if (!FDataTableExporterJSON(InDTExportFlags, Result).WriteTable(*this))
+	if (!FDataTableExporterJSON(*this, Result).WriteTable())
 	{
 		Result = TEXT("Missing RowStruct!\n");
 	}
 	return Result;
 }
 
-bool UDataTable::WriteRowAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const void* RowData, const EDataTableExportFlags InDTExportFlags) const
+bool UDataTable::WriteRowAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const void* RowData) const
 {
-	return FDataTableExporterJSON(InDTExportFlags, JsonWriter).WriteRow(RowStruct, RowData);
+	return FDataTableExporterJSON(*this, JsonWriter).WriteRow(RowData);
 }
 
-bool UDataTable::WriteTableAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter, const EDataTableExportFlags InDTExportFlags) const
+bool UDataTable::WriteTableAsJSON(const TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > >& JsonWriter) const
 {
-	return FDataTableExporterJSON(InDTExportFlags, JsonWriter).WriteTable(*this);
+	return FDataTableExporterJSON(*this, JsonWriter).WriteTable();
 }
 
 /** Get array of UProperties that corresponds to columns in the table */
@@ -451,7 +428,8 @@ TArray<UProperty*> UDataTable::GetTablePropertyArray(const TArray<const TCHAR*>&
 
 				for (TFieldIterator<UProperty> It(InRowStruct); It && !ColumnProp; ++It)
 				{
-					ColumnProp = DataTableUtils::GetPropertyImportNames(*It).Contains(ColumnValue) ? *It : NULL;
+					const auto DisplayName = DataTableUtils::GetPropertyDisplayName(*It, FString());
+					ColumnProp = (!DisplayName.IsEmpty() && DisplayName == ColumnValue) ? *It : NULL;
 				}
 
 				// Didn't find a property with this name, problem..
@@ -486,20 +464,9 @@ TArray<UProperty*> UDataTable::GetTablePropertyArray(const TArray<const TCHAR*>&
 	}
 
 	// Generate warning for any properties in struct we are not filling in
-	for (int32 PropIdx=0; PropIdx < ExpectedPropNames.Num(); PropIdx++)
+	for(int32 PropIdx=0; PropIdx < ExpectedPropNames.Num(); PropIdx++)
 	{
 		const UProperty* const ColumnProp = FindField<UProperty>(InRowStruct, ExpectedPropNames[PropIdx]);
-
-#if WITH_EDITOR
-		// If the structure has specified the property as optional for import (gameplay code likely doing a custom fix-up or parse of that property),
-		// then avoid warning about it
-		static const FName DataTableImportOptionalMetadataKey(TEXT("DataTableImportOptional"));
-		if (ColumnProp->HasMetaData(DataTableImportOptionalMetadataKey))
-		{
-			continue;
-		}
-#endif // WITH_EDITOR
-
 		const FString DisplayName = DataTableUtils::GetPropertyDisplayName(ColumnProp, ExpectedPropNames[PropIdx].ToString());
 		OutProblems.Add(FString::Printf(TEXT("Expected column '%s' not found in input."), *DisplayName));
 	}
@@ -513,7 +480,6 @@ TArray<FString> UDataTable::CreateTableFromCSVString(const FString& InString)
 	TArray<FString> OutProblems;
 
 	FDataTableImporterCSV(*this, InString, OutProblems).ReadTable();
-	OnPostDataImported(OutProblems);
 
 	return OutProblems;
 }
@@ -524,7 +490,6 @@ TArray<FString> UDataTable::CreateTableFromJSONString(const FString& InString)
 	TArray<FString> OutProblems;
 
 	FDataTableImporterJSON(*this, InString, OutProblems).ReadTable();
-	OnPostDataImported(OutProblems);
 
 	return OutProblems;
 }
@@ -557,7 +522,7 @@ TArray<FString> UDataTable::GetUniqueColumnTitles() const
 	return Result;
 }
 
-TArray< TArray<FString> > UDataTable::GetTableData(const EDataTableExportFlags InDTExportFlags) const
+TArray< TArray<FString> > UDataTable::GetTableData() const
 {
 	 TArray< TArray<FString> > Result;
 
@@ -582,7 +547,7 @@ TArray< TArray<FString> > UDataTable::GetTableData(const EDataTableExportFlags I
 		 uint8* RowData = RowIt.Value();
 		 for(int32 PropIdx=0; PropIdx<StructProps.Num(); PropIdx++)
 		 {
-			 RowResult.Add(DataTableUtils::GetPropertyValueAsString(StructProps[PropIdx], RowData, InDTExportFlags));
+			 RowResult.Add(DataTableUtils::GetPropertyValueAsString(StructProps[PropIdx], RowData));
 		 }
 		 Result.Add(RowResult);
 	 }
@@ -597,24 +562,4 @@ TArray<FName> UDataTable::GetRowNames() const
 	TArray<FName> Keys;
 	RowMap.GetKeys(Keys);
 	return Keys;
-}
-
-bool FDataTableRowHandle::operator==(FDataTableRowHandle const& Other) const
-{
-	return DataTable == Other.DataTable && RowName == Other.RowName;
-}
-
-bool FDataTableRowHandle::operator != (FDataTableRowHandle const& Other) const
-{
-	return DataTable != Other.DataTable || RowName != Other.RowName;
-}
-
-bool FDataTableCategoryHandle::operator==(FDataTableCategoryHandle const& Other) const
-{
-	return DataTable == Other.DataTable && ColumnName == Other.ColumnName && RowContents == Other.RowContents;
-}
-
-bool FDataTableCategoryHandle::operator != (FDataTableCategoryHandle const& Other) const
-{
-	return DataTable != Other.DataTable || ColumnName != Other.ColumnName || RowContents != Other.RowContents;
 }

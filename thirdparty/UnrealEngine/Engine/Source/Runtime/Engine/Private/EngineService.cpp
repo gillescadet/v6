@@ -5,7 +5,6 @@
 #include "EngineServiceMessages.h"
 #include "MessageEndpoint.h"
 #include "MessageEndpointBuilder.h"
-#include "NetworkVersion.h"
 
 
 DEFINE_LOG_CATEGORY_STATIC(LogEngineService, Log, All)
@@ -53,7 +52,7 @@ void FEngineService::SendPong( const IMessageContextRef& Context )
 	{
 		FEngineServicePong* Message = new FEngineServicePong();
 
-		Message->EngineVersion = FNetworkVersion::GetNetworkCompatibleChangelist();
+		Message->EngineVersion = GEngineNetVersion;
 		Message->InstanceId = FApp::GetInstanceId();
 		Message->SessionId = FApp::GetSessionId();
 
@@ -83,28 +82,26 @@ void FEngineService::SendPong( const IMessageContextRef& Context )
 		}
 
 		FWorldContext const* ContextToUse = nullptr;
-		if (GEngine)
-		{
-			// TODO: Should we be iterating here and sending a message for each context?
 
-			// We're going to look through the WorldContexts and pull any Game context we find
-			// If there isn't a Game context, we'll take the first PIE we find
-			// and if none of those we'll use an Editor
-			for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+		// TODO: Should we be iterating here and sending a message for each context?
+
+		// We're going to look through the WorldContexts and pull any Game context we find
+		// If there isn't a Game context, we'll take the first PIE we find
+		// and if none of those we'll use an Editor
+		for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+		{
+			if (WorldContext.WorldType == EWorldType::Game)
 			{
-				if (WorldContext.WorldType == EWorldType::Game)
-				{
-					ContextToUse = &WorldContext;
-					break;
-				}
-				else if (WorldContext.WorldType == EWorldType::PIE && (ContextToUse == nullptr || ContextToUse->WorldType != EWorldType::PIE))
-				{
-					ContextToUse = &WorldContext;
-				}
-				else if (WorldContext.WorldType == EWorldType::Editor && ContextToUse == nullptr)
-				{	
-					ContextToUse = &WorldContext;
-				}
+				ContextToUse = &WorldContext;
+				break;
+			}
+			else if (WorldContext.WorldType == EWorldType::PIE && (ContextToUse == nullptr || ContextToUse->WorldType != EWorldType::PIE))
+			{
+				ContextToUse = &WorldContext;
+			}
+			else if (WorldContext.WorldType == EWorldType::Editor && ContextToUse == nullptr)
+			{	
+				ContextToUse = &WorldContext;
 			}
 		}
 

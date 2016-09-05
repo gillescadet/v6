@@ -184,7 +184,7 @@ struct FHashBucketIterator
 		return *this;
 	}
 	/** conversion to "bool" returning true if the iterator is valid. */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{
 		if (Bucket.Items)
 		{
@@ -469,9 +469,6 @@ UObject* StaticFindObjectFastInternalThreadSafe(FUObjectHashTables& ThreadHash, 
 
 					/** If a class was specified, check that the object is of the correct class */
 					&& (ObjectClass == nullptr || (bExactClass ? Object->GetClass() == ObjectClass : Object->IsA(ObjectClass)))
-
-					/** Include (or not) pending kill objects */
-					&& !Object->HasAnyInternalFlags(ExclusiveInternalFlags)
 
 					/** Ensure that the partial path provided matches the object found */
 					&& (Object->GetPathName().EndsWith(ObjectNameString)))

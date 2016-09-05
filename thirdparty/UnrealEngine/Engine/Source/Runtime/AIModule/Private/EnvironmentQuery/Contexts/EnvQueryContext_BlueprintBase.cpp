@@ -57,42 +57,40 @@ UEnvQueryContext_BlueprintBase::UEnvQueryContext_BlueprintBase(const FObjectInit
 
 void UEnvQueryContext_BlueprintBase::ProvideContext(FEnvQueryInstance& QueryInstance, FEnvQueryContextData& ContextData) const
 {
-	UObject* QuerierObject = QueryInstance.Owner.Get();
-	if ((QuerierObject == nullptr) || (CallMode == InvalidCallMode))
+	AActor* QuerierActor = Cast<AActor>(QueryInstance.Owner.Get());
+
+	if (QuerierActor == NULL || CallMode == InvalidCallMode)
 	{
 		return;
 	}
-
-	// NOTE: QuerierActor is redundant with QuerierObject and should be removed in the future.  It's here for now for
-	// backwards compatibility.
-	AActor* QuerierActor = Cast<AActor>(QuerierObject);
+	
 	switch (CallMode)
 	{
 	case SingleActor:
 		{
 			AActor* ResultingActor = NULL;
-			ProvideSingleActor(QuerierObject, QuerierActor, ResultingActor);
+			ProvideSingleActor(QuerierActor, ResultingActor);
 			UEnvQueryItemType_Actor::SetContextHelper(ContextData, ResultingActor);
 		}
 		break;
 	case SingleLocation:
 		{
 			FVector ResultingLocation = FAISystem::InvalidLocation;
-			ProvideSingleLocation(QuerierObject, QuerierActor, ResultingLocation);
+			ProvideSingleLocation(QuerierActor, ResultingLocation);
 			UEnvQueryItemType_Point::SetContextHelper(ContextData, ResultingLocation);
 		}
 		break;
 	case ActorSet:
 		{
 			TArray<AActor*> ActorSet;
-			ProvideActorsSet(QuerierObject, QuerierActor, ActorSet);
+			ProvideActorsSet(QuerierActor, ActorSet);
 			UEnvQueryItemType_Actor::SetContextHelper(ContextData, ActorSet);
 		}
 		break;
 	case LocationSet:
 		{
 			TArray<FVector> LocationSet;
-			ProvideLocationsSet(QuerierObject, QuerierActor, LocationSet);
+			ProvideLocationsSet(QuerierActor, LocationSet);
 			UEnvQueryItemType_Point::SetContextHelper(ContextData, LocationSet);
 		}
 		break;

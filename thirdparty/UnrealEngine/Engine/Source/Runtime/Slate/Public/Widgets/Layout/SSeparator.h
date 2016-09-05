@@ -10,7 +10,6 @@ public:
 		: _SeparatorImage( FCoreStyle::Get().GetBrush("Separator") )
 		, _Orientation(Orient_Horizontal)
 		, _Thickness(3.0f)
-		, _ColorAndOpacity(FLinearColor::White)
 		{}
 		
 		SLATE_ARGUMENT(const FSlateBrush*, SeparatorImage)
@@ -18,9 +17,6 @@ public:
 		SLATE_ARGUMENT( EOrientation, Orientation)
 
 		SLATE_ARGUMENT(float, Thickness)
-
-		/** Color and opacity */
-		SLATE_ATTRIBUTE(FSlateColor, ColorAndOpacity)
 	SLATE_END_ARGS()
 
 	/**

@@ -22,15 +22,13 @@ public:
 		);
 
 	// FMeshDrawingPolicy interface.
-	FDrawingPolicyMatchResult Matches(const FHitProxyDrawingPolicy& Other) const
+	bool Matches(const FHitProxyDrawingPolicy& Other) const
 	{
-		DRAWING_POLICY_MATCH_BEGIN
-			DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
-			DRAWING_POLICY_MATCH(HullShader == Other.HullShader) &&
-			DRAWING_POLICY_MATCH(DomainShader == Other.DomainShader) &&
-			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-			DRAWING_POLICY_MATCH(PixelShader == Other.PixelShader);
-		DRAWING_POLICY_MATCH_END
+		return FMeshDrawingPolicy::Matches(Other) &&
+			HullShader == Other.HullShader &&
+			DomainShader == Other.DomainShader &&
+			VertexShader == Other.VertexShader &&
+			PixelShader == Other.PixelShader;
 	}
 	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const ContextDataType PolicyContext) const;
 

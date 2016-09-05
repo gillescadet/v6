@@ -269,7 +269,7 @@ void FLevelUtils::MarkLevelForUnloading(ULevel* Level)
  */
 bool FLevelUtils::IsLevelVisible(const ULevelStreaming* StreamingLevel)
 {
-	const bool bVisible = StreamingLevel && StreamingLevel->bShouldBeVisibleInEditor;
+	const bool bVisible = StreamingLevel->bShouldBeVisibleInEditor;
 	return bVisible;
 }
 
@@ -280,13 +280,8 @@ bool FLevelUtils::IsLevelVisible(const ULevelStreaming* StreamingLevel)
  */
 bool FLevelUtils::IsLevelVisible(const ULevel* Level)
 {
-	if (!Level)
-	{
-		return false;
-	}
-
 	// P-level is specially handled
-	if ( Level->IsPersistentLevel() )
+	if ( Level && Level->IsPersistentLevel() )
 	{
 #if WITH_EDITORONLY_DATA
 		return !( Level->OwningWorld->PersistentLevel->GetWorldSettings()->bHiddenEdLevel );
@@ -295,8 +290,7 @@ bool FLevelUtils::IsLevelVisible(const ULevel* Level)
 #endif
 	}
 
-	static const FName NAME_TransLevelMoveBuffer(TEXT("TransLevelMoveBuffer"));
-	if (Level->GetFName() == NAME_TransLevelMoveBuffer)
+	if (Level->GetName() == TEXT("TransLevelMoveBuffer"))
 	{
 		// The TransLevelMoveBuffer does not exist in the streaming list and is never visible
 		return false;
@@ -394,10 +388,13 @@ void FLevelUtils::ApplyLevelTransform( ULevel* Level, const FTransform& LevelTra
 	bool bTransformActors =  !LevelTransform.Equals(FTransform::Identity);
 	if (bTransformActors)
 	{
-		if (!LevelTransform.GetRotation().IsIdentity())
+		for (TMap< UTexture2D*, TArray<FStreamableTextureInstance> >::TIterator It(Level->TextureToInstancesMap); It; ++It)
 		{
-			// If there is a rotation applied, then the relative precomputed bounds become invalid.
-			Level->bTextureStreamingRotationChanged = true;
+			TArray<FStreamableTextureInstance>& TextureInfo = It.Value();
+			for (int32 i = 0; i < TextureInfo.Num(); i++)
+			{
+				TextureInfo[i].BoundingSphere.Center = LevelTransform.TransformPosition(TextureInfo[i].BoundingSphere.Center);
+			}
 		}
 
 		// Iterate over all actors in the level and transform them

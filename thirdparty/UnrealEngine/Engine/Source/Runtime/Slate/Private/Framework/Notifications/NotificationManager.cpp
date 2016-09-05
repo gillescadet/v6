@@ -174,14 +174,9 @@ void FSlateNotificationManager::Tick()
 		RegionList.Region = FSlateApplication::Get().GetWorkArea(RegionList.Region);
 	}
 
-	for (;;)
-	{
-		FNotificationInfo* Notification = PendingNotifications.Pop();
-		if (!Notification)
-		{
-			break;
-		}
 
+	while (auto* Notification = PendingNotifications.Pop())
+	{
 		AddNotification(*Notification);
 		delete Notification;
 	}

@@ -7,10 +7,17 @@
 #include "SlateTextHighlightRunRenderer.h"
 #include "SlateStats.h"
 
+#if WITH_FANCY_TEXT
+
 SLATE_DECLARE_CYCLE_COUNTER(GSlateTextBlockLayoutComputeDesiredSize, "FTextBlockLayout ComputeDesiredSize");
 
-FTextBlockLayout::FTextBlockLayout(FTextBlockStyle InDefaultTextStyle, const TOptional<ETextShapingMethod> InTextShapingMethod, const TOptional<ETextFlowDirection> InTextFlowDirection, const FCreateSlateTextLayout& InCreateSlateTextLayout, TSharedRef<ITextLayoutMarshaller> InMarshaller, TSharedPtr<IBreakIterator> InLineBreakPolicy)
-	: TextLayout((InCreateSlateTextLayout.IsBound()) ? InCreateSlateTextLayout.Execute(MoveTemp(InDefaultTextStyle)) : FSlateTextLayout::Create(MoveTemp(InDefaultTextStyle)))
+TSharedRef<FTextBlockLayout> FTextBlockLayout::Create(FTextBlockStyle InDefaultTextStyle, const TOptional<ETextShapingMethod> InTextShapingMethod, const TOptional<ETextFlowDirection> InTextFlowDirection, TSharedRef<ITextLayoutMarshaller> InMarshaller, TSharedPtr<IBreakIterator> InLineBreakPolicy)
+{
+	return MakeShareable(new FTextBlockLayout(MoveTemp(InDefaultTextStyle), InTextShapingMethod, InTextFlowDirection, MoveTemp(InMarshaller), MoveTemp(InLineBreakPolicy)));
+}
+
+FTextBlockLayout::FTextBlockLayout(FTextBlockStyle InDefaultTextStyle, const TOptional<ETextShapingMethod> InTextShapingMethod, const TOptional<ETextFlowDirection> InTextFlowDirection, TSharedRef<ITextLayoutMarshaller> InMarshaller, TSharedPtr<IBreakIterator> InLineBreakPolicy)
+	: TextLayout(FSlateTextLayout::Create(MoveTemp(InDefaultTextStyle)))
 	, Marshaller(MoveTemp(InMarshaller))
 	, TextHighlighter(FSlateTextHighlightRunRenderer::Create())
 	, CachedSize(ForceInitToZero)
@@ -33,7 +40,6 @@ FVector2D FTextBlockLayout::ComputeDesiredSize(const FWidgetArgs& InWidgetArgs, 
 	SLATE_CYCLE_COUNTER_SCOPE_DETAILED(SLATE_STATS_DETAIL_LEVEL_HI, GSlateTextBlockLayoutComputeDesiredSize);
 	TextLayout->SetScale(InScale);
 	TextLayout->SetWrappingWidth(CalculateWrappingWidth(InWidgetArgs));
-	TextLayout->SetWrappingPolicy(InWidgetArgs.WrappingPolicy.Get());
 	TextLayout->SetMargin(InWidgetArgs.Margin.Get());
 	TextLayout->SetJustification(InWidgetArgs.Justification.Get());
 	TextLayout->SetLineHeightPercentage(InWidgetArgs.LineHeightPercentage.Get());
@@ -129,12 +135,6 @@ void FTextBlockLayout::DirtyLayout()
 	TextLayout->DirtyLayout();
 }
 
-void FTextBlockLayout::DirtyContent()
-{
-	DirtyLayout();
-	Marshaller->MakeDirty();
-}
-
 void FTextBlockLayout::OverrideTextStyle(const FTextBlockStyle& InTextStyle)
 {
 	// Has the style used for this text block changed?
@@ -156,11 +156,6 @@ void FTextBlockLayout::SetTextShapingMethod(const TOptional<ETextShapingMethod>&
 void FTextBlockLayout::SetTextFlowDirection(const TOptional<ETextFlowDirection>& InTextFlowDirection)
 {
 	TextLayout->SetTextFlowDirection((InTextFlowDirection.IsSet()) ? InTextFlowDirection.GetValue() : GetDefaultTextFlowDirection());
-}
-
-void FTextBlockLayout::SetDebugSourceInfo(const TAttribute<FString>& InDebugSourceInfo)
-{
-	TextLayout->SetDebugSourceInfo(InDebugSourceInfo);
 }
 
 FChildren* FTextBlockLayout::GetChildren()
@@ -252,3 +247,5 @@ float FTextBlockLayout::CalculateWrappingWidth(const FWidgetArgs& InWidgetArgs) 
 
 	return FMath::Max(0.0f, WrappingWidth);
 }
+
+#endif //WITH_FANCY_TEXT

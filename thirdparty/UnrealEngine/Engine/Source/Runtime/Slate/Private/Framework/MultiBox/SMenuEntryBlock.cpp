@@ -1042,20 +1042,18 @@ void SMenuEntryBlock::OnClicked( bool bCheckBoxClicked )
 		if( PinnedMenuAnchor.IsValid() && PinnedMenuAnchor->ShouldOpenDueToClick() )
 		{
 			FWidgetPath WidgetPath;
-			FSlateApplication::Get().GeneratePathToWidgetUnchecked(PinnedMenuAnchor->AsShared(), WidgetPath);
-			if ( WidgetPath.IsValid() )
+			FSlateApplication::Get().GeneratePathToWidgetChecked( PinnedMenuAnchor->AsShared(), WidgetPath );
+
+			// Don't process clicks that attempt to open sub-menus when the parent is queued for destruction.
+			if (!FSlateApplication::Get().IsWindowInDestroyQueue( WidgetPath.GetWindow() ))
 			{
-				// Don't process clicks that attempt to open sub-menus when the parent is queued for destruction.
-				if ( !FSlateApplication::Get().IsWindowInDestroyQueue(WidgetPath.GetWindow()) )
-				{
-					// Close other open pull-down menus from this menu bar
-					OwnerMultiBoxWidget.Pin()->CloseSummonedMenus();
+				// Close other open pull-down menus from this menu bar
+				OwnerMultiBoxWidget.Pin()->CloseSummonedMenus();
 
-					PinnedMenuAnchor->SetIsOpen(true);
+				PinnedMenuAnchor->SetIsOpen( true );
 
-					// Also tell the multibox about this open pull-down menu, so it can be closed later if we need to
-					OwnerMultiBoxWidget.Pin()->SetSummonedMenu(PinnedMenuAnchor.ToSharedRef());
-				}
+				// Also tell the multibox about this open pull-down menu, so it can be closed later if we need to
+				OwnerMultiBoxWidget.Pin()->SetSummonedMenu( PinnedMenuAnchor.ToSharedRef() );
 			}
 		}
 	}

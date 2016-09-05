@@ -79,6 +79,7 @@ void FSimpleElementPS::SetEditorCompositingParameters(FRHICommandList& RHICmdLis
 	{
 		// Unset the view uniform buffers since we don't have a view
 		SetUniformBufferParameter(RHICmdList, GetPixelShader(), GetUniformBufferParameter<FViewUniformShaderParameters>(), NULL);
+		SetUniformBufferParameter(RHICmdList, GetPixelShader(), GetUniformBufferParameter<FFrameUniformShaderParameters>(), NULL);
 		SetShaderValue(RHICmdList, GetPixelShader(),EditorCompositeDepthTestParameter,false );
 	}
 
@@ -137,9 +138,9 @@ FSimpleElementMaskedGammaBasePS::FSimpleElementMaskedGammaBasePS(const ShaderMet
 	ClipRef.Bind(Initializer.ParameterMap,TEXT("ClipRef"), SPF_Mandatory);
 }
 
-void FSimpleElementMaskedGammaBasePS::SetParameters(FRHICommandList& RHICmdList, const FTexture* Texture, float InGamma, float ClipRefValue, ESimpleElementBlendMode BlendMode)
+void FSimpleElementMaskedGammaBasePS::SetParameters(FRHICommandList& RHICmdList, const FTexture* Texture, float Gamma, float ClipRefValue, ESimpleElementBlendMode BlendMode)
 {
-	FSimpleElementGammaBasePS::SetParameters(RHICmdList, Texture,InGamma,BlendMode);
+	FSimpleElementGammaBasePS::SetParameters(RHICmdList, Texture,Gamma,BlendMode);
 	SetShaderValue(RHICmdList, GetPixelShader(),ClipRef,ClipRefValue);
 }
 
@@ -185,8 +186,8 @@ FSimpleElementDistanceFieldGammaPS::FSimpleElementDistanceFieldGammaPS(const Sha
 void FSimpleElementDistanceFieldGammaPS::SetParameters(
 	FRHICommandList& RHICmdList, 
 	const FTexture* Texture,
-	float InGamma,
-	float InClipRef,
+	float Gamma,
+	float ClipRef,
 	float SmoothWidthValue,
 	bool EnableShadowValue,
 	const FVector2D& ShadowDirectionValue,
@@ -196,7 +197,7 @@ void FSimpleElementDistanceFieldGammaPS::SetParameters(
 	ESimpleElementBlendMode BlendMode
 	)
 {
-	FSimpleElementMaskedGammaBasePS::SetParameters(RHICmdList, Texture,InGamma,InClipRef,BlendMode);
+	FSimpleElementMaskedGammaBasePS::SetParameters(RHICmdList, Texture,Gamma,ClipRef,BlendMode);
 	SetShaderValue(RHICmdList, GetPixelShader(),SmoothWidth,SmoothWidthValue);		
 	SetPixelShaderBool(RHICmdList, GetPixelShader(),EnableShadow,EnableShadowValue);
 	if (EnableShadowValue)

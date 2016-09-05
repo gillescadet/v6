@@ -16,8 +16,6 @@ class UParticleModuleBeamNoise : public UParticleModuleBeamBase
 {
 	GENERATED_UCLASS_BODY()
 
-	static const uint32 MaxNoiseTessellation = 500;
-
 	/** Is low frequency noise enabled. */
 	UPROPERTY(EditAnywhere, Category=LowFreq)
 	uint32 bLowFreq_Enabled:1;

@@ -156,32 +156,26 @@ FPrimitiveSceneProxy* UGeometryCacheComponent::CreateSceneProxy()
 	return SceneProxy;
 }
 
-#if WITH_EDITOR
 void UGeometryCacheComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	InvalidateTrackSampleIndices();
 	MarkRenderStateDirty();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
-#endif
 
 int32 UGeometryCacheComponent::GetNumMaterials() const
 {
-	return GeometryCache ? GeometryCache->Materials.Num() : 0;
-}
+	// Sum the number of materials per track
+	int32 TotalNumMaterial = 0;
+	if ( GeometryCache )
+	{
+		for (UGeometryCacheTrack* Track : GeometryCache->Tracks)
+		{
+			TotalNumMaterial += Track->GetNumMaterials();
+		}
+	}
 
-UMaterialInterface* UGeometryCacheComponent::GetMaterial(int32 MaterialIndex) const
-{
-	// If we have a base materials array, use that
-	if (MaterialIndex < OverrideMaterials.Num() && OverrideMaterials[MaterialIndex])
-	{
-		return OverrideMaterials[MaterialIndex];
-	}
-	// Otherwise get from static mesh
-	else
-	{
-		return GeometryCache ? ( GeometryCache->Materials.IsValidIndex(MaterialIndex) ? GeometryCache->Materials[MaterialIndex] : nullptr) : nullptr;
-	}
+	return TotalNumMaterial;
 }
 
 void UGeometryCacheComponent::CreateTrackSection(int32 SectionIndex, const FMatrix& WorldMatrix, FGeometryCacheMeshData* MeshData)
@@ -326,6 +320,12 @@ void UGeometryCacheComponent::OnObjectReimported(UGeometryCache* ImportedGeometr
 			}
 		}
 
+		if (SceneProxy)
+		{
+			SceneProxy->ClearSections();
+		}
+
+
 		MarkRenderStateDirty();
 	}
 }
@@ -463,7 +463,6 @@ void UGeometryCacheComponent::ReleaseResources()
 	DetachFence.BeginFence();
 }
 
-#if WITH_EDITOR
 void UGeometryCacheComponent::PreEditUndo()
 {
 	InvalidateTrackSampleIndices();
@@ -475,6 +474,5 @@ void UGeometryCacheComponent::PostEditUndo()
 	InvalidateTrackSampleIndices();
 	MarkRenderStateDirty();
 }
-#endif
 
 #undef LOCTEXT_NAMESPACE

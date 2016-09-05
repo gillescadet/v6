@@ -242,7 +242,7 @@ bool FJsonInternationalizationManifestSerializer::JsonObjToManifest( TSharedRef<
 						const FString Key = ContextJSONObject->GetStringField( TAG_KEY );
 						const FString SourceLocation = ContextJSONObject->HasField( TAG_PATH ) ? ContextJSONObject->GetStringField( TAG_PATH ) : FString();
 
-						FManifestContext CommandContext;
+						FContext CommandContext;
 						CommandContext.Key = Key;
 						CommandContext.SourceLocation = SourceLocation;
 
@@ -440,7 +440,7 @@ void FJsonInternationalizationManifestSerializer::StructuredDataToJsonObj( TShar
 
 		for(auto ContextIter = Entry->Contexts.CreateConstIterator(); ContextIter; ++ContextIter)
 		{
-			const FManifestContext& AContext = *ContextIter;
+			const FContext& AContext = *ContextIter;
 
 			FString ProcessedText = AContext.SourceLocation;
 			ProcessedText.ReplaceInline( TEXT("\\"), TEXT("/"));

@@ -36,7 +36,7 @@ AVectorFieldVolume::AVectorFieldVolume(const FObjectInitializer& ObjectInitializ
 		SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Effects;
 		SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Effects;
 		SpriteComponent->bAbsoluteScale = true;
-		SpriteComponent->SetupAttachment(VectorFieldComponent);
+		SpriteComponent->AttachParent = VectorFieldComponent;
 		SpriteComponent->bReceivesDecals = false;
 	}
 #endif // WITH_EDITORONLY_DATA

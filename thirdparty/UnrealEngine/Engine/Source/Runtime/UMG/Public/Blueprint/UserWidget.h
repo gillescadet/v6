@@ -702,24 +702,10 @@ public:
 	 * @param InAnimation The animation to play
 	 * @param StartAtTime The time in the animation from which to start playing, relative to the start position. For looped animations, this will only affect the first playback of the animation.
 	 * @param NumLoopsToPlay The number of times to loop this animation (0 to loop indefinitely)
-	 * @param PlaybackSpeed The speed at which the animation should play
-	 * @param PlayMode Specifies the playback mode
-	 */
-	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category = "User Interface|Animation")
-	void PlayAnimation(const UWidgetAnimation* InAnimation, float StartAtTime = 0.0f, int32 NumLoopsToPlay = 1, EUMGSequencePlayMode::Type PlayMode = EUMGSequencePlayMode::Forward, float PlaybackSpeed = 1.0f);
-
-	/**
-	 * Plays an animation in this widget a specified number of times stoping at a specified time
-	 * 
-	 * @param InAnimation The animation to play
-	 * @param StartAtTime The time in the animation from which to start playing, relative to the start position. For looped animations, this will only affect the first playback of the animation.
-	 * @param EndAtTime The absolute time in the animation where to stop, this is only considered in the last loop.
-	 * @param NumLoopsToPlay The number of times to loop this animation (0 to loop indefinitely)
-	 * @param PlaybackSpeed The speed at which the animation should play
 	 * @param PlayMode Specifies the playback mode
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category="User Interface|Animation")
-	void PlayAnimationTo(const UWidgetAnimation* InAnimation, float StartAtTime = 0.0f, float EndAtTime = 0.0f, int32 NumLoopsToPlay = 1, EUMGSequencePlayMode::Type PlayMode = EUMGSequencePlayMode::Forward, float PlaybackSpeed = 1.0f);
+	void PlayAnimation(const UWidgetAnimation* InAnimation, float StartAtTime = 0.0f, int32 NumLoopsToPlay = 1, EUMGSequencePlayMode::Type PlayMode = EUMGSequencePlayMode::Forward);
 
 	/**
 	 * Stops an already running animation in this widget
@@ -739,15 +725,6 @@ public:
 	float PauseAnimation(const UWidgetAnimation* InAnimation);
 
 	/**
-	 * Gets the current time of the animation in this widget
-	 * 
-	 * @param The name of the animation to get the current time for
-	 * @return the current time of the animation.
-	 */
-	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category = "User Interface|Animation")
-	float GetAnimationCurrentTime(const UWidgetAnimation* InAnimation) const;
-
-	/**
 	 * Gets whether an animation is currently playing on this widget.
 	 * 
 	 * @param InAnimation The animation to check the playback status of
@@ -757,12 +734,6 @@ public:
 	bool IsAnimationPlaying(const UWidgetAnimation* InAnimation) const;
 
 	/**
-	 * @return True if any animation is currently playing
-	 */
-	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category="User Interface|Animation")
-	bool IsAnyAnimationPlaying() const;
-
-	/**
 	* Changes the number of loops to play given a playing animation
 	*
 	* @param InAnimation The animation that is already playing
@@ -770,23 +741,6 @@ public:
 	*/
 	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category = "User Interface|Animation")
 	void SetNumLoopsToPlay(const UWidgetAnimation* InAnimation, int32 NumLoopsToPlay);
-
-	/**
-	* Changes the playback rate of a playing animation
-	*
-	* @param InAnimation The animation that is already playing
-	* @param PlaybackRate Playback rate multiplier (1 is default)
-	*/
-	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category = "User Interface|Animation")
-	void SetPlaybackSpeed(const UWidgetAnimation* InAnimation, float PlaybackSpeed = 1.0f);
-
-	/**
-	* If an animation is playing, this function will reverse the playback.
-	*
-	* @param InAnimation The playing animation that we want to reverse
-	*/
-	UFUNCTION(BlueprintCallable, BlueprintCosmetic, Category = "User Interface|Animation")
-	void ReverseAnimation(const UWidgetAnimation* InAnimation);
 
 	/** Called when a sequence player is finished playing an animation */
 	void OnAnimationFinishedPlaying(UUMGSequencePlayer& Player );
@@ -812,7 +766,7 @@ public:
 	UWidget* GetWidgetFromName(const FName& Name) const;
 
 	//~ Begin UObject Interface
-	virtual void PreSave(const class ITargetPlatform* TargetPlatform) override;
+	virtual void PreSave() override;
 	//~ End UObject Interface
 
 	/** Are we currently playing any animations? */
@@ -821,6 +775,7 @@ public:
 
 #if WITH_EDITOR
 	//~ Begin UWidget Interface
+	virtual const FSlateBrush* GetEditorIcon() override;
 	virtual const FText GetPaletteCategory() override;
 	//~ End UWidget Interface
 
@@ -979,48 +934,16 @@ protected:
 	void TickActionsAndAnimation(const FGeometry& MyGeometry, float InDeltaTime);
 
 	void RemoveObsoleteBindings(const TArray<FName>& NamedSlots);
-
-	UUMGSequencePlayer* GetOrAddPlayer(const UWidgetAnimation* InAnimation);
-	void Invalidate();
 	
-	/**
-	 * Listens for a particular Player Input Action by name.  This requires that those actions are being executed, and
-	 * that we're not currently in UI-Only Input Mode.
-	 */
 	UFUNCTION( BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ) )
 	void ListenForInputAction( FName ActionName, TEnumAsByte< EInputEvent > EventType, bool bConsume, FOnInputAction Callback );
 
-	/**
-	 * Removes the binding for a particular action's callback.
-	 */
 	UFUNCTION( BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ) )
 	void StopListeningForInputAction( FName ActionName, TEnumAsByte< EInputEvent > EventType );
 
-	/**
-	 * Stops listening to all input actions, and unregisters the input component with the player controller.
-	 */
 	UFUNCTION( BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ) )
 	void StopListeningForAllInputActions();
 
-	/**
-	 * ListenForInputAction will automatically Register an Input Component with the player input system.
-	 * If you however, want to Pause and Resume, listening for a set of actions, the best way is to use
-	 * UnregisterInputComponent to pause, and RegisterInputComponent to resume listening.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ))
-	void RegisterInputComponent();
-
-	/**
-	 * StopListeningForAllInputActions will automatically Register an Input Component with the player input system.
-	 * If you however, want to Pause and Resume, listening for a set of actions, the best way is to use
-	 * UnregisterInputComponent to pause, and RegisterInputComponent to resume listening.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ))
-	void UnregisterInputComponent();
-
-	/**
-	 * Checks if the action has a registered callback with the input component.
-	 */
 	UFUNCTION( BlueprintCallable, Category = "Input", meta = ( BlueprintProtected = "true" ) )
 	bool IsListeningForInputAction( FName ActionName ) const;
 
@@ -1032,9 +955,7 @@ protected:
 
 	void OnInputAction( FOnInputAction Callback );
 
-	virtual void InitializeInputComponent();
-
-	UPROPERTY( Transient, DuplicateTransient )
+	UPROPERTY( transient )
 	class UInputComponent* InputComponent;
 
 private:
@@ -1056,7 +977,7 @@ private:
 #define LOCTEXT_NAMESPACE "UMG"
 
 template< class T >
-T* CreateWidget(UWorld* World, UClass* UserWidgetClass  = T::StaticClass() )
+T* CreateWidget(UWorld* World, UClass* UserWidgetClass)
 {
 	if ( World == nullptr )
 	{
@@ -1091,7 +1012,7 @@ T* CreateWidget(UWorld* World, UClass* UserWidgetClass  = T::StaticClass() )
 }
 
 template< class T >
-T* CreateWidget(APlayerController* OwningPlayer, UClass* UserWidgetClass = T::StaticClass() )
+T* CreateWidget(APlayerController* OwningPlayer, UClass* UserWidgetClass)
 {
 	if ( OwningPlayer == nullptr )
 	{
@@ -1135,7 +1056,7 @@ T* CreateWidget(APlayerController* OwningPlayer, UClass* UserWidgetClass = T::St
 }
 
 template< class T >
-T* CreateWidget(UGameInstance* OwningGame, UClass* UserWidgetClass = T::StaticClass() )
+T* CreateWidget(UGameInstance* OwningGame, UClass* UserWidgetClass)
 {
 	if ( OwningGame == nullptr )
 	{

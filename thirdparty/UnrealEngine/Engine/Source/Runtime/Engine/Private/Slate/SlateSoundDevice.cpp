@@ -21,10 +21,10 @@ void FSlateSoundDevice::PlaySound(const FSlateSound& Sound, int32 UserIndex) con
 			if(SoundResource)
 			{
 				FActiveSound NewActiveSound;
-				NewActiveSound.SetSound(SoundResource);
+				NewActiveSound.Sound = SoundResource;
 				NewActiveSound.bIsUISound = true;
 				NewActiveSound.UserIndex = UserIndex;
-				NewActiveSound.Priority = SoundResource->Priority;
+				NewActiveSound.Priority = NewActiveSound.Sound->Priority;
 
 				AudioDevice->AddNewActiveSound(NewActiveSound);
 			}

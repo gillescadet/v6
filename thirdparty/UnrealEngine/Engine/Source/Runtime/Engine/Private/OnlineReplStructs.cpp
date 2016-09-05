@@ -5,7 +5,7 @@
 =============================================================================*/
 
 #include "EnginePrivate.h"
-#include "Net/OnlineEngineInterface.h"
+#include "OnlineSubsystemUtils.h"
 
 FArchive& operator<<( FArchive& Ar, FUniqueNetIdRepl& UniqueNetId)
 {
@@ -25,18 +25,17 @@ FArchive& operator<<( FArchive& Ar, FUniqueNetIdRepl& UniqueNetId)
 			FString Contents;
 			Ar << Contents;	// that takes care about possible overflow
 
-			UniqueNetId.UniqueIdFromString(Contents);
+			// Don't need to distinguish OSS interfaces here with world because we just want the create function below
+			IOnlineIdentityPtr IdentityInt = Online::GetIdentityInterface();
+			if (IdentityInt.IsValid())
+			{
+				TSharedPtr<const FUniqueNetId> UniqueNetIdPtr = IdentityInt->CreateUniquePlayerId(Contents);
+				UniqueNetId.SetUniqueNetId(UniqueNetIdPtr);
+			}
 		}
 	}
 
 	return Ar;
-}
-
-void FUniqueNetIdRepl::UniqueIdFromString(const FString& Contents)
-{
-	// Don't need to distinguish OSS interfaces here with world because we just want the create function below
-	TSharedPtr<const FUniqueNetId> UniqueNetIdPtr = UOnlineEngineInterface::Get()->CreateUniquePlayerId(Contents);
-	SetUniqueNetId(UniqueNetIdPtr);
 }
 
 bool FUniqueNetIdRepl::NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
@@ -63,141 +62,76 @@ bool FUniqueNetIdRepl::ExportTextItem(FString& ValueStr, FUniqueNetIdRepl const&
 	return true;
 }
 
-bool FUniqueNetIdRepl::ImportTextItem(const TCHAR*& Buffer, int32 PortFlags, UObject* Parent, FOutputDevice* ErrorText)
-{
-	SetUniqueNetId(nullptr);
-
-	bool bShouldWarn = true;
-	if (Buffer)
-	{
-		static FString InvalidString(TEXT("INVALID"));
-		if (Buffer[0] == TEXT('\0') || Buffer == InvalidString)
-		{
-			// An empty string or the word invalid are just considered expected invalid FUniqueNetIdRepls. No need to warn about those.
-			bShouldWarn = false;
-		}
-		else
-		{
-			checkf(UOnlineEngineInterface::Get() && UOnlineEngineInterface::Get()->IsLoaded(), TEXT("Attempted to ImportText to FUniqueNetIdRepl while OSS is not loaded. Parent:%s"), *GetPathNameSafe(Parent));
-			FString Contents(Buffer);
-			UniqueIdFromString(Contents);
-		}
-	}
-
-	if (bShouldWarn && !IsValid())
-	{
-#if !NO_LOGGING
-		ErrorText->CategorizedLogf(LogNet.GetCategoryName(), ELogVerbosity::Warning, TEXT("Failed to import text to FUniqueNetIdRepl Parent:%s"), *GetPathNameSafe(Parent));
-#endif
-	}
-
-	return true;
-}
-
-TSharedRef<FJsonValue> FUniqueNetIdRepl::ToJson() const
-{
-	if (IsValid())
-	{
-		return MakeShareable(new FJsonValueString(ToString()));
-	}
-	else
-	{
-		return MakeShareable(new FJsonValueString(TEXT("INVALID")));
-	}
-}
-
-void FUniqueNetIdRepl::FromJson(const FString& Json)
-{
-	SetUniqueNetId(nullptr);
-
-	if (!Json.IsEmpty())
-	{
-		UniqueIdFromString(Json);
-	}
-}
-
 void TestUniqueIdRepl(UWorld* InWorld)
 {
-#if !UE_BUILD_SHIPPING
 	bool bSuccess = true;
 
-	TSharedPtr<const FUniqueNetId> UserId = UOnlineEngineInterface::Get()->GetUniquePlayerId(InWorld, 0);
-
-	FUniqueNetIdRepl EmptyIdIn;
-	if (EmptyIdIn.IsValid())
+	IOnlineIdentityPtr IdentityPtr = Online::GetIdentityInterface(InWorld);
+	if (IdentityPtr.IsValid())
 	{
-		UE_LOG(LogNet, Warning, TEXT("EmptyId is valid."), *EmptyIdIn->ToString());
-		bSuccess = false;
-	}
+		TSharedPtr<const FUniqueNetId> UserId = IdentityPtr->GetUniquePlayerId(0);
 
-	FUniqueNetIdRepl ValidIdIn(UserId);
-	if (!ValidIdIn.IsValid() || UserId != ValidIdIn.GetUniqueNetId() || *UserId != *ValidIdIn)
-	{
-		UE_LOG(LogNet, Warning, TEXT("UserId input %s != UserId output %s"), *UserId->ToString(), *ValidIdIn->ToString());
-		bSuccess = false;
-	}
-
-	if (bSuccess)
-	{
-		TArray<uint8> Buffer;
-		for (int32 i = 0; i < 2; i++)
+		FUniqueNetIdRepl EmptyIdIn;
+		if (EmptyIdIn.IsValid())
 		{
-			Buffer.Empty();
-			FMemoryWriter TestWriteUniqueId(Buffer);
-
-			if (i == 0)
-			{
-				// Normal serialize
-				TestWriteUniqueId << EmptyIdIn;
-				TestWriteUniqueId << ValidIdIn;
-			}
-			else
-			{
-				// Net serialize
-				bool bOutSuccess = false;
-				EmptyIdIn.NetSerialize(TestWriteUniqueId, NULL, bOutSuccess);
-				ValidIdIn.NetSerialize(TestWriteUniqueId, NULL, bOutSuccess);
-			}
-
-			FMemoryReader TestReadUniqueId(Buffer);
-
-			FUniqueNetIdRepl EmptyIdOut;
-			TestReadUniqueId << EmptyIdOut;
-			if (EmptyIdOut.GetUniqueNetId().IsValid())
-			{
-				UE_LOG(LogNet, Warning, TEXT("EmptyId %s should have been invalid"), *EmptyIdOut->ToString());
-				bSuccess = false;
-			}
-
-			FUniqueNetIdRepl ValidIdOut;
-			TestReadUniqueId << ValidIdOut;
-			if (*UserId != *ValidIdOut.GetUniqueNetId())
-			{
-				UE_LOG(LogNet, Warning, TEXT("UserId input %s != UserId output %s"), *ValidIdIn->ToString(), *ValidIdOut->ToString());
-				bSuccess = false;
-			}
+			UE_LOG(LogNet, Warning, TEXT("EmptyId is valid."), *EmptyIdIn->ToString());
+			bSuccess = false;
 		}
-	}
 
-	if (bSuccess)
-	{
-		FString OutString;
-		TSharedRef<FJsonValue> JsonValue = ValidIdIn.ToJson();
-		bSuccess = JsonValue->TryGetString(OutString);
+		FUniqueNetIdRepl ValidIdIn(UserId);
+		if (!ValidIdIn.IsValid() || UserId != ValidIdIn.GetUniqueNetId())
+		{
+			UE_LOG(LogNet, Warning, TEXT("UserId input %s != UserId output %s"), *UserId->ToString(), *ValidIdIn->ToString());
+			bSuccess = false;
+		}
+
 		if (bSuccess)
 		{
-			FUniqueNetIdRepl NewIdOut;
-			NewIdOut.FromJson(OutString);
-			bSuccess = NewIdOut.IsValid();
+			TArray<uint8> Buffer;
+			for (int32 i=0; i<2; i++)
+			{
+				Buffer.Empty();
+				FMemoryWriter TestWriteUniqueId(Buffer);
+
+				if (i == 0)
+				{
+					// Normal serialize
+					TestWriteUniqueId << EmptyIdIn;
+					TestWriteUniqueId << ValidIdIn;
+				}
+				else
+				{
+					// Net serialize
+					bool bOutSuccess = false;
+					EmptyIdIn.NetSerialize(TestWriteUniqueId, NULL, bOutSuccess);
+					ValidIdIn.NetSerialize(TestWriteUniqueId, NULL, bOutSuccess);
+				}
+
+				FMemoryReader TestReadUniqueId(Buffer);
+
+				FUniqueNetIdRepl EmptyIdOut;
+				TestReadUniqueId << EmptyIdOut;
+				if (EmptyIdOut.GetUniqueNetId().IsValid())
+				{
+					UE_LOG(LogNet, Warning, TEXT("EmptyId %s should have been invalid"), *EmptyIdOut->ToString());
+					bSuccess = false;
+				}
+
+				FUniqueNetIdRepl ValidIdOut;
+				TestReadUniqueId << ValidIdOut;
+				if (*UserId != *ValidIdOut.GetUniqueNetId())
+				{
+					UE_LOG(LogNet, Warning, TEXT("UserId input %s != UserId output %s"), *ValidIdIn->ToString(), *ValidIdOut->ToString());
+					bSuccess = false;
+				}
+			}
 		}
 	}
-
 
 	if (!bSuccess)
 	{
 		UE_LOG(LogNet, Warning, TEXT("TestUniqueIdRepl test failure!"));
 	}
-#endif
 }
 
 

@@ -2,16 +2,12 @@
 
 #pragma once
 
-#include "Curves/IntegralCurve.h"
-#include "MovieSceneSection.h"
-#include "IKeyframeSection.h"
 #include "MovieSceneBoolSection.generated.h"
 
-
 /**
- * A single bool section.
+ * A single bool section
  */
-UCLASS(MinimalAPI)
+UCLASS( MinimalAPI )
 class UMovieSceneBoolSection 
 	: public UMovieSceneSection
 	, public IKeyframeSection<bool>
@@ -20,55 +16,39 @@ class UMovieSceneBoolSection
 
 public:
 
-	/** The default value to use when no keys are present - use GetCurve().SetDefaultValue() */
-	UPROPERTY()
-	bool DefaultValue_DEPRECATED;
+	/** The default value to use when no keys are present */
+	UPROPERTY(EditAnywhere, Category="Curve")
+	bool DefaultValue;
 
 public:
 
 	/**
-	 * Update this section.
+	 * Updates this section
 	 *
-	 * @param Position The position in time within the movie scene.
+	 * @param Position	The position in time within the movie scene
 	 */
-	virtual bool Eval(float Position) const;
+	virtual bool Eval( float Position ) const;
 
-	/** Gets all the keys of this boolean section. */
-	FIntegralCurve& GetCurve()
-	{
-		return BoolCurve;
-	}
+	// IKeyframeSection interface.
+	virtual void AddKey( float Time, const bool& Value, EMovieSceneKeyInterpolation KeyInterpolation ) override;
+	virtual void SetDefault( const bool& Value ) override;
+	virtual bool NewKeyIsNewData(float Time, const bool& Value ) const override;
+	virtual bool HasKeys( const bool& Value ) const;
 
-public:
-
-	//~ IKeyframeSection interface
-
-	virtual void AddKey(float Time, const bool& Value, EMovieSceneKeyInterpolation KeyInterpolation) override;
-	virtual void SetDefault(const bool& Value) override;
-	virtual bool NewKeyIsNewData(float Time, const bool& Value) const override;
-	virtual bool HasKeys(const bool& Value) const;
-
-public:
-
-	//~ UMovieSceneSection interface 
-
+	/**
+	 * UMovieSceneSection interface 
+	 */
 	virtual void MoveSection(float DeltaPosition, TSet<FKeyHandle>& KeyHandles) override;
 	virtual void DilateSection(float DilationFactor, float Origin, TSet<FKeyHandle>& KeyHandles) override;
-	virtual void GetKeyHandles(TSet<FKeyHandle>& OutKeyHandles, TRange<float> TimeRange) const override;
-	virtual TOptional<float> GetKeyTime(FKeyHandle KeyHandle) const override;
-	virtual void SetKeyTime(FKeyHandle KeyHandle, float Time) override;
+	virtual void GetKeyHandles(TSet<FKeyHandle>& KeyHandles) const override;
 
-public:
-
-	//~ UObject interface
-
-	virtual void PostLoad() override;
+	/** Gets all the keys of this boolean section */
+	FIntegralCurve& GetCurve() { return BoolCurve; }
 
 private:
-
 	/** Ordered curve data */
 	// @todo Sequencer This could be optimized by packing the bools separately
 	// but that may not be worth the effort
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, Category="Curve")
 	FIntegralCurve BoolCurve;
 };

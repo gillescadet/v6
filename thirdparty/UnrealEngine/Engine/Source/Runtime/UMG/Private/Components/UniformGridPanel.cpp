@@ -28,21 +28,21 @@ UClass* UUniformGridPanel::GetSlotClass() const
 	return UUniformGridSlot::StaticClass();
 }
 
-void UUniformGridPanel::OnSlotAdded(UPanelSlot* InSlot)
+void UUniformGridPanel::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyUniformGridPanel.IsValid() )
 	{
-		CastChecked<UUniformGridSlot>(InSlot)->BuildSlot(MyUniformGridPanel.ToSharedRef());
+		Cast<UUniformGridSlot>(Slot)->BuildSlot(MyUniformGridPanel.ToSharedRef());
 	}
 }
 
-void UUniformGridPanel::OnSlotRemoved(UPanelSlot* InSlot)
+void UUniformGridPanel::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyUniformGridPanel.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyUniformGridPanel->RemoveSlot(Widget.ToSharedRef());
@@ -54,9 +54,9 @@ TSharedRef<SWidget> UUniformGridPanel::RebuildWidget()
 {
 	MyUniformGridPanel = SNew(SUniformGridPanel);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UUniformGridSlot* TypedSlot = Cast<UUniformGridSlot>(PanelSlot) )
+		if ( UUniformGridSlot* TypedSlot = Cast<UUniformGridSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyUniformGridPanel.ToSharedRef());
@@ -108,6 +108,11 @@ void UUniformGridPanel::SynchronizeProperties()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UUniformGridPanel::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.UniformGrid");
+}
 
 const FText UUniformGridPanel::GetPaletteCategory()
 {

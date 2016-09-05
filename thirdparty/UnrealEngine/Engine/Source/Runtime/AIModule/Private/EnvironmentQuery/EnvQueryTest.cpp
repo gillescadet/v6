@@ -93,12 +93,12 @@ void UEnvQueryTest::NormalizeItemScores(FEnvQueryInstance& QueryInstance)
 
 	if (MinScore != MaxScore)
 	{
-		if (bDefineReferenceValue)
+		if (bDefineSweetSpot)
 		{
-			ReferenceValue.BindData(QueryOwner, QueryInstance.QueryID);
+			SweetSpotValue.BindData(QueryOwner, QueryInstance.QueryID);
 		}
-		const float LocalReferenceValue = bDefineReferenceValue ? ReferenceValue.GetValue() : MinScore;
-		const float ValueSpan = FMath::Max(FMath::Abs(LocalReferenceValue - MinScore), FMath::Abs(LocalReferenceValue - MaxScore));
+		const float BestValue = bDefineSweetSpot ? SweetSpotValue.GetValue() : MaxScore;
+		const float ValueSpan = FMath::Max(FMath::Abs(BestValue - MinScore), FMath::Abs(BestValue - MaxScore));
 
 		for (int32 ItemIndex = 0; ItemIndex < QueryInstance.ItemDetails.Num(); ItemIndex++, DetailInfo++)
 		{
@@ -113,12 +113,14 @@ void UEnvQueryTest::NormalizeItemScores(FEnvQueryInstance& QueryInstance)
 			if (TestValue != UEnvQueryTypes::SkippedItemValue)
 			{
 				const float ClampedScore = FMath::Clamp(TestValue, MinScore, MaxScore);
-				const float NormalizedScore = FMath::Abs(LocalReferenceValue - ClampedScore) / ValueSpan;
+				const float NormalizedScore = (ValueSpan - FMath::Abs(BestValue - ClampedScore)) / ValueSpan;
 
+				// TODO? Add an option to invert the normalized score before applying an equation.
+ 				const float NormalizedScoreForEquation = /*bMirrorNormalizedScore ? (1.0f - NormalizedScore) :*/ NormalizedScore;
 				switch (ScoringEquation)
 				{
 					case EEnvTestScoreEquation::Linear:
-						WeightedScore = ScoringFactorValue * NormalizedScore;
+						WeightedScore = ScoringFactorValue * NormalizedScoreForEquation;
 						break;
 
 					case EEnvTestScoreEquation::InverseLinear:
@@ -127,22 +129,22 @@ void UEnvQueryTest::NormalizeItemScores(FEnvQueryInstance& QueryInstance)
 						// because we don't have usage cases yet and want to avoid too complex UI.  If we decide
 						// to add that flag later, we'll need to remove this option, since it should just be "mirror
 						// curve" plus "Linear".
-						float InverseNormalizedScore = (1.0f - NormalizedScore);
+						float InverseNormalizedScore = (1.0f - NormalizedScoreForEquation);
 						WeightedScore = ScoringFactorValue * InverseNormalizedScore;
 						break;
 					}
 
 					case EEnvTestScoreEquation::Square:
-						WeightedScore = ScoringFactorValue * (NormalizedScore * NormalizedScore);
+						WeightedScore = ScoringFactorValue * (NormalizedScoreForEquation * NormalizedScoreForEquation);
 						break;
 
 					case EEnvTestScoreEquation::SquareRoot:
-						WeightedScore = ScoringFactorValue * FMath::Sqrt(NormalizedScore);
+						WeightedScore = ScoringFactorValue * FMath::Sqrt(NormalizedScoreForEquation);
 						break;
 
 					case EEnvTestScoreEquation::Constant:
 						// I know, it's not "constant".  It's "Constant, or zero".  The tooltip should explain that.
-						WeightedScore = (NormalizedScore > 0) ? ScoringFactorValue : 0.0f;
+						WeightedScore = (NormalizedScoreForEquation > 0) ? ScoringFactorValue : 0.0f;
 						break;
 						
 					default:
@@ -310,6 +312,8 @@ void UEnvQueryTest::SetWorkOnFloatValues(bool bWorkOnFloats)
 		{
 			FilterType = EEnvTestFilterType::Range;
 		}
+
+		ScoringEquation = EEnvTestScoreEquation::Linear;
 	}
 	else
 	{

@@ -1,7 +1,6 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "CoreUObjectPrivate.h"
-#include "TextPackageNamespaceUtil.h"
 
 /*----------------------------------------------------------------------------
 	FLinkerSave.
@@ -42,13 +41,6 @@ FLinkerSave::FLinkerSave(UPackage* InParent, const TCHAR* InFilename, bool bForc
 		ArIsSaving				= 1;
 		ArIsPersistent			= 1;
 		ArForceByteSwapping		= bForceByteSwapping;
-
-#if USE_STABLE_LOCALIZATION_KEYS
-		if (GIsEditor)
-		{
-			SetLocalizationNamespace(TextNamespaceUtil::GetPackageNamespace(LinkerRoot));
-		}
-#endif // USE_STABLE_LOCALIZATION_KEYS
 	}
 }
 
@@ -86,13 +78,6 @@ FLinkerSave::FLinkerSave(UPackage* InParent, FArchive *InSaver, bool bForceByteS
 		ArIsSaving = 1;
 		ArIsPersistent = 1;
 		ArForceByteSwapping = bForceByteSwapping;
-
-#if USE_STABLE_LOCALIZATION_KEYS
-		if (GIsEditor)
-		{
-			SetLocalizationNamespace(TextNamespaceUtil::GetPackageNamespace(LinkerRoot));
-		}
-#endif // USE_STABLE_LOCALIZATION_KEYS
 	}
 }
 
@@ -103,7 +88,7 @@ FLinkerSave::FLinkerSave(UPackage* InParent, bool bForceByteSwapping, bool bInSa
 	if (FPlatformProperties::HasEditorOnlyData())
 	{
 		// Create file saver.
-		Saver = new FLargeMemoryWriter( 0, false, InParent->FileName );
+		Saver = new FBufferArchive( false, InParent->FileName );
 		check(Saver);
 
 		UPackage* Package = dynamic_cast<UPackage*>(LinkerRoot);
@@ -125,13 +110,6 @@ FLinkerSave::FLinkerSave(UPackage* InParent, bool bForceByteSwapping, bool bInSa
 		ArIsSaving				= 1;
 		ArIsPersistent			= 1;
 		ArForceByteSwapping		= bForceByteSwapping;
-
-#if USE_STABLE_LOCALIZATION_KEYS
-		if (GIsEditor)
-		{
-			SetLocalizationNamespace(TextNamespaceUtil::GetPackageNamespace(LinkerRoot));
-		}
-#endif // USE_STABLE_LOCALIZATION_KEYS
 	}
 }
 /**

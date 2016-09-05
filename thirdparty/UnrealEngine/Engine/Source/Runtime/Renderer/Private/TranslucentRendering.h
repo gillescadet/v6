@@ -17,11 +17,11 @@ public:
 	struct ContextType 
 	{
 		const FProjectedShadowInfo* TranslucentSelfShadow;
-		ETranslucencyPass::Type TranslucenyPassType;
+		ETranslucencyPassType TranslucenyPassType;
 		bool bSceneColorCopyIsUpToDate;
 		bool bPostAA;
 
-		ContextType(const FProjectedShadowInfo* InTranslucentSelfShadow = NULL, ETranslucencyPass::Type InTranslucenyPassType = ETranslucencyPass::TPT_NonSeparateTransluceny, bool bPostAAIn = false)
+		ContextType(const FProjectedShadowInfo* InTranslucentSelfShadow = NULL, ETranslucencyPassType InTranslucenyPassType = TPT_NonSeparateTransluceny, bool bPostAAIn = false)
 			: TranslucentSelfShadow(InTranslucentSelfShadow)
 			, TranslucenyPassType(InTranslucenyPassType)
 			, bSceneColorCopyIsUpToDate(false)
@@ -42,7 +42,7 @@ public:
 		bool bPreFog,
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
 		FHitProxyId HitProxyId,
-		bool bSeparateTranslucencyEnabled = false
+		bool bSeparateTranslucencyEnabled = true
 		);
 
 	/**
@@ -82,7 +82,7 @@ private:
 		bool bPreFog,
 		const FPrimitiveSceneProxy* PrimitiveSceneProxy,
 		FHitProxyId HitProxyId,
-		bool bSeparateTranslucencyEnabled = false
+		bool bSeparateTranslucencyEnabled = true
 		);
 
 };
@@ -92,17 +92,12 @@ private:
 * Translucent draw policy factory.
 * Creates the policies needed for rendering a mesh based on its material
 */
-class FMobileTranslucencyDrawingPolicyFactory
+class FTranslucencyForwardShadingDrawingPolicyFactory
 {
 public:
 	enum { bAllowSimpleElements = true };
 	struct ContextType 
 	{
-		bool bRenderingSeparateTranslucency;
-
-		ContextType(bool InbRenderingSeparateTranslucency)
-		:	bRenderingSeparateTranslucency(InbRenderingSeparateTranslucency)
-		{}
 	};
 
 	/**
@@ -174,12 +169,6 @@ public:
 	static bool ShouldCache(EShaderPlatform Platform) 
 	{ 
 		return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM4); 
-	}
-
-	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
-	{
-		FGlobalShader::ModifyCompilationEnvironment( Platform, OutEnvironment );
-		OutEnvironment.CompilerFlags.Add( CFLAG_VertexToGeometryShader );
 	}
 
 	FWriteToSliceVS(const ShaderMetaType::CompiledShaderInitializerType& Initializer):

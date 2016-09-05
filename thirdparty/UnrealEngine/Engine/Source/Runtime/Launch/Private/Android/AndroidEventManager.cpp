@@ -138,15 +138,11 @@ void FAppEventManager::Tick()
 				{
 					FCoreDelegates::ApplicationHasEnteredForegroundDelegate.Broadcast();
 				}, TStatId(), NULL, ENamedThreads::GameThread);
-
 				FGraphEventRef ReactivateTask = FFunctionGraphTask::CreateAndDispatchWhenReady([&]()
 				{
 					FCoreDelegates::ApplicationHasReactivatedDelegate.Broadcast();
 				}, TStatId(), EnterForegroundTask, ENamedThreads::GameThread);
 				FTaskGraphInterface::Get().WaitUntilTaskCompletes(ReactivateTask);
-
-				extern void AndroidThunkCpp_ShowHiddenAlertDialog();
-				AndroidThunkCpp_ShowHiddenAlertDialog();
 			}
 
 			bRunning = true;

@@ -4,7 +4,6 @@
 
 #include "MallocTBB.h"
 #include "MallocAnsi.h"
-#include "MallocStomp.h"
 #include "GenericPlatformMemoryPoolStats.h"
 #include "MemoryMisc.h"
 
@@ -13,7 +12,7 @@
 #endif // ENABLE_WIN_ALLOC_TRACKING
 
 #if !FORCE_ANSI_ALLOCATOR
-#include "MallocBinnedRedirect.h"
+#include "MallocBinned2.h"
 #endif
 
 #include "AllowWindowsPlatformTypes.h"
@@ -73,13 +72,10 @@ FMalloc* FWindowsPlatformMemory::BaseAllocator()
 
 #if FORCE_ANSI_ALLOCATOR
 	return new FMallocAnsi();
-#elif USE_MALLOC_STOMP
-	// Allocator that helps track down memory stomps.
-	return new FMallocStomp();
 #elif (WITH_EDITORONLY_DATA || IS_PROGRAM) && TBB_ALLOCATOR_ALLOWED
 	return new FMallocTBB();
 #else
-	return new FMallocBinnedRedirect((uint32)(GetConstants().PageSize&MAX_uint32), (uint64)MAX_uint32+1);
+	return new FMallocBinned2((uint32)(GetConstants().PageSize&MAX_uint32), (uint64)MAX_uint32+1);
 #endif
 }
 
@@ -168,37 +164,14 @@ const FPlatformMemoryConstants& FWindowsPlatformMemory::GetConstants()
 	return MemoryConstants;	
 }
 
-bool FWindowsPlatformMemory::PageProtect(void* const Ptr, const SIZE_T Size, const bool bCanRead, const bool bCanWrite)
-{
-	DWORD flOldProtect;
-	uint32 ProtectMode = 0;
-	if (bCanRead && bCanWrite)
-	{
-		ProtectMode = PAGE_READWRITE;
-	}
-	else if (bCanWrite)
-	{
-		ProtectMode = PAGE_READWRITE;
-	}
-	else if (bCanRead)
-	{
-		ProtectMode = PAGE_READONLY;
-	}
-	else
-	{
-		ProtectMode = PAGE_NOACCESS;
-	}
-	return VirtualProtect(Ptr, Size, ProtectMode, &flOldProtect) != 0;
-}
 void* FWindowsPlatformMemory::BinnedAllocFromOS( SIZE_T Size )
 {
 	return VirtualAlloc( NULL, Size, MEM_COMMIT, PAGE_READWRITE );
 }
 
-void FWindowsPlatformMemory::BinnedFreeToOS( void* Ptr, SIZE_T Size )
+void FWindowsPlatformMemory::BinnedFreeToOS( void* Ptr )
 {
 	CA_SUPPRESS(6001)
-	// Windows maintains the size of allocation internally, so Size is unused
 	verify(VirtualFree( Ptr, 0, MEM_RELEASE ) != 0);
 }
 

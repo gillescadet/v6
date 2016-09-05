@@ -6,11 +6,9 @@
 #include "Json.h"
 #include "SecureHash.h"
 #include "Runtime/Analytics/AnalyticsSwrve/Public/AnalyticsSwrve.h"
-#include "AnalyticsBuildType.h"
+#include "Runtime/Analytics/Analytics/Public/Analytics.h"
 #include "Runtime/Online/HTTP/Public/Http.h"
 #include "EngineVersion.h"
-#include "AnalyticsEventAttribute.h"
-#include "IAnalyticsProvider.h"
 
 #if PLATFORM_DESKTOP
 
@@ -98,7 +96,7 @@ void FAnalyticsSwrve::ShutdownModule()
 {
 }
 
-TSharedPtr<IAnalyticsProvider> FAnalyticsSwrve::CreateAnalyticsProvider(const FAnalyticsProviderConfigurationDelegate& GetConfigValue) const
+TSharedPtr<IAnalyticsProvider> FAnalyticsSwrve::CreateAnalyticsProvider(const FAnalytics::FProviderConfigurationDelegate& GetConfigValue) const
 {
 	if (GetConfigValue.IsBound())
 	{
@@ -194,7 +192,7 @@ FAnalyticsProviderSwrve::FAnalyticsProviderSwrve(const FAnalyticsSwrve::Config& 
 	}
 	// allow the APIServer value to be empty and use defaults.
 	APIServer = ConfigValues.APIServerSwrve.IsEmpty() 
-		? GetAnalyticsBuildType() == EAnalyticsBuildType::Debug 
+		? FAnalytics::Get().GetBuildType() == FAnalytics::Debug 
 			? FAnalyticsSwrve::Config::GetDefaultAPIServerDebug()
 			: FAnalyticsSwrve::Config::GetDefaultAPIServer()
 		: ConfigValues.APIServerSwrve;

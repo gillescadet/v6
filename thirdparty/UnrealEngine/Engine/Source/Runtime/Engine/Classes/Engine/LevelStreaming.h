@@ -123,7 +123,7 @@ public:
 	uint32 bShouldBeLoaded:1;
 
 	/** Whether the level should be visible if it is loaded																		*/
-	UPROPERTY(EditAnywhere, Category=LevelStreaming, BlueprintReadWrite)
+	UPROPERTY(Category=LevelStreaming, BlueprintReadWrite)
 	uint32 bShouldBeVisible:1;
 
 	/** Whether we want to force a blocking load																				*/
@@ -277,7 +277,7 @@ public:
 
 	/** Returns the Level Script Actor of the level if the level is loaded and valid */
 	UFUNCTION(BlueprintPure, meta = (BlueprintInternalUseOnly = "true"))
-	ENGINE_API ALevelScriptActor* GetLevelScriptActor();
+	ALevelScriptActor* GetLevelScriptActor();
 
 	//~==============================================================================================
 	// Delegates
@@ -323,25 +323,15 @@ private:
 	/** @return Name of the LOD package on disk to load to the new package named PackageName, Name_None otherwise					*/
 	FName GetLODPackageNameToLoad() const;
 
-	enum EReqLevelBlock
-	{
-		/** Block load AlwaysLoaded levels. Otherwise Async load. */
-		BlockAlwaysLoadedLevelsOnly,	
-		/** Block all loads */
-		AlwaysBlock,
-		/** Never block loads */
-		NeverBlock,
-	};
-
 	/** 
 	 * Try to find loaded level in memory, issue a loading request otherwise
 	 *
 	 * @param	PersistentWorld			Persistent world
 	 * @param	bAllowLevelLoadRequests	Whether to allow level load requests
-	 * @param	BlockPolicy				Whether loading operation should block
+	 * @param	bBlockOnLoad			Whether loading operation should block
 	 * @return							true if the load request was issued or a package was already loaded
 	 */
-	bool RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoadRequests, EReqLevelBlock BlockPolicy);
+	bool RequestLevel(UWorld* PersistentWorld, bool bAllowLevelLoadRequests, bool bBlockOnLoad);
 	
 	/** Sets the value of LoadedLevel */
 	void SetLoadedLevel(class ULevel* Level);

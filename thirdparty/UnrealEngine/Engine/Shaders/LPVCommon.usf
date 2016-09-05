@@ -27,11 +27,6 @@
  
 #define TILED_ADDRESSING		0
 
-#ifndef LPV_WRITE_SHADER
-#define LPV_WRITE_SHADER	0
-#endif
-
-
 //-------------------------------------------------------------------------------------------------
 SamplerState								gLpv3DTextureSampler;
 

@@ -20,7 +20,7 @@ public class CEF3Utils : ModuleRules
 		||  Target.Platform == UnrealTargetPlatform.Win32
         ||  Target.Platform == UnrealTargetPlatform.Mac)
 		{
-			AddEngineThirdPartyPrivateStaticDependencies(Target,
+			AddThirdPartyPrivateStaticDependencies(Target,
 				"CEF3"
 				);
 		}

@@ -19,7 +19,6 @@ protected:
 
 	void* AllocateImpl(SIZE_T Size, FFreePageBlock* First, FFreePageBlock* Last, uint32& FreedPageBlocksNum, uint32& CachedTotal);
 	void FreeImpl(void* Ptr, SIZE_T Size, uint32 NumCacheBlocks, uint32 CachedByteLimit, FFreePageBlock* First, uint32& FreedPageBlocksNum, uint32& CachedTotal);
-	void FreeAllImpl(FFreePageBlock* First, uint32& FreedPageBlocksNum, uint32& CachedTotal);
 };
 
 template <uint32 NumCacheBlocks, uint32 CachedByteLimit>
@@ -39,10 +38,6 @@ struct TCachedOSPageAllocator : private FCachedOSPageAllocator
 	void Free(void* Ptr, SIZE_T Size)
 	{
 		return FreeImpl(Ptr, Size, NumCacheBlocks, CachedByteLimit, FreedPageBlocks, FreedPageBlocksNum, CachedTotal);
-	}
-	void FreeAll()
-	{
-		return FreeAllImpl(FreedPageBlocks, FreedPageBlocksNum, CachedTotal);
 	}
 
 private:

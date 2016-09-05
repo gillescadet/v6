@@ -10,21 +10,6 @@ class USkyLightComponent;
 class FAtmosphericFogSceneInfo;
 class FPrimitiveComponentId;
 class FPrimitiveSceneInfo;
-class FRenderTarget;
-
-enum EBasePassDrawListType
-{
-	EBasePass_Default=0,
-	EBasePass_Masked,
-	EBasePass_MAX
-};
-
-enum class EShadingPath
-{
-	Mobile,
-	Deferred,
-	Num,
-};
 
 /**
  * An interface to the private scene manager implementation of a scene.  Use GetRendererModule().AllocateScene to create.
@@ -106,7 +91,7 @@ public:
 	virtual void RemoveReflectionCapture(class UReflectionCaptureComponent* Component) {}
 
 	/** Reads back reflection capture data from the GPU.  Very slow operation that blocks the GPU and rendering thread many times. */
-	virtual void GetReflectionCaptureData(UReflectionCaptureComponent* Component, class FReflectionCaptureFullHDR& OutDerivedData) {}
+	virtual void GetReflectionCaptureData(UReflectionCaptureComponent* Component, class FReflectionCaptureFullHDRDerivedData& OutDerivedData) {}
 
 	/** Updates a reflection capture's transform, and then re-captures the scene. */
 	virtual void UpdateReflectionCaptureTransform(class UReflectionCaptureComponent* Component) {}
@@ -127,17 +112,12 @@ public:
 	/** Runs a slow preculling operation on static meshes, removing triangles that are invisible or inside a precull volume. */
 	virtual void PreCullStaticMeshes(const TArray<UStaticMeshComponent*>& ComponentsToPreCull, const TArray<TArray<FPlane> >& CullVolumes) {}
 
-	virtual void AddPlanarReflection(class UPlanarReflectionComponent* Component) {}
-	virtual void RemovePlanarReflection(class UPlanarReflectionComponent* Component) {}
-	virtual void UpdatePlanarReflectionTransform(UPlanarReflectionComponent* Component) {}
-
 	/** 
 	* Updates the contents of the given scene capture by rendering the scene. 
 	* This must be called on the game thread.
 	*/
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponent2D* CaptureComponent) {}
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponentCube* CaptureComponent) {}
-	virtual void UpdatePlanarReflectionContents(class UPlanarReflectionComponent* CaptureComponent, class FSceneRenderer& MainSceneRenderer) {}
 
 	virtual void AddPrecomputedLightVolume(const class FPrecomputedLightVolume* Volume) {}
 	virtual void RemovePrecomputedLightVolume(const class FPrecomputedLightVolume* Volume) {}
@@ -154,6 +134,9 @@ public:
 	 * @param Light - light component to update
 	 */
 	virtual void UpdateLightColorAndBrightness(ULightComponent* Light) = 0;
+
+	/** Updates the scene's dynamic skylight. */
+	virtual void UpdateDynamicSkyLight(const FLinearColor& UpperColor, const FLinearColor& LowerColor) {}
 
 	/** Sets the precomputed visibility handler for the scene, or NULL to clear the current one. */
 	virtual void SetPrecomputedVisibility(const class FPrecomputedVisibilityHandler* PrecomputedVisibilityHandler) {}
@@ -281,9 +264,6 @@ public:
 	{
 		return NULL;
 	}
-
-	virtual void UpdateSceneSettings(AWorldSettings* WorldSettings) {}
-
 	/**
 	 * Sets the FX system associated with the scene.
 	 */
@@ -343,42 +323,15 @@ public:
 	virtual ERHIFeatureLevel::Type GetFeatureLevel() const { return GMaxRHIFeatureLevel; }
 	EShaderPlatform GetShaderPlatform() const { return GShaderPlatformForFeatureLevel[GetFeatureLevel()]; }
 
-	static EShadingPath GetShadingPath(ERHIFeatureLevel::Type InFeatureLevel)
+	static bool ShouldUseDeferredRenderer(ERHIFeatureLevel::Type InFeatureLevel)
 	{
-		if (InFeatureLevel >= ERHIFeatureLevel::SM4)
-		{
-			return EShadingPath::Deferred;
-		}
-		else
-		{
-			return EShadingPath::Mobile;
-		}
+		return InFeatureLevel >= ERHIFeatureLevel::SM4;
 	}
 
-	EShadingPath GetShadingPath() const
+	bool ShouldUseDeferredRenderer() const
 	{
-		return GetShadingPath(GetFeatureLevel());
+		return ShouldUseDeferredRenderer(GetFeatureLevel());
 	}
-
-#if WITH_EDITOR
-	/**
-	 * Initialize the pixel inspector buffers.
-	 * @return True if implemented false otherwise.
-	 */
-	virtual bool InitializePixelInspector(FRenderTarget* BufferFinalColor, FRenderTarget* BufferSceneColor, FRenderTarget* BufferDepth, FRenderTarget* BufferHDR, FRenderTarget* BufferA, FRenderTarget* BufferBCDE, int32 BufferIndex)
-	{
-		return false;
-	}
-
-	/**
-	 * Add a pixel inspector request.
-	 * @return True if implemented false otherwise.
-	 */
-	virtual bool AddPixelInspectorRequest(class FPixelInspectorRequest *PixelInspectorRequest)
-	{
-		return false;
-	}
-#endif //WITH_EDITOR
 
 	/**
 	 * Returns the FPrimitiveComponentId for all primitives in the scene

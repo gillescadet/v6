@@ -128,8 +128,6 @@ LAUNCH_API int32 GuardedMainWrapper( const TCHAR* CmdLine, HINSTANCE hInInstance
 #if !PLATFORM_SEH_EXCEPTIONS_DISABLED
 		__except( ReportCrash( GetExceptionInformation() ), EXCEPTION_CONTINUE_SEARCH )
 		{
-			// Deliberately do nothing but avoid warning C6322: Empty _except block.
-			(void)0;
 		}
 #endif
 	}
@@ -140,7 +138,7 @@ LAUNCH_API int32 GuardedMainWrapper( const TCHAR* CmdLine, HINSTANCE hInInstance
 	}
 	return ErrorLevel;
 }
-int32 WINAPI WinMain( _In_ HINSTANCE hInInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ char*, _In_ int32 nCmdShow )
+int32 WINAPI WinMain( HINSTANCE hInInstance, HINSTANCE hPrevInstance, char*, int32 nCmdShow )
 {
 	// Setup common Windows settings
 	SetupWindowsEnvironment();

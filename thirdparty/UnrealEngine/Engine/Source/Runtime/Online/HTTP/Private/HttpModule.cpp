@@ -19,6 +19,13 @@ void FHttpModule::StartupModule()
 
 	FPlatformHttp::Init();
 
+	HttpManager = FPlatformHttp::CreatePlatformHttpManager();
+	if (NULL == HttpManager)
+	{
+		// platform does not provide specific HTTP manager, use generic one
+		HttpManager = new FHttpManager();
+	}
+
 	HttpTimeout = 300.0f;
 	GConfig->GetFloat(TEXT("HTTP"), TEXT("HttpTimeout"), HttpTimeout, GEngineIni);
 
@@ -42,17 +49,6 @@ void FHttpModule::StartupModule()
 
 	HttpDelayTime = 0;
 	GConfig->GetFloat(TEXT("HTTP"), TEXT("HttpDelayTime"), HttpDelayTime, GEngineIni);
-
-	HttpThreadTickRate = 30;
-	GConfig->GetFloat(TEXT("HTTP"), TEXT("HttpThreadTickRate"), HttpThreadTickRate, GEngineIni);
-
-	HttpManager = FPlatformHttp::CreatePlatformHttpManager();
-	if (NULL == HttpManager)
-	{
-		// platform does not provide specific HTTP manager, use generic one
-		HttpManager = new FHttpManager();
-	}
-	HttpManager->Initialize();
 }
 
 void FHttpModule::ShutdownModule()

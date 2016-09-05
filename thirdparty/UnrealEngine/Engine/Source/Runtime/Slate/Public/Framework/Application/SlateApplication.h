@@ -7,7 +7,6 @@
 #include "SlateDelegates.h"
 #include "SlateApplicationBase.h"
 #include "NavigationConfig.h"
-#include "Templates/Function.h"
 
 
 class SToolTip;
@@ -81,69 +80,8 @@ class SLATE_API FPopupSupport
 
 	/** List of subscriptions that want to be notified when the user clicks outside a certain widget. */
 	TArray<FClickSubscriber> ClickZoneNotifications;
+
 };
-
-
-
-/**
- * A representation of a slate input providing user.  We allocate a slate user as new input sources are
- * discovered.
- */
-class SLATE_API FSlateUser
-{
-public:
-	FSlateUser(int32 InUserIndex, bool InVirtualUser);
-	virtual ~FSlateUser();
-
-	FORCEINLINE int32 GetUserIndex() const { return UserIndex; }
-	FORCEINLINE bool IsVirtualUser() const { return bVirtualUser; }
-
-	TSharedPtr<SWidget> GetFocusedWidget() const;
-
-private:
-	/** The index the user was assigned. */
-	int32 UserIndex;
-
-	/** Is this a virtual user?  Virtual users are generally ignored in most operations that affect all users. */
-	bool bVirtualUser;
-
-	struct FUserFocusEntry
-	{
-		/** A weak path to the widget currently focused by a user, if any. */
-		FWeakWidgetPath WidgetPath;
-		/** Reason a widget was focused by a user, if any. */
-		EFocusCause FocusCause;
-		/** If we should show this focus */
-		bool ShowFocus;
-	};
-
-	FUserFocusEntry Focus;
-
-	friend class FSlateApplication;
-};
-
-/**
- * Represents a virtual user of slate.
- */
-class SLATE_API FSlateVirtualUser
-{
-public:
-	FSlateVirtualUser(int32 InUserIndex, int32 InVirtualUserIndex);
-	virtual ~FSlateVirtualUser();
-
-	FORCEINLINE int32 GetUserIndex() const { return UserIndex; }
-	FORCEINLINE int32 GetVirtualUserIndex() const { return UserIndex; }
-
-private:
-
-	/** The index the user was assigned. */
-	int32 UserIndex;
-
-	/** The index the user was assigned. */
-	int32 VirtualUserIndex;
-};
-
-
 
 class SLATE_API FSlateApplication
 	: public FSlateApplicationBase
@@ -231,9 +169,8 @@ public:
 	 * Initializes the renderer responsible for drawing all elements in this application
 	 *
 	 * @param InRenderer The renderer to use.
-	 * @param bQuietMode Don't show any message boxes when initialization fails.
 	 */
-	virtual bool InitializeRenderer( TSharedRef<FSlateRenderer> InRenderer, bool bQuietMode = false );
+	virtual void InitializeRenderer( TSharedRef<FSlateRenderer> InRenderer );
 
 	/** Set the slate sound provider that the slate app should use. */
 	virtual void InitializeSound( const TSharedRef<ISlateSoundDevice>& InSlateSoundDevice );
@@ -478,14 +415,6 @@ public:
 	void RegisterGameViewport( TSharedRef<SViewport> InViewport );
 
 	/**
-	 * Registers a viewport with the Slate application so that specific messages can be routed directly to a viewport
-	 * This is for all viewports, there can be multiple of these as opposed to the singular "Game Viewport"
-	 * 
-	 * @param InViewport	The viewport to register.  Note there is currently only one registered viewport
-	 */
-	void RegisterViewport(TSharedRef<SViewport> InViewport);
-
-	/**
 	 * Returns the game viewport registered with the slate application
 	 *
 	 * @return registered game viewport
@@ -497,17 +426,6 @@ public:
 	 * to allow it to do a final cleanup before being closed.
 	 */
 	void UnregisterGameViewport();
-
-	/**
-	 * Register another window that may be visible in a non-top level way that still needs to be able to maintain focus paths.
-	 * Generally speaking - this is for Virtual Windows that are created to render in the 3D world slate content.
-	 */
-	void RegisterVirtualWindow(TSharedRef<SWindow> InWindow);
-
-	/**
-	 * Unregister a virtual window.
-	 */
-	void UnregisterVirtualWindow(TSharedRef<SWindow> InWindow);
 
 	/**
 	 * Flushes the render state of slate, releasing accesses and flushing all render commands.
@@ -579,15 +497,6 @@ public:
 	 */
 	void ClearKeyboardFocus(const EFocusCause ReasonFocusIsChanging = EFocusCause::SetDirectly);
 
-#if WITH_EDITOR
-	/**
-	* Gets a delegate that is invoked before the input key get process by slate widgets bubble system.
-	* Its read only and you cannot mark the input as handled.
-	*/
-	DECLARE_EVENT_OneParam(FSlateApplication, FOnApplicationPreInputKeyDownListener, const FKeyEvent&);
-	FOnApplicationPreInputKeyDownListener& OnApplicationPreInputKeyDownListener() { return OnApplicationPreInputKeyDownListenerEvent; }
-#endif //WITH_EDITOR
-
 	/**
 	 * Returns the current modifier keys state
 	 *
@@ -617,11 +526,9 @@ public:
 	/** returning platform-specific value designating window that captures mouse, or nullptr if mouse isn't captured */
 	virtual void* GetMouseCaptureWindow( void ) const;
 
-	/** Releases the mouse capture from whatever it currently is on - for all users for all pointers. */
-	void ReleaseMouseCapture();
 
-	/** Releases the mouse capture from whatever it currently is on for a particular user. */
-	void ReleaseMouseCaptureForUser(int32 UserIndex);
+	/** Releases the mouse capture from whatever it currently is on. */
+	void ReleaseMouseCapture();
 
 	/** @return The active modal window or nullptr if there is no modal window. */
 	TSharedPtr<SWindow> GetActiveModalWindow() const;
@@ -687,11 +594,6 @@ public:
 	 * @return True if there is a mouse device attached
 	 */
 	bool IsMouseAttached() const { return PlatformApplication.IsValid() ? PlatformApplication->IsMouseAttached() : false; }
-
-	/**
-	 * @return True if there is a gamepad attached
-	 */
-	bool IsGamepadAttached() const { return PlatformApplication.IsValid() ? PlatformApplication->IsGamepadAttached() : false; }
 
 	/**
 	 * Sets the widget reflector.
@@ -874,59 +776,12 @@ public:
 	 */
 	void ReleaseResourcesForLayoutCache(const ILayoutCache* LayoutCache);
 
-	/**
-	 * @return a handle for the existing or newly created virtual slate user.  This is handy when you need to create
-	 * virtual hardware users for slate components in the virtual world that may need to be interacted with with virtual hardware.
-	 */
-	TSharedRef<FSlateVirtualUser> FindOrCreateVirtualUser(int32 VirtualUserIndex);
-
-	/**
-	 * 
-	 */
-	void UnregisterUser(int32 UserIndex);
-
-	/**
-	 * Allows you do some operations for every registered user.
-	 */
-	void ForEachUser(TFunctionRef<void(FSlateUser*)> InPredicate, bool bIncludeVirtualUsers = false);
-
 protected:
-	/**
-	 * Register a user with Slate.  Normally this is unnecessary as Slate automatically adds
-	 * a user entry if it gets input from a controller for that index.  Might happen if the user
-	 * allocates the virtual user.
-	 */
-	void RegisterUser(TSharedRef<FSlateUser> User);
-
-	FORCEINLINE const FSlateUser* GetUser(int32 UserIndex) const
-	{
-		return UserIndex < Users.Num() ? Users[UserIndex].Get() : nullptr;
-	}
-
-	FORCEINLINE FSlateUser* GetUser(int32 UserIndex)
-	{
-		return UserIndex < Users.Num() ? Users[UserIndex].Get() : nullptr;
-	}
-
-	FORCEINLINE FSlateUser* GetOrCreateUser(int32 UserIndex)
-	{
-		if ( FSlateUser* User = GetUser(UserIndex) )
-		{
-			return User;
-		}
-
-		TSharedRef<FSlateUser> NewUser = MakeShareable(new FSlateUser(UserIndex, false));
-		RegisterUser(NewUser);
-
-		return &NewUser.Get();
-	}
 
 	friend class FAnalogCursor;
 	friend class FEventRouter;
 
-	virtual bool DoesWidgetHaveMouseCaptureByUser(const TSharedPtr<const SWidget> Widget, int32 UserIndex, TOptional<int32> PointerIndex) const override;
-	virtual bool DoesWidgetHaveMouseCapture(const TSharedPtr<const SWidget> Widget) const override;
-
+	virtual bool HasMouseCapture(const TSharedPtr<const SWidget> Widget) const override;
 	virtual TOptional<EFocusCause> HasUserFocus(const TSharedPtr<const SWidget> Widget, int32 UserIndex) const override;
 	virtual TOptional<EFocusCause> HasAnyUserFocus(const TSharedPtr<const SWidget> Widget) const override;
 	virtual bool IsWidgetDirectlyHovered(const TSharedPtr<const SWidget> Widget) const override;
@@ -1110,7 +965,7 @@ public:
 
 public:
 
-	void SetNavigationConfig( TSharedRef<FNavigationConfig> Config );
+	void SetNavigationConfig( FNavigationConfig&& Config );
 
 	/** Called when the slate application is being shut down. */
 	void OnShutdown();
@@ -1222,12 +1077,7 @@ public:
 
 	virtual bool FindPathToWidget( TSharedRef<const SWidget> InWidget, FWidgetPath& OutWidgetPath, EVisibility VisibilityFilter = EVisibility::Visible ) override
 	{
-		if ( !FSlateWindowHelper::FindPathToWidget(GetInteractiveTopLevelWindows(), InWidget, OutWidgetPath, VisibilityFilter) )
-		{
-			return FSlateWindowHelper::FindPathToWidget(SlateVirtualWindows, InWidget, OutWidgetPath, VisibilityFilter);
-		}
-
-		return true;
+		return FSlateWindowHelper::FindPathToWidget(GetInteractiveTopLevelWindows(), InWidget, OutWidgetPath, VisibilityFilter);
 	}
 
 	virtual const double GetCurrentTime() const override
@@ -1269,7 +1119,6 @@ public:
 	//~ Begin FSlateApplicationBase Interface
 
 	virtual bool HasAnyMouseCaptor() const override;
-	virtual bool HasUserMouseCapture(int32 UserIndex) const override;
 	virtual FSlateRect GetPreferredWorkArea() const override;
 	virtual bool HasFocusedDescendants( const TSharedRef<const SWidget>& Widget ) const override;
 	virtual bool HasUserFocusedDescendants(const TSharedRef< const SWidget >& Widget, int32 UserIndex) const override;
@@ -1286,9 +1135,6 @@ public:
 	virtual void SetAllUserFocus(const FWidgetPath& InFocusPath, const EFocusCause InCause) override;
 	virtual void SetAllUserFocusAllowingDescendantFocus(const FWidgetPath& InFocusPath, const EFocusCause InCause) override;
 
-	DECLARE_EVENT_OneParam(FSlateApplication, FApplicationActivationStateChangedEvent, const bool /*IsActive*/)
-	virtual FApplicationActivationStateChangedEvent& OnApplicationActivationStateChanged() { return ApplicationActivationStateChangedEvent; }
-
 public:
 
 	//~ Begin FGenericApplicationMessageHandler Interface
@@ -1298,20 +1144,16 @@ public:
 	virtual bool OnKeyDown( const int32 KeyCode, const uint32 CharacterCode, const bool IsRepeat ) override;
 	virtual bool OnKeyUp( const int32 KeyCode, const uint32 CharacterCode, const bool IsRepeat ) override;
 	virtual bool OnMouseDown( const TSharedPtr< FGenericWindow >& PlatformWindow, const EMouseButtons::Type Button ) override;
-	virtual bool OnMouseDown( const TSharedPtr< FGenericWindow >& PlatformWindow, const EMouseButtons::Type Button, const FVector2D CursorPos ) override;
 	virtual bool OnMouseUp( const EMouseButtons::Type Button ) override;
-	virtual bool OnMouseUp( const EMouseButtons::Type Button, const FVector2D CursorPos ) override;
 	virtual bool OnMouseDoubleClick( const TSharedPtr< FGenericWindow >& PlatformWindow, const EMouseButtons::Type Button ) override;
-	virtual bool OnMouseDoubleClick( const TSharedPtr< FGenericWindow >& PlatformWindow, const EMouseButtons::Type Button, const FVector2D CursorPos ) override;
 	virtual bool OnMouseWheel( const float Delta ) override;
-	virtual bool OnMouseWheel( const float Delta, const FVector2D CursorPos ) override;
 	virtual bool OnMouseMove() override;
 	virtual bool OnRawMouseMove( const int32 X, const int32 Y ) override;
 	virtual bool OnCursorSet() override;
 	virtual bool OnControllerAnalog( FGamepadKeyNames::Type KeyName, int32 ControllerId, float AnalogValue ) override;
 	virtual bool OnControllerButtonPressed( FGamepadKeyNames::Type KeyName, int32 ControllerId, bool IsRepeat ) override;
 	virtual bool OnControllerButtonReleased( FGamepadKeyNames::Type KeyName, int32 ControllerId, bool IsRepeat ) override;
-	virtual bool OnTouchGesture( EGestureEvent::Type GestureType, const FVector2D& Delta, float WheelDelta, bool bIsDirectionInvertedFromDevice ) override;
+	virtual bool OnTouchGesture( EGestureEvent::Type GestureType, const FVector2D& Delta, float WheelDelta ) override;
 	virtual bool OnTouchStarted( const TSharedPtr< FGenericWindow >& PlatformWindow, const FVector2D& Location, int32 TouchIndex, int32 ControllerId ) override;
 	virtual bool OnTouchMoved( const FVector2D& Location, int32 TouchIndex, int32 ControllerId ) override;
 	virtual bool OnTouchEnded( const FVector2D& Location, int32 TouchIndex, int32 ControllerId ) override;
@@ -1330,7 +1172,6 @@ public:
 	virtual void OnWindowClose( const TSharedRef< FGenericWindow >& PlatformWindow ) override;
 	virtual EDropEffect::Type OnDragEnterText( const TSharedRef< FGenericWindow >& Window, const FString& Text ) override;
 	virtual EDropEffect::Type OnDragEnterFiles( const TSharedRef< FGenericWindow >& Window, const TArray< FString >& Files ) override;
-	virtual EDropEffect::Type OnDragEnterExternal( const TSharedRef< FGenericWindow >& Window, const FString& Text, const TArray< FString >& Files ) override;
 
 	EDropEffect::Type OnDragEnter( const TSharedRef< SWindow >& Window, const TSharedRef<FExternalDragOperation>& DragDropOperation );
 
@@ -1356,10 +1197,8 @@ public:
 	 *
 	 * @param WidgetsUnderPointer	The path of widgets the event is routed to.
 	 * @param PointerEvent		The event data that is is routed to the widget path
-	 *
-	 * @return The reply from the event
 	 */
-	FReply RoutePointerUpEvent(FWidgetPath& WidgetsUnderPointer, FPointerEvent& PointerEvent);
+	void RoutePointerUpEvent(FWidgetPath& WidgetsUnderPointer, FPointerEvent& PointerEvent);
 
 	/**
 	 * Directly routes a pointer move event to the widgets in the specified widget path
@@ -1369,33 +1208,6 @@ public:
 	 * @param bIsSynthetic		Whether or not the move event is synthetic.  Synthetic pointer moves used simulate an event without the pointer actually moving 
 	 */
 	bool RoutePointerMoveEvent( const FWidgetPath& WidgetsUnderPointer, FPointerEvent& PointerEvent, bool bIsSynthetic );
-
-	/**
-	 * Directly routes a pointer double click event to the widgets in the specified widget path
-	 *
-	 * @param WidgetsUnderPointer	The path of widgets the event is routed to.
-	 * @param PointerEvent		The event data that is is routed to the widget path
-	 */
-	FReply RoutePointerDoubleClickEvent( FWidgetPath& WidgetsUnderPointer, FPointerEvent& PointerEvent );
-
-	/**
-	 * Directly routes a pointer mouse wheel or gesture event to the widgets in the specified widget path.
-	 * 
-	 * @param WidgetsUnderPointer	The path of widgets the event is routed to.
-	 * @param InWheelEvent			The event data that is is routed to the widget path
-	 * @param InGestureEvent		The event data that is is routed to the widget path
-	 */
-	FReply RouteMouseWheelOrGestureEvent(const FWidgetPath& WidgetsUnderPointer, const FPointerEvent& InWheelEvent, const FPointerEvent* InGestureEvent = nullptr);
-
-	/**
-	 * @return int user index that the keyboard is mapped to. -1 if the keyboard isn't mapped
-	 */
-	int32 GetUserIndexForKeyboard() const;
-
-	/** 
-	 * @return int user index that this controller is mapped to. -1 if the controller isn't mapped
-	 */
-	int32 GetUserIndexForController(int32 ControllerId) const;
 
 private:
 
@@ -1414,6 +1226,16 @@ private:
 	 * @return if a new widget was navigated too
 	 */
 	bool AttemptNavigation(const FNavigationEvent& NavigationEvent, const FNavigationReply& NavigationReply, const FArrangedWidget& BoundaryWidget);
+
+	/**
+	 * @return int user index that the keyboard is mapped to. -1 if the keyboard isn't mapped
+	 */
+	int32 GetUserIndexForKeyboard() const;
+
+	/** 
+	 * @return int user index that this controller is mapped to. -1 if the controller isn't mapped
+	 */
+	int32 GetUserIndexForController(int32 ControllerId) const;
 
 private:
 
@@ -1510,9 +1332,6 @@ private:
 	/** All the top-level windows owned by this application; they are tracked here in a platform-agnostic way. */
 	TArray< TSharedRef<SWindow> > SlateWindows;
 
-	/** All the virtual windows, which can be anywhere - likely inside the virtual world. */
-	TArray< TSharedRef<SWindow> > SlateVirtualWindows;
-
 	/** The currently active slate window that is a top-level window (full fledged window; not a menu or tooltip)*/
 	TWeakPtr<SWindow> ActiveTopLevelWindow;
 	
@@ -1543,17 +1362,9 @@ private:
 		bool HasCapture() const;
 
 		/**
-		* Returns whether or not the particular UserIndex has capture.
-		*/
-		bool HasCaptureForUser(uint32 UserIndex) const;
-
-		/**
 		 * Returns whether or not the particular PointerIndex has capture.
 		 */
 		bool HasCaptureForPointerIndex(uint32 UserIndex, uint32 PointerIndex) const;
-
-		bool DoesWidgetHaveMouseCapture(const TSharedPtr<const SWidget> Widget) const;
-		bool DoesWidgetHaveMouseCaptureByUser(const TSharedPtr<const SWidget> Widget, int32 UserIndex, TOptional<int32> PointerIndex) const;
 
 		/**
 		 * Sets a new mouse captor widget for a specific pointer index, invalidating the previous one if any and calling
@@ -1570,9 +1381,6 @@ private:
 
 		/** Invalidates a specific mouse captor. Calls OnMouseCaptureLost() on the specific mouse captor if one exists */
 		void InvalidateCaptureForPointer(uint32 UserIndex, uint32 PointIndex);
-
-		/** Invalidates a specific mouse captor. Calls OnMouseCaptureLost() on the specific mouse captor if one exists */
-		void InvalidateCaptureForUser(uint32 UserIndex);
 
 		/**
 		 * Retrieves a resolved FWidgetPath for a specific pointer index, if possible.
@@ -1626,19 +1434,19 @@ private:
 	/** The hit-test radius of the cursor. Default value is 0. */
 	float CursorRadius;
 
-	/**
-	 * All users currently registered with Slate.  Normally this is 1, but in a 
-	 * situation where multiple users are providing input you need to track ui state
-	 * of each user separately.
-	 */
-	TArray<TSharedPtr<FSlateUser>> Users;
 
-	/**
-	 * Weak pointers to the allocated virtual users.
-	 */
-	TArray<TWeakPtr<FSlateVirtualUser>> VirtualUsers;
+	struct FUserFocusEntry
+	{
+		/** A weak path to the widget currently focused by a user, if any. */
+		FWeakWidgetPath WidgetPath;
+		/** Reason a widget was focused by a user, if any. */
+		EFocusCause FocusCause;
+		/** If we should show this focus */
+		bool ShowFocus;
+	};
 
-	typedef FSlateUser::FUserFocusEntry FUserFocusEntry;
+	/** State of focus for all users */
+	FUserFocusEntry UserFocusEntries[SlateApplicationDefs::MaxUsers];
 
 	/**
 	 * Application throttling
@@ -1846,7 +1654,6 @@ private:
 	/** The icon to use on application windows */
 	const FSlateBrush *AppIcon;
 
-	FApplicationActivationStateChangedEvent ApplicationActivationStateChangedEvent;
 	//
 	// Hittest 2.0
 	//
@@ -1876,7 +1683,7 @@ private:
 	TArray< TSharedPtr<FCacheElementPools> > ReleasedCachedElementLists;
 
 	/** Configured fkeys to control navigation */
-	TSharedRef<FNavigationConfig> NavigationConfig;
+	FNavigationConfig NavigationConfig;
 
 	/** Delegate for pre slate tick */
 	FSlateTickEvent PreTickEvent;
@@ -1886,12 +1693,4 @@ private:
 
 	/** Critical section to avoid multiple threads calling Slate Tick when we're synchronizing between the Slate Loading Thread and the Game Thread. */
 	FCriticalSection SlateTickCriticalSection;
-
-#if WITH_EDITOR
-	/**
-	* Delegate that is invoked before the input key get process by slate widgets bubble system.
-	* User Function cannot mark the input as handled.
-	*/
-	FOnApplicationPreInputKeyDownListener OnApplicationPreInputKeyDownListenerEvent;
-#endif // WITH_EDITOR
 };

@@ -90,14 +90,11 @@ class UMaterialExpressionMaterialFunctionCall : public UMaterialExpression
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR
 	virtual void PostLoad() override;
-	virtual bool NeedsLoadForClient() const override;
 	//~ End UObject Interface.
 
 	//~ Begin UMaterialExpression Interface
-#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
-#endif
 	virtual const TArray<FExpressionInput*> GetInputs() override;
 	virtual FExpressionInput* GetInput(int32 InputIndex) override;
 	virtual FString GetInputName(int32 InputIndex) const override;
@@ -106,16 +103,15 @@ class UMaterialExpressionMaterialFunctionCall : public UMaterialExpression
 	virtual FString GetDescription() const override;
 	virtual void GetConnectorToolTip(int32 InputIndex, int32 OutputIndex, TArray<FString>& OutToolTip) override;
 	virtual void GetExpressionToolTip(TArray<FString>& OutToolTip) override;
-#endif // WITH_EDITOR
+#endif
 	virtual bool MatchesSearchQuery( const TCHAR* SearchQuery ) override;
-#if WITH_EDITOR
 	virtual bool IsResultMaterialAttributes(int32 OutputIndex) override;
+#if WITH_EDITOR
 	virtual uint32 GetInputType(int32 InputIndex) override;
 #endif // WITH_EDITOR
 	//~ End UMaterialExpression Interface
 
 
-#if WITH_EDITOR
 	/** 
 	 * Set a new material function, given an old function so that links can be passed over if the name matches. 
 	 *
@@ -126,7 +122,6 @@ class UMaterialExpressionMaterialFunctionCall : public UMaterialExpression
 	 *	@return									true if setting the function was a success, false if it failed.
 	 */
 	ENGINE_API bool SetMaterialFunction(UMaterialFunction* ThisFunctionResource, UMaterialFunction* OldFunctionResource, UMaterialFunction* NewResource);
-#endif // WITH_EDITOR
 
 	/** 
 	 * Update FunctionInputs and FunctionOutputs from the MaterialFunction.  
@@ -136,7 +131,6 @@ class UMaterialExpressionMaterialFunctionCall : public UMaterialExpression
 
 private:
 	
-#if WITH_EDITOR
 	/** Helper that fixes up expression links where possible. */
 	void FixupReferencingExpressions(
 		const TArray<FFunctionExpressionOutput>& NewOutputs,
@@ -144,7 +138,6 @@ private:
 		TArray<UMaterialExpression*>& Expressions, 
 		TArray<FExpressionInput*>& MaterialInputs,
 		bool bMatchByName);
-#endif // WITH_EDITOR
 };
 
 

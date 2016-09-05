@@ -27,12 +27,6 @@ public:
 	/** Destructor */
 	~FMetalCommandList(void);
 	
-	/**
-	 * Command buffer failure reporting function.
-	 * @param CompletedBuffer The buffer to check for failure.
-	 */
-	static void HandleMetalCommandBufferFailure(id <MTLCommandBuffer> CompletedBuffer);
-	
 #pragma mark - Public Command List Mutators -
 	
 	/** 
@@ -50,16 +44,16 @@ public:
 	 */
 	void Submit(uint32 Index, uint32 Count);
 	
-#pragma mark - Public Command List Accessors -
+	/** Called by the command-queue once all the buffers have been scheduled for execution. */
+	void OnScheduled(void);
 	
-	/**
-	 * True iff the command-list submits immediately to the command-queue, false if it performs any buffering.
-	 * @returns True iff the command-list submits immediately to the command-queue, false if it performs any buffering.
-	 */
-	bool IsImmediate(void) const { return bImmediate; }
+#pragma mark - Public Command List Accessors -
 
-	/** @returns The command queue to which this command-list submits command-buffers. */
-	FMetalCommandQueue& GetCommandQueue(void) const { return CommandQueue; }
+	/**
+	* Accessor to the internal array of submitted command buffers waiting for execution - called by the Command Queue.
+	* @returns The internal array of submitted command buffers waiting for scheduling.
+	*/
+	NSArray<id<MTLCommandBuffer>>* GetCommandBuffers() const;
 	
 private:
 #pragma mark - Private Member Variables -

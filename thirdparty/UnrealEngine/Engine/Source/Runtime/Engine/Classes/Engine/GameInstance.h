@@ -26,16 +26,6 @@ namespace GameInstanceState
 class FOnlineSessionSearchResult;
 
 /**
- * Notification that the client is about to travel to a new URL
- *
- * @param PendingURL the travel URL
- * @param TravelType type of travel that will occur (absolute, relative, etc)
- * @param bIsSeamlessTravel is traveling seamlessly
- */
-DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPreClientTravel, const FString& /*PendingURL*/, ETravelType /*TravelType*/, bool /*bIsSeamlessTravel*/);
-typedef FOnPreClientTravel::FDelegate FOnPreClientTravelDelegate;
-
-/**
  * GameInstance: high-level manager object for an instance of the running game.
  * Spawned at game creation and not destroyed until game instance is shut down.
  * Running as a standalone game, there will be one of these.
@@ -57,12 +47,12 @@ protected:
 	UPROPERTY()
 	TArray<ULocalPlayer*> LocalPlayers;		// List of locally participating players in this game instance
 	
+	// Delegate handle that stores delegate for when an invite is accepted by a user
+	FDelegateHandle OnSessionUserInviteAcceptedDelegateHandle;
+	
 	/** Class to manage online services */
 	UPROPERTY()
 	class UOnlineSession* OnlineSession;
-
-	/** Listeners to PreClientTravel call */
-	FOnPreClientTravel NotifyPreClientTravelDelegates;
 
 public:
 
@@ -194,6 +184,12 @@ public:
 
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
+    /** Delegate that is called when a user has accepted an invite. */
+	void HandleSessionUserInviteAccepted(const bool bWasSuccess, const int32 ControllerId, TSharedPtr< const FUniqueNetId > UserId, const FOnlineSessionSearchResult & InviteResult);
+	
+	/** Overridable implementation of HandleSessionUserInviteAccepted, which does nothing but call this function */
+	virtual void OnSessionUserInviteAccepted(const bool bWasSuccess, const int32 ControllerId, TSharedPtr< const FUniqueNetId > UserId, const FOnlineSessionSearchResult & InviteResult);
+
 	inline FTimerManager& GetTimerManager() const { return *TimerManager; }
 
 	inline FLatentActionManager& GetLatentActionManager() const { return *LatentActionManager;  }
@@ -226,14 +222,6 @@ public:
 	 */
 	virtual void HandleGameNetControlMessage(class UNetConnection* Connection, uint8 MessageByte, const FString& MessageStr)
 	{}
-	
-	/** return true to delay an otherwise ready-to-join PendingNetGame performing LoadMap() and finishing up
-	 * useful to wait for content downloads, etc
-	 */
-	virtual bool DelayPendingNetGameTravel()
-	{
-		return false;
-	}
 
 	FTimerManager* TimerManager;
 	FLatentActionManager* LatentActionManager;
@@ -246,9 +234,4 @@ public:
 
 	/** Returns true if this instance is for a dedicated server world */
 	bool IsDedicatedServerInstance() const;
-
-	/** Broadcast a notification that travel is occurring */
-	void NotifyPreClientTravel(const FString& PendingURL, ETravelType TravelType, bool bIsSeamlessTravel);
-	/** @return delegate fired when client travel occurs */
-	FOnPreClientTravel& OnNotifyPreClientTravel() { return NotifyPreClientTravelDelegates; }
 };

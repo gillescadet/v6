@@ -11,7 +11,6 @@
 #include "ShadowMap.h"
 #include "Components/ModelComponent.h"
 #include "PhysicsEngine/PhysicsSettings.h"
-#include "PhysicsEngine/BodySetup.h"
 
 FModelElement::FModelElement(UModelComponent* InComponent,UMaterialInterface* InMaterial):
 	Component(InComponent),
@@ -273,12 +272,6 @@ SIZE_T UModelComponent::GetResourceSize(EResourceSizeMode::Type Mode)
 }
 
 
-bool UModelComponent::IsNameStableForNetworking() const
-{
-	// UModelComponent is always persistent for the duration of a game session, and so can be considered to have a stable name
-	return true;
-}
-
 void UModelComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMaterials) const
 {
 	for( int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex )
@@ -323,7 +316,7 @@ void UModelComponent::SelectAllSurfaces()
 }
 #endif // WITH_EDITOR
 
-void UModelComponent::GetStreamingTextureInfo(FStreamingTextureLevelContext& LevelContext, TArray<FStreamingTexturePrimitiveInfo>& OutStreamingTextures) const
+void UModelComponent::GetStreamingTextureInfo(TArray<FStreamingTexturePrimitiveInfo>& OutStreamingTextures) const
 {
 	if( Model )
 	{
@@ -379,13 +372,10 @@ void UModelComponent::GetStreamingTextureInfo(FStreamingTextureLevelContext& Lev
 				// Add each texture to the output with the appropriate parameters.
 				for(int32 TextureIndex = 0;TextureIndex < Textures.Num();TextureIndex++)
 				{
-					UTexture2D* Texture2D = Cast<UTexture2D>(Textures[TextureIndex]);
-					if (!Texture2D) continue;
-
 					FStreamingTexturePrimitiveInfo& StreamingTexture = *new(OutStreamingTextures) FStreamingTexturePrimitiveInfo;
 					StreamingTexture.Bounds = SurfaceBoundingSphere;
 					StreamingTexture.TexelFactor = TexelFactor;
-					StreamingTexture.Texture = Texture2D;
+					StreamingTexture.Texture = Textures[TextureIndex];
 				}
 			}
 		}

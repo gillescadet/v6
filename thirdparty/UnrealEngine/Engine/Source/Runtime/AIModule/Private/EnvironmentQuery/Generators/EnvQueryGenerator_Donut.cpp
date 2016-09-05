@@ -18,7 +18,6 @@ UEnvQueryGenerator_Donut::UEnvQueryGenerator_Donut(const FObjectInitializer& Obj
 	ArcDirection.LineFrom = UEnvQueryContext_Querier::StaticClass();
 	ArcDirection.Rotation = UEnvQueryContext_Querier::StaticClass();
 	ArcAngle.DefaultValue = 360.f;
-	bUseSpiralPattern = false;
 
 	ProjectionData.TraceMode = EEnvQueryTrace::None;
 }
@@ -111,53 +110,21 @@ void UEnvQueryGenerator_Donut::GenerateItems(FEnvQueryInstance& QueryInstance) c
 	TArray<FNavLocation> Points;
 	Points.Reserve(NumPoints * NumRings);
 
-	if (!bUseSpiralPattern)
+	for (int32 SectionIdx = 0; SectionIdx < NumPoints; SectionIdx++, SectionAngle += AngleDelta)
 	{
-		for (int32 SectionIdx = 0; SectionIdx < NumPoints; SectionIdx++, SectionAngle += AngleDelta)
+		if (IsAngleAllowed(SectionAngle, ArcBisectDeg, ArcAngleDeg, bDefineArc))
 		{
-			if (IsAngleAllowed(SectionAngle, ArcBisectDeg, ArcAngleDeg, bDefineArc))
+			const float SinValue = FMath::Sin(SectionAngle);
+			const float CosValue = FMath::Cos(SectionAngle);
+
+			float RingRadius = InnerRadiusValue;
+			for (int32 RingIdx = 0; RingIdx < NumRings; RingIdx++, RingRadius += RadiusDelta)
 			{
-				const float SinValue = FMath::Sin(SectionAngle);
-				const float CosValue = FMath::Cos(SectionAngle);
-
-				float RingRadius = InnerRadiusValue;
-				for (int32 RingIdx = 0; RingIdx < NumRings; RingIdx++, RingRadius += RadiusDelta)
+				const FVector RingPos(RingRadius * CosValue, RingRadius * SinValue, 0.0f);
+				for (int32 ContextIdx = 0; ContextIdx < CenterPoints.Num(); ContextIdx++)
 				{
-					const FVector RingPos(RingRadius * CosValue, RingRadius * SinValue, 0.0f);
-					for (int32 ContextIdx = 0; ContextIdx < CenterPoints.Num(); ContextIdx++)
-					{
-						const FNavLocation PointPos = FNavLocation(CenterPoints[ContextIdx] + RingPos);
-						Points.Add(PointPos);
-					}
-				}
-			}
-		}
-	}
-	else
-	{	// In order to spiral, we need to change the angle for each ring as well as each spoke.  By changing it as a
-		// fraction of the SectionAngle, we guarantee that the offset won't cross to the starting point of the next
-		// spoke.
-		const float RingAngleDelta = AngleDelta / NumRings;
-		float RingRadius = InnerRadiusValue;
-		float CurrentRingAngleDelta = 0.f;
-
-		// So, start with ring angle and then add section angle.
-		for (int32 RingIdx = 0; RingIdx < NumRings; RingIdx++, RingRadius += RadiusDelta, CurrentRingAngleDelta += RingAngleDelta)
-		{
-			for (int32 SectionIdx = 0; SectionIdx < NumPoints; SectionIdx++, SectionAngle += AngleDelta)
-			{
-				float RingSectionAngle = CurrentRingAngleDelta + SectionAngle;
-				if (IsAngleAllowed(RingSectionAngle, ArcBisectDeg, ArcAngleDeg, bDefineArc))
-				{
-					const float SinValue = FMath::Sin(RingSectionAngle);
-					const float CosValue = FMath::Cos(RingSectionAngle);
-
-					const FVector RingPos(RingRadius * CosValue, RingRadius * SinValue, 0.0f);
-					for (int32 ContextIdx = 0; ContextIdx < CenterPoints.Num(); ContextIdx++)
-					{
-						const FNavLocation PointPos = FNavLocation(CenterPoints[ContextIdx] + RingPos);
-						Points.Add(PointPos);
-					}
+					const FNavLocation PointPos = FNavLocation(CenterPoints[ContextIdx] + RingPos);
+					Points.Add(PointPos);
 				}
 			}
 		}

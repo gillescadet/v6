@@ -1,8 +1,7 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 /*=============================================================================
-	OnlineSession.cpp: Online session related implementations
-	(creating/joining/leaving/destroying sessions)
+	GameSession.cpp: GameSession code.
 =============================================================================*/
 
 #include "EnginePrivate.h"

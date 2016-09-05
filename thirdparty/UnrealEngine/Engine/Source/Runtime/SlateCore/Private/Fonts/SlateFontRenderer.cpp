@@ -211,55 +211,48 @@ FFreeTypeFaceGlyphData FSlateFontRenderer::GetFontFaceForCharacter(const FFontDa
 
 #endif // WITH_FREETYPE
 
-bool FSlateFontRenderer::GetRenderData(const FFontData& InFontData, const int32 InSize, TCHAR Char, FCharacterRenderData& OutRenderData, const float InScale, EFontFallback* OutFallbackLevel) const
+void FSlateFontRenderer::GetRenderData(const FFontData& InFontData, const int32 InSize, TCHAR Char, FCharacterRenderData& OutRenderData, const float InScale, EFontFallback* OutFallbackLevel) const
 {
 #if WITH_FREETYPE
 	FFreeTypeFaceGlyphData FaceGlyphData = GetFontFaceForCharacter(InFontData, Char, EFontFallback::FF_Max);
-	if (FaceGlyphData.FaceAndMemory.IsValid())
+
+	check(FaceGlyphData.FaceAndMemory->IsValid());
+
+	if (OutFallbackLevel)
 	{
-		check(FaceGlyphData.FaceAndMemory->IsValid());
-
-		if (OutFallbackLevel)
-		{
-			*OutFallbackLevel = FaceGlyphData.CharFallbackLevel;
-		}
-
-		SlateFontRendererUtils::AppendGlyphFlags(InFontData, FaceGlyphData.GlyphFlags);
-
-		FT_Error Error = FreeTypeUtils::LoadGlyph(FaceGlyphData.FaceAndMemory->GetFace(), FaceGlyphData.GlyphIndex, FaceGlyphData.GlyphFlags, InSize, InScale);
-		check(Error == 0);
-
-		OutRenderData.Char = Char;
-		return GetRenderData(FaceGlyphData, InScale, OutRenderData);
+		*OutFallbackLevel = FaceGlyphData.CharFallbackLevel;
 	}
+
+	SlateFontRendererUtils::AppendGlyphFlags(InFontData, FaceGlyphData.GlyphFlags);
+
+	FT_Error Error = FreeTypeUtils::LoadGlyph(FaceGlyphData.FaceAndMemory->GetFace(), FaceGlyphData.GlyphIndex, FaceGlyphData.GlyphFlags, InSize, InScale);
+	check(Error == 0);
+
+	OutRenderData.Char = Char;
+	GetRenderData(FaceGlyphData, InScale, OutRenderData);
 #endif // WITH_FREETYPE
-	return false;
 }
 
-bool FSlateFontRenderer::GetRenderData(const FShapedGlyphEntry& InShapedGlyph, FCharacterRenderData& OutRenderData) const
+void FSlateFontRenderer::GetRenderData(const FShapedGlyphEntry& InShapedGlyph, FCharacterRenderData& OutRenderData) const
 {
 #if WITH_FREETYPE
 	FFreeTypeFaceGlyphData FaceGlyphData;
 	FaceGlyphData.FaceAndMemory = InShapedGlyph.FontFaceData->FontFace.Pin();
 	FaceGlyphData.GlyphIndex = InShapedGlyph.GlyphIndex;
 	FaceGlyphData.GlyphFlags = InShapedGlyph.FontFaceData->GlyphFlags;
-	if (FaceGlyphData.FaceAndMemory.IsValid())
-	{
-		check(FaceGlyphData.FaceAndMemory->IsValid());
+	check(FaceGlyphData.FaceAndMemory.IsValid());
 
-		FT_Error Error = FreeTypeUtils::LoadGlyph(FaceGlyphData.FaceAndMemory->GetFace(), FaceGlyphData.GlyphIndex, FaceGlyphData.GlyphFlags, InShapedGlyph.FontFaceData->FontSize, InShapedGlyph.FontFaceData->FontScale);
-		check(Error == 0);
+	FT_Error Error = FreeTypeUtils::LoadGlyph(FaceGlyphData.FaceAndMemory->GetFace(), FaceGlyphData.GlyphIndex, FaceGlyphData.GlyphFlags, InShapedGlyph.FontFaceData->FontSize, InShapedGlyph.FontFaceData->FontScale);
+	check(Error == 0);
 
-		OutRenderData.Char = 0;
-		return GetRenderData(FaceGlyphData, InShapedGlyph.FontFaceData->FontScale, OutRenderData);
-	}
+	OutRenderData.Char = 0;
+	GetRenderData(FaceGlyphData, InShapedGlyph.FontFaceData->FontScale, OutRenderData);
 #endif // WITH_FREETYPE
-	return false;
 }
 
 #if WITH_FREETYPE
 
-bool FSlateFontRenderer::GetRenderData(const FFreeTypeFaceGlyphData& InFaceGlyphData, const float InScale, FCharacterRenderData& OutRenderData) const
+void FSlateFontRenderer::GetRenderData(const FFreeTypeFaceGlyphData& InFaceGlyphData, const float InScale, FCharacterRenderData& OutRenderData) const
 {
 	FT_Face Face = InFaceGlyphData.FaceAndMemory->GetFace();
 
@@ -339,8 +332,6 @@ bool FSlateFontRenderer::GetRenderData(const FFreeTypeFaceGlyphData& InFaceGlyph
 	{
 		FT_Bitmap_Done(FTLibrary->GetLibrary(), Bitmap);
 	}
-
-	return true;
 }
 
 FT_Face FSlateFontRenderer::GetFontFace(const FFontData& InFontData) const

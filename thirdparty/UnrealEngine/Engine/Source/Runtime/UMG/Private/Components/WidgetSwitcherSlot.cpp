@@ -31,15 +31,6 @@ void UWidgetSwitcherSlot::BuildSlot(TSharedRef<SWidgetSwitcher> WidgetSwitcher)
 		];
 }
 
-void UWidgetSwitcherSlot::SetContent(UWidget* NewContent)
-{
-	Content = NewContent;
-	if (Slot)
-	{
-		Slot->AttachWidget(NewContent ? NewContent->TakeWidget() : SNullWidget::NullWidget);
-	}
-}
-
 void UWidgetSwitcherSlot::SetPadding(FMargin InPadding)
 {
 	Padding = InPadding;

@@ -1,14 +1,17 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
-#include "Core/BlockStructure.h"
-#include "FileAttributesParser.h"
+#if WITH_BUILDPATCHGENERATION
+
+#include "DataScanner.h"
 #include "BuildStreamer.h"
 
 namespace BuildPatchServices
 {
 	struct FManifestDetails
 	{
+		// Whether this manifest is describing nochunks build
+		bool bIsFileData;
 		// The ID of the app of this build
 		uint32 AppId;
 		// The name of the app of this build
@@ -31,20 +34,21 @@ namespace BuildPatchServices
 		TMap<FString, FFileAttributes> FileAttributesMap;
 	};
 
-	class IManifestBuilder
+	class FManifestBuilder
 	{
 	public:
-		virtual void AddChunkMatch(const FGuid& ChunkGuid, const FBlockStructure& Structure) = 0;
-		virtual bool FinalizeData(const TArray<FFileSpan>& FileSpans, TArray<FChunkInfoData> ChunkInfo) = 0;
-		virtual bool SaveToFile(const FString& Filename) = 0;
+		virtual void AddDataScanner(FDataScannerRef Scanner) = 0;
+		virtual void SaveToFile(const FString& Filename) = 0;
 	};
 
-	typedef TSharedRef<IManifestBuilder> IManifestBuilderRef;
-	typedef TSharedPtr<IManifestBuilder> IManifestBuilderPtr;
+	typedef TSharedRef<FManifestBuilder, ESPMode::ThreadSafe> FManifestBuilderRef;
+	typedef TSharedPtr<FManifestBuilder, ESPMode::ThreadSafe> FManifestBuilderPtr;
 
 	class FManifestBuilderFactory
 	{
 	public:
-		static IManifestBuilderRef Create(const FManifestDetails& Details);
+		static FManifestBuilderRef Create(const FManifestDetails& Details, const FBuildStreamerRef& BuildStreamer);
 	};
 }
+
+#endif

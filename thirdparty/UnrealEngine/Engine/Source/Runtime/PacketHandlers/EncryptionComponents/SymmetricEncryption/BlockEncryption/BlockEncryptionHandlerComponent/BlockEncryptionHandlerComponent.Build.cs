@@ -20,7 +20,7 @@ public class BlockEncryptionHandlerComponent : ModuleRules
         if ((Target.Platform == UnrealTargetPlatform.Win64) ||
         (Target.Platform == UnrealTargetPlatform.Win32))
         {
-            AddEngineThirdPartyPrivateStaticDependencies(Target,
+            AddThirdPartyPrivateStaticDependencies(Target,
                 "CryptoPP"
                 );
         }

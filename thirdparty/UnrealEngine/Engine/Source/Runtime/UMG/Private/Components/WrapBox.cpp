@@ -28,21 +28,21 @@ UClass* UWrapBox::GetSlotClass() const
 	return UWrapBoxSlot::StaticClass();
 }
 
-void UWrapBox::OnSlotAdded(UPanelSlot* InSlot)
+void UWrapBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyWrapBox.IsValid() )
 	{
-		CastChecked<UWrapBoxSlot>(InSlot)->BuildSlot(MyWrapBox.ToSharedRef());
+		Cast<UWrapBoxSlot>(Slot)->BuildSlot(MyWrapBox.ToSharedRef());
 	}
 }
 
-void UWrapBox::OnSlotRemoved(UPanelSlot* InSlot)
+void UWrapBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyWrapBox.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyWrapBox->RemoveSlot(Widget.ToSharedRef());
@@ -60,9 +60,9 @@ TSharedRef<SWidget> UWrapBox::RebuildWidget()
 	MyWrapBox = SNew(SWrapBox)
 		.UseAllottedWidth(true);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UWrapBoxSlot* TypedSlot = Cast<UWrapBoxSlot>(PanelSlot) )
+		if ( UWrapBoxSlot* TypedSlot = Cast<UWrapBoxSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyWrapBox.ToSharedRef());
@@ -90,6 +90,11 @@ void UWrapBox::SetInnerSlotPadding(FVector2D InPadding)
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UWrapBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.WrapBox");
+}
 
 const FText UWrapBox::GetPaletteCategory()
 {

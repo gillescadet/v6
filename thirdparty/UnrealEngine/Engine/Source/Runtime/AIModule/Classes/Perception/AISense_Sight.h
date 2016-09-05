@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "Engine/EngineTypes.h"
 #include "Perception/AIPerceptionSystem.h"
 #include "Perception/AISense.h"
 #include "AISense_Sight.generated.h"
@@ -153,8 +152,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AI Perception", config)
 	float SightLimitQueryImportance;
 
-	ECollisionChannel DefaultSightCollisionChannel;
-
 public:
 
 	virtual void PostInitProperties() override;
@@ -193,4 +190,14 @@ protected:
 	FORCEINLINE void SortQueries() { SightQueryQueue.Sort(FAISightQuery::FSortPredicate()); }
 
 	float CalcQueryImportance(const FPerceptionListener& Listener, const FVector& TargetLocation, const float SightRadiusSq) const;
+
+public:
+#if !UE_BUILD_SHIPPING
+	//----------------------------------------------------------------------//
+	// DEBUG
+	//----------------------------------------------------------------------//
+	FString GetDebugLegend() const override;
+	static FColor GetDebugSightRangeColor() { return FColor::Green; }
+	static FColor GetDebugLoseSightColor() { return FColorList::NeonPink; }
+#endif // !UE_BUILD_SHIPPING
 };

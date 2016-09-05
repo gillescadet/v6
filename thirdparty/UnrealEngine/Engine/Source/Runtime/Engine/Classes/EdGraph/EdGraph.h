@@ -69,11 +69,7 @@ class ENGINE_API UEdGraph : public UObject
 	UPROPERTY()
 	uint32 bEditable:1;
 
-	/** 
-		If true, graph can be deleted from the whatever container it is in. For FunctionGraphs
-		this flag is reset to false on load (unless the function is the construction script or
-		AnimGraph)
-	*/
+	/** If true, graph can be deleted from the whatever container it is in */
 	UPROPERTY()
 	uint32 bAllowDeletion:1;
 

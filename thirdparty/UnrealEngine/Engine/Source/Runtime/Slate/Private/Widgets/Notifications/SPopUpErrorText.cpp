@@ -13,13 +13,11 @@ void SPopupErrorText::Construct( const FArguments& InArgs )
 		[
 			SAssignNew( HasErrorSymbol, SErrorText )
 			.ErrorText(NSLOCTEXT("UnrealEd", "Error", "!"))
-			.Font( InArgs._Font )
 		]
 		.MenuPlacement(MenuPlacement_BelowAnchor)
 		.MenuContent()
 		[
 			SAssignNew( ErrorText, SErrorText )
-			.Font( InArgs._Font )
 		]
 	);
 }

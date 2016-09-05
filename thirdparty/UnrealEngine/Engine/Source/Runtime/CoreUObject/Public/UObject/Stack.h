@@ -46,7 +46,6 @@ enum EPropertyType
 	CPT_AssetObjectReference,
 	CPT_Double,
 	CPT_Map,
-	CPT_Set,
 
 	// when you add new property types, make sure you add the corresponding entry
 	// in the PropertyTypeToNameMap array in ScriptCompiler.cpp!!
@@ -135,16 +134,9 @@ public:
 
 	COREUOBJECT_API virtual void Serialize( const TCHAR* V, ELogVerbosity::Type Verbosity, const class FName& Category ) override;
 	
-	COREUOBJECT_API static void KismetExecutionMessage(const TCHAR* Message, ELogVerbosity::Type Verbosity, FName WarningId = FName());
+	COREUOBJECT_API static void KismetExecutionMessage(const TCHAR* Message, ELogVerbosity::Type Verbosity);
 
-	/** Returns the current script op code */
-	const uint8 PeekCode() const { return *Code; }
-
-	/** Skips over the number of op codes specified by NumOps */
-	void SkipCode(const int32 NumOps) { Code += NumOps; }
-
-	template<typename TNumericType>
-	TNumericType ReadInt();
+	int32 ReadInt();
 	float ReadFloat();
 	FName ReadName();
 	UObject* ReadObject();
@@ -173,14 +165,9 @@ public:
 	VariableSizeType ReadVariableSize(UProperty** ExpressionField);
 
 	/**
- 	 * This will return the StackTrace of the current callstack from the last native entry point
+ 	 * This will return the StackTrace of the current callstack from script land
 	 **/
 	COREUOBJECT_API FString GetStackTrace() const;
-
-	/**
-	* This will return the StackTrace of the all script frames currently active
-	**/
-	COREUOBJECT_API static FString GetScriptCallstack();
 };
 
 
@@ -207,16 +194,15 @@ inline FFrame::FFrame( UObject* InObject, UFunction* InNode, void* InLocals, FFr
 #endif
 }
 
-template<typename TNumericType>
-inline TNumericType FFrame::ReadInt()
+inline int32 FFrame::ReadInt()
 {
-	TNumericType Result;
+	int32 Result;
 #ifdef REQUIRES_ALIGNED_INT_ACCESS
-	FMemory::Memcpy(&Result, Code, sizeof(TNumericType));
+	FMemory::Memcpy(&Result, Code, sizeof(int32));
 #else
-	Result = *(TNumericType*)Code;
+	Result = *(int32*)Code;
 #endif
-	Code += sizeof(TNumericType);
+	Code += sizeof(int32);
 	return Result;
 }
 

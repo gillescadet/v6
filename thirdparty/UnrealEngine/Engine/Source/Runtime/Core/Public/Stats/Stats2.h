@@ -1163,11 +1163,11 @@ private:
 	};
 
 	/** Lock free pool of FThreadStats instances. */
-	TLockFreePointerListUnordered<FThreadStats, 0> Pool;
+	TLockFreePointerListUnordered<FThreadStats> Pool;
 
 public:
 	/** Default constructor. */
-	CORE_API FThreadStatsPool();
+	FThreadStatsPool();
 
 	/** Singleton accessor. */
 	CORE_API static FThreadStatsPool& Get()
@@ -1556,30 +1556,8 @@ public:
 	}
 };
 
-class FSimpleScopeSecondsStat
-{
-public:
-
-	FSimpleScopeSecondsStat(TStatId InStatId)
-		: StartTime(FPlatformTime::Seconds())
-		, StatId(InStatId)
-	{
-
-	}
-
-	virtual ~FSimpleScopeSecondsStat()
-	{
-		double TotalTime = FPlatformTime::Seconds() - StartTime;
-		FThreadStats::AddMessage(StatId.GetName(), EStatOperation::Add, TotalTime);
-	}
-
-private:
-
-	double StartTime;
-	TStatId StatId;
-};
-
 /** Manages startup messages, usually to update the metadata. */
+// @TODO yrx 2014-11-18 Eventually add startup messages for memory profiling?
 class FStartupMessages
 {
 	friend class FStatsThread;
@@ -1860,22 +1838,31 @@ struct FStat_##StatName\
 #define DECLARE_STATS_GROUP_MAYBE_COMPILED_OUT(GroupDesc, GroupId, GroupCat, CompileIn) \
 	DECLARE_STAT_GROUP(GroupDesc, GroupId, GroupCat, false, CompileIn);
 
+#ifdef UE_BUILD_DEBUG
+	#define SCOPE_CYCLE_COUNTER_GUARD {const char* ReadTheText = "SCOPE_CYCLE_COUNTER can't be used in the global scope.";}
+#else
+	#define SCOPE_CYCLE_COUNTER_GUARD
+#endif // UE_BUILD_DEBUG
+
 #define DECLARE_SCOPE_CYCLE_COUNTER(CounterName,Stat,GroupId) \
+	SCOPE_CYCLE_COUNTER_GUARD \
 	DECLARE_STAT(CounterName,Stat,GroupId,EStatDataType::ST_int64, true, true, FPlatformMemory::MCR_Invalid); \
 	static DEFINE_STAT(Stat) \
 	FScopeCycleCounter CycleCount_##Stat(GET_STATID(Stat));
 
 #define QUICK_SCOPE_CYCLE_COUNTER(Stat) \
+	SCOPE_CYCLE_COUNTER_GUARD \
 	DECLARE_SCOPE_CYCLE_COUNTER(TEXT(#Stat),Stat,STATGROUP_Quick)
 
 #define SCOPE_CYCLE_COUNTER(Stat) \
+	SCOPE_CYCLE_COUNTER_GUARD \
 	FScopeCycleCounter CycleCount_##Stat(GET_STATID(Stat));
 
 #define CONDITIONAL_SCOPE_CYCLE_COUNTER(Stat,bCondition) \
+	SCOPE_CYCLE_COUNTER_GUARD \
 	FScopeCycleCounter CycleCount_##Stat(bCondition ? GET_STATID(Stat) : TStatId());
 
-#define SCOPE_SECONDS_ACCUMULATOR(Stat) \
-	FSimpleScopeSecondsStat SecondsAccum_##Stat(GET_STATID(Stat));
+
 
 #define SET_CYCLE_COUNTER(Stat,Cycles) \
 {\
@@ -2029,10 +2016,8 @@ DECLARE_STATS_GROUP(TEXT("DDC"),STATGROUP_DDC, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Default Stat Group"),STATGROUP_Default, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Engine"),STATGROUP_Engine, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("FPS Chart"),STATGROUP_FPSChart, STATCAT_Advanced);
-DECLARE_STATS_GROUP(TEXT("GPU"), STATGROUP_GPU, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("GPU Particles"),STATGROUP_GPUParticles, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Game"),STATGROUP_Game, STATCAT_Advanced);
-DECLARE_STATS_GROUP(TEXT("GPU Defrag"), STATGROUP_GPUDEFRAG, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Gnm"),STATGROUP_PS4RHI, STATCAT_Advanced);
 DECLARE_STATS_GROUP_VERBOSE(TEXT("GnmVerbose"), STATGROUP_PS4RHIVERBOSE, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Init Views"),STATGROUP_InitViews, STATCAT_Advanced);
@@ -2050,11 +2035,6 @@ DECLARE_STATS_GROUP(TEXT("Metal"),STATGROUP_MetalRHI, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Morph"),STATGROUP_MorphTarget, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Navigation"),STATGROUP_Navigation, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Net"),STATGROUP_Net, STATCAT_Advanced);
-
-#if !UE_BUILD_SHIPPING
-DECLARE_STATS_GROUP(TEXT("Packet"),STATGROUP_Packet, STATCAT_Advanced);
-#endif
-
 DECLARE_STATS_GROUP(TEXT("Niagara"),STATGROUP_Niagara, STATCAT_Advanced);
 DECLARE_STATS_GROUP(TEXT("Object"),STATGROUP_Object, STATCAT_Advanced);
 DECLARE_STATS_GROUP_VERBOSE(TEXT("ObjectVerbose"),STATGROUP_ObjectVerbose, STATCAT_Advanced);

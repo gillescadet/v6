@@ -3,8 +3,6 @@
 #include "EnginePrivate.h"
 #include "PhysXSupport.h"
 #include "PhysicsEngine/PhysicsConstraintActor.h"
-#include "PhysicsEngine/PhysicsConstraintComponent.h"
-#include "PhysicsEngine/ConstraintUtils.h"
 
 APhysicsConstraintActor::APhysicsConstraintActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -36,7 +34,7 @@ void APhysicsConstraintActor::PostLoad()
 	{
 		ConstraintComp->ConstraintActor1 = ConstraintActor1_DEPRECATED;
 		ConstraintComp->ConstraintActor2 = ConstraintActor2_DEPRECATED;
-		ConstraintComp->ConstraintInstance.ProfileInstance.bDisableCollision = bDisableCollision_DEPRECATED;
+		ConstraintComp->ConstraintInstance.bDisableCollision = bDisableCollision_DEPRECATED;
 	}
 }
 
@@ -51,16 +49,15 @@ void APhysicsConstraintActor::LoadedFromAnotherClass( const FName& OldClassName 
 
 	if (OldClassName == PhysicsHingeActor_NAME)
 	{
-		ConstraintUtils::ConfigureAsHinge(ConstraintComp->ConstraintInstance, false);
+		ConstraintComp->ConstraintInstance.ConfigureAsHinge(false);
 	}
 	else if (OldClassName == PhysicsPrismaticActor_NAME)
 	{
-		ConstraintUtils::ConfigureAsPrismatic(ConstraintComp->ConstraintInstance, false);
+		ConstraintComp->ConstraintInstance.ConfigureAsPrismatic(false);
 	}
 	else if (OldClassName == PhysicsBSJointActor_NAME)
 	{
-		ConstraintUtils::ConfigureAsBallAndSocket(ConstraintComp->ConstraintInstance, false);
-
+		ConstraintComp->ConstraintInstance.ConfigureAsBS(false);
 	}
 
 	ConstraintComp->UpdateSpriteTexture();

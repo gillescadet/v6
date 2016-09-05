@@ -17,9 +17,7 @@ class UAnimCompress_BitwiseCompressOnly : public UAnimCompress
 
 protected:
 	//~ Begin UAnimCompress Interface
-#if WITH_EDITOR
 	virtual void DoReduction(class UAnimSequence* AnimSeq, const TArray<class FBoneData>& BoneData) override;
-#endif // WITH_EDITOR
 	//~ Begin UAnimCompress Interface
 };
 

@@ -5,20 +5,20 @@
 class FLocMetadataObject;
 
 
-struct CORE_API FManifestContext
+struct CORE_API FContext
 {
 public:
-	FManifestContext()
+	FContext()
 		: bIsOptional(false)
 	{}
 
 	/** Copy ctor */
-	FManifestContext( const FManifestContext& Other );
+	FContext( const FContext& Other );
 
-	FManifestContext& operator=( const FManifestContext& Other );
-	bool operator==(const FManifestContext& Other) const;
-	inline bool operator!=(const FManifestContext& Other) const { return !(*this == Other); }
-	bool operator<(const FManifestContext& Other) const;
+	FContext& operator=( const FContext& Other );
+	bool operator==(const FContext& Other) const;
+	inline bool operator!=(const FContext& Other) const { return !(*this == Other); }
+	bool operator<(const FContext& Other) const;
 
 public:
 
@@ -59,26 +59,19 @@ public:
 class FManifestEntry
 {
 public:
-	FManifestEntry(const FString& InNamespace, const FLocItem& InSource)
-		: Namespace(InNamespace)
-		, Source(InSource)
-		, Contexts()
+	FManifestEntry( const FString& InNamespace, const FLocItem& InSource )
+		: Namespace( InNamespace )
+		, Source( InSource )
+	, Contexts()
 	{
+
 	}
 
-	CORE_API FManifestContext* FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata = nullptr);
-	CORE_API const FManifestContext* FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata = nullptr) const;
-
-	CORE_API FManifestContext* FindContextByKey(const FString& ContextKey);
-	CORE_API const FManifestContext* FindContextByKey(const FString& ContextKey) const;
+	CORE_API FContext* FindContext( const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata = NULL );
 
 	const FString Namespace;
 	const FLocItem Source;
-	TArray<FManifestContext> Contexts;
-
-private:
-	const FManifestContext* FindContextImpl(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata) const;
-	const FManifestContext* FindContextByKeyImpl(const FString& ContextKey) const;
+	TArray< FContext > Contexts;
 };
 
 
@@ -141,13 +134,11 @@ public:
 	 *
 	 * @return Returns true if add was successful or a matching entry already exists, false is only returned in the case where a duplicate context was found with different text.
 	 */
-	bool AddSource( const FString& Namespace, const FLocItem& Source, const FManifestContext& Context );
+	bool AddSource( const FString& Namespace, const FLocItem& Source, const FContext& Context );
 
-	TSharedPtr< FManifestEntry > FindEntryBySource( const FString& Namespace, const FLocItem& Source ) const;
+	TSharedPtr< FManifestEntry > FindEntryBySource( const FString& Namespace, const FLocItem& Source );
 
-	TSharedPtr< FManifestEntry > FindEntryByContext( const FString& Namespace, const FManifestContext& Context ) const;
-
-	TSharedPtr< FManifestEntry > FindEntryByKey( const FString& Namespace, const FString& Key, const FString* SourceText = nullptr ) const;
+	TSharedPtr< FManifestEntry > FindEntryByContext( const FString& Namespace, const FContext& Context );
 
 	TManifestEntryByContextIdContainer::TConstIterator GetEntriesByContextIdIterator() const
 	{

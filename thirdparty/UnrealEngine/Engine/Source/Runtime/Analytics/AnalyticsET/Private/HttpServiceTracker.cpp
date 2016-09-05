@@ -4,7 +4,6 @@
 #include "HttpServiceTracker.h"
 #include "AnalyticsEventAttribute.h"
 #include "AnalyticsET.h"
-#include "IAnalyticsProviderET.h"
 #include "IHttpResponse.h"
 
 bool FHttpServiceTracker::Tick(float DeltaTime)
@@ -64,7 +63,11 @@ FHttpServiceTracker::FHttpServiceTracker(const FHttpServiceTrackerConfig& Config
 	: FlushIntervalSec((float)Config.AggregationInterval.GetTotalSeconds())
 	, NextFlushTime(FPlatformTime::Seconds() + FlushIntervalSec)
 {
-	AnalyticsProvider = FAnalyticsET::Get().CreateAnalyticsProvider(FAnalyticsET::Config(Config.APIKey, Config.APIServer, Config.ApiVersion, false, TEXT("unknown"), TEXT("qosmetrics")));
+	FAnalyticsET::Config AnalyticsConfig;
+	AnalyticsConfig.APIKeyET = Config.APIKey;
+	AnalyticsConfig.APIServerET = Config.APIServer;
+	AnalyticsConfig.AppVersionET = Config.ApiVersion;
+	AnalyticsProvider = FAnalyticsET::Get().CreateAnalyticsProvider(AnalyticsConfig);
 	// we'll just use the MachineID for the User. It actually won't matter much for this service.
 	AnalyticsProvider->SetUserID(FPlatformMisc::GetMachineId().ToString(EGuidFormats::Digits).ToLower());
 	// Note we also don't start/stop the session. The AnalyticsET provider allows this, and this enables our collector

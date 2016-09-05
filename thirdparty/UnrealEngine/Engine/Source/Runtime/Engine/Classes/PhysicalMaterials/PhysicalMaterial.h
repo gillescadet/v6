@@ -1,7 +1,7 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
-#include "PhysicsEngine/PhysicsSettingsEnums.h"
+#include "PhysicsEngine/PhysicsSettings.h"
 #include "PhysicalMaterial.generated.h"
 
 namespace physx
@@ -33,7 +33,7 @@ struct FTireFrictionScalePair
 /**
  * Physical materials are used to define the response of a physical object when interacting dynamically with the world.
  */
-UCLASS(BlueprintType, Blueprintable, CollapseCategories, HideCategories = Object)
+UCLASS(BlueprintType, collapsecategories, hidecategories = Object)
 class ENGINE_API UPhysicalMaterial : public UObject
 {
 	GENERATED_UCLASS_BODY()
@@ -43,7 +43,7 @@ class ENGINE_API UPhysicalMaterial : public UObject
 	//
 	
 	/** Friction value of surface, controls how easily things can slide on this surface */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=PhysicalMaterial, meta=(ClampMin=0))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=PhysicalMaterial)
 	float Friction;
 
 	/** Friction combine mode, controls how friction is computed for multiple materials. */
@@ -54,8 +54,8 @@ class ENGINE_API UPhysicalMaterial : public UObject
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = PhysicalMaterial)
 	bool bOverrideFrictionCombineMode;
 
-	/** Restitution or 'bounciness' of this surface, between 0 (no bounce) and 1 (outgoing velocity is same as incoming). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PhysicalMaterial,  meta=(ClampMin=0, ClampMax=1))
+	/** Restitution or 'bounciness of this surface. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PhysicalMaterial)
 	float Restitution;
 
 	/** Restitution combine mode, controls how restitution is computed for multiple materials. */
@@ -71,7 +71,7 @@ class ENGINE_API UPhysicalMaterial : public UObject
 	//
 	
 	/** Used with the shape of the object to calculate its mass properties. The higher the number, the heavier the object. g per cubic cm. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PhysicalMaterial, meta=(ClampMin=0))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = PhysicalMaterial)
 	float Density;
 
 	/** 
@@ -79,7 +79,7 @@ class ENGINE_API UPhysicalMaterial : public UObject
 	 *	In actuality, larger objects do not tend to be solid, and become more like 'shells' (e.g. a car is not a solid piece of metal).
 	 *	Values are clamped to 1 or less.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Advanced, meta=(ClampMin=0.1, ClampMax=1))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Advanced)
 	float RaiseMassToPower;
 
 	/** How much to scale the damage threshold by on any destructible we are applied to */

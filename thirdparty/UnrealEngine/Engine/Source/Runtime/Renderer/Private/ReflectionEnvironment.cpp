@@ -20,11 +20,10 @@
 #include "SceneUtils.h"
 #include "LightPropagationVolumeBlendable.h"
 
-DECLARE_FLOAT_COUNTER_STAT(TEXT("Reflection Environment"), Stat_GPU_ReflectionEnvironment, STATGROUP_GPU);
-
 /** Tile size for the reflection environment compute shader, tweaked for 680 GTX. */
 const int32 GReflectionEnvironmentTileSizeX = 16;
 const int32 GReflectionEnvironmentTileSizeY = 16;
+extern ENGINE_API int32 GReflectionCaptureSize;
 
 extern TAutoConsoleVariable<int32> CVarLPVMixing;
 
@@ -90,24 +89,22 @@ void FReflectionEnvironmentCubemapArray::InitDynamicRHI()
 {
 	if (GetFeatureLevel() >= ERHIFeatureLevel::SM5)
 	{
-		const int32 NumReflectionCaptureMips = FMath::CeilLogTwo(CubemapSize) + 1;
+
+		const int32 NumReflectionCaptureMips = FMath::CeilLogTwo(GReflectionCaptureSize) + 1;
 
 		ReleaseCubeArray();
 
-		FPooledRenderTargetDesc Desc(
-			FPooledRenderTargetDesc::CreateCubemapDesc(
-				CubemapSize,
-				// Alpha stores sky mask
-				PF_FloatRGBA, 
-				FClearValueBinding::None,
-				TexCreate_None,
-				TexCreate_None,
-				false, 
-				// Cubemap array of 1 produces a regular cubemap, so guarantee it will be allocated as an array
-				FMath::Max<uint32>(MaxCubemaps, 2),
-				NumReflectionCaptureMips
-				)
-			);
+		FPooledRenderTargetDesc Desc(FPooledRenderTargetDesc::CreateCubemapDesc(
+		GReflectionCaptureSize,
+		// Alpha stores sky mask
+		PF_FloatRGBA, 
+		FClearValueBinding::None,
+		TexCreate_None,
+		TexCreate_None,
+		false, 
+		// Cubemap array of 1 produces a regular cubemap, so guarantee it will be allocated as an array
+		FMath::Max<uint32>(MaxCubemaps, 2),
+		NumReflectionCaptureMips));
 
 		Desc.AutoWritable = false;
 	
@@ -129,10 +126,9 @@ void FReflectionEnvironmentCubemapArray::ReleaseDynamicRHI()
 	ReleaseCubeArray();
 }
 
-void FReflectionEnvironmentCubemapArray::UpdateMaxCubemaps(uint32 InMaxCubemaps, int32 InCubemapSize)
+void FReflectionEnvironmentCubemapArray::UpdateMaxCubemaps(uint32 InMaxCubemaps)
 {
 	MaxCubemaps = InMaxCubemaps;
-	CubemapSize = InCubemapSize;
 
 	// Reallocate the cubemap array
 	if (IsInitialized())
@@ -155,11 +151,11 @@ public:
 		BentNormalAOSampler.Bind(ParameterMap, TEXT("BentNormalAOSampler"));
 		ApplyBentNormalAO.Bind(ParameterMap, TEXT("ApplyBentNormalAO"));
 		InvSkySpecularOcclusionStrength.Bind(ParameterMap, TEXT("InvSkySpecularOcclusionStrength"));
-		OcclusionTintAndMinOcclusion.Bind(ParameterMap, TEXT("OcclusionTintAndMinOcclusion"));
+		MinSkySpecularOcclusion.Bind(ParameterMap, TEXT("MinSkySpecularOcclusion"));
 	}
 
 	template<typename ShaderRHIParamRef, typename TRHICmdList>
-	void SetParameters(TRHICmdList& RHICmdList, const ShaderRHIParamRef& ShaderRHI, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO, float SkySpecularOcclusionStrength, const FVector4& OcclusionTintAndMinOcclusionValue)
+	void SetParameters(TRHICmdList& RHICmdList, const ShaderRHIParamRef& ShaderRHI, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO, float SkySpecularOcclusionStrength, float MinOcclusionValue)
 	{
 		FTextureRHIParamRef BentNormalAO = GWhiteTexture->TextureRHI;
 		bool bApplyBentNormalAO = false;
@@ -173,12 +169,12 @@ public:
 		SetTextureParameter(RHICmdList, ShaderRHI, BentNormalAOTexture, BentNormalAOSampler, TStaticSamplerState<SF_Point>::GetRHI(), BentNormalAO);
 		SetShaderValue(RHICmdList, ShaderRHI, ApplyBentNormalAO, bApplyBentNormalAO ? 1.0f : 0.0f);
 		SetShaderValue(RHICmdList, ShaderRHI, InvSkySpecularOcclusionStrength, 1.0f / FMath::Max(SkySpecularOcclusionStrength, .1f));
-		SetShaderValue(RHICmdList, ShaderRHI, OcclusionTintAndMinOcclusion, OcclusionTintAndMinOcclusionValue);
+		SetShaderValue(RHICmdList, ShaderRHI, MinSkySpecularOcclusion, MinOcclusionValue);
 	}
 
 	friend FArchive& operator<<(FArchive& Ar,FDistanceFieldAOSpecularOcclusionParameters& P)
 	{
-		Ar << P.BentNormalAOTexture << P.BentNormalAOSampler << P.ApplyBentNormalAO << P.InvSkySpecularOcclusionStrength << P.OcclusionTintAndMinOcclusion;
+		Ar << P.BentNormalAOTexture << P.BentNormalAOSampler << P.ApplyBentNormalAO << P.InvSkySpecularOcclusionStrength << P.MinSkySpecularOcclusion;
 		return Ar;
 	}
 
@@ -187,7 +183,7 @@ private:
 	FShaderResourceParameter BentNormalAOSampler;
 	FShaderParameter ApplyBentNormalAO;
 	FShaderParameter InvSkySpecularOcclusionStrength;
-	FShaderParameter OcclusionTintAndMinOcclusion;
+	FShaderParameter MinSkySpecularOcclusion;
 };
 
 struct FReflectionCaptureSortData
@@ -198,7 +194,6 @@ struct FReflectionCaptureSortData
 	FVector4 CaptureProperties;
 	FMatrix BoxTransform;
 	FVector4 BoxScales;
-	FVector4 CaptureOffset;
 	FTexture* SM4FullHDRCubemap;
 
 	bool operator < (const FReflectionCaptureSortData& Other) const
@@ -221,7 +216,6 @@ BEGIN_UNIFORM_BUFFER_STRUCT(FReflectionCaptureData,)
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FVector4,CaptureProperties,[GMaxNumReflectionCaptures])
 	// Stores the box transform for a box shape, other data is packed for other shapes
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FMatrix,BoxTransform,[GMaxNumReflectionCaptures])
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FVector4,CaptureOffset,[GMaxNumReflectionCaptures])
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER_ARRAY(FVector4,BoxScales,[GMaxNumReflectionCaptures])
 END_UNIFORM_BUFFER_STRUCT(FReflectionCaptureData)
 
@@ -269,14 +263,7 @@ public:
 	{
 	}
 
-	void SetParameters(
-		FRHIAsyncComputeCommandListImmediate& RHICmdList, 
-		const FSceneView& View,
-		FTextureRHIParamRef SSRTexture,
-		TArray<FReflectionCaptureSortData>& SortData,
-		FUnorderedAccessViewRHIParamRef OutSceneColorUAV, 
-		const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO
-		)
+	void SetParameters(FRHIAsyncComputeCommandListImmediate& RHICmdList, const FSceneView& View, FTextureRHIParamRef SSRTexture, TArray<FReflectionCaptureSortData>& SortData, FUnorderedAccessViewRHIParamRef OutSceneColorUAV, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 	{
 		const FComputeShaderRHIParamRef ShaderRHI = GetComputeShader();
 
@@ -314,7 +301,6 @@ public:
 			SamplePositionsBuffer.PositionAndRadius[CaptureIndex] = SortData[CaptureIndex].PositionAndRadius;
 			SamplePositionsBuffer.CaptureProperties[CaptureIndex] = SortData[CaptureIndex].CaptureProperties;
 			SamplePositionsBuffer.BoxTransform[CaptureIndex] = SortData[CaptureIndex].BoxTransform;
-			SamplePositionsBuffer.CaptureOffset[CaptureIndex] = SortData[CaptureIndex].CaptureOffset;
 			SamplePositionsBuffer.BoxScales[CaptureIndex] = SortData[CaptureIndex].BoxScales;
 		}
 
@@ -326,8 +312,7 @@ public:
 		SkyLightParameters.SetParameters(RHICmdList, ShaderRHI, Scene, View.Family->EngineShowFlags.SkyLighting);
 
 		const float MinOcclusion = Scene->SkyLight ? Scene->SkyLight->MinOcclusion : 0;
-		const FVector OcclusionTint = Scene->SkyLight ? (const FVector&)Scene->SkyLight->OcclusionTint : FVector::ZeroVector;
-		SpecularOcclusionParameters.SetParameters(RHICmdList, ShaderRHI, DynamicBentNormalAO, CVarSkySpecularOcclusionStrength.GetValueOnRenderThread(), FVector4(OcclusionTint, MinOcclusion));
+		SpecularOcclusionParameters.SetParameters(RHICmdList, ShaderRHI, DynamicBentNormalAO, CVarSkySpecularOcclusionStrength.GetValueOnRenderThread(), MinOcclusion);
 	}
 
 	void UnsetParameters(FRHIAsyncComputeCommandListImmediate& RHICmdList, FUnorderedAccessViewRHIParamRef OutSceneColorUAV)
@@ -370,7 +355,7 @@ private:
 	FDistanceFieldAOSpecularOcclusionParameters SpecularOcclusionParameters;
 };
 
-template< uint32 bUseLightmaps, uint32 bHasSkyLight, uint32 bBoxCapturesOnly, uint32 bSphereCapturesOnly, uint32 bSupportDFAOIndirectOcclusion >
+template< uint32 bUseLightmaps, uint32 bUseClearCoat, uint32 bBoxCapturesOnly, uint32 bSphereCapturesOnly >
 class TReflectionEnvironmentTiledDeferredCS : public FReflectionEnvironmentTiledDeferredCS
 {
 	DECLARE_SHADER_TYPE(TReflectionEnvironmentTiledDeferredCS, Global);
@@ -386,59 +371,39 @@ public:
 	{
 		FReflectionEnvironmentTiledDeferredCS::ModifyCompilationEnvironment(Platform, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("USE_LIGHTMAPS"), bUseLightmaps);
-		OutEnvironment.SetDefine(TEXT("HAS_SKYLIGHT"), bHasSkyLight);
+		OutEnvironment.SetDefine(TEXT("USE_CLEARCOAT"), bUseClearCoat);
 		OutEnvironment.SetDefine(TEXT("HAS_BOX_CAPTURES"), bBoxCapturesOnly);
 		OutEnvironment.SetDefine(TEXT("HAS_SPHERE_CAPTURES"), bSphereCapturesOnly);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_DFAO_INDIRECT_OCCLUSION"), bSupportDFAOIndirectOcclusion);
 	}
 };
 
 // Typedef is necessary because the C preprocessor thinks the comma in the template parameter list is a comma in the macro parameter list.
-#define IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(A, B, C, D, E) \
-	typedef TReflectionEnvironmentTiledDeferredCS<A,B,C,D,E> TReflectionEnvironmentTiledDeferredCS##A##B##C##D##E; \
-	IMPLEMENT_SHADER_TYPE(template<>,TReflectionEnvironmentTiledDeferredCS##A##B##C##D##E,TEXT("ReflectionEnvironmentComputeShaders"),TEXT("ReflectionEnvironmentTiledDeferredMain"),SF_Compute)
+#define IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(A, B, C, D) \
+	typedef TReflectionEnvironmentTiledDeferredCS<A,B,C,D> TReflectionEnvironmentTiledDeferredCS##A##B##C##D; \
+	IMPLEMENT_SHADER_TYPE(template<>,TReflectionEnvironmentTiledDeferredCS##A##B##C##D,TEXT("ReflectionEnvironmentComputeShaders"),TEXT("ReflectionEnvironmentTiledDeferredMain"),SF_Compute)
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 1, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 1);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 1);
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 1, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 1);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 1);
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 1, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 1);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 1);
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 1, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 0, 0);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 1);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 0);
+IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 1);
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 0, 1, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 0, 1, 1, 1);
 
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 0, 1, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(0, 1, 1, 1, 1);
-
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 0, 1, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 0, 1, 1, 1);
-
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 0, 1, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 0, 1);
-IMPLEMENT_REFLECTION_COMPUTESHADER_TYPE(1, 1, 1, 1, 1);
-
-template< uint32 bSSR, uint32 bReflectionEnv, uint32 bSkylight, uint32 bSupportDFAOIndirectOcclusion >
+template< uint32 bSSR, uint32 bReflectionEnv, uint32 bSkylight >
 class FReflectionApplyPS : public FGlobalShader
 {
 	DECLARE_SHADER_TYPE(FReflectionApplyPS, Global);
@@ -455,7 +420,6 @@ public:
 		OutEnvironment.SetDefine(TEXT("APPLY_SSR"), bSSR);
 		OutEnvironment.SetDefine(TEXT("APPLY_REFLECTION_ENV"), bReflectionEnv);
 		OutEnvironment.SetDefine(TEXT("APPLY_SKYLIGHT"), bSkylight);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_DFAO_INDIRECT_OCCLUSION"), bSupportDFAOIndirectOcclusion);
 	}
 
 	/** Default constructor. */
@@ -490,8 +454,7 @@ public:
 		
 		FScene* Scene = (FScene*)View.Family->Scene;
 		const float MinOcclusion = Scene->SkyLight ? Scene->SkyLight->MinOcclusion : 0;
-		const FVector OcclusionTint = Scene->SkyLight ? (const FVector&)Scene->SkyLight->OcclusionTint : FVector::ZeroVector;
-		SpecularOcclusionParameters.SetParameters(RHICmdList, ShaderRHI, DynamicBentNormalAO, CVarSkySpecularOcclusionStrength.GetValueOnRenderThread(), FVector4(OcclusionTint, MinOcclusion));
+		SpecularOcclusionParameters.SetParameters(RHICmdList, ShaderRHI, DynamicBentNormalAO, CVarSkySpecularOcclusionStrength.GetValueOnRenderThread(), MinOcclusion);
 	}
 
 	// FShader interface.
@@ -524,27 +487,19 @@ private:
 };
 
 // Typedef is necessary because the C preprocessor thinks the comma in the template parameter list is a comma in the macro parameter list.
-#define IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(A, B, C, D) \
-	typedef FReflectionApplyPS<A,B,C,D> FReflectionApplyPS##A##B##C##D; \
-	IMPLEMENT_SHADER_TYPE(template<>,FReflectionApplyPS##A##B##C##D,TEXT("ReflectionEnvironmentShaders"),TEXT("ReflectionApplyPS"),SF_Pixel);
+#define IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(A, B, C) \
+	typedef FReflectionApplyPS<A,B,C> FReflectionApplyPS##A##B##C; \
+	IMPLEMENT_SHADER_TYPE(template<>,FReflectionApplyPS##A##B##C,TEXT("ReflectionEnvironmentShaders"),TEXT("ReflectionApplyPS"),SF_Pixel);
 
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,0,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,1,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,0,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,1,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,0,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,1,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,0,0);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,1,0);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,0);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,1);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,0);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,1);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,0);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,1);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,0);
+IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,1);
 
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,0,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,0,1,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,0,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(0,1,1,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,0,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,0,1,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,0,1);
-IMPLEMENT_REFLECTION_APPLY_PIXELSHADER_TYPE(1,1,1,1);
 
 class FReflectionCaptureSpecularBouncePS : public FGlobalShader
 {
@@ -622,7 +577,6 @@ public:
 		CaptureProperties.Bind(Initializer.ParameterMap, TEXT("CaptureProperties"));
 		CaptureBoxTransform.Bind(Initializer.ParameterMap, TEXT("CaptureBoxTransform"));
 		CaptureBoxScales.Bind(Initializer.ParameterMap, TEXT("CaptureBoxScales"));
-		CaptureOffset.Bind(Initializer.ParameterMap, TEXT("CaptureOffset"));
 		CaptureArrayIndex.Bind(Initializer.ParameterMap, TEXT("CaptureArrayIndex"));
 		ReflectionEnvironmentColorTexture.Bind(Initializer.ParameterMap, TEXT("ReflectionEnvironmentColorTexture"));
 		ReflectionEnvironmentColorTextureArray.Bind(Initializer.ParameterMap, TEXT("ReflectionEnvironmentColorTextureArray"));
@@ -657,7 +611,6 @@ public:
 		SetShaderValue(RHICmdList, ShaderRHI, CaptureProperties, SortData.CaptureProperties);
 		SetShaderValue(RHICmdList, ShaderRHI, CaptureBoxTransform, SortData.BoxTransform);
 		SetShaderValue(RHICmdList, ShaderRHI, CaptureBoxScales, SortData.BoxScales);
-		SetShaderValue(RHICmdList, ShaderRHI, CaptureOffset, FVector(SortData.CaptureOffset));
 	}
 
 	// FShader interface.
@@ -668,7 +621,6 @@ public:
 		Ar << CaptureProperties;
 		Ar << CaptureBoxTransform;
 		Ar << CaptureBoxScales;
-		Ar << CaptureOffset;
 		Ar << CaptureArrayIndex;
 		Ar << ReflectionEnvironmentColorTexture;
 		Ar << ReflectionEnvironmentColorTextureArray;
@@ -683,7 +635,6 @@ private:
 	FShaderParameter CaptureProperties;
 	FShaderParameter CaptureBoxTransform;
 	FShaderParameter CaptureBoxScales;
-	FShaderParameter CaptureOffset;
 	FShaderParameter CaptureArrayIndex;
 	FShaderResourceParameter ReflectionEnvironmentColorTexture;
 	FShaderResourceParameter ReflectionEnvironmentColorTextureArray;
@@ -736,12 +687,12 @@ void FDeferredShadingSceneRenderer::RenderReflectionCaptureSpecularBounceForAllV
 
 bool FDeferredShadingSceneRenderer::ShouldDoReflectionEnvironment() const
 {
-	const ERHIFeatureLevel::Type SceneFeatureLevel = Scene->GetFeatureLevel();
+	const ERHIFeatureLevel::Type FeatureLevel = Scene->GetFeatureLevel();
 
-	return IsReflectionEnvironmentAvailable(SceneFeatureLevel)
+	return IsReflectionEnvironmentAvailable(FeatureLevel)
 		&& Scene->ReflectionSceneData.RegisteredReflectionCaptures.Num()
 		&& ViewFamily.EngineShowFlags.ReflectionEnvironment
-		&& (SceneFeatureLevel == ERHIFeatureLevel::SM4 || Scene->ReflectionSceneData.CubemapArray.IsValid());
+		&& (FeatureLevel == ERHIFeatureLevel::SM4 || Scene->ReflectionSceneData.CubemapArray.IsValid());
 }
 
 void GatherAndSortReflectionCaptures(const FScene* Scene, TArray<FReflectionCaptureSortData>& OutSortData, int32& OutNumBoxCaptures, int32& OutNumSphereCaptures)
@@ -772,7 +723,6 @@ void GatherAndSortReflectionCaptures(const FScene* Scene, TArray<FReflectionCapt
 			NewSortEntry.PositionAndRadius = FVector4(CurrentCapture->Position, CurrentCapture->InfluenceRadius);
 			float ShapeTypeValue = (float)CurrentCapture->Shape;
 			NewSortEntry.CaptureProperties = FVector4(CurrentCapture->Brightness, CubemapIndex, ShapeTypeValue, 0);
-			NewSortEntry.CaptureOffset = FVector4(CurrentCapture->CaptureOffset, 0);
 
 			if (CurrentCapture->Shape == EReflectionCaptureShape::Plane)
 			{
@@ -804,89 +754,88 @@ void GatherAndSortReflectionCaptures(const FScene* Scene, TArray<FReflectionCapt
 	OutSortData.Sort();	
 }
 
-template<bool bSuportDFAOIndirectOcclusion>
-FReflectionEnvironmentTiledDeferredCS* SelectReflectionEnvironmentTiledDeferredCSInner(TShaderMap<FGlobalShaderType>* ShaderMap, bool bUseLightmaps, bool bHasSkyLight, bool bHasBoxCaptures, bool bHasSphereCaptures)
+FReflectionEnvironmentTiledDeferredCS* SelectReflectionEnvironmentTiledDeferredCS(TShaderMap<FGlobalShaderType>* ShaderMap, bool bUseLightmaps, bool bUseClearCoat, bool bHasBoxCaptures, bool bHasSphereCaptures)
 {
 	FReflectionEnvironmentTiledDeferredCS* ComputeShader = nullptr;
 	if (bUseLightmaps)
 	{
-		if (bHasSkyLight)
+		if (bUseClearCoat)
 		{
 			if (bHasBoxCaptures && bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 1, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 1, 1> >(ShaderMap);
 			}
 			else if (bHasBoxCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 1, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 1, 0> >(ShaderMap);
 			}
 			else if (bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 0, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 0, 1> >(ShaderMap);
 			}
 			else
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 0, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 1, 0, 0> >(ShaderMap);
 			}
 		}
 		else
 		{
 			if (bHasBoxCaptures && bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 1, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 1, 1> >(ShaderMap);
 			}
 			else if (bHasBoxCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 1, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 1, 0> >(ShaderMap);
 			}
 			else if (bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 0, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 0, 1> >(ShaderMap);
 			}
 			else
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 0, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<1, 0, 0, 0> >(ShaderMap);
 			}
 		}		
 	}
 	else
 	{
-		if (bHasSkyLight)
+		if (bUseClearCoat)
 		{
 			if (bHasBoxCaptures && bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 1, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 1, 1> >(ShaderMap);
 			}
 			else if (bHasBoxCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 1, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 1, 0> >(ShaderMap);
 			}
 			else if (bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 0, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 0, 1> >(ShaderMap);
 			}
 			else
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 0, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 1, 0, 0> >(ShaderMap);
 			}
 		}
 		else
 		{
 			if (bHasBoxCaptures && bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 1, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 1, 1> >(ShaderMap);
 			}
 			else if (bHasBoxCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 1, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 1, 0> >(ShaderMap);
 			}
 			else if (bHasSphereCaptures)
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 0, 1, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 0, 1> >(ShaderMap);
 			}
 			else
 			{
-				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 0, 0, bSuportDFAOIndirectOcclusion> >(ShaderMap);
+				ComputeShader = *TShaderMapRef< TReflectionEnvironmentTiledDeferredCS<0, 0, 0, 0> >(ShaderMap);
 			}
 		}		
 	}
@@ -894,19 +843,7 @@ FReflectionEnvironmentTiledDeferredCS* SelectReflectionEnvironmentTiledDeferredC
 	return ComputeShader;
 }
 
-FReflectionEnvironmentTiledDeferredCS* SelectReflectionEnvironmentTiledDeferredCS(TShaderMap<FGlobalShaderType>* ShaderMap, bool bUseLightmaps, bool bHasSkyLight, bool bHasBoxCaptures, bool bHasSphereCaptures, bool bSuportDFAOIndirectOcclusion)
-{
-	if (bSuportDFAOIndirectOcclusion)
-	{
-		return SelectReflectionEnvironmentTiledDeferredCSInner<true>(ShaderMap, bUseLightmaps, bHasSkyLight, bHasBoxCaptures, bHasSphereCaptures);
-	}
-	else
-	{
-		return SelectReflectionEnvironmentTiledDeferredCSInner<false>(ShaderMap, bUseLightmaps, bHasSkyLight, bHasBoxCaptures, bHasSphereCaptures);
-	}
-}
-
-void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
+void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 	static const auto AllowStaticLightingVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.AllowStaticLighting"));
@@ -930,16 +867,13 @@ void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRH
 	{
 		FViewInfo& View = Views[ViewIndex];
 
-		const uint32 bSSR = ShouldRenderScreenSpaceReflections(Views[ViewIndex]);
+		const uint32 bSSR = DoScreenSpaceReflections(Views[ViewIndex]);
 
 		TRefCountPtr<IPooledRenderTarget> SSROutput = GSystemTextures.BlackDummy;
 		if( bSSR )
 		{
-			RenderScreenSpaceReflections(RHICmdList, View, SSROutput, VelocityRT);
+			ScreenSpaceReflections(RHICmdList, View, SSROutput);
 		}
-
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_ReflectionEnvironment)
-		RenderDeferredPlanarReflections(RHICmdList, false, SSROutput);
 
 		// ReflectionEnv is assumed to be on when going into this method
 		{
@@ -954,7 +888,7 @@ void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRH
 
 			bool bHasBoxCaptures = (NumBoxCaptures > 0);
 			bool bHasSphereCaptures = (NumSphereCaptures > 0);
-			bool bHasSkyLight = Scene && Scene->SkyLight && !Scene->SkyLight->bHasStaticLighting;
+			bool bNeedsClearCoat = (View.ShadingModelMaskInView & (1 << MSM_ClearCoat)) != 0;
 
 			static const FName TiledReflBeginComputeName(TEXT("ReflectionEnvBeginComputeFence"));
 			static const FName TiledReflEndComputeName(TEXT("ReflectionEnvEndComputeFence"));
@@ -964,33 +898,35 @@ void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRH
 			//Grab the async compute commandlist.
 			FRHIAsyncComputeCommandListImmediate& RHICmdListComputeImmediate = FRHICommandListExecutor::GetImmediateAsyncComputeCommandList();
 			{
-				SCOPED_COMPUTE_EVENTF(RHICmdListComputeImmediate, ReflectionEnvironment, TEXT("ReflectionEnvironment ComputeShader %dx%d Tile:%dx%d Box:%d Sphere:%d SkyLight:%d"),
-					View.ViewRect.Width(), View.ViewRect.Height(), GReflectionEnvironmentTileSizeX, GReflectionEnvironmentTileSizeY,
-					NumBoxCaptures, NumSphereCaptures, bHasSkyLight);
+			SCOPED_COMPUTE_EVENTF(RHICmdListComputeImmediate, ReflectionEnvironment, TEXT("ReflectionEnvironment ComputeShader %dx%d Tile:%dx%d Box:%d Sphere:%d ClearCoat:%d"),
+				View.ViewRect.Width(), View.ViewRect.Height(), GReflectionEnvironmentTileSizeX, GReflectionEnvironmentTileSizeY,
+				NumBoxCaptures, NumSphereCaptures, bNeedsClearCoat);
 
-				ComputeShader = SelectReflectionEnvironmentTiledDeferredCS(View.ShaderMap, bUseLightmaps, bHasSkyLight, bHasBoxCaptures, bHasSphereCaptures, DynamicBentNormalAO != NULL);
+			ComputeShader = SelectReflectionEnvironmentTiledDeferredCS(View.ShaderMap, bUseLightmaps, bNeedsClearCoat, bHasBoxCaptures, bHasSphereCaptures);
 
-				//Really we should write this fence where we transition the final depedency for the reflections.  We may add an RHI command just for writing fences if this
-				//can't be done in the general case.  In the meantime, hack this command a bit to write the fence.
-				RHICmdList.TransitionResources(EResourceTransitionAccess::EReadable, EResourceTransitionPipeline::EGfxToCompute, nullptr, 0, ReflectionBeginFence);
+
+			
+			//Really we should write this fence where we transition the final depedency for the reflections.  We may add an RHI command just for writing fences if this
+			//can't be done in the general case.  In the meantime, hack this command a bit to write the fence.
+			RHICmdList.TransitionResources(EResourceTransitionAccess::EReadable, EResourceTransitionPipeline::EGfxToCompute, nullptr, 0, ReflectionBeginFence);
 					
-				//we must wait on the fence written from the Gfx pipe to let us know all our dependencies are ready.
-				RHICmdListComputeImmediate.WaitComputeFence(ReflectionBeginFence);
+			//we must wait on the fence written from the Gfx pipe to let us know all our dependencies are ready.
+			RHICmdListComputeImmediate.WaitComputeFence(ReflectionBeginFence);
 
-				//standard compute setup, but on the async commandlist.
-				RHICmdListComputeImmediate.SetComputeShader(ComputeShader->GetComputeShader());
+			//standard compute setup, but on the async commandlist.
+			RHICmdListComputeImmediate.SetComputeShader(ComputeShader->GetComputeShader());
 
-				FUnorderedAccessViewRHIParamRef OutUAV = NewSceneColor->GetRenderTargetItem().UAV;
-				ComputeShader->SetParameters(RHICmdListComputeImmediate, View, SSROutput->GetRenderTargetItem().ShaderResourceTexture, SortData, OutUAV, DynamicBentNormalAO);
+			FUnorderedAccessViewRHIParamRef OutUAV = NewSceneColor->GetRenderTargetItem().UAV;
+			ComputeShader->SetParameters(RHICmdListComputeImmediate, View, SSROutput->GetRenderTargetItem().ShaderResourceTexture, SortData, OutUAV, DynamicBentNormalAO);
 			
-				uint32 GroupSizeX = (View.ViewRect.Size().X + GReflectionEnvironmentTileSizeX - 1) / GReflectionEnvironmentTileSizeX;
-				uint32 GroupSizeY = (View.ViewRect.Size().Y + GReflectionEnvironmentTileSizeY - 1) / GReflectionEnvironmentTileSizeY;
-				DispatchComputeShader(RHICmdListComputeImmediate, ComputeShader, GroupSizeX, GroupSizeY, 1);
+			uint32 GroupSizeX = (View.ViewRect.Size().X + GReflectionEnvironmentTileSizeX - 1) / GReflectionEnvironmentTileSizeX;
+			uint32 GroupSizeY = (View.ViewRect.Size().Y + GReflectionEnvironmentTileSizeY - 1) / GReflectionEnvironmentTileSizeY;
+			DispatchComputeShader(RHICmdListComputeImmediate, ComputeShader, GroupSizeX, GroupSizeY, 1);
 
-				ComputeShader->UnsetParameters(RHICmdListComputeImmediate, OutUAV);
+			ComputeShader->UnsetParameters(RHICmdListComputeImmediate, OutUAV);
 			
-				//transition the output to readable and write the fence to allow the Gfx pipe to carry on.
-				RHICmdListComputeImmediate.TransitionResources(EResourceTransitionAccess::EReadable, EResourceTransitionPipeline::EComputeToGfx, &OutUAV, 1, ReflectionEndFence);
+			//transition the output to readable and write the fence to allow the Gfx pipe to carry on.
+			RHICmdListComputeImmediate.TransitionResources(EResourceTransitionAccess::EReadable, EResourceTransitionPipeline::EComputeToGfx, &OutUAV, 1, ReflectionEndFence);
 			}
 
 			//immediately dispatch our async compute commands to the RHI thread to be submitted to the GPU as soon as possible.
@@ -1006,7 +942,7 @@ void FDeferredShadingSceneRenderer::RenderTiledDeferredImageBasedReflections(FRH
 	check(SceneContext.GetSceneColor());
 }
 
-void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, bool bReflectionEnv, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
+void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(FRHICommandListImmediate& RHICmdList, bool bReflectionEnv, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
 	if(!ViewFamily.EngineShowFlags.Lighting)
 	{
@@ -1015,7 +951,6 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 
 	const bool bSkyLight = Scene->SkyLight
 		&& Scene->SkyLight->ProcessedTexture
-		&& !Scene->SkyLight->bHasStaticLighting
 		&& ViewFamily.EngineShowFlags.SkyLighting;
 
 	static TArray<FReflectionCaptureSortData> SortData;
@@ -1045,7 +980,6 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			NewSortEntry.PositionAndRadius = FVector4(CurrentCapture->Position, CurrentCapture->InfluenceRadius);
 			float ShapeTypeValue = (float)CurrentCapture->Shape;
 			NewSortEntry.CaptureProperties = FVector4(CurrentCapture->Brightness, 0, ShapeTypeValue, 0);
-			NewSortEntry.CaptureOffset = FVector4(CurrentCapture->CaptureOffset);
 
 			if (CurrentCapture->Shape == EReflectionCaptureShape::Plane)
 			{
@@ -1093,23 +1027,14 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			// If Reflection Environment is active and mixed with indirect lighting (Ambient + LPV), apply is required!
 			|| (View.Family->EngineShowFlags.ReflectionEnvironment && (bReflectionEnv || bEnvironmentMixing) );
 
-		const bool bSSR = ShouldRenderScreenSpaceReflections(View);
+		const bool bSSR = DoScreenSpaceReflections(View);
 
 		TRefCountPtr<IPooledRenderTarget> SSROutput = GSystemTextures.BlackDummy;
 		if (bSSR)
 		{
 			bRequiresApply = true;
 
-			RenderScreenSpaceReflections(RHICmdList, View, SSROutput, VelocityRT);
-		}
-
-		SCOPED_GPU_STAT(RHICmdList, Stat_GPU_ReflectionEnvironment)
-		bool bApplyFromSSRTexture = bSSR;
-
-		if (RenderDeferredPlanarReflections(RHICmdList, true, SSROutput))
-		{
-			bRequiresApply = true;
-			bApplyFromSSRTexture = true;
+			ScreenSpaceReflections(RHICmdList, View, SSROutput);
 		}
 
 	    /* Light Accumulation moved to SceneRenderTargets */
@@ -1118,7 +1043,6 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 		if (!LightAccumulation)
 		{
 			// should never be used but during debugging it can happen
-			ensureMsgf(LightAccumulation, TEXT("White dummy system texture about to be corrupted."));
 			LightAccumulation = GSystemTextures.WhiteDummy;
 		}
 
@@ -1192,7 +1116,6 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 		{
 			// Apply reflections to screen
 			SCOPED_DRAW_EVENT(RHICmdList, ReflectionApply);
-			SCOPED_GPU_STAT(RHICmdList, Stat_GPU_ReflectionEnvironment);
 
 			SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EUninitializedColorExistingDepth, FExclusiveDepthStencil::DepthRead_StencilWrite, true);
 
@@ -1217,36 +1140,26 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 			// todo: refactor (we abuse another boolean to pass the data through)
 			bReflectionEnv = bReflectionEnv || bEnvironmentMixing;
 
-			const bool bSupportDFAOIndirectShadowing = DynamicBentNormalAO != NULL;
-
-#define CASE(A,B,C,D) \
-			case ((A << 3) | (B << 2) | (C << 1) | D) : \
+#define CASE(A,B,C) \
+			case ((A << 2) | (B << 1) | C) : \
 			{ \
-			TShaderMapRef< FReflectionApplyPS<A, B, C, D> > PixelShader(View.ShaderMap); \
+			TShaderMapRef< FReflectionApplyPS<A, B, C> > PixelShader(View.ShaderMap); \
 			static FGlobalBoundShaderState BoundShaderState; \
 			SetGlobalBoundShaderState(RHICmdList, FeatureLevel, BoundShaderState, GFilterVertexDeclaration.VertexDeclarationRHI, *VertexShader, *PixelShader); \
 			PixelShader->SetParameters(RHICmdList, View, LightAccumulation->GetRenderTargetItem().ShaderResourceTexture, SSROutput->GetRenderTargetItem().ShaderResourceTexture, DynamicBentNormalAO); \
 			}; \
 			break
 
-			switch (((uint32)bApplyFromSSRTexture << 3) | ((uint32)bReflectionEnv << 2) | ((uint32)bSkyLight << 1) | (uint32)bSupportDFAOIndirectShadowing)
+			switch (((uint32)bSSR << 2) | ((uint32)bReflectionEnv << 1) | (uint32)bSkyLight)
 			{
-				CASE(0, 0, 0, 0);
-				CASE(0, 0, 1, 0);
-				CASE(0, 1, 0, 0);
-				CASE(0, 1, 1, 0);
-				CASE(1, 0, 0, 0);
-				CASE(1, 0, 1, 0);
-				CASE(1, 1, 0, 0);
-				CASE(1, 1, 1, 0);
-				CASE(0, 0, 0, 1);
-				CASE(0, 0, 1, 1);
-				CASE(0, 1, 0, 1);
-				CASE(0, 1, 1, 1);
-				CASE(1, 0, 0, 1);
-				CASE(1, 0, 1, 1);
-				CASE(1, 1, 0, 1);
-				CASE(1, 1, 1, 1);
+				CASE(0, 0, 0);
+				CASE(0, 0, 1);
+				CASE(0, 1, 0);
+				CASE(0, 1, 1);
+				CASE(1, 0, 0);
+				CASE(1, 0, 1);
+				CASE(1, 1, 0);
+				CASE(1, 1, 1);
 			}
 #undef CASE
 
@@ -1265,9 +1178,9 @@ void FDeferredShadingSceneRenderer::RenderStandardDeferredImageBasedReflections(
 	}
 }
 
-void FDeferredShadingSceneRenderer::RenderDeferredReflections(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO, TRefCountPtr<IPooledRenderTarget>& VelocityRT)
+void FDeferredShadingSceneRenderer::RenderDeferredReflections(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
-	if (ViewFamily.EngineShowFlags.VisualizeLightCulling)
+	if (IsSimpleDynamicLightingEnabled() || ViewFamily.EngineShowFlags.VisualizeLightCulling)
 	{
 		return;
 	}
@@ -1293,11 +1206,11 @@ void FDeferredShadingSceneRenderer::RenderDeferredReflections(FRHICommandListImm
 		
 		if (bReflectionsWithCompute)
 		{
-			RenderTiledDeferredImageBasedReflections(RHICmdList, DynamicBentNormalAO, VelocityRT);
+			RenderTiledDeferredImageBasedReflections(RHICmdList, DynamicBentNormalAO);
 		}
 		else
 		{
-			RenderStandardDeferredImageBasedReflections(RHICmdList, bReflectionEnvironment, DynamicBentNormalAO, VelocityRT);
+			RenderStandardDeferredImageBasedReflections(RHICmdList, bReflectionEnvironment, DynamicBentNormalAO);
 		}
 	}
 }

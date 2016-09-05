@@ -56,7 +56,9 @@ struct HActor : public HHitProxy
 	virtual void AddReferencedObjects( FReferenceCollector& Collector ) override
 	{
 		Collector.AddReferencedObject( Actor );
-		Collector.AddReferencedObject( PrimComponent );
+
+		UPrimitiveComponent* NonConstPrimComp = const_cast<UPrimitiveComponent*>(PrimComponent);
+		Collector.AddReferencedObject( NonConstPrimComp );
 	}
 
 	virtual EMouseCursor::Type GetMouseCursor() override
@@ -244,12 +246,11 @@ public:
 				LocalCurrentActor = LocalSpawnedActorArray[LocalIndex - LocalObjectArray.Num()];
 			}
 			State->ConsideredCount++;
-			
-			ULevel* ActorLevel = LocalCurrentActor ? LocalCurrentActor->GetLevel() : nullptr;
-			if ( ActorLevel
+
+			if ( LocalCurrentActor != NULL
 				&& static_cast<const Derived*>(this)->IsActorSuitable(LocalCurrentActor)
-				&& static_cast<const Derived*>(this)->CanIterateLevel(ActorLevel)
-				&& ActorLevel->GetWorld() == LocalCurrentWorld)
+				&& static_cast<const Derived*>(this)->CanIterateLevel(LocalCurrentActor->GetLevel())
+				&& LocalCurrentActor->GetWorld() == LocalCurrentWorld)
 			{
 				// ignore non-persistent world settings
 				if (LocalCurrentActor->GetLevel() == LocalCurrentWorld->PersistentLevel || !LocalCurrentActor->IsA(AWorldSettings::StaticClass()))
@@ -289,7 +290,7 @@ public:
 	 *
 	 * @return true if iterator points to a suitable actor, false if it has reached the end
 	 */
-	FORCEINLINE explicit operator bool() const
+	FORCEINLINE_EXPLICIT_OPERATOR_BOOL() const
 	{
 		return !State->ReachedEnd;
 	}
@@ -396,7 +397,7 @@ private:
 	 */
 	static bool CanIterateLevel(ULevel* Level)
 	{
-		return Level->bIsVisible || Level->bIsAssociatingLevel;
+		return Level->bIsVisible;
 	}
 };
 
@@ -483,7 +484,7 @@ private:
 	 */
 	static bool CanIterateLevel(ULevel* Level)
 	{
-		return Level->bIsVisible || Level->bIsAssociatingLevel;
+		return Level->bIsVisible;
 	}
 };
 

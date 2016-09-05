@@ -2,18 +2,15 @@
 #include "EnginePrivate.h"
 #include "PhysDerivedData.h"
 #include "TargetPlatform.h"
-#include "PhysicsEngine/PhysicsSettings.h"
-#include "PhysicsEngine/BodySetup.h"
 
 #if WITH_PHYSX && (WITH_RUNTIME_PHYSICS_COOKING || WITH_EDITOR)
 
 #include "IPhysXFormatModule.h"
 
-FDerivedDataPhysXCooker::FDerivedDataPhysXCooker(FName InFormat, int32 InRuntimeCookFlags, UBodySetup* InBodySetup)
+FDerivedDataPhysXCooker::FDerivedDataPhysXCooker( FName InFormat, UBodySetup* InBodySetup )
 	: BodySetup( InBodySetup )
 	, CollisionDataProvider( NULL )
 	, Format( InFormat )
-	, RuntimeCookFlags(InRuntimeCookFlags)
 	, Cooker( NULL )
 {
 	check( BodySetup != NULL );
@@ -21,7 +18,6 @@ FDerivedDataPhysXCooker::FDerivedDataPhysXCooker(FName InFormat, int32 InRuntime
 	DataGuid = BodySetup->BodySetupGuid;
 	bGenerateNormalMesh = BodySetup->bGenerateNonMirroredCollision;
 	bGenerateMirroredMesh = BodySetup->bGenerateMirroredCollision;
-	bGenerateUVInfo = UPhysicsSettings::Get()->bSupportUVFromHitResults;
 	IInterface_CollisionDataProvider* CDP = Cast<IInterface_CollisionDataProvider>(CollisionDataProvider);
 	if (CDP)
 	{
@@ -82,18 +78,12 @@ bool FDerivedDataPhysXCooker::Build( TArray<uint8>& OutData )
 		}
 	}
 
-	FBodySetupUVInfo UVInfo;
-
 	// Cook trimeshes, but only if we do not frce simple collision to be used as complex collision as well
 	bool bUsingAllTriData = BodySetup != NULL ? BodySetup->bMeshCollideAll : false;
 	if( (BodySetup == NULL || BodySetup->GetCollisionTraceFlag() != CTF_UseSimpleAsComplex) && ShouldGenerateTriMeshData(bUsingAllTriData) )
 	{
-		NumTriMeshesCooked = BuildTriMesh( OutData, bUsingAllTriData, UPhysicsSettings::Get()->bSupportUVFromHitResults ? &UVInfo : nullptr );
+		NumTriMeshesCooked = BuildTriMesh( OutData, bUsingAllTriData );
 	}
-
-	// Seek to end, serialize UV info
-	Ar.Seek(OutData.Num());
-	Ar << UVInfo;
 
 	// Update info on what actually got cooked
 	Ar.Seek( CookedMeshInfoOffset );
@@ -134,29 +124,12 @@ int32 FDerivedDataPhysXCooker::BuildConvex( TArray<uint8>& OutData, bool InMirro
 		// Cook and store Result at ResultInfoOffset
 		UE_LOG(LogPhysics, Log, TEXT("Cook Convex: %s %d (FlipX:%d)"), *BodySetup->GetOuter()->GetPathName(), ElementIndex, InMirrored);		
 		const bool bDeformableMesh = CollisionDataProvider->IsA(USplineMeshComponent::StaticClass());
-		const EPhysXCookingResult Result = Cooker->CookConvex(Format, RuntimeCookFlags, *MeshVertices, OutData, bDeformableMesh);
-		switch (Result)
+		const bool Result = Cooker->CookConvex(Format, *MeshVertices, OutData, bDeformableMesh);
+		if( !Result )
 		{
-		case EPhysXCookingResult::Succeeded:
-			break;
-		case EPhysXCookingResult::Failed:
-			UE_LOG(LogPhysics, Warning, TEXT("Failed to cook convex: %s %d (FlipX:%d). The remaining elements will not get cooked."), *BodySetup->GetOuter()->GetPathName(), ElementIndex, InMirrored ? 1 : 0);
-			break;
-		case EPhysXCookingResult::SucceededWithInflation:
-			if (!bDeformableMesh)
-			{
-				UE_LOG(LogPhysics, Warning, TEXT("Cook convex: %s %d (FlipX:%d) failed but succeeded with inflation.  The mesh should be looked at."), *BodySetup->GetOuter()->GetPathName(), ElementIndex, InMirrored ? 1 : 0);
-			}
-			else
-			{
-				UE_LOG(LogPhysics, Log, TEXT("Cook convex: %s %d (FlipX:%d) required inflation. You may wish to adjust the mesh so this is not necessary."), *BodySetup->GetOuter()->GetPathName(), ElementIndex, InMirrored ? 1 : 0);
-			}
-			break;
-		default:
-			// Unknown/unsupported enum value
-			check(false);
+			UE_LOG(LogPhysics, Warning, TEXT("Failed to cook convex: %s %d (FlipX:%d). The remaining elements will not get cooked."), *BodySetup->GetOuter()->GetPathName(), ElementIndex, InMirrored);
 		}
-		OutData[ ResultInfoOffset ] = (Result != EPhysXCookingResult::Failed) ? 1 : 0;
+		OutData[ ResultInfoOffset ] = Result;
 	}
 
 	return BodySetup->AggGeom.ConvexElems.Num();
@@ -171,7 +144,7 @@ bool FDerivedDataPhysXCooker::ShouldGenerateTriMeshData(bool InUseAllTriData)
 	return bPerformCook;
 }
 
-int32 FDerivedDataPhysXCooker::BuildTriMesh( TArray<uint8>& OutData, bool InUseAllTriData, FBodySetupUVInfo* UVInfo)
+int32 FDerivedDataPhysXCooker::BuildTriMesh( TArray<uint8>& OutData, bool InUseAllTriData )
 {
 	check(Cooker != NULL);
 
@@ -203,46 +176,10 @@ int32 FDerivedDataPhysXCooker::BuildTriMesh( TArray<uint8>& OutData, bool InUseA
 			ensure(SkeletalMesh->bEnablePerPolyCollision);
 			bDeformableMesh = true;
 		}
-		bResult = Cooker->CookTriMesh( Format, RuntimeCookFlags, *MeshVertices, TriangleMeshDesc.Indices, TriangleMeshDesc.MaterialIndices, TriangleMeshDesc.bFlipNormals, OutData, bDeformableMesh );
+		bResult = Cooker->CookTriMesh( Format, *MeshVertices, TriangleMeshDesc.Indices, TriangleMeshDesc.MaterialIndices, TriangleMeshDesc.bFlipNormals, OutData, bDeformableMesh );
 		if( !bResult )
 		{
 			UE_LOG(LogPhysics, Warning, TEXT("Failed to cook TriMesh: %s."), *CollisionDataProvider->GetPathName());
-		}
-
-		// If we want UV info, copy that now
-		if (bResult && UVInfo)
-		{
-			// Store index buffer
-			const int32 NumTris = TriangleMeshDesc.Indices.Num();
-			UVInfo->IndexBuffer.Empty();
-			UVInfo->IndexBuffer.AddUninitialized(NumTris * 3);
-			for (int32 TriIdx = 0; TriIdx < TriangleMeshDesc.Indices.Num(); TriIdx++)
-			{
-				UVInfo->IndexBuffer[TriIdx * 3 + 0] = TriangleMeshDesc.Indices[TriIdx].v0;
-				UVInfo->IndexBuffer[TriIdx * 3 + 1] = TriangleMeshDesc.Indices[TriIdx].v1;
-				UVInfo->IndexBuffer[TriIdx * 3 + 2] = TriangleMeshDesc.Indices[TriIdx].v2;
-			}
-
-			// Store vertex positions
-			UVInfo->VertPositions.Empty();
-			UVInfo->VertPositions.AddUninitialized(NumVerts);
-			for (int32 VertIdx = 0; VertIdx < TriangleMeshDesc.Vertices.Num(); VertIdx++)
-			{
-				UVInfo->VertPositions[VertIdx] = TriangleMeshDesc.Vertices[VertIdx];
-			}
-
-			// Copy UV channels (checking they are correct size)
-			for (int32 UVIndex = 0; UVIndex < TriangleMeshDesc.UVs.Num(); UVIndex++)
-			{
-				if (TriangleMeshDesc.UVs[UVIndex].Num() == NumVerts)
-				{
-					UVInfo->VertUVs.Add(TriangleMeshDesc.UVs[UVIndex]);
-				}
-				else
-				{
-					break;
-				}
-			}
 		}
 	}
 

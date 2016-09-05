@@ -64,8 +64,6 @@ class SLATE_API SBox : public SPanel
 			/** When specified, will report the MaxDesiredHeight if smaller than the content's desired height. */
 			SLATE_ATTRIBUTE(FOptionalSize, MaxDesiredHeight)
 
-			SLATE_ATTRIBUTE(FOptionalSize, MaxAspectRatio)
-
 		SLATE_END_ARGS()
 
 		SBox();
@@ -110,8 +108,6 @@ class SLATE_API SBox : public SPanel
 		/** See MaxDesiredHeight attribute */
 		void SetMaxDesiredHeight(TAttribute<FOptionalSize> InMaxDesiredHeight);
 
-		void SetMaxAspectRatio(TAttribute<FOptionalSize> InMaxAspectRatio);
-
 protected:
 
 		FBoxSlot ChildSlot;
@@ -134,8 +130,6 @@ private:
 
 		/** When specified, will report the MaxDesiredHeight if smaller than the content's desired height. */
 		TAttribute<FOptionalSize> MaxDesiredHeight;
-
-		TAttribute<FOptionalSize> MaxAspectRatio;
 };
 
 

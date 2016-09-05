@@ -6,7 +6,6 @@
 #include "Materials/MaterialInterface.h"
 #include "Particles/Emitter.h"
 #include "Particles/ParticleSystem.h"
-#include "Particles/ParticleEmitter.h"
 #include "ParticleSystemComponent.generated.h"
 
 //
@@ -74,8 +73,6 @@ enum EParticleEventType
 // Called when the particle system is done
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam( FOnSystemFinished, class UParticleSystemComponent*, PSystem );
 
-//Called just before the activation of a component changes.
-DECLARE_MULTICAST_DELEGATE_TwoParams(FOnSystemPreActivationChange, class UParticleSystemComponent*, bool);
 
 /** Struct used for a particular named instance parameter for this ParticleSystemComponent. */
 USTRUCT(BlueprintType)
@@ -122,6 +119,7 @@ struct FParticleSysParam
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=ParticleSysParam)
 	class UMaterialInterface* Material;
 
+
 	FParticleSysParam()
 		: ParamType(0)
 		, Scalar(0)
@@ -131,64 +129,8 @@ struct FParticleSysParam
 		, Color(ForceInit)
 		, Actor(NULL)
 		, Material(NULL)
-		, AsyncActorToWorld(FTransform::Identity)
-		, AsyncActorVelocity(FVector::ZeroVector)
-		, bAsyncDataCopyIsValid(false)
 	{
 	}
-
-	void UpdateAsyncActorCache()
-	{
-		check(IsInGameThread());
-		if(Actor)
-		{
-			AsyncActorToWorld = Actor->ActorToWorld();
-			AsyncActorVelocity = Actor->GetVelocity();
-		}
-		
-		bAsyncDataCopyIsValid = true;
-	}
-
-	void ResetAsyncActorCache()
-	{
-		check(IsInGameThread());
-		bAsyncDataCopyIsValid = false;
-	}
-
-	FTransform GetAsyncActorToWorld() const
-	{
-		if(bAsyncDataCopyIsValid)
-		{
-			return AsyncActorToWorld;
-		}
-		else if(Actor)
-		{
-			check(IsInGameThread());
-			return Actor->ActorToWorld();
-		}
-
-		return FTransform::Identity;
-	}
-
-	FVector GetAsyncActorVelocity() const
-	{
-		if (bAsyncDataCopyIsValid)
-		{
-			return AsyncActorVelocity;
-		}
-		else if (Actor)
-		{
-			check(IsInGameThread());
-			return Actor->GetVelocity();
-		}
-
-		return FVector::ZeroVector;
-	}
-
-private:
-	FTransform AsyncActorToWorld;
-	FVector AsyncActorVelocity;
-	bool bAsyncDataCopyIsValid;
 
 };
 
@@ -274,8 +216,6 @@ struct FParticleEventCollideData : public FParticleExistingData
 	/** Name of bone we hit (for skeletal meshes). */
 	FName BoneName;
 
-	/** The physical material for this collision. */
-	UPhysicalMaterial* PhysMat;
 
 	FParticleEventCollideData()
 		: Normal(ForceInit)
@@ -343,9 +283,6 @@ public:
 	/** True if this was active before being unregistered or otherwise reset, if so reactivate it */
 	uint32 bWasActive:1;
 
-	/** If true, someone has requested this component reset. */
-	uint32 bResetTriggered : 1;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Particles)
 	uint32 bResetOnDetach:1;
 
@@ -376,19 +313,7 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Attachment)
 	uint32 bAutoManageAttachment:1;
-	
-	/** The significance this component requires of it's emitters for them to be enabled. */
-	UPROPERTY()
-	EParticleSignificanceLevel RequiredSignificance;
 
-	/** Time in seconds since we were last considered significant. */
-	float LastSignificantTime;
-
-	/** If this component is having it's significance managed by gameplay code. */
-	uint32 bIsManagingSignificance : 1;
-	/** If this component was previously having it's significance managed by gameplay code. Allows us to refresh render data when this changes. */
-	uint32 bWasManagingSignificance : 1;
-	
 private:
 	/** Did we auto attach during activation? Used to determine if we should restore the relative transform during detachment. */
 	uint32 bDidAutoAttach:1;
@@ -397,11 +322,6 @@ private:
 	void CancelAutoAttachment(bool bDetachFromParent);
 
 public:
-
-	void ResetNextTick()
-	{
-		bResetTriggered = true;
-	}
 
 	/**
 	 *	Array holding name instance parameters for this ParticleSystemComponent.
@@ -505,6 +425,7 @@ public:
 	uint32 bForceLODUpdateFromRenderer:1;
 
 	/** The view relevance flags for each LODLevel. */
+	UPROPERTY(transient)
 	TArray<FMaterialRelevance> CachedViewRelevanceFlags;
 
 	/** If true, the ViewRelevanceFlags are dirty and should be recached */
@@ -569,54 +490,21 @@ public:
 	FName AutoAttachSocketName;
 
 	/**
-	 * DEPRECATED: Options for how we handle our location when we attach to the AutoAttachParent, if bAutoManageAttachment is true.
+	 * Options for how we handle our location when we attach to the AutoAttachParent, if bAutoManageAttachment is true.
 	 * @see bAutoManageAttachment, EAttachLocation::Type
 	 */
-	UPROPERTY()
-	TEnumAsByte<EAttachLocation::Type> AutoAttachLocationType_DEPRECATED;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Attachment, meta=(EditCondition="bAutoManageAttachment"))
+	TEnumAsByte<EAttachLocation::Type> AutoAttachLocationType;
 
 	/**
-	 * Options for how we handle our location when we attach to the AutoAttachParent, if bAutoManageAttachment is true.
-	 * @see bAutoManageAttachment, EAttachmentRule
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Attachment, meta = (EditCondition = "bAutoManageAttachment"))
-	EAttachmentRule AutoAttachLocationRule;
-
-	/**
-	 * Options for how we handle our rotation when we attach to the AutoAttachParent, if bAutoManageAttachment is true.
-	 * @see bAutoManageAttachment, EAttachmentRule
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Attachment, meta = (EditCondition = "bAutoManageAttachment"))
-	EAttachmentRule AutoAttachRotationRule;
-
-	/**
-	 * Options for how we handle our scale when we attach to the AutoAttachParent, if bAutoManageAttachment is true.
-	 * @see bAutoManageAttachment, EAttachmentRule
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Attachment, meta = (EditCondition = "bAutoManageAttachment"))
-	EAttachmentRule AutoAttachScaleRule;
-
-	/**
-	 * DEPRECATED: Set AutoAttachParent, AutoAttachSocketName, AutoAttachLocationType to the specified parameters. Does not change bAutoManageAttachment; that must be set separately.
+	 * Set AutoAttachParent, AutoAttachSocketName, AutoAttachLocationType to the specified parameters. Does not change bAutoManageAttachment; that must be set separately.
 	 * @param  Parent			Component to attach to. 
 	 * @param  SocketName		Socket on Parent to attach to.
 	 * @param  LocationType		Option for how we handle our location when we attach to Parent.
 	 * @see bAutoManageAttachment, AutoAttachParent, AutoAttachSocketName, AutoAttachLocationType
 	 */
-	UFUNCTION(BlueprintCallable, Category="Effects|Components|ParticleSystem", meta=(DeprecatedFunction, DeprecationMessage="Please use Set Auto Attachment Parameters"))
+	UFUNCTION(BlueprintCallable, Category="Effects|Components|ParticleSystem")
 	void SetAutoAttachParams(USceneComponent* Parent, FName SocketName = NAME_None, EAttachLocation::Type LocationType = EAttachLocation::KeepRelativeOffset);
-
-	/**
-	 * Set AutoAttachParent, AutoAttachSocketName, AutoAttachLocationRule, AutoAttachRotationRule, AutoAttachScaleRule to the specified parameters. Does not change bAutoManageAttachment; that must be set separately.
-	 * @param  Parent			Component to attach to. 
-	 * @param  SocketName		Socket on Parent to attach to.
-	 * @param  LocationRule		Option for how we handle our location when we attach to Parent.
-	 * @param  RotationRule		Option for how we handle our rotation when we attach to Parent.
-	 * @param  ScaleRule		Option for how we handle our scale when we attach to Parent.
-	 * @see bAutoManageAttachment, AutoAttachParent, AutoAttachSocketName, AutoAttachLocationRule, AutoAttachRotationRule, AutoAttachScaleRule
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	void SetAutoAttachmentParameters(USceneComponent* Parent, FName SocketName, EAttachmentRule LocationRule, EAttachmentRule RotationRule, EAttachmentRule ScaleRule);
 
 private:
 
@@ -630,48 +518,10 @@ private:
 	FTransform AsyncComponentToWorld;
 	/** Cached copy of the instance params */
 	TArray<struct FParticleSysParam> AsyncInstanceParameters;
-	/** Player locations computed before kicking off async task. Safe to access from async task or game thread*/
-	TArray<FVector> PlayerLocations;
-	/** PlayerLODDistanceFactor computed before kicking off async task. Safe to access from async task or game thread*/
-	TArray<float> PlayerLODDistanceFactor;
-	/** Cached copy of bounds */
-	FBoxSphereBounds AsyncBounds;
-	/** Cached copy of PartSysVelocity */
-	FVector AsyncPartSysVelocity;
-
 	/** Is AsyncComponentToWorld etc valid? */
 	bool bAsyncDataCopyIsValid;
 	bool bParallelRenderThreadUpdate;
-
-	/** Remember the global detail mode when we last checked the emitters. */
-	uint32 LastCheckedDetailMode;
-
 public:
-
-	/** Called from game code when the significance required for a component changes. */
-	void SetRequiredSignificance(EParticleSignificanceLevel NewRequiredSignificance);
-	/** Whether this component should have it's significance managed by game code. */
-	bool ShouldManageSignificance()const;
-	/** When the overall significance for the component is changed. */
-	void OnSignificanceChanged(bool bSignificant, bool bApplyToEmitters, bool bAsync=false);
-
-	/** Called from game code when the component begins having it's significance managed. */
-	FORCEINLINE void SetManagingSignificance(bool bManageSignificance)
-	{
-		bWasManagingSignificance = bIsManagingSignificance;
-		bIsManagingSignificance = bManageSignificance;
-	}
-
-	/** Returns the approximate distance squared from this component to the passed location. */
-	float GetApproxDistanceSquared(FVector Point)const;
-	
-	/** True if this component can be considered invisible and potentially culled. */
-	bool CanConsiderInvisible()const;
-
-	/** true if this component can be occluded. */
-	bool CanBeOccluded()const;
-
-	void Complete();
 
 	FORCEINLINE const FTransform& GetAsyncComponentToWorld()
 	{
@@ -691,36 +541,6 @@ public:
 			return AsyncInstanceParameters;
 		}
 		return InstanceParameters;
-	}
-
-	FORCEINLINE const FBoxSphereBounds& GetAsyncBounds()
-	{
-		if (!bParallelRenderThreadUpdate && !IsInGameThread())
-		{
-			check(bAsyncDataCopyIsValid);
-			return AsyncBounds;
-		}
-		return Bounds;
-	}
-
-	FORCEINLINE const FVector& GetAsyncPartSysVelocity()
-	{
-		if (!bParallelRenderThreadUpdate && !IsInGameThread())
-		{
-			check(bAsyncDataCopyIsValid);
-			return AsyncPartSysVelocity;
-		}
-		return PartSysVelocity;
-	}
-
-	FORCEINLINE const TArray<FVector>& GetPlayerLocations()
-	{
-		return PlayerLocations;
-	}
-
-	FORCEINLINE const TArray<float>& GetPlayerLODDistanceFactor()
-	{
-		return PlayerLODDistanceFactor;
 	}
 
 	//
@@ -796,95 +616,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Effects|Components|ParticleSystem")
 	virtual void SetBeamTargetStrength(int32 EmitterIndex, float NewTargetStrength, int32 TargetIndex);
 
-	/**
-	*	Get the beam end point
-	*
-	*	@param	EmitterIndex		The index of the emitter to get the value of
-	*
-	*	@return	true		EmitterIndex is valid and End point is set - OutEndPoint is valid
-	*			false		EmitterIndex invalid or End point is not set - OutEndPoint is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamEndPoint(int32 EmitterIndex, FVector& OutEndPoint) const;
-	
-	/**
-	*	Get the beam source point
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	SourceIndex			Which beam within the emitter to get
-	*	@param	OutSourcePoint		Value of source point
-	*
-	*	@return	true		EmitterIndex and SourceIndex are valid - OutSourcePoint is valid
-	*			false		EmitterIndex or SourceIndex is invalid - OutSourcePoint is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamSourcePoint(int32 EmitterIndex, int32 SourceIndex, FVector& OutSourcePoint) const;
-
-	/**
-	*	Get the beam source tangent
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	SourceIndex			Which beam within the emitter to get
-	*	@param	OutTangentPoint		Value of source tangent
-	*
-	*	@return	true		EmitterIndex and SourceIndex are valid - OutTangentPoint is valid
-	*			false		EmitterIndex or SourceIndex is invalid - OutTangentPoint is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamSourceTangent(int32 EmitterIndex, int32 SourceIndex, FVector& OutTangentPoint) const;
-
-	/**
-	*	Get the beam source strength
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	SourceIndex			Which beam within the emitter to get
-	*	@param	OutSourceStrength		Value of source tangent
-	*
-	*	@return	true		EmitterIndex and SourceIndex are valid - OutSourceStrength is valid
-	*			false		EmitterIndex or SourceIndex is invalid - OutSourceStrength is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamSourceStrength(int32 EmitterIndex, int32 SourceIndex, float& OutSourceStrength) const;
-
-	/**
-	*	Get the beam target point
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	TargetIndex			Which beam within the emitter to get
-	*	@param	OutTargetPoint		Value of target point
-	*
-	*	@return	true		EmitterIndex and TargetIndex are valid - OutTargetPoint is valid
-	*			false		EmitterIndex or TargetIndex is invalid - OutTargetPoint is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamTargetPoint(int32 EmitterIndex, int32 TargetIndex, FVector& OutTargetPoint) const;
-
-	/**
-	*	Get the beam target tangent
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	TargetIndex			Which beam within the emitter to get
-	*	@param	OutTangentPoint		Value of target tangent
-	*
-	*	@return	true		EmitterIndex and TargetIndex are valid - OutTangentPoint is valid
-	*			false		EmitterIndex or TargetIndex is invalid - OutTangentPoint is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamTargetTangent(int32 EmitterIndex, int32 TargetIndex, FVector& OutTangentPoint) const;
-	
-	/**
-	*	Get the beam target strength
-	*
-	*	@param	EmitterIndex		The index of the emitter to get
-	*	@param	TargetIndex			Which beam within the emitter to get
-	*	@param	OutTargetStrength	Value of target tangent
-	*
-	*	@return	true		EmitterIndex and TargetIndex are valid - OutTargetStrength is valid
-	*			false		EmitterIndex or TargetIndex is invalid - OutTargetStrength is invalid
-	*/
-	UFUNCTION(BlueprintCallable, Category = "Effects|Components|ParticleSystem")
-	virtual bool GetBeamTargetStrength(int32 EmitterIndex, int32 TargetIndex, float& OutTargetStrength) const;
-	
 	/**
 	 *	Enables/Disables a sub-emitter
 	 *
@@ -1054,9 +785,6 @@ public:
 	/** Command fence used to shut down properly */
 	class FRenderCommandFence* ReleaseResourcesFence;
 
-	/** Static delegate called for all systems on an activation change. */
-	static FOnSystemPreActivationChange OnSystemPreActivationChange;
-
 private:
 	/** Task ref for parallel portion */
 	FGraphEventRef AsyncWork;
@@ -1068,8 +796,8 @@ private:
 	bool bNeedsFinalize;
 	/** If true, it means the Async work is in process and not yet completed */
 	bool bAsyncWorkOutstanding;
-	/** Number of significant emitters. When this is 0, the system can either be deactivated or stopped ticking. */
-	uint32 NumSignificantEmitters;
+	/** This flag is only valid during finalize. It is sent back from the potentially async task to indicate that all emitters are finished */
+	bool bAllEmittersFinished;
 	/** Time in ms since a tick was last performed; used with MinTimeBetweenTicks (on UParticleSystem) to control tick rate */
 	uint32 TimeSinceLastTick;
 
@@ -1101,11 +829,11 @@ public:
 		SILENT, // this would only be appropriate for editor only or other unusual things that we never see in game
 	};
 	/** If there is async work outstanding, force it to be completed now **/
-	FORCEINLINE void ForceAsyncWorkCompletion(EForceAsyncWorkCompletion Behavior, bool bDefinitelyGameThread = true) const
+	FORCEINLINE void ForceAsyncWorkCompletion(EForceAsyncWorkCompletion Behavior) const
 	{
 		if (AsyncWork.GetReference())
 		{
-			WaitForAsyncAndFinalize(Behavior, bDefinitelyGameThread);
+			WaitForAsyncAndFinalize(Behavior);
 		}
 	}
 
@@ -1123,7 +851,7 @@ public:
 
 private:
 	/** Wait on the async task and call finalize on the tick **/
-	void WaitForAsyncAndFinalize(EForceAsyncWorkCompletion Behavior, bool bDefinitelyGameThread = true) const;
+	void WaitForAsyncAndFinalize(EForceAsyncWorkCompletion Behavior) const;
 
 	/** Cache view relevance flags. */
 	void CacheViewRelevanceFlags(class UParticleSystem* TemplateToCache);
@@ -1150,7 +878,6 @@ public:
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 	virtual void GetUsedMaterials( TArray<UMaterialInterface*>& OutMaterials ) const override;
-	virtual FBodyInstance* GetBodyInstance(FName BoneName = NAME_None, bool bGetWelded = true) const override;
 	//End UPrimitiveComponent Interface
 
 	//~ Begin USceneComonent Interface
@@ -1208,20 +935,19 @@ protected:
 	 * @param	EmitterInstance		Emitter instance this replay is playing on
 	 * @param	EmitterReplayData	Incoming replay data of any time, cannot be NULL
 	 * @param	bSelected			true if the particle system is currently selected
-	 * @param	InFeatureLevel		The relevant shader feature level
 	 *
 	 * @return	The newly created dynamic data, or NULL on failure
 	 */
-	static FDynamicEmitterDataBase* CreateDynamicDataFromReplay( FParticleEmitterInstance* EmitterInstance, const FDynamicEmitterReplayDataBase* EmitterReplayData, bool bSelected, ERHIFeatureLevel::Type InFeatureLevel );
+	static FDynamicEmitterDataBase* CreateDynamicDataFromReplay( FParticleEmitterInstance* EmitterInstance, const FDynamicEmitterReplayDataBase* EmitterReplayData, bool bSelected );
 
 	/**
 	 * Creates dynamic particle data for rendering the particle system this frame.  This function
 	 * handle creation of dynamic data for regularly simulated particles, but also handles capture
 	 * and playback of particle replay data.
-     * @param InFeatureLevel - The relevant shader feature level.
+	 *
 	 * @return	Returns the dynamic data to render this frame
 	 */
-	FParticleDynamicData* CreateDynamicData(ERHIFeatureLevel::Type InFeatureLevel);
+	FParticleDynamicData* CreateDynamicData();
 
 	/** Orients the Z axis of the ParticleSystemComponent toward the camera while preserving the X axis direction */
 	void OrientZAxisTowardCamera();
@@ -1315,7 +1041,7 @@ public:
 	 */
 	void ReportEventCollision(const FName InEventName, const float InEmitterTime, const FVector InLocation,
 		const FVector InDirection, const FVector InVelocity, const TArray<class UParticleModuleEventSendToGame*>& InEventData, 
-		const float InParticleTime, const FVector InNormal, const float InTime, const int32 InItem, const FName InBoneName, UPhysicalMaterial* PhysMat);
+		const float InParticleTime, const FVector InNormal, const float InTime, const int32 InItem, const FName InBoneName);
 
 	/**
 	 *	Record a bursting event.
@@ -1406,15 +1132,6 @@ FORCEINLINE_DEBUGGABLE void UParticleSystemComponent::SetAutoAttachParams(UScene
 {
 	AutoAttachParent = Parent;
 	AutoAttachSocketName = SocketName;
-
-	USceneComponent::ConvertAttachLocation(LocationType, AutoAttachLocationRule, AutoAttachRotationRule, AutoAttachScaleRule);
+	AutoAttachLocationType = LocationType;
 }
 
-FORCEINLINE_DEBUGGABLE void UParticleSystemComponent::SetAutoAttachmentParameters(USceneComponent* Parent, FName SocketName, EAttachmentRule LocationRule, EAttachmentRule RotationRule, EAttachmentRule ScaleRule)
-{
-	AutoAttachParent = Parent;
-	AutoAttachSocketName = SocketName;
-	AutoAttachLocationRule = LocationRule;
-	AutoAttachRotationRule = RotationRule;
-	AutoAttachScaleRule = ScaleRule;
-}

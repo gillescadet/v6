@@ -3,7 +3,6 @@
 #include "CorePrivatePCH.h"
 #include "AutomationTest.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
 
 #define TestUnixEquivalent( Desc, A, B ) if( (A).ToUnixTimestamp() != (B) ) AddError(FString::Printf(TEXT("%s - A=%d B=%d"),Desc,(A).ToUnixTimestamp(),(B)));
 #define TestYear( Desc, A, B ) if( (A.GetYear()) != (B) ) AddError(FString::Printf(TEXT("%s - A=%d B=%d"),Desc,(A.GetYear()),(B)));
@@ -99,5 +98,3 @@ bool FDateTimeTest::RunTest( const FString& Parameters )
 #undef TestMinute
 #undef TestSecond
 #undef TestMillisecond
-
-#endif //WITH_DEV_AUTOMATION_TESTS

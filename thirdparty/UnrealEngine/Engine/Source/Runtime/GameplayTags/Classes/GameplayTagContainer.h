@@ -4,8 +4,6 @@
 
 #include "GameplayTagContainer.generated.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogGameplayTags, Log, All);
-
 DECLARE_STATS_GROUP(TEXT("Gameplay Tags"), STATGROUP_GameplayTags, STATCAT_Advanced);
 
 DECLARE_CYCLE_STAT_EXTERN(TEXT("FGameplayTagContainer::HasTag"), STAT_FGameplayTagContainer_HasTag, STATGROUP_GameplayTags, GAMEPLAYTAGS_API);
@@ -134,16 +132,6 @@ struct GAMEPLAYTAGS_API FGameplayTag
 	/** Overridden for fast serialize */
 	bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
 
-	/** Handles fixup and errors. This is only called when not serializing a full FGameplayTagContainer */
-	void PostSerialize(const FArchive& Ar);
-	bool NetSerialize_Packed(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess);
-
-	/** Used to upgrade a Name property to a GameplayTag struct property */
-	bool SerializeFromMismatchedTag(const FPropertyTag& Tag, FArchive& Ar);
-
-	/** Handles importing tag strings without (TagName=) in it */
-	bool ImportTextItem(const TCHAR*& Buffer, int32 PortFlags, UObject* Parent, FOutputDevice* ErrorText);
-
 private:
 
 	/** Intentionally private so only the tag manager can use */
@@ -154,7 +142,6 @@ private:
 	FName TagName;
 
 	friend class UGameplayTagsManager;
-	friend struct FGameplayTagContainer;
 };
 
 template<>
@@ -163,9 +150,6 @@ struct TStructOpsTypeTraits< FGameplayTag > : public TStructOpsTypeTraitsBase
 	enum
 	{
 		WithNetSerializer = true,
-		WithPostSerialize = true,
-		WithSerializeFromMismatchedTag = true,
-		WithImportTextItem = true,
 	};
 };
 
@@ -203,14 +187,6 @@ struct GAMEPLAYTAGS_API FGameplayTagContainer
 	FGameplayTagContainer& operator=(FGameplayTagContainer&& Other);
 	bool operator==(FGameplayTagContainer const& Other) const;
 	bool operator!=(FGameplayTagContainer const& Other) const;
-
-	template<class AllocatorType>
-	static FGameplayTagContainer CreateFromArray(TArray<FGameplayTag, AllocatorType>& SourceTags)
-	{
-		FGameplayTagContainer Container;
-		Container.GameplayTags.Append(SourceTags);
-		return Container;
-	}
 
 	/**  Returns a new container containing all of the tags of this container, as well as all of their parent tags */
 	FGameplayTagContainer GetGameplayTagParents() const;
@@ -271,20 +247,6 @@ struct GAMEPLAYTAGS_API FGameplayTagContainer
 	 */
 	bool MatchesQuery(const struct FGameplayTagQuery& Query) const;
 
-
-	/**
-	 * Determine if the container has the specified tag. This forces an explicit match. 
-	 * This function exists for convenience and brevity. We do not wish to use default values for ::HasTag match type parameters, to avoid confusion on what the default behavior is. (E.g., we want people to think and use the right match type).
-	 * 
-	 * @param TagToCheck			Tag to check if it is present in the container
-	 * 
-	 * @return True if the tag is in the container, false if it is not
-	 */
-	FORCEINLINE_DEBUGGABLE bool HasTagExplicit(FGameplayTag const& TagToCheck) const
-	{
-		return HasTag(TagToCheck, EGameplayTagMatchType::Explicit, EGameplayTagMatchType::Explicit);
-	}
-
 	/**
 	 * Determine if the container has the specified tag
 	 * 
@@ -294,7 +256,7 @@ struct GAMEPLAYTAGS_API FGameplayTagContainer
 	 * 
 	 * @return True if the tag is in the container, false if it is not
 	 */
-	FORCEINLINE_DEBUGGABLE bool HasTag(FGameplayTag const& TagToCheck, TEnumAsByte<EGameplayTagMatchType::Type> TagMatchType=EGameplayTagMatchType::Explicit, TEnumAsByte<EGameplayTagMatchType::Type> TagToCheckMatchType=EGameplayTagMatchType::Explicit) const
+	FORCEINLINE_DEBUGGABLE bool HasTag(FGameplayTag const& TagToCheck, TEnumAsByte<EGameplayTagMatchType::Type> TagMatchType, TEnumAsByte<EGameplayTagMatchType::Type> TagToCheckMatchType) const
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FGameplayTagContainer_HasTag);
 		bool bResult;
@@ -413,20 +375,6 @@ struct GAMEPLAYTAGS_API FGameplayTagContainer
 	{
 		return GameplayTags.CreateConstIterator();
 	}
-
-	bool IsValidIndex(int32 Index)
-	{
-		return GameplayTags.IsValidIndex(Index);
-	}
-
-	FGameplayTag GetByIndex(int32 Index)
-	{
-		if (IsValidIndex(Index))
-		{
-			return GameplayTags[Index];
-		}
-		return FGameplayTag();
-	}	
 
 	FGameplayTag First() const
 	{

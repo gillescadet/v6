@@ -9,6 +9,8 @@
 
 DEFINE_LOG_CATEGORY(LogCurveTable);
 
+ENGINE_API const FString FCurveTableRowHandle::Unknown(TEXT("UNKNOWN"));
+
 DECLARE_CYCLE_STAT(TEXT("CurveTableRowHandle Eval"),STAT_CurveTableRowHandleEval,STATGROUP_Engine);
 
 
@@ -495,11 +497,11 @@ FRichCurve* FCurveTableRowHandle::GetCurve(const FString& ContextString) const
 	return CurveTable->FindCurve(RowName, ContextString);
 }
 
-float FCurveTableRowHandle::Eval(float XValue,const FString& ContextString) const
+float FCurveTableRowHandle::Eval(float XValue) const
 {
 	SCOPE_CYCLE_COUNTER(STAT_CurveTableRowHandleEval); 
 
-	FRichCurve* Curve = GetCurve(ContextString);
+	FRichCurve* Curve = GetCurve();
 	if(Curve != NULL)
 	{
 		return Curve->Eval(XValue);
@@ -508,11 +510,11 @@ float FCurveTableRowHandle::Eval(float XValue,const FString& ContextString) cons
 	return 0;
 }
 
-bool FCurveTableRowHandle::Eval(float XValue, float* YValue, const FString& ContextString) const
+bool FCurveTableRowHandle::Eval(float XValue, float* YValue) const
 {
 	SCOPE_CYCLE_COUNTER(STAT_CurveTableRowHandleEval); 
 
-	FRichCurve* Curve = GetCurve(ContextString);
+	FRichCurve* Curve = GetCurve();
 	if(Curve != NULL && YValue != NULL)
 	{
 		*YValue = Curve->Eval(XValue);

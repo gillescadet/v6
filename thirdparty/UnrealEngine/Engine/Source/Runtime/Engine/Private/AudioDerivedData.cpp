@@ -4,28 +4,22 @@
 #include "TargetPlatform.h"
 #include "Sound/SoundWave.h"
 #include "DerivedDataCacheInterface.h"
-#include "CookStats.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogAudioDerivedData, Log, All);
 
-#if ENABLE_COOK_STATS
-namespace AudioCookStats
-{
-	static FCookStats::FDDCResourceUsageStats UsageStats;
-	static FCookStats::FDDCResourceUsageStats StreamingChunkUsageStats;
-	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
-	{
-		UsageStats.LogStats(AddStat, TEXT("Audio.Usage"), TEXT("Inline"));
-		StreamingChunkUsageStats.LogStats(AddStat, TEXT("Audio.Usage"), TEXT("Streaming"));
-	});
-}
+/*------------------------------------------------------------------------------
+	Derived data key generation.
+------------------------------------------------------------------------------*/
+
+
+// enable audio building stats these appear in the Saved\Stats\stats.csv file
+#define BUILD_AUDIO_STATS 1
+
+#if BUILD_AUDIO_STATS
+#include "DDCStatsHelper.h"
 #endif
 
 #if WITH_EDITORONLY_DATA
-
-/*------------------------------------------------------------------------------
-Derived data key generation.
-------------------------------------------------------------------------------*/
 
 // If you want to bump this version, generate a new guid using
 // VS->Tools->Create GUID and paste it here.
@@ -152,19 +146,16 @@ static FName GetWaveFormatForRunningPlatform(USoundWave& SoundWave)
 
 /**
  * Stores derived data in the DDC.
- * After this returns, all bulk data from streaming chunks will be sent separately to the DDC and the BulkData for those chunks removed.
  * @param DerivedData - The data to store in the DDC.
  * @param DerivedDataKeySuffix - The key suffix at which to store derived data.
- * @return number of bytes put to the DDC (total, including all chunnks)
  */
-static uint32 PutDerivedDataInCache(
+static void PutDerivedDataInCache(
 	FStreamedAudioPlatformData* DerivedData,
 	const FString& DerivedDataKeySuffix
 	)
 {
 	TArray<uint8> RawDerivedData;
 	FString DerivedDataKey;
-	uint32 TotalBytesPut = 0;
 
 	// Build the key with which to cache derived data.
 	GetStreamedAudioDerivedDataKeyFromSuffix(DerivedDataKeySuffix, DerivedDataKey);
@@ -196,17 +187,14 @@ static uint32 PutDerivedDataInCache(
 				);
 		}
 
-		TotalBytesPut += Chunk.StoreInDerivedDataCache(ChunkDerivedDataKey);
+		Chunk.StoreInDerivedDataCache(ChunkDerivedDataKey);
 	}
 
 	// Store derived data.
-	// At this point we've stored all the non-inline data in the DDC, so this will only serialize and store the metadata and any inline chunks
 	FMemoryWriter Ar(RawDerivedData, /*bIsPersistent=*/ true);
 	DerivedData->Serialize(Ar, NULL);
 	GetDerivedDataCacheRef().Put(*DerivedDataKey, RawDerivedData);
-	TotalBytesPut += RawDerivedData.Num();
-	UE_LOG(LogAudio, Verbose, TEXT("%s  Derived Data: %d bytes"), *LogString, RawDerivedData.Num());
-	return TotalBytesPut;
+	UE_LOG(LogAudio,Verbose,TEXT("%s  Derived Data: %d bytes"),*LogString,RawDerivedData.Num());
 }
 
 #endif // #if WITH_EDITORONLY_DATA
@@ -241,17 +229,20 @@ class FStreamedAudioCacheDerivedDataWorker : public FNonAbandonableTask
 	FString KeySuffix;
 	/** Streamed Audio cache flags. */
 	uint32 CacheFlags;
-	/** Have many bytes were loaded from DDC or built (for telemetry) */
-	uint32 BytesCached = 0;
-
 	/** true if caching has succeeded. */
 	bool bSucceeded;
-	/** true if the derived data was pulled from DDC */
-	bool bLoadedFromDDC = false;
 
 	/** Build the streamed audio. This function is safe to call from any thread. */
 	void BuildStreamedAudio()
 	{
+#if BUILD_AUDIO_STATS
+		FString DDCKey;
+		GetStreamedAudioDerivedDataKeyFromSuffix(KeySuffix, DDCKey);
+		static const FName NAME_BuildStreamedAudio(TEXT("BuildStreamedAudio"));
+		FDDCScopeStatHelper ScopeTimer(*DDCKey, NAME_BuildStreamedAudio);
+#endif
+
+
 		GetStreamedAudioDerivedDataKeySuffix(SoundWave, AudioFormatName, KeySuffix);
 
 		DerivedData->Chunks.Empty();
@@ -303,10 +294,7 @@ class FStreamedAudioCacheDerivedDataWorker : public FNonAbandonableTask
 				DerivedData->NumChunks = DerivedData->Chunks.Num();
 
 				// Store it in the cache.
-				// @todo: This will remove the streaming bulk data, which we immediately reload below!
-				// Should ideally avoid this redundant work, but it only happens when we actually have 
-				// to build the texture, which should only ever be once.
-				this->BytesCached = PutDerivedDataInCache(DerivedData, KeySuffix);
+				PutDerivedDataInCache(DerivedData, KeySuffix);
 			}
 			else
 			{
@@ -344,7 +332,6 @@ public:
 		, AudioFormatName(InAudioFormatName)
 		, CacheFlags(InCacheFlags)
 		, bSucceeded(false)
-		, bLoadedFromDDC(false)
 	{
 	}
 
@@ -359,11 +346,9 @@ public:
 
 		if (!bForceRebuild && GetDerivedDataCacheRef().GetSynchronous(*DerivedData->DerivedDataKey, RawDerivedData))
 		{
-			BytesCached = RawDerivedData.Num();
 			FMemoryReader Ar(RawDerivedData, /*bIsPersistent=*/ true);
 			DerivedData->Serialize(Ar, NULL);
 			bSucceeded = true;
-			// Load any streaming (not inline) chunks that are necessary for our platform.
 			if (bForDDC)
 			{
 				for (int32 Index = 0; Index < DerivedData->NumChunks; ++Index)
@@ -383,7 +368,6 @@ public:
 			{
 				bSucceeded = DerivedData->AreDerivedChunksAvailable();
 			}
-			bLoadedFromDDC = true;
 		}
 		else if (bAllowAsyncBuild)
 		{
@@ -392,28 +376,13 @@ public:
 	}
 
 	/** Finalize work. Must be called ONLY by the game thread! */
-	bool Finalize()
+	void Finalize()
 	{
 		check(IsInGameThread());
-		// if we couldn't get from the DDC or didn't build synchronously, then we have to build now. 
-		// This is a super edge case that should rarely happen.
 		if (!bSucceeded)
 		{
 			BuildStreamedAudio();
 		}
-		return bLoadedFromDDC;
-	}
-
-	/** Expose bytes cached for telemetry. */
-	uint32 GetBytesCached() const
-	{
-		return BytesCached;
-	}
-
-	/** Expose how the resource was returned for telemetry. */
-	bool WasLoadedFromDDC() const
-	{
-		return bLoadedFromDDC;
 	}
 
 	FORCEINLINE TStatId GetStatId() const
@@ -465,12 +434,8 @@ void FStreamedAudioPlatformData::Cache(USoundWave& InSoundWave, FName AudioForma
 	else
 	{
 		FStreamedAudioCacheDerivedDataWorker Worker(this, &InSoundWave, AudioFormatName, Flags);
-		{
-			COOK_STAT(auto Timer = AudioCookStats::UsageStats.TimeSyncWork());
-			Worker.DoWork();
-			Worker.Finalize();
-			COOK_STAT(Timer.AddHitOrMiss(Worker.WasLoadedFromDDC() ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, Worker.GetBytesCached()));
-		}
+		Worker.DoWork();
+		Worker.Finalize();
 	}
 }
 
@@ -484,12 +449,10 @@ void FStreamedAudioPlatformData::FinishCache()
 	if (AsyncTask)
 	{
 		{
-			COOK_STAT(auto Timer = AudioCookStats::UsageStats.TimeAsyncWait());
 			AsyncTask->EnsureCompletion();
-			FStreamedAudioCacheDerivedDataWorker& Worker = AsyncTask->GetTask();
-			Worker.Finalize();
-			COOK_STAT(Timer.AddHitOrMiss(Worker.WasLoadedFromDDC() ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, Worker.GetBytesCached()));
 		}
+		FStreamedAudioCacheDerivedDataWorker& Worker = AsyncTask->GetTask();
+		Worker.Finalize();
 		delete AsyncTask;
 		AsyncTask = NULL;
 	}
@@ -528,12 +491,8 @@ bool FStreamedAudioPlatformData::TryInlineChunkData()
 		if (Chunk.DerivedDataKey.IsEmpty() == false)
 		{
 			uint32 AsyncHandle = AsyncHandles[ChunkIndex];
-			bool bLoadedFromDDC = false;
-			COOK_STAT(auto Timer = AudioCookStats::StreamingChunkUsageStats.TimeAsyncWait());
 			DDC.WaitAsynchronousCompletion(AsyncHandle);
-			bLoadedFromDDC = DDC.GetAsynchronousResults(AsyncHandle, TempData);
-			COOK_STAT(Timer.AddHitOrMiss(bLoadedFromDDC ? FCookStats::CallStats::EHitOrMiss::Hit : FCookStats::CallStats::EHitOrMiss::Miss, TempData.Num()));
-			if (bLoadedFromDDC)
+			if (DDC.GetAsynchronousResults(AsyncHandle, TempData))
 			{
 				int32 ChunkSize = 0;
 				FMemoryReader Ar(TempData, /*bIsPersistent=*/ true);

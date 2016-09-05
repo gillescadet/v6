@@ -4,7 +4,6 @@
 #include "Audio.h"
 #include "AudioDevice.h"
 #include "AudioDeviceManager.h"
-#include "AudioThread.h"
 #include "Sound/SoundWave.h"
 #include "Sound/AudioSettings.h"
 #include "GameFramework/GameUserSettings.h"
@@ -25,13 +24,6 @@ static const uint32 AUDIO_DEVICE_DEFAULT_ALLOWED_DEVICE_COUNT = 2;
 
 // The max number of audio devices allowed
 static const uint32 AUDIO_DEVICE_MAX_DEVICE_COUNT = 8;
-
-FAudioDeviceManager::FCreateAudioDeviceResults::FCreateAudioDeviceResults()
-	: Handle(AUDIO_DEVICE_HANDLE_INVALID)
-	, bNewDevice(false)
-	, AudioDevice(nullptr)
-{
-}
 
 /*-----------------------------------------------------------------------------
 FAudioDeviceManager implementation.
@@ -69,14 +61,13 @@ void FAudioDeviceManager::RegisterAudioDeviceModule(IAudioDeviceModule* AudioDev
 	AudioDeviceModule = AudioDeviceModuleInput;
 }
 
-bool FAudioDeviceManager::CreateAudioDevice(bool bCreateNewDevice, FCreateAudioDeviceResults& OutResults)
+FAudioDevice* FAudioDeviceManager::CreateAudioDevice(uint32& HandleOut, bool bCreateNewDevice)
 {
-	OutResults = FCreateAudioDeviceResults();
-
 	// If we don't have an audio device module, then we can't create new audio devices.
 	if (AudioDeviceModule == nullptr)
 	{
-		return false;
+		HandleOut = AUDIO_DEVICE_HANDLE_INVALID;
+		return nullptr;
 	}
 
 	// If we are running without the editor, we only need one audio device.
@@ -87,21 +78,23 @@ bool FAudioDeviceManager::CreateAudioDevice(bool bCreateNewDevice, FCreateAudioD
 			FAudioDevice* MainAudioDevice = GEngine->GetMainAudioDevice();
 			if (MainAudioDevice)
 			{
-				OutResults.Handle = MainAudioDevice->DeviceHandle;
-				OutResults.AudioDevice = MainAudioDevice;
-				return true;
+				HandleOut = MainAudioDevice->DeviceHandle;
+				return MainAudioDevice;
 			}
-			return false;
+			return nullptr;
 		}
 	}
+
+	FAudioDevice* NewAudioDevice = nullptr;
 
 	if (NumActiveAudioDevices < AUDIO_DEVICE_DEFAULT_ALLOWED_DEVICE_COUNT || (bCreateNewDevice && NumActiveAudioDevices < AUDIO_DEVICE_MAX_DEVICE_COUNT))
 	{
 		// Create the new audio device and make sure it succeeded
-		OutResults.AudioDevice = AudioDeviceModule->CreateAudioDevice();
-		if (OutResults.AudioDevice == nullptr)
+		NewAudioDevice = AudioDeviceModule->CreateAudioDevice();
+		if (NewAudioDevice == nullptr)
 		{
-			return false;
+			HandleOut = AUDIO_DEVICE_HANDLE_INVALID;
+			return nullptr;
 		}
 
 		// Now generation a new audio device handle for the device and store the
@@ -117,7 +110,7 @@ bool FAudioDeviceManager::CreateAudioDevice(bool bCreateNewDevice, FCreateAudioD
 			--FreeIndicesSize;
 			check(int32(AudioDeviceIndex) < Devices.Num());
 			check(Devices[AudioDeviceIndex] == nullptr);
-			Devices[AudioDeviceIndex] = OutResults.AudioDevice;
+			Devices[AudioDeviceIndex] = NewAudioDevice;
 		}
 		else
 		{
@@ -127,14 +120,13 @@ bool FAudioDeviceManager::CreateAudioDevice(bool bCreateNewDevice, FCreateAudioD
 			Generations.Add(0);
 			AudioDeviceIndex = Generations.Num() - 1;
 			check(AudioDeviceIndex < (1 << AUDIO_DEVICE_HANDLE_INDEX_BITS));
-			Devices.Add(OutResults.AudioDevice);
+			Devices.Add(NewAudioDevice);
 		}
 
-		OutResults.bNewDevice = true;
-		OutResults.Handle = CreateHandle(AudioDeviceIndex, Generations[AudioDeviceIndex]);
+		HandleOut = CreateHandle(AudioDeviceIndex, Generations[AudioDeviceIndex]);
 
 		// Store the handle on the audio device itself
-		OutResults.AudioDevice->DeviceHandle = OutResults.Handle;
+		NewAudioDevice->DeviceHandle = HandleOut;
 	}
 	else
 	{
@@ -142,21 +134,22 @@ bool FAudioDeviceManager::CreateAudioDevice(bool bCreateNewDevice, FCreateAudioD
 		FAudioDevice* MainAudioDevice = GEngine->GetMainAudioDevice();
 		if (MainAudioDevice)
 		{
-			OutResults.Handle = MainAudioDevice->DeviceHandle;
-			OutResults.AudioDevice = MainAudioDevice;
+			HandleOut = MainAudioDevice->DeviceHandle;
+			NewAudioDevice = MainAudioDevice;
 		}
 	}
 
 	++NumActiveAudioDevices;
 
 	const UAudioSettings* AudioSettings = GetDefault<UAudioSettings>();
-	if (!OutResults.AudioDevice->Init(AudioSettings->GetQualityLevelSettings(GEngine->GetGameUserSettings()->GetAudioQualityLevel()).MaxChannels))
+	if (!NewAudioDevice->Init(AudioSettings->GetQualityLevelSettings(GEngine->GetGameUserSettings()->GetAudioQualityLevel()).MaxChannels))
 	{
-		ShutdownAudioDevice(OutResults.Handle);
-		OutResults = FCreateAudioDeviceResults();
+		ShutdownAudioDevice(HandleOut);
+		HandleOut = AUDIO_DEVICE_HANDLE_INVALID;
+		NewAudioDevice = nullptr;
 	}
 
-	return (OutResults.AudioDevice != nullptr);
+	return NewAudioDevice;
 }
 
 bool FAudioDeviceManager::IsValidAudioDeviceHandle(uint32 Handle) const
@@ -279,9 +272,6 @@ class FAudioDevice* FAudioDeviceManager::GetActiveAudioDevice()
 
 void FAudioDeviceManager::UpdateActiveAudioDevices(bool bGameTicking)
 {
-	// Before we kick off the next update make sure that we've finished the previous frame's update (this should be extremely rare)
-	SyncFence.Wait();
-
 	for (FAudioDevice* AudioDevice : Devices)
 	{
 		if (AudioDevice)
@@ -289,8 +279,6 @@ void FAudioDeviceManager::UpdateActiveAudioDevices(bool bGameTicking)
 			AudioDevice->Update(bGameTicking);
 		}
 	}
-
-	SyncFence.BeginFence();
 }
 
 void FAudioDeviceManager::AddReferencedObjects(FReferenceCollector& Collector)
@@ -304,7 +292,19 @@ void FAudioDeviceManager::AddReferencedObjects(FReferenceCollector& Collector)
 	}
 }
 
-void FAudioDeviceManager::StopSoundsUsingResource(class USoundWave* InSoundWave, TArray<UAudioComponent*>* StoppedComponents)
+void FAudioDeviceManager::StopSoundsUsingWave(class USoundWave* InSoundWave)
+{
+	for (FAudioDevice* AudioDevice : Devices)
+	{
+		if (AudioDevice)
+		{
+			TArray<UAudioComponent*> StoppedComponents;
+			AudioDevice->StopSoundsUsingResource(InSoundWave, StoppedComponents);
+		}
+	}
+}
+
+void FAudioDeviceManager::StopSoundsUsingResource(class USoundWave* InSoundWave, TArray<UAudioComponent*>& StoppedComponents)
 {
 	for (FAudioDevice* AudioDevice : Devices)
 	{
@@ -360,11 +360,11 @@ void FAudioDeviceManager::SetActiveDevice(uint32 InAudioDeviceHandle)
 				if (AudioDevice->DeviceHandle == InAudioDeviceHandle)
 				{
 					ActiveAudioDeviceHandle = InAudioDeviceHandle;
-					AudioDevice->SetDeviceMuted(false);
+					AudioDevice->bIsDeviceMuted = false;
 				}
 				else
 				{
-					AudioDevice->SetDeviceMuted(true);
+					AudioDevice->bIsDeviceMuted = true;
 				}
 			}
 		}
@@ -384,11 +384,11 @@ void FAudioDeviceManager::SetSoloDevice(uint32 InAudioDeviceHandle)
 				if (AudioDevice->DeviceHandle == InAudioDeviceHandle)
 				{
 					ActiveAudioDeviceHandle = InAudioDeviceHandle;
-					AudioDevice->SetDeviceMuted(false);
+					AudioDevice->bIsDeviceMuted = false;
 				}
 				else
 				{
-					AudioDevice->SetDeviceMuted(true);
+					AudioDevice->bIsDeviceMuted = true;
 				}
 			}
 		}
@@ -463,9 +463,6 @@ void FAudioDeviceManager::FreeBufferResource(FSoundBuffer* SoundBuffer)
 {
 	if (SoundBuffer)
 	{
-		// Make sure any realtime tasks are finished that are using this buffer
-		SoundBuffer->EnsureRealtimeTaskCompletion();
-
 		Buffers.Remove(SoundBuffer);
 
 		// Stop any sound sources on any audio device currently using this buffer before deleting
@@ -488,20 +485,6 @@ void FAudioDeviceManager::RemoveSoundBufferForResourceID(uint32 ResourceID)
 
 void FAudioDeviceManager::RemoveSoundMix(USoundMix* SoundMix)
 {
-	if (!IsInAudioThread())
-	{
-		DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.RemoveSoundMix"), STAT_AudioRemoveSoundMix, STATGROUP_AudioThreadCommands);
-
-		FAudioDeviceManager* AudioDeviceManager = this;
-		FAudioThread::RunCommandOnAudioThread([AudioDeviceManager, SoundMix]()
-		{
-			AudioDeviceManager->RemoveSoundMix(SoundMix);
-
-		}, GET_STATID(STAT_AudioRemoveSoundMix));
-
-		return;
-	}
-
 	for (FAudioDevice* AudioDevice : Devices)
 	{
 		if (AudioDevice)
@@ -513,35 +496,21 @@ void FAudioDeviceManager::RemoveSoundMix(USoundMix* SoundMix)
 
 void FAudioDeviceManager::TogglePlayAllDeviceAudio()
 {
-	if (!IsInAudioThread())
-	{
-		FAudioDeviceManager* AudioDeviceManager = this;
-		FAudioThread::RunCommandOnAudioThread([AudioDeviceManager]()
-		{
-			AudioDeviceManager->TogglePlayAllDeviceAudio();
-
-		});
-
-		return;
-	}
-	
 	bPlayAllDeviceAudio = !bPlayAllDeviceAudio;
+}
+
+bool FAudioDeviceManager::IsPlayAllDeviceAudio() const
+{
+	return bPlayAllDeviceAudio;
+}
+
+bool FAudioDeviceManager::IsVisualizeDebug3dEnabled() const
+{
+	return bVisualize3dDebug;
 }
 
 void FAudioDeviceManager::ToggleVisualize3dDebug()
 {
-	if (!IsInAudioThread())
-	{
-		FAudioDeviceManager* AudioDeviceManager = this;
-		FAudioThread::RunCommandOnAudioThread([AudioDeviceManager]()
-		{
-			AudioDeviceManager->ToggleVisualize3dDebug();
-
-		});
-
-		return;
-	}
-
 	bVisualize3dDebug = !bVisualize3dDebug;
 }
 

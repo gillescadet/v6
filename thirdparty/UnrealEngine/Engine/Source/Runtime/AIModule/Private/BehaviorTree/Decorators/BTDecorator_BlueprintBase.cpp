@@ -5,7 +5,6 @@
 #include "BehaviorTree/Decorators/BTDecorator_BlueprintBase.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BehaviorTree/BlackboardData.h"
-#include "BehaviorTree/BehaviorTree.h"
 
 UBTDecorator_BlueprintBase::UBTDecorator_BlueprintBase(const FObjectInitializer& ObjectInitializer) 
 	: Super(ObjectInitializer)
@@ -65,15 +64,6 @@ void UBTDecorator_BlueprintBase::PostLoad()
 		UClass* StopAtClass = UBTDecorator_BlueprintBase::StaticClass();
 		BlueprintNodeHelpers::CollectBlackboardSelectors(this, StopAtClass, ObservedKeyNames);
 		ensure(ObservedKeyNames.Num() > 0);
-	}
-}
-
-void UBTDecorator_BlueprintBase::InitializeFromAsset(UBehaviorTree& Asset)
-{
-	Super::InitializeFromAsset(Asset);
-	if (Asset.BlackboardAsset)
-	{
-		BlueprintNodeHelpers::ResolveBlackboardSelectors(*this, *StaticClass(), *Asset.BlackboardAsset);
 	}
 }
 

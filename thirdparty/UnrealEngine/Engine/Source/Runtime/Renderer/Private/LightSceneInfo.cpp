@@ -36,8 +36,7 @@ void FLightSceneInfoCompact::Init(FLightSceneInfo* InLightSceneInfo)
 
 FLightSceneInfo::FLightSceneInfo(FLightSceneProxy* InProxy, bool InbVisible)
 	: Proxy(InProxy)
-	, DynamicInteractionOftenMovingPrimitiveList(NULL)
-	, DynamicInteractionStaticPrimitiveList(NULL)
+	, DynamicPrimitiveList(NULL)
 	, Id(INDEX_NONE)
 	, TileIntersectionResources(NULL)
 	, bPrecomputedLightingIsValid(InProxy->GetLightComponent()->bPrecomputedLightingIsValid)
@@ -131,8 +130,6 @@ void FLightSceneInfo::RemoveFromScene()
 		Scene->LightOctree.RemoveElement(OctreeId);
 	}
 
-	Scene->CachedShadowMaps.Remove(Id);
-
 	// Detach the light from the primitives it affects.
 	Detach();
 }
@@ -142,14 +139,9 @@ void FLightSceneInfo::Detach()
 	check(IsInRenderingThread());
 
 	// implicit linked list. The destruction will update this "head" pointer to the next item in the list.
-	while(DynamicInteractionOftenMovingPrimitiveList)
+	while(DynamicPrimitiveList)
 	{
-		FLightPrimitiveInteraction::Destroy(DynamicInteractionOftenMovingPrimitiveList);
-	}
-
-	while(DynamicInteractionStaticPrimitiveList)
-	{
-		FLightPrimitiveInteraction::Destroy(DynamicInteractionStaticPrimitiveList);
+		FLightPrimitiveInteraction::Destroy(DynamicPrimitiveList);
 	}
 }
 

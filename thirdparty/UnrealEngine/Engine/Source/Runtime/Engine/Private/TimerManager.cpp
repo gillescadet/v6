@@ -9,73 +9,19 @@
 DECLARE_CYCLE_STAT(TEXT("SetTimer"), STAT_SetTimer, STATGROUP_Engine);
 DECLARE_CYCLE_STAT(TEXT("ClearTimer"), STAT_ClearTimer, STATGROUP_Engine);
 
-/** Track the last assigned handle globally */
-uint64 FTimerManager::LastAssignedHandle = 0;
-
-namespace
-{
-	void DescribeFTImerDataSafely(const FTimerData& Data)
-	{
-		UE_LOG(LogEngine, Log, TEXT("TimerData %p : bLoop=%s, bRequiresDelegate=%s, Status=%d, Rate=%f, ExpireTime=%f"),
-			&Data,
-			Data.bLoop ? TEXT("true") : TEXT("false"),
-			Data.bRequiresDelegate ? TEXT("true") : TEXT("false"),
-			static_cast<int32>(Data.Status),
-			Data.Rate,
-			Data.ExpireTime
-			)
-	}
-}
-
-FTimerManager::FTimerManager()
-	: InternalTime(0.0)
-	, LastTickedFrame(static_cast<uint64>(-1))
-{
-	if (IsRunningDedicatedServer())
-	{
-		FCoreDelegates::OnHandleSystemError.AddRaw(this, &FTimerManager::OnCrash);
-	}
-}
-
-FTimerManager::~FTimerManager()
-{
-	if (IsRunningDedicatedServer())
-	{
-		FCoreDelegates::OnHandleSystemError.RemoveAll(this);
-	}
-}
-
-void FTimerManager::OnCrash()
-{
-	UE_LOG(LogEngine, Warning, TEXT("TimerManager %p on crashing delegate called, dumping extra information"), this);
-
-	UE_LOG(LogEngine, Log, TEXT("------- %d Active Timers -------"), ActiveTimerHeap.Num());
-	for(const FTimerData& Data : ActiveTimerHeap)
-	{
-		DescribeFTImerDataSafely(Data);
-	}
-
-	UE_LOG(LogEngine, Log, TEXT("------- %d Paused Timers -------"), PausedTimerList.Num());
-	for (const FTimerData& Data : PausedTimerList)
-	{
-		DescribeFTImerDataSafely(Data);
-	}
-
-	UE_LOG(LogEngine, Log, TEXT("------- %d Pending Timers -------"), PendingTimerList.Num());
-	for (const FTimerData& Data : PendingTimerList)
-	{
-		DescribeFTImerDataSafely(Data);
-	}
-
-	UE_LOG(LogEngine, Log, TEXT("------- %d Total Timers -------"), PendingTimerList.Num() + PausedTimerList.Num() + ActiveTimerHeap.Num());
-
-	UE_LOG(LogEngine, Warning, TEXT("TimerManager %p dump ended"), this);
-}
-
 void FTimerHandle::MakeValid()
 {
-	FTimerManager::ValidateHandle(*this);
+	static int LastAssignedHandle = -1;
+
+	if (!IsValid())
+	{
+		++LastAssignedHandle;
+		Handle = LastAssignedHandle;
+	}
+
+	check(IsValid());
 }
+
 
 
 FString FTimerUnifiedDelegate::ToString() const
@@ -185,20 +131,17 @@ FTimerHandle FTimerManager::K2_FindDynamicTimerHandle(FTimerDynamicDelegate InDy
 		return CurrentlyExecutingTimer.TimerHandle;
 	}
 
-	const FTimerData* Timer = ActiveTimerHeap.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; });
-	if (Timer)
+	if (auto* Timer = ActiveTimerHeap.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; }))
 	{
 		return Timer->TimerHandle;
 	}
 
-	Timer = PausedTimerList.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; });
-	if (Timer)
+	if (auto* Timer = PausedTimerList.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; }))
 	{
 		return Timer->TimerHandle;
 	}
 
-	Timer = PendingTimerList.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; });
-	if (Timer)
+	if (auto* Timer = PendingTimerList.FindByPredicate([=](const FTimerData& Data){ return Data.TimerDelegate.FuncDynDelegate == InDynamicDelegate; }))
 	{
 		return Timer->TimerHandle;
 	}
@@ -222,7 +165,7 @@ void FTimerManager::InternalSetTimer(FTimerHandle& InOutHandle, FTimerUnifiedDel
 
 	if (InRate > 0.f)
 	{
-		ValidateHandle(InOutHandle);
+		InOutHandle.MakeValid();
 
 		// set up the new timer
 		FTimerData NewTimerData;
@@ -372,19 +315,20 @@ void FTimerManager::InternalClearAllTimers(void const* Object)
 	}
 }
 
+
+
 float FTimerManager::InternalGetTimerRemaining(FTimerData const* const TimerData) const
 {
 	if (TimerData)
 	{
-		switch (TimerData->Status)
+		if( TimerData->Status != ETimerStatus::Active )
 		{
-			case ETimerStatus::Active:
-				return TimerData->ExpireTime - InternalTime;
-			case ETimerStatus::Executing:
-				return 0.0f;
-			default:
-				// ExpireTime is time remaining for paused timers
-				return TimerData->ExpireTime;
+			// ExpireTime is time remaining for paused timers
+			return TimerData->ExpireTime;
+		}
+		else
+		{
+			return TimerData->ExpireTime - InternalTime;
 		}
 	}
 
@@ -395,15 +339,14 @@ float FTimerManager::InternalGetTimerElapsed(FTimerData const* const TimerData) 
 {
 	if (TimerData)
 	{
-		switch (TimerData->Status)
+		if( TimerData->Status != ETimerStatus::Active)
 		{
-			case ETimerStatus::Active:
-				// intentional fall through
-			case ETimerStatus::Executing:
-				return (TimerData->Rate - (TimerData->ExpireTime - InternalTime));
-			default:
-				// ExpireTime is time remaining for paused timers
-				return (TimerData->Rate - TimerData->ExpireTime);
+			// ExpireTime is time remaining for paused timers
+			return (TimerData->Rate - TimerData->ExpireTime);
+		}
+		else
+		{
+			return (TimerData->Rate - (TimerData->ExpireTime - InternalTime));
 		}
 	}
 
@@ -612,17 +555,6 @@ void FTimerManager::ListTimers() const
 	}
 
 	UE_LOG(LogEngine, Log, TEXT("------- %d Total Timers -------"), PendingTimerList.Num() + PausedTimerList.Num() + ActiveTimerHeap.Num());
-}
-
-void FTimerManager::ValidateHandle(FTimerHandle& InOutHandle)
-{
-	if (!InOutHandle.IsValid())
-	{
-		++LastAssignedHandle;
-		InOutHandle.Handle = LastAssignedHandle;
-	}
-
-	checkf(InOutHandle.IsValid(), TEXT("Timer handle has wrapped around to 0!"));
 }
 
 // Handler for ListTimers console command

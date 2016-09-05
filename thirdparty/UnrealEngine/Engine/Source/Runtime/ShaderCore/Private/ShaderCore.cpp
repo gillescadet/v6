@@ -426,18 +426,14 @@ void GetShaderIncludes(const TCHAR* Filename, TArray<FString>& IncludeFilenames,
 						ExtractedIncludeFilename = TEXT("MaterialTemplate.usf");
 					}
 
-					// Ignore uniform buffer, vertex factory and instanced stereo includes
+					// Ignore uniform buffer and vertex factory includes
 					bool bIgnoreInclude = ExtractedIncludeFilename == TEXT("VertexFactory.usf")
 						|| ExtractedIncludeFilename == TEXT("GeneratedUniformBuffers.usf")
-						|| ExtractedIncludeFilename == TEXT("GeneratedInstancedStereo.usf")
 						|| ExtractedIncludeFilename.StartsWith(TEXT("UniformBuffers/"));
 			
 					// Some headers aren't required to be found (platforms that the user doesn't have access to)
 					// @todo: Is there some way to generalize this"
-					const bool bIsOptionalInclude = (ExtractedIncludeFilename == TEXT("PS4/PS4Common.usf") 
-						|| ExtractedIncludeFilename == TEXT("PS4/PostProcessHMDMorpheus.usf")
-						|| ExtractedIncludeFilename == TEXT("PS4/RTWriteMaskProcessing.usf")
-						);
+					const bool bIsOptionalInclude = (ExtractedIncludeFilename == TEXT("PS4/PS4Common.usf") || ExtractedIncludeFilename == TEXT("PS4/PostProcessHMDMorpheus.usf"));
 					// ignore the header if it's optional and doesn't exist
 					if (bIsOptionalInclude)
 					{

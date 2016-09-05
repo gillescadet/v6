@@ -5,7 +5,6 @@
 #include "FeedbackContextAnsi.h"
 #include "../Private/Windows/WindowsPlatformOutputDevicesPrivate.h"
 #include "../Private/Windows/WindowsPlatformFeedbackContextPrivate.h"
-#include "HAL/ThreadHeartBeat.h"
 
 #include "AllowWindowsPlatformTypes.h"
 
@@ -78,14 +77,7 @@ void FOutputDeviceWindowsError::Serialize( const TCHAR* Msg, ELogVerbosity::Type
 		ErrorBuffer[0] = 0;
 
 		// Windows error.
-		if (LastError == 0)
-		{
-			UE_LOG(LogWindows, Log, TEXT("Windows GetLastError: %s (%i)"), FPlatformMisc::GetSystemErrorMessage(ErrorBuffer, 1024, LastError), LastError);
-		}
-		else
-		{
-			UE_LOG(LogWindows, Error, TEXT("Windows GetLastError: %s (%i)"), FPlatformMisc::GetSystemErrorMessage(ErrorBuffer, 1024, LastError), LastError);
-		}
+		UE_LOG( LogWindows, Error, TEXT( "Windows GetLastError: %s (%i)" ), FPlatformMisc::GetSystemErrorMessage( ErrorBuffer, 1024, LastError ), LastError );
 	}
 	else
 	{
@@ -130,9 +122,10 @@ void FOutputDeviceWindowsError::HandleError()
 	FCoreDelegates::OnHandleSystemError.Broadcast();
 
 	// Dump the error and flush the log.
-#if !NO_LOGGING
-	FDebug::OutputMultiLineCallstack(__FILE__, __LINE__, LogWindows.GetCategoryName(), TEXT("=== Critical error: ==="), GErrorHist, ELogVerbosity::Error);
-#endif
+	FDebug::ConditionallyEmitBeginCrashUATMarker();
+	UE_LOG( LogWindows, Error, TEXT( "=== Critical error: ===" ) LINE_TERMINATOR TEXT( "%s" ) LINE_TERMINATOR, GErrorHist );
+	FDebug::ConditionallyEmitEndCrashUATMarker();
+
 	GLog->PanicFlushThreadedLogs();
 
 	// Unhide the mouse.
@@ -172,27 +165,18 @@ FOutputDeviceConsoleWindows::~FOutputDeviceConsoleWindows()
 
 void FOutputDeviceConsoleWindows::SaveToINI()
 {
-	if (GConfig && !IniFilename.IsEmpty())
+	if (GConfig && IniFilename.Len())
 	{
-		HWND Handle = GetConsoleWindow();
-		if (Handle != NULL)
-		{
-			RECT WindowRect;
-			::GetWindowRect(Handle, &WindowRect);
+		RECT WindowRect;
+		::GetWindowRect( GetConsoleWindow(), &WindowRect );
 
-			GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleX"), WindowRect.left, IniFilename);
-			GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleY"), WindowRect.top, IniFilename);
-		}
-		
-		if (ConsoleHandle != NULL)
-		{
-			CONSOLE_SCREEN_BUFFER_INFO Info;
-			if (GetConsoleScreenBufferInfo(ConsoleHandle, &Info))
-			{
-				GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleWidth"), Info.dwSize.X, IniFilename);
-				GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleHeight"), Info.dwSize.Y, IniFilename);
-			}
-		}
+		CONSOLE_SCREEN_BUFFER_INFO Info;
+		GetConsoleScreenBufferInfo(ConsoleHandle, &Info);
+
+		GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleWidth"), Info.dwSize.X, IniFilename);
+		GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleHeight"), Info.dwSize.Y, IniFilename);
+		GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleX"), WindowRect.left, IniFilename);
+		GConfig->SetInt(TEXT("DebugWindows"), TEXT("ConsoleY"), WindowRect.top, IniFilename);
 	}
 }
 
@@ -241,7 +225,7 @@ void FOutputDeviceConsoleWindows::Show( bool ShowWindow )
 				{
 					SMALL_RECT NewConsoleWindowRect = ConsoleInfo.srWindow;
 					NewConsoleWindowRect.Right = ConsoleInfo.dwSize.X - 1;
-					::SetConsoleWindowInfo( ConsoleHandle, true, &NewConsoleWindowRect );	
+					::SetConsoleWindowInfo( ConsoleHandle, true, &NewConsoleWindowRect );
 				}
 
 				RECT WindowRect;
@@ -256,22 +240,6 @@ void FOutputDeviceConsoleWindows::Show( bool ShowWindow )
 				{
 					ConsolePosY = WindowRect.top;
 				}
-
-				FDisplayMetrics DisplayMetrics;
-				FDisplayMetrics::GetDisplayMetrics(DisplayMetrics);
-
-				// Make sure that the positions specified by INI/CMDLINE are proper
-				static const int32 ActualConsoleWidth = WindowRect.right - WindowRect.left;
-				static const int32 ActualConsoleHeight = WindowRect.bottom - WindowRect.top;
-
-				static const int32 ActualScreenWidth = DisplayMetrics.VirtualDisplayRect.Right - DisplayMetrics.VirtualDisplayRect.Left;
-				static const int32 ActualScreenHeight = DisplayMetrics.VirtualDisplayRect.Bottom - DisplayMetrics.VirtualDisplayRect.Top;
-
-				static const int32 RightPadding = FMath::Max(50, FMath::Min((ActualConsoleWidth / 2), ActualScreenWidth / 2));
-				static const int32 BottomPadding = FMath::Max(50, FMath::Min((ActualConsoleHeight / 2), ActualScreenHeight / 2));
-				
-				ConsolePosX = FMath::Min(FMath::Max(ConsolePosX, DisplayMetrics.VirtualDisplayRect.Left), DisplayMetrics.VirtualDisplayRect.Right - RightPadding);
-				ConsolePosY = FMath::Min(FMath::Max(ConsolePosY, DisplayMetrics.VirtualDisplayRect.Top), DisplayMetrics.VirtualDisplayRect.Bottom - BottomPadding);
 
 				::SetWindowPos( GetConsoleWindow(), HWND_TOP, ConsolePosX, ConsolePosY, 0, 0, SWP_NOSIZE | SWP_NOSENDCHANGING | SWP_NOZORDER );
 				
@@ -326,7 +294,7 @@ void FOutputDeviceConsoleWindows::Serialize( const TCHAR* Data, ELogVerbosity::T
 					}
 				}
 				TCHAR OutputString[MAX_SPRINTF]=TEXT(""); //@warning: this is safe as FCString::Sprintf only use 1024 characters max
-				FCString::Sprintf(OutputString,TEXT("%s%s"),*FOutputDeviceHelper::FormatLogLine(Verbosity, Category, Data, GPrintLogTimes,RealTime),LINE_TERMINATOR);
+				FCString::Sprintf(OutputString,TEXT("%s%s"),*FOutputDevice::FormatLogLine(Verbosity, Category, Data, GPrintLogTimes,RealTime),LINE_TERMINATOR);
 				uint32 Written;
 				WriteConsole( ConsoleHandle, OutputString, FCString::Strlen(OutputString), (::DWORD*)&Written, NULL );
 
@@ -404,15 +372,3 @@ bool FOutputDeviceConsoleWindows::IsAttached()
 	return false;
 }
 
-bool FFeedbackContextWindows::YesNof(const FText& Question)
-{
-	if ((GIsClient || GIsEditor) && ((GIsSilent != true) && (FApp::IsUnattended() != true)))
-	{
-		FSlowHeartBeatScope SuspendHeartBeat;
-		return(::MessageBox(NULL, Question.ToString().GetCharArray().GetData(), *NSLOCTEXT("Core", "Question", "Question").ToString(), MB_YESNO | MB_TASKMODAL) == IDYES);
-	}
-	else
-	{
-		return false;
-	}
-}

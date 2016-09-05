@@ -3,7 +3,7 @@
 #include "AbilitySystemPrivatePCH.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
-#include "Animation/AnimMontage.h"
+#include "AbilitySystemComponent.h"
 
 UAbilityTask_PlayMontageAndWait::UAbilityTask_PlayMontageAndWait(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -19,15 +19,6 @@ void UAbilityTask_PlayMontageAndWait::OnMontageBlendingOut(UAnimMontage* Montage
 		if (Montage == MontageToPlay)
 		{
 			AbilitySystemComponent->ClearAnimatingAbility(Ability);
-
-			// Reset AnimRootMotionTranslationScale
-			ACharacter* Character = Cast<ACharacter>(GetAvatarActor());
-			if (Character && (Character->Role == ROLE_Authority ||
-							  (Character->Role == ROLE_AutonomousProxy && Ability->GetNetExecutionPolicy() == EGameplayAbilityNetExecutionPolicy::LocalPredicted)))
-			{
-				Character->SetAnimRootMotionTranslationScale(1.f);
-			}
-
 		}
 	}
 
@@ -37,8 +28,10 @@ void UAbilityTask_PlayMontageAndWait::OnMontageBlendingOut(UAnimMontage* Montage
 	}
 	else
 	{
-		OnBlendOut.Broadcast();
+		OnComplete.Broadcast();
 	}
+
+	EndTask();
 }
 
 void UAbilityTask_PlayMontageAndWait::OnMontageInterrupted()
@@ -50,24 +43,13 @@ void UAbilityTask_PlayMontageAndWait::OnMontageInterrupted()
 	}
 }
 
-void UAbilityTask_PlayMontageAndWait::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	if (!bInterrupted)
-	{
-		OnCompleted.Broadcast();
-	}
-
-	EndTask();
-}
-
 UAbilityTask_PlayMontageAndWait* UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(UObject* WorldContextObject,
-	FName TaskInstanceName, UAnimMontage *MontageToPlay, float Rate, FName StartSection, bool bStopWhenAbilityEnds, float AnimRootMotionTranslationScale)
+	FName TaskInstanceName, UAnimMontage *MontageToPlay, float Rate, FName StartSection, bool bStopWhenAbilityEnds)
 {
 	UAbilityTask_PlayMontageAndWait* MyObj = NewAbilityTask<UAbilityTask_PlayMontageAndWait>(WorldContextObject, TaskInstanceName);
 	MyObj->MontageToPlay = MontageToPlay;
 	MyObj->Rate = Rate;
 	MyObj->StartSection = StartSection;
-	MyObj->AnimRootMotionTranslationScale = AnimRootMotionTranslationScale;
 	MyObj->bStopWhenAbilityEnds = bStopWhenAbilityEnds;
 
 	return MyObj;
@@ -85,8 +67,7 @@ void UAbilityTask_PlayMontageAndWait::Activate()
 	if (AbilitySystemComponent)
 	{
 		const FGameplayAbilityActorInfo* ActorInfo = Ability->GetCurrentActorInfo();
-		UAnimInstance* AnimInstance = ActorInfo->GetAnimInstance();
-		if (AnimInstance != nullptr)
+		if (ActorInfo->AnimInstance.IsValid())
 		{
 			if (AbilitySystemComponent->PlayMontage(Ability, Ability->GetCurrentActivationInfo(), MontageToPlay, Rate, StartSection) > 0.f)
 			{
@@ -100,43 +81,24 @@ void UAbilityTask_PlayMontageAndWait::Activate()
 				InterruptedHandle = Ability->OnGameplayAbilityCancelled.AddUObject(this, &UAbilityTask_PlayMontageAndWait::OnMontageInterrupted);
 
 				BlendingOutDelegate.BindUObject(this, &UAbilityTask_PlayMontageAndWait::OnMontageBlendingOut);
-				AnimInstance->Montage_SetBlendingOutDelegate(BlendingOutDelegate, MontageToPlay);
-
-				MontageEndedDelegate.BindUObject(this, &UAbilityTask_PlayMontageAndWait::OnMontageEnded);
-				AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, MontageToPlay);
-
-				ACharacter* Character = Cast<ACharacter>(GetAvatarActor());
-				if (Character && (Character->Role == ROLE_Authority ||
-								  (Character->Role == ROLE_AutonomousProxy && Ability->GetNetExecutionPolicy() == EGameplayAbilityNetExecutionPolicy::LocalPredicted)))
-				{
-					Character->SetAnimRootMotionTranslationScale(AnimRootMotionTranslationScale);
-				}
+				ActorInfo->AnimInstance->Montage_SetBlendingOutDelegate(BlendingOutDelegate);
 
 				bPlayedMontage = true;
 			}
 		}
-		else
-		{
-			ABILITY_LOG(Warning, TEXT("UAbilityTask_PlayMontageAndWait call to PlayMontage failed!"));
-		}
-	}
-	else
-	{
-		ABILITY_LOG(Warning, TEXT("UAbilityTask_PlayMontageAndWait called on invalid AbilitySystemComponent"));
 	}
 
 	if (!bPlayedMontage)
 	{
-		ABILITY_LOG(Warning, TEXT("UAbilityTask_PlayMontageAndWait called in Ability %s failed to play montage %s; Task Instance Name %s."), *Ability->GetName(), *GetNameSafe(MontageToPlay),*InstanceName.ToString());
+		ABILITY_LOG(Warning, TEXT("UAbilityTask_PlayMontageAndWait called in Ability %s failed to play montage; Task Instance Name %s."), *Ability->GetName(), *InstanceName.ToString());
 		OnCancelled.Broadcast();
 	}
-
-	SetWaitingOnAvatar();
 }
 
 void UAbilityTask_PlayMontageAndWait::ExternalCancel()
 {
 	check(AbilitySystemComponent);
+
 
 	OnCancelled.Broadcast();
 	Super::ExternalCancel();
@@ -164,13 +126,7 @@ void UAbilityTask_PlayMontageAndWait::OnDestroy(bool AbilityEnded)
 bool UAbilityTask_PlayMontageAndWait::StopPlayingMontage()
 {
 	const FGameplayAbilityActorInfo* ActorInfo = Ability->GetCurrentActorInfo();
-	if (!ActorInfo)
-	{
-		return false;
-	}
-
-	UAnimInstance* AnimInstance = ActorInfo->GetAnimInstance();
-	if (AnimInstance == nullptr)
+	if (!ActorInfo || !ActorInfo->AnimInstance.IsValid())
 	{
 		return false;
 	}
@@ -183,11 +139,9 @@ bool UAbilityTask_PlayMontageAndWait::StopPlayingMontage()
 			&& AbilitySystemComponent->GetCurrentMontage() == MontageToPlay)
 		{
 			// Unbind delegates so they don't get called as well
-			FAnimMontageInstance* MontageInstance = AnimInstance->GetActiveInstanceForMontage(MontageToPlay);
-			if (MontageInstance)
+			if (FOnMontageBlendingOutStarted* BoundDelegate = ActorInfo->AnimInstance->Montage_GetBlendingOutDelegate(MontageToPlay))
 			{
-				MontageInstance->OnMontageBlendingOutStarted.Unbind();
-				MontageInstance->OnMontageEnded.Unbind();
+				BoundDelegate->Unbind();
 			}
 
 			AbilitySystemComponent->CurrentMontageStop();
@@ -204,11 +158,9 @@ FString UAbilityTask_PlayMontageAndWait::GetDebugString() const
 	if (Ability)
 	{
 		const FGameplayAbilityActorInfo* ActorInfo = Ability->GetCurrentActorInfo();
-		UAnimInstance* AnimInstance = ActorInfo->GetAnimInstance();
-
-		if (AnimInstance != nullptr)
+		if (ActorInfo->AnimInstance.IsValid())
 		{
-			PlayingMontage = AnimInstance->Montage_IsActive(MontageToPlay) ? MontageToPlay : AnimInstance->GetCurrentActiveMontage();
+			PlayingMontage = ActorInfo->AnimInstance->Montage_IsActive(MontageToPlay) ? MontageToPlay : ActorInfo->AnimInstance->GetCurrentActiveMontage();
 		}
 	}
 

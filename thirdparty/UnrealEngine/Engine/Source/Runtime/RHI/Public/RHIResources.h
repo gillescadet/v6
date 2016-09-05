@@ -24,13 +24,13 @@ public:
 	{
 		check(PlatformNeedsExtraDeletionLatency() || (NumRefs.GetValue() == 0 && (CurrentlyDeleting == this || bDoNotDeferDelete || Bypass()))); // this should not have any outstanding refs
 	}
-	FORCEINLINE_DEBUGGABLE uint32 AddRef() const
+	uint32 AddRef() const
 	{
 		int32 NewValue = NumRefs.Increment();
-		checkSlow(NewValue > 0); 
+		check(NewValue > 0); 
 		return uint32(NewValue);
 	}
-	FORCEINLINE_DEBUGGABLE uint32 Release() const
+	uint32 Release() const
 	{
 		int32 NewValue = NumRefs.Decrement();
 		if (NewValue == 0)
@@ -47,13 +47,13 @@ public:
 				}
 			}
 		}
-		checkSlow(NewValue >= 0);
+		check(NewValue >= 0);
 		return uint32(NewValue);
 	}
-	FORCEINLINE_DEBUGGABLE uint32 GetRefCount() const
+	uint32 GetRefCount() const
 	{
 		int32 CurrentValue = NumRefs.GetValue();
-		checkSlow(CurrentValue >= 0); 
+		check(CurrentValue >= 0); 
 		return uint32(CurrentValue);
 	}
 	void DoNoDeferDelete()
@@ -77,7 +77,7 @@ private:
 	mutable FThreadSafeCounter NumRefs;
 	mutable int32 MarkedForDelete;
 	bool bDoNotDeferDelete;
-	static TLockFreePointerListUnordered<FRHIResource, PLATFORM_CACHE_LINE_SIZE> PendingDeletes;
+	static TLockFreePointerListUnordered<FRHIResource> PendingDeletes;
 	static FRHIResource* CurrentlyDeleting;
 
 	FORCEINLINE bool DeferDelete() const
@@ -410,16 +410,6 @@ public:
 		// Override this in derived classes to expose access to the native texture resource
 		return nullptr;
 	}
-	
-	/**
-	 * Returns access to the platform-specific RHI texture baseclass.  This is designed to provide the RHI with fast access to its base classes in the face of multiple inheritance.
-	 * @return	The pointer to the platform-specific RHI texture baseclass or NULL if it not initialized or not supported for this RHI
-	 */
-	virtual void* GetTextureBaseRHI()
-	{
-		// Override this in derived classes to expose access to the native texture resource
-		return nullptr;
-	}
 
 	/** @return The number of mip-maps in the texture. */
 	uint32 GetNumMips() const { return NumMips; }
@@ -454,7 +444,7 @@ public:
 		return &LastRenderTime;
 	}
 
-	void SetName(const FName& InName)
+	void SetName(FName& InName)
 	{
 		TextureName = InName;
 	}
@@ -630,6 +620,7 @@ public:
 	virtual FRHITextureReference* GetTextureReference() override { return this; }
 	inline FRHITexture* GetReferencedTexture() const { return ReferencedTexture.GetReference(); }
 
+protected:
 	void SetReferencedTexture(FRHITexture* InTexture)
 	{
 		ReferencedTexture = InTexture;
@@ -1136,7 +1127,7 @@ public:
 		ensureMsgf(DepthStencilAccess.IsStencilWrite() || StencilStoreAction == ERenderTargetStoreAction::ENoAction, TEXT("Stencil is read-only, but we are performing a store.  This is a waste on mobile.  If stencil can't change, we don't need to store it out again"));
 	}
 
-	bool operator==(const FRHIDepthRenderTargetView& Other) const
+	bool operator==(const FRHIDepthRenderTargetView& Other)
 	{
 		return
 			Texture == Other.Texture &&
@@ -1200,65 +1191,6 @@ public:
 		}
 		bClearDepth = bInClearDepth;		
 		bClearStencil = bInClearStencil;		
-	}
-
-	uint32 CalculateHash() const
-	{
-		// Need a separate struct so we can memzero/remove dependencies on reference counts
-		struct FHashableStruct
-		{
-			// Depth goes in the last slot
-			FRHITexture* Texture[MaxSimultaneousRenderTargets + 1];
-			uint32 MipIndex[MaxSimultaneousRenderTargets];
-			uint32 ArraySliceIndex[MaxSimultaneousRenderTargets];
-			ERenderTargetLoadAction LoadAction[MaxSimultaneousRenderTargets];
-			ERenderTargetStoreAction StoreAction[MaxSimultaneousRenderTargets];
-
-			ERenderTargetLoadAction		DepthLoadAction;
-			ERenderTargetStoreAction	DepthStoreAction;
-			ERenderTargetLoadAction		StencilLoadAction;
-			ERenderTargetStoreAction	StencilStoreAction;
-			FExclusiveDepthStencil		DepthStencilAccess;
-
-			bool bClearDepth;
-			bool bClearStencil;
-			bool bClearColor;
-			FRHIUnorderedAccessView* UnorderedAccessView[MaxSimultaneousUAVs];
-
-			void Set(const FRHISetRenderTargetsInfo& RTInfo)
-			{
-				FMemory::Memzero(*this);
-				for (int32 Index = 0; Index < RTInfo.NumColorRenderTargets; ++Index)
-				{
-					Texture[Index] = RTInfo.ColorRenderTarget[Index].Texture;
-					MipIndex[Index] = RTInfo.ColorRenderTarget[Index].MipIndex;
-					ArraySliceIndex[Index] = RTInfo.ColorRenderTarget[Index].ArraySliceIndex;
-					LoadAction[Index] = RTInfo.ColorRenderTarget[Index].LoadAction;
-					StoreAction[Index] = RTInfo.ColorRenderTarget[Index].StoreAction;
-				}
-
-				Texture[MaxSimultaneousRenderTargets] = RTInfo.DepthStencilRenderTarget.Texture;
-				DepthLoadAction = RTInfo.DepthStencilRenderTarget.DepthLoadAction;
-				DepthStoreAction = RTInfo.DepthStencilRenderTarget.DepthStoreAction;
-				StencilLoadAction = RTInfo.DepthStencilRenderTarget.StencilLoadAction;
-				StencilStoreAction = RTInfo.DepthStencilRenderTarget.GetStencilStoreAction();
-				DepthStencilAccess = RTInfo.DepthStencilRenderTarget.GetDepthStencilAccess();
-
-				bClearDepth = RTInfo.bClearDepth;
-				bClearStencil = RTInfo.bClearStencil;
-				bClearColor = RTInfo.bClearColor;
-
-				for (int32 Index = 0; Index < MaxSimultaneousUAVs; ++Index)
-				{
-					UnorderedAccessView[Index] = RTInfo.UnorderedAccessView[Index];
-				}
-			}
-		};
-
-		FHashableStruct RTHash;
-		FMemory::Memzero(RTHash);
-		RTHash.Set(*this);
-		return FCrc::MemCrc32(&RTHash, sizeof(RTHash));
 	}
 };
 

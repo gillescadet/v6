@@ -49,7 +49,7 @@ EIPv6SocketInternalState::Return FSocketBSDIPv6::HasState(EIPv6SocketInternalSta
 	// convert WaitTime to a timeval
 	timeval Time;
 	Time.tv_sec = (int32)WaitTime.GetTotalSeconds();
-	Time.tv_usec = WaitTime.GetMilliseconds() * 1000 + WaitTime.GetMicroseconds();
+	Time.tv_usec = WaitTime.GetMilliseconds() * 1000;
 
 	fd_set SocketSet;
 
@@ -193,18 +193,7 @@ bool FSocketBSDIPv6::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, F
 
 //	NETWORK_PROFILER(FSocket::RecvFrom(Data,BufferSize,BytesRead,Source));
 
-	if (BytesRead < 0 && SocketSubsystem->TranslateErrorCode(BytesRead) == SE_EWOULDBLOCK)
-	{
-		// EWOULDBLOCK is not an error condition
-		BytesRead = 0;
-	}
-	else if (BytesRead <= 0) // 0 means gracefully closed
-	{
-		BytesRead = 0;
-		return false;
-	}
-
-	return true;
+	return BytesRead >= 0;
 }
 
 
@@ -215,19 +204,9 @@ bool FSocketBSDIPv6::Recv(uint8* Data, int32 BufferSize, int32& BytesRead, ESock
 
 //	NETWORK_PROFILER(FSocket::Recv(Data,BufferSize,BytesRead));
 
-	if (BytesRead < 0 && SocketSubsystem->TranslateErrorCode(BytesRead) == SE_EWOULDBLOCK)
-	{
-		// EWOULDBLOCK is not an error condition
-		BytesRead = 0;
-	}
-	else if (BytesRead <= 0) // 0 means gracefully closed
-	{
-		BytesRead = 0;
-		return false;
-	}
-
-	return true;
+	return BytesRead >= 0;
 }
+
 
 bool FSocketBSDIPv6::Wait(ESocketWaitConditions::Type Condition, FTimespan WaitTime)
 {

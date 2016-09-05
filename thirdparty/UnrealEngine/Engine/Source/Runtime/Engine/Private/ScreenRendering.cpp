@@ -14,5 +14,4 @@ TGlobalResource<FScreenVertexDeclaration> GScreenVertexDeclaration;
 // Shader implementations.
 IMPLEMENT_SHADER_TYPE(,FScreenPS,TEXT("ScreenPixelShader"),TEXT("Main"),SF_Pixel);
 IMPLEMENT_SHADER_TYPE(,FScreenVS,TEXT("ScreenVertexShader"),TEXT("Main"),SF_Vertex);
-IMPLEMENT_SHADER_TYPE(template<> ,TScreenVSForGS<false>,TEXT("ScreenVertexShader"),TEXT("MainForGS"),SF_Vertex);
-IMPLEMENT_SHADER_TYPE(template<> ,TScreenVSForGS<true>,TEXT("ScreenVertexShader"),TEXT("MainForGS"),SF_Vertex);
+IMPLEMENT_SHADER_TYPE(,FScreenVSForGS,TEXT("ScreenVertexShader"),TEXT("MainForGS"),SF_Vertex);

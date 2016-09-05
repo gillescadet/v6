@@ -10,7 +10,6 @@ UPhysicsSettings::UPhysicsSettings(const FObjectInitializer& ObjectInitializer)
 	, DefaultGravityZ(-980.f)
 	, DefaultTerminalVelocity(4000.f)
 	, DefaultFluidFriction(0.3f)
-	, SimulateScratchMemorySize(262144)
 	, RagdollAggregateThreshold(4)
 	, TriangleMeshTriangleMinAreaThreshold(5.0f)
 	, bEnableAsyncScene(false)
@@ -21,14 +20,8 @@ UPhysicsSettings::UPhysicsSettings(const FObjectInitializer& ObjectInitializer)
 	, LockedAxis_DEPRECATED(ESettingsLockedAxis::Invalid)
 	, BounceThresholdVelocity(200.f)
 	, MaxAngularVelocity(3600)	//10 revolutions per second
-	, ContactOffsetMultiplier(0.01f)	//TODO: these values likely need tuning, but for now maintaining what we had in BodySetup
-	, MinContactOffset(0.0001f)
-	, MaxContactOffset(1.f)
 	, bSimulateSkeletalMeshOnDedicatedServer(true)
-	, DefaultShapeComplexity((ECollisionTraceFlag)-1)
-	, bDefaultHasComplexCollision_DEPRECATED(true)
-	, bSuppressFaceRemapTable(false)
-	, bDisableActiveTransforms(false)
+	, bDefaultHasComplexCollision(true)
 	, MaxPhysicsDeltaTime(1.f / 30.f)
 	, bSubstepping(false)
 	, bSubsteppingAsync(false)
@@ -73,11 +66,6 @@ void UPhysicsSettings::PostInitProperties()
 		}
 
 		LockedAxis_DEPRECATED = ESettingsLockedAxis::Invalid;
-	}
-
-	if(DefaultShapeComplexity == TEnumAsByte<ECollisionTraceFlag>(-1))
-	{
-		DefaultShapeComplexity = bDefaultHasComplexCollision_DEPRECATED ? CTF_UseSimpleAndComplex : CTF_UseSimpleAsComplex;
 	}
 }
 

@@ -6,8 +6,6 @@
 
 #include "BuildPatchServicesPrivatePCH.h"
 
-using namespace BuildPatchConstants;
-
 DEFINE_LOG_CATEGORY(LogBuildPatchServices);
 IMPLEMENT_MODULE(FBuildPatchServicesModule, BuildPatchServices);
 
@@ -62,43 +60,8 @@ const FString FBuildPatchInstallationInfo::GetManifestInstallDir(FBuildPatchAppM
 
 void FBuildPatchServicesModule::StartupModule()
 {
-	// Debug sanity checks
-#if UE_BUILD_DEBUG
-	TSet<FString> NoDupes;
-	bool bWasDupe = false;
-	check(ARRAY_COUNT(InstallErrorPrefixes::ErrorTypeStrings) == (uint64)EBuildPatchInstallError::NumInstallErrors);
-	for (int32 Idx = 0; Idx < ARRAY_COUNT(InstallErrorPrefixes::ErrorTypeStrings); ++Idx)
-	{
-		NoDupes.Add(FString(InstallErrorPrefixes::ErrorTypeStrings[Idx]), &bWasDupe);
-		check(bWasDupe == false);
-	}
-#endif
-
 	// We need to initialize the lookup for our hashing functions
 	FRollingHashConst::Init();
-
-	// Set the local machine config filename
-	LocalMachineConfigFile = FPaths::Combine(FPlatformProcess::ApplicationSettingsDir(), FApp::GetGameName(), TEXT("BuildPatchServicesLocal.ini"));
-
-	// Fix up any legacy configuration data
-	FixupLegacyConfig();
-
-	// Check if the user has opted to force skip prerequisites install
-	bool bForceSkipPrereqsCmdline = FParse::Param(FCommandLine::Get(), TEXT("skipbuildpatchprereq"));
-	bool bForceSkipPrereqsConfig = false;
-	GConfig->GetBool(TEXT("Portal.BuildPatch"), TEXT("skipbuildpatchprereq"), bForceSkipPrereqsConfig, GEngineIni);
-
-	if (bForceSkipPrereqsCmdline)
-	{
-		GLog->Log(TEXT("BuildPatchServicesModule: Setup to skip prerequisites install via commandline."));
-	}
-
-	if (bForceSkipPrereqsConfig)
-	{
-		GLog->Log( TEXT("BuildPatchServicesModule: Setup to skip prerequisites install via config."));
-	}
-	
-	bForceSkipPrereqs = bForceSkipPrereqsCmdline || bForceSkipPrereqsConfig;
 
 	// Add our ticker
 	TickDelegateHandle = FTicker::GetCoreTicker().AddTicker( FTickerDelegate::CreateRaw( this, &FBuildPatchServicesModule::Tick ) );
@@ -163,7 +126,7 @@ bool FBuildPatchServicesModule::SaveManifestToFile(const FString& Filename, IBui
 	return StaticCastSharedRef< FBuildPatchAppManifest >(Manifest)->SaveToFile(Filename, bUseBinary);
 }
 
-IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair, TSet<FString> InstallTags)
+IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags)
 {
 	// Using a local bool for this check will improve the assert message that gets displayed
 	const bool bIsCalledFromMainThread = IsInGameThread();
@@ -185,14 +148,14 @@ IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstall(IBuildManifestPt
 	// Make sure the http wrapper is already created
 	FBuildPatchHTTP::Initialize();
 	// Run the install thread
-	FBuildPatchInstallerRef Installer = MakeShareable(new FBuildPatchInstaller(OnCompleteDelegate, CurrentManifestInternal, InstallManifestInternal.ToSharedRef(), InstallDirectory, GetStagingDirectory(), InstallationInfo, false, LocalMachineConfigFile, bIsRepair, bForceSkipPrereqs));
+	FBuildPatchInstallerRef Installer = MakeShareable(new FBuildPatchInstaller(OnCompleteDelegate, CurrentManifestInternal, InstallManifestInternal.ToSharedRef(), InstallDirectory, GetStagingDirectory(), InstallationInfo, false));
 	Installer->SetRequiredInstallTags(InstallTags);
 	Installer->StartInstallation();
 	BuildPatchInstallers.Add(Installer);
 	return Installer;
 }
 
-IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair, TSet<FString> InstallTags)
+IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags)
 {
 	// Using a local bool for this check will improve the assert message that gets displayed
 	const bool bIsCalledFromMainThread = IsInGameThread();
@@ -208,7 +171,7 @@ IBuildInstallerPtr FBuildPatchServicesModule::StartBuildInstallStageOnly(IBuildM
 	// Make sure the http wrapper is already created
 	FBuildPatchHTTP::Initialize();
 	// Run the install thread
-	FBuildPatchInstallerRef Installer = MakeShareable(new FBuildPatchInstaller(OnCompleteDelegate, CurrentManifestInternal, InstallManifestInternal.ToSharedRef(), InstallDirectory, GetStagingDirectory(), InstallationInfo, true, LocalMachineConfigFile, bIsRepair, bForceSkipPrereqs));
+	FBuildPatchInstallerRef Installer = MakeShareable(new FBuildPatchInstaller(OnCompleteDelegate, CurrentManifestInternal, InstallManifestInternal.ToSharedRef(), InstallDirectory, GetStagingDirectory(), InstallationInfo, true));
 	Installer->SetRequiredInstallTags(InstallTags);
 	Installer->StartInstallation();
 	BuildPatchInstallers.Add(Installer);
@@ -239,61 +202,49 @@ bool FBuildPatchServicesModule::Tick( float Delta )
 	return true;
 }
 
+#if WITH_BUILDPATCHGENERATION
 bool FBuildPatchServicesModule::GenerateChunksManifestFromDirectory( const FBuildPatchSettings& Settings )
 {
 	return FBuildDataGenerator::GenerateChunksManifestFromDirectory( Settings );
 }
 
-bool FBuildPatchServicesModule::CompactifyCloudDirectory(float DataAgeThreshold, ECompactifyMode::Type Mode)
+bool FBuildPatchServicesModule::GenerateFilesManifestFromDirectory( const FBuildPatchSettings& Settings )
+{
+	return FBuildDataGenerator::GenerateFilesManifestFromDirectory( Settings );
+}
+
+bool FBuildPatchServicesModule::CompactifyCloudDirectory(const TArray<FString>& ManifestsToKeep, const float DataAgeThreshold, const ECompactifyMode::Type Mode)
 {
 	const bool bPreview = Mode == ECompactifyMode::Preview;
-	return FBuildDataCompactifier::CompactifyCloudDirectory(DataAgeThreshold, bPreview);
+	return FBuildDataCompactifier::CompactifyCloudDirectory(ManifestsToKeep, DataAgeThreshold, bPreview);
 }
 
-bool FBuildPatchServicesModule::EnumerateManifestData(const FString& ManifestFilePath, const FString& OutputFile, bool bIncludeSizes)
+bool FBuildPatchServicesModule::EnumerateManifestData(FString ManifestFilePath, FString OutputFile, const bool bIncludeSizes)
 {
-	return FBuildDataEnumeration::EnumerateManifestData(ManifestFilePath, OutputFile, bIncludeSizes);
+	return FBuildDataEnumeration::EnumerateManifestData(MoveTemp(ManifestFilePath), MoveTemp(OutputFile), bIncludeSizes);
 }
 
-bool FBuildPatchServicesModule::MergeManifests(const FString& ManifestFilePathA, const FString& ManifestFilePathB, const FString& ManifestFilePathC, const FString& NewVersionString, const FString& SelectionDetailFilePath)
-{
-	return FBuildMergeManifests::MergeManifests(ManifestFilePathA, ManifestFilePathB, ManifestFilePathC, NewVersionString, SelectionDetailFilePath);
-}
+#endif //WITH_BUILDPATCHGENERATION
 
 void FBuildPatchServicesModule::SetStagingDirectory( const FString& StagingDir )
 {
 	StagingDirectory = StagingDir;
 }
 
-void FBuildPatchServicesModule::SetCloudDirectory(FString CloudDir)
+void FBuildPatchServicesModule::SetCloudDirectory( const FString& CloudDir )
 {
-	TArray<FString> CloudDirs;
-	CloudDirs.Add(MoveTemp(CloudDir));
-	SetCloudDirectories(MoveTemp(CloudDirs));
-}
+	CloudDirectory = CloudDir;
 
-void FBuildPatchServicesModule::SetCloudDirectories(TArray<FString> CloudDirs)
-{
-	check(IsInGameThread());
-	CloudDirectories = MoveTemp(CloudDirs);
-	NormalizeCloudPaths(CloudDirectories);
-}
-
-void FBuildPatchServicesModule::NormalizeCloudPaths(TArray<FString>& InOutCloudPaths)
-{
-	for (FString& CloudPath : InOutCloudPaths)
+	// Ensure that we remove any double-slash characters apart from:
+	//   1. A double slash following the URI schema
+	//   2. A double slash at the start of the path, indicating a network share
+	CloudDirectory.ReplaceInline(TEXT("\\"), TEXT("/"));
+	bool bIsNetworkPath = CloudDirectory.StartsWith(TEXT("//"));
+	CloudDirectory.ReplaceInline(TEXT("://"), TEXT(":////"));
+	CloudDirectory.ReplaceInline(TEXT("//"), TEXT("/"));
+	if (bIsNetworkPath)
 	{
-		// Ensure that we remove any double-slash characters apart from:
-		//   1. A double slash following the URI schema
-		//   2. A double slash at the start of the path, indicating a network share
-		CloudPath.ReplaceInline(TEXT("\\"), TEXT("/"));
-		bool bIsNetworkPath = CloudPath.StartsWith(TEXT("//"));
-		CloudPath.ReplaceInline(TEXT("://"), TEXT(":////"));
-		CloudPath.ReplaceInline(TEXT("//"), TEXT("/"));
-		if (bIsNetworkPath)
-		{
-			CloudPath.InsertAt(0, TEXT("/"));
-		}
+		CloudDirectory.InsertAt(0, TEXT("/"));
 	}
 }
 
@@ -345,7 +296,7 @@ void FBuildPatchServicesModule::CancelAllInstallers(bool WaitForThreads)
 void FBuildPatchServicesModule::PreExit()
 {
 	// Set shutdown error so any running threads know to exit.
-	FBuildPatchInstallError::SetFatalError(EBuildPatchInstallError::ApplicationClosing, ApplicationClosedErrorCodes::ApplicationClosed);
+	FBuildPatchInstallError::SetFatalError(EBuildPatchInstallError::ApplicationClosing);
 
 	// Cleanup installers
 	CancelAllInstallers(true);
@@ -354,40 +305,6 @@ void FBuildPatchServicesModule::PreExit()
 	// Release our ptr to analytics
 	FBuildPatchAnalytics::SetAnalyticsProvider(NULL);
 	FBuildPatchAnalytics::SetHttpTracker(nullptr);
-}
-
-void FBuildPatchServicesModule::FixupLegacyConfig()
-{
-	// Check for old prerequisite installation values to bring in from user configuration
-	TArray<FString> OldInstalledPrereqs;
-	if (GConfig->GetArray(TEXT("Portal.BuildPatch"), TEXT("InstalledPrereqs"), OldInstalledPrereqs, GEngineIni) && OldInstalledPrereqs.Num() > 0)
-	{
-		bool bShouldSaveOut = false;
-		TArray<FString> InstalledPrereqs;
-		if (GConfig->GetArray(TEXT("Portal.BuildPatch"), TEXT("InstalledPrereqs"), InstalledPrereqs, LocalMachineConfigFile) && InstalledPrereqs.Num() > 0)
-		{
-			// Add old values to the new array
-			for (const FString& OldInstalledPrereq : OldInstalledPrereqs)
-			{
-				int32 PrevNum = InstalledPrereqs.Num();
-				bool bAlreadyInArray = InstalledPrereqs.AddUnique(OldInstalledPrereq) < PrevNum;
-				bShouldSaveOut = bShouldSaveOut || !bAlreadyInArray;
-			}
-		}
-		else
-		{
-			// Just use the old array
-			InstalledPrereqs = MoveTemp(OldInstalledPrereqs);
-			bShouldSaveOut = true;
-		}
-		// If we added extra then save new config
-		if (bShouldSaveOut)
-		{
-			GConfig->SetArray(TEXT("Portal.BuildPatch"), TEXT("InstalledPrereqs"), InstalledPrereqs, LocalMachineConfigFile);
-		}
-		// Clear out the old config
-		GConfig->RemoveKey(TEXT("Portal.BuildPatch"), TEXT("InstalledPrereqs"), GEngineIni);
-	}
 }
 
 const FString& FBuildPatchServicesModule::GetStagingDirectory()
@@ -400,34 +317,14 @@ const FString& FBuildPatchServicesModule::GetStagingDirectory()
 	return StagingDirectory;
 }
 
-FString FBuildPatchServicesModule::GetCloudDirectory(int32 CloudIdx)
+const FString& FBuildPatchServicesModule::GetCloudDirectory()
 {
-	FString RtnValue;
-	if (CloudDirectories.Num())
+	// Default cloud directory
+	if( CloudDirectory.IsEmpty() )
 	{
-		RtnValue = CloudDirectories[CloudIdx % CloudDirectories.Num()];
+		CloudDirectory = FPaths::CloudDir();
 	}
-	else
-	{
-		// Default cloud directory
-		RtnValue = FPaths::CloudDir();
-	}
-	return RtnValue;
-}
-
-TArray<FString> FBuildPatchServicesModule::GetCloudDirectories()
-{
-	TArray<FString> RtnValue;
-	if (CloudDirectories.Num() > 0)
-	{
-		RtnValue = CloudDirectories;
-	}
-	else
-	{
-		// Singular function controls the default when none provided
-		RtnValue.Add(GetCloudDirectory(0));
-	}
-	return RtnValue;
+	return CloudDirectory;
 }
 
 const FString& FBuildPatchServicesModule::GetBackupDirectory()
@@ -438,6 +335,6 @@ const FString& FBuildPatchServicesModule::GetBackupDirectory()
 
 /* Static variables
  *****************************************************************************/
-TArray<FString> FBuildPatchServicesModule::CloudDirectories;
+FString FBuildPatchServicesModule::CloudDirectory;
 FString FBuildPatchServicesModule::StagingDirectory;
 FString FBuildPatchServicesModule::BackupDirectory;

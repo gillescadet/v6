@@ -60,7 +60,7 @@ void UMovementComponent::SetUpdatedComponent(USceneComponent* NewUpdatedComponen
 	UpdatedPrimitive = Cast<UPrimitiveComponent>(UpdatedComponent);
 
 	// Assign delegates
-	if (UpdatedComponent && !UpdatedComponent->IsPendingKill())
+	if (IsValid(UpdatedComponent))
 	{
 		UpdatedComponent->bShouldUpdatePhysicsVolume = true;
 		UpdatedComponent->PhysicsVolumeChangedDelegate.AddUniqueDynamic(this, &UMovementComponent::PhysicsVolumeChanged);
@@ -120,11 +120,7 @@ void UMovementComponent::OnRegister()
 		SetPlaneConstraintAxisSetting(PlaneConstraintAxisSetting);
 	}
 
-	const UWorld* MyWorld = GetWorld();
-	if (MyWorld && MyWorld->IsGameWorld())
-	{
-		PlaneConstraintNormal = PlaneConstraintNormal.GetSafeNormal();
-	}
+	PlaneConstraintNormal = PlaneConstraintNormal.GetSafeNormal();
 
 	if (bSnapToPlaneAtStart)
 	{
@@ -173,19 +169,6 @@ void UMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	}
 }
 
-
-void UMovementComponent::Serialize(FArchive& Ar)
-{
-	USceneComponent* CurrentUpdatedComponent = UpdatedComponent;
-	Super::Serialize(Ar);
-
-	if (Ar.IsLoading())
-	{
-		// This was marked Transient so it won't be saved out, but we need still to reject old saved values.
-		UpdatedComponent = CurrentUpdatedComponent;
-		UpdatedPrimitive = Cast<UPrimitiveComponent>(UpdatedComponent);
-	}
-}
 
 void UMovementComponent::PostLoad()
 {
@@ -253,8 +236,7 @@ APhysicsVolume* UMovementComponent::GetPhysicsVolume() const
 
 bool UMovementComponent::IsInWater() const
 {
-	const APhysicsVolume* PhysVolume = GetPhysicsVolume();
-	return PhysVolume && PhysVolume->bWaterVolume;
+	return GetPhysicsVolume() && GetPhysicsVolume()->bWaterVolume;
 }
 
 bool UMovementComponent::ShouldSkipUpdate(float DeltaTime) const
@@ -286,7 +268,7 @@ bool UMovementComponent::ShouldSkipUpdate(float DeltaTime) const
 
 	if (bUpdateOnlyIfRendered)
 	{
-		if (IsNetMode(NM_DedicatedServer))
+		if (GetNetMode() == NM_DedicatedServer)
 		{
 			// Dedicated servers never render
 			return true;
@@ -560,16 +542,6 @@ bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustmen
 			return false;
 		}
 
-		UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: %s.%s at location %s inside %s.%s at location %s by %.3f (netmode: %d)"),
-			   *ActorOwner->GetName(),
-			   *UpdatedComponent->GetName(),
-			   *UpdatedComponent->GetComponentLocation().ToString(),
-			   *GetNameSafe(Hit.GetActor()),
-			   *GetNameSafe(Hit.GetComponent()),
-			   Hit.Component.IsValid() ? *Hit.GetComponent()->GetComponentLocation().ToString() : TEXT("<unknown>"),
-			   Hit.PenetrationDepth,
-			   (uint32)GetNetMode());
-
 		// We really want to make sure that precision differences or differences between the overlap test and sweep tests don't put us into another overlap,
 		// so make the overlap test a bit more restrictive.
 		const float OverlapInflation = CVarPenetrationOverlapCheckInflation.GetValueOnGameThread();
@@ -578,7 +550,7 @@ bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustmen
 		{
 			// Move without sweeping.
 			MoveUpdatedComponent(Adjustment, NewRotationQuat, false, nullptr, ETeleportType::TeleportPhysics);
-			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration:   teleport by %s"), *Adjustment.ToString());
+			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: teleport %s by %s"), *ActorOwner->GetName(), *Adjustment.ToString());
 			return true;
 		}
 		else
@@ -589,7 +561,7 @@ bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustmen
 			// Try sweeping as far as possible...
 			FHitResult SweepOutHit(1.f);
 			bool bMoved = MoveUpdatedComponent(Adjustment, NewRotationQuat, true, &SweepOutHit, ETeleportType::TeleportPhysics);
-			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration:   sweep by %s (success = %d)"), *Adjustment.ToString(), bMoved);
+			UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (success = %d)"), *ActorOwner->GetName(), *Adjustment.ToString(), bMoved);
 			
 			// Still stuck?
 			if (!bMoved && SweepOutHit.bStartPenetrating)
@@ -600,7 +572,7 @@ bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustmen
 				if (SecondMTD != Adjustment && !CombinedMTD.IsZero())
 				{
 					bMoved = MoveUpdatedComponent(CombinedMTD, NewRotationQuat, true, nullptr, ETeleportType::TeleportPhysics);
-					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration:   sweep by %s (MTD combo success = %d)"), *CombinedMTD.ToString(), bMoved);
+					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (MTD combo success = %d)"), *ActorOwner->GetName(), *CombinedMTD.ToString(), bMoved);
 				}
 			}
 
@@ -612,7 +584,7 @@ bool UMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustmen
 				if (!MoveDelta.IsZero())
 				{
 					bMoved = MoveUpdatedComponent(Adjustment + MoveDelta, NewRotationQuat, true, nullptr, ETeleportType::TeleportPhysics);
-					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration:   sweep by %s (adjusted attempt success = %d)"), *(Adjustment + MoveDelta).ToString(), bMoved);
+					UE_LOG(LogMovement, Verbose, TEXT("ResolvePenetration: sweep %s by %s (adjusted attempt success = %d)"), *ActorOwner->GetName(), *(Adjustment + MoveDelta).ToString(), bMoved);
 				}
 			}	
 

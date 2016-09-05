@@ -3,10 +3,6 @@
 #include "GameplayTasksPrivatePCH.h"
 #include "GameplayTaskResource.h"
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-TArray<FString> UGameplayTaskResource::ResourceDescriptions;
-#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-
 UGameplayTaskResource::UGameplayTaskResource(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
@@ -29,12 +25,6 @@ void UGameplayTaskResource::PostInitProperties()
 		{
 			UpdateAutoResourceID();
 		}
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		const uint8 DebugId = GetResourceID();
-		ResourceDescriptions.SetNum(FMath::Max(DebugId + 1, ResourceDescriptions.Num()));
-		ResourceDescriptions[DebugId] = GenerateDebugDescription();
-#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	}
 }
 
@@ -75,18 +65,3 @@ void UGameplayTaskResource::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	}
 }
 #endif // WITH_EDITOR
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-FString UGameplayTaskResource::GenerateDebugDescription() const
-{
-	const FString ClassName = GetClass()->GetName();
-	int32 SeparatorIdx = INDEX_NONE;
-	if (ClassName.FindChar(TEXT('_'), SeparatorIdx))
-	{
-		return ClassName.Mid(SeparatorIdx + 1);
-	}
-
-	return ClassName;
-
-}
-#endif // !(UE_BUILD_SHIPPING || UE_BUILD_TEST)

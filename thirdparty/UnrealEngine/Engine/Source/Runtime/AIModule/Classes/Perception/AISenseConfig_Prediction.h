@@ -10,7 +10,7 @@ class UAISense_Prediction;
 UCLASS(meta = (DisplayName = "AI Prediction sense config"))
 class AIMODULE_API UAISenseConfig_Prediction : public UAISenseConfig
 {
-	GENERATED_UCLASS_BODY()
+	GENERATED_BODY()
 public:	
 	virtual TSubclassOf<UAISense> GetSenseImplementation() const override;
 };

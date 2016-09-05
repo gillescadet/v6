@@ -173,7 +173,7 @@ public:
 	* @param Other - draw policy to compare
 	* @return true if the draw policies are a match
 	*/
-	FDrawingPolicyMatchResult Matches(const FConvertToUniformMeshDrawingPolicy& Other) const;
+	bool Matches(const FConvertToUniformMeshDrawingPolicy& Other) const;
 
 	/**
 	* Executes the draw commands which can be shared between any meshes using this drawer.
@@ -218,21 +218,19 @@ FConvertToUniformMeshDrawingPolicy::FConvertToUniformMeshDrawingPolicy(
 	const FMaterial& InMaterialResource,
 	ERHIFeatureLevel::Type InFeatureLevel
 	)
-:	FMeshDrawingPolicy(InVertexFactory,InMaterialRenderProxy,InMaterialResource)
+:	FMeshDrawingPolicy(InVertexFactory,InMaterialRenderProxy,InMaterialResource,false)
 {
 	VertexShader = InMaterialResource.GetShader<FConvertToUniformMeshVS>(InVertexFactory->GetType());
 	GeometryShader = InMaterialResource.GetShader<FConvertToUniformMeshGS>(InVertexFactory->GetType());
 }
 
-FDrawingPolicyMatchResult FConvertToUniformMeshDrawingPolicy::Matches(
+bool FConvertToUniformMeshDrawingPolicy::Matches(
 	const FConvertToUniformMeshDrawingPolicy& Other
 	) const
 {
-	DRAWING_POLICY_MATCH_BEGIN
-		DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) &&
-		DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-		DRAWING_POLICY_MATCH(GeometryShader == Other.GeometryShader);
-	DRAWING_POLICY_MATCH_END
+	return FMeshDrawingPolicy::Matches(Other) &&
+		VertexShader == Other.VertexShader &&
+		GeometryShader == Other.GeometryShader;
 }
 
 void FConvertToUniformMeshDrawingPolicy::SetSharedState(

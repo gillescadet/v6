@@ -2,7 +2,6 @@
 
 #include "RHI.h"
 #include "ModuleManager.h"
-#include "AndroidApplication.h"
 
 FDynamicRHI* PlatformCreateDynamicRHI()
 {
@@ -10,22 +9,7 @@ FDynamicRHI* PlatformCreateDynamicRHI()
 
 	// Load the dynamic RHI module.
 	IDynamicRHIModule* DynamicRHIModule = NULL;
-
-	if (FAndroidMisc::ShouldUseVulkan())
-	{
-		// Vulkan is required, release the EGL created by FAndroidAppEntry::PlatformInit.
-		FAndroidAppEntry::ReleaseEGL();
-
-		DynamicRHIModule = &FModuleManager::LoadModuleChecked<IDynamicRHIModule>(TEXT("VulkanRHI"));
-		if (!DynamicRHIModule->IsSupported())
-		{
-			DynamicRHIModule = &FModuleManager::LoadModuleChecked<IDynamicRHIModule>(TEXT("OpenGLDrv"));
-		}
-	}
-	else
-	{
-		DynamicRHIModule = &FModuleManager::LoadModuleChecked<IDynamicRHIModule>(TEXT("OpenGLDrv"));
-	}
+	DynamicRHIModule = &FModuleManager::LoadModuleChecked<IDynamicRHIModule>(TEXT("OpenGLDrv")); //duplicate? memory redudancy ?
 
 	if (!DynamicRHIModule->IsSupported()) 
 	{

@@ -2,8 +2,6 @@
 
 #pragma once 
 
-#include "AudioThread.h"
-
 /**
 * Class for managing multiple audio devices.
 */
@@ -25,22 +23,13 @@ public:
 	* Registers the audio device module to the audio device manager. The audio device
 	* module is responsible for creating platform-dependent audio devices.
 	*/
-	void RegisterAudioDeviceModule(class IAudioDeviceModule* AudioDeviceModuleInput);
-
-	struct FCreateAudioDeviceResults
-	{
-		uint32 Handle;
-		uint8  bNewDevice:1;
-		FAudioDevice* AudioDevice;
-
-		FCreateAudioDeviceResults();
-	};
+	void RegisterAudioDeviceModule(class IAudioDeviceModule * AudioDeviceModuleInput);
 
 	/**
 	* Creates and audio device instance internally and returns a
 	* handle to the audio device. Returns true on success.
 	*/
-	bool CreateAudioDevice(bool bCreateNewDevice, FCreateAudioDeviceResults& OutResults);
+	class FAudioDevice* CreateAudioDevice(uint32 & HandleOut, bool bCreateNewDevice);
 
 	/**
 	* Returns whether the audio device handle is valid (i.e. points to
@@ -83,8 +72,11 @@ public:
 	/** Tracks objects in the active audio devices. */
 	void AddReferencedObjects(FReferenceCollector& Collector);
 
+	/** Stops any sounds on any device using the given soundwave. */
+	void StopSoundsUsingWave(class USoundWave* InSoundWave);
+
 	/** Stops sounds using the given resource on all audio devices. */
-	void StopSoundsUsingResource(class USoundWave* InSoundWave, TArray<UAudioComponent*>* StoppedComponents = nullptr);
+	void StopSoundsUsingResource(class USoundWave* InSoundWave, TArray<UAudioComponent*>& StoppedComponents);
 
 	/** Registers the Sound Class for all active devices. */
 	void RegisterSoundClass(USoundClass* SoundClass);
@@ -126,10 +118,10 @@ public:
 	void TogglePlayAllDeviceAudio();
 
 	/** Gets whether or not all devices should play their audio. */
-	bool IsPlayAllDeviceAudio() const { return bPlayAllDeviceAudio; }
+	bool IsPlayAllDeviceAudio() const;
 
 	/** Is debug visualization of 3d sounds enabled */
-	bool IsVisualizeDebug3dEnabled() const { return bVisualize3dDebug; }
+	bool IsVisualizeDebug3dEnabled() const;
 
 	/** Toggles 3d visualization of 3d sounds on/off */
 	void ToggleVisualize3dDebug();
@@ -144,9 +136,6 @@ public:
 
 
 private:
-
-	/** Call back for garbage collector, ensures no processing is happening on the thread before collecting resources */
-	void OnPreGarbageCollect();
 
 	/** Returns index of the given handle */
 	uint32 GetIndex(uint32 Handle) const;
@@ -195,9 +184,6 @@ private:
 
 	/** Whether or not 3d debug visualization is enabled. */
 	bool bVisualize3dDebug;
-
-	/** Audio Fence to ensure that we don't allow the audio thread to drift never endingly behind. */
-	FAudioCommandFence SyncFence;
 };
 
 

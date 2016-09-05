@@ -9,7 +9,6 @@ UMovieScene3DAttachSection::UMovieScene3DAttachSection( const FObjectInitializer
 	: Super( ObjectInitializer )
 {
 	AttachSocketName = NAME_None;
-	AttachComponentName = NAME_None;
 	bConstrainTx = true;
 	bConstrainTy = true;
 	bConstrainTz = true;
@@ -19,71 +18,19 @@ UMovieScene3DAttachSection::UMovieScene3DAttachSection( const FObjectInitializer
 }
 
 
-void UMovieScene3DAttachSection::Eval( USceneComponent* SceneComponent, float Position, AActor* ParentActor, FVector& OutTranslation, FRotator& OutRotation ) const
+void UMovieScene3DAttachSection::Eval( USceneComponent* SceneComponent, float Position, AActor* Actor, FVector& OutTranslation, FRotator& OutRotation ) const
 {
-	bool bFoundAttachment = false;
-	if(AttachSocketName != NAME_None)
+	if (Actor->GetRootComponent()->DoesSocketExist(AttachSocketName))
 	{
-		if(AttachComponentName != NAME_None )
-		{
-			TInlineComponentArray<USceneComponent*> PotentialAttachComponents(ParentActor);
-			for(USceneComponent* PotentialAttachComponent : PotentialAttachComponents)
-			{
-				if(PotentialAttachComponent->GetFName() == AttachComponentName && PotentialAttachComponent->DoesSocketExist(AttachSocketName))
-				{
-					FTransform SocketTransform = PotentialAttachComponent->GetSocketTransform(AttachSocketName);
-					OutTranslation = SocketTransform.GetLocation();
-					OutRotation = SocketTransform.GetRotation().Rotator();
-					bFoundAttachment = true;
-					break;
-				}
-			}
-		}
-		else if (ParentActor->GetRootComponent()->DoesSocketExist(AttachSocketName))
-		{
-			FTransform SocketTransform = ParentActor->GetRootComponent()->GetSocketTransform(AttachSocketName);
-			OutTranslation = SocketTransform.GetLocation();
-			OutRotation = SocketTransform.GetRotation().Rotator();
-			bFoundAttachment = true;
-		}
+		FTransform SocketTransform = Actor->GetRootComponent()->GetSocketTransform(AttachSocketName);
+		OutTranslation = SocketTransform.GetLocation();
+		OutRotation = SocketTransform.GetRotation().Rotator();
 	}
-	else if(AttachComponentName != NAME_None )
+	else
 	{
-		TInlineComponentArray<USceneComponent*> PotentialAttachComponents(ParentActor);
-		for(USceneComponent* PotentialAttachComponent : PotentialAttachComponents)
-		{
-			if(PotentialAttachComponent->GetFName() == AttachComponentName)
-			{
-				FTransform ComponentTransform = PotentialAttachComponent->GetComponentToWorld();
-				OutTranslation = ComponentTransform.GetLocation();
-				OutRotation = ComponentTransform.GetRotation().Rotator();
-				bFoundAttachment = true;
-				break;
-			}
-		}
+		OutTranslation = Actor->GetActorLocation();
+		OutRotation = Actor->GetActorRotation();
 	}
-
-	if (!bFoundAttachment)
-	{
-		if (ParentActor->GetDefaultAttachComponent())
-		{
-			OutTranslation = ParentActor->GetDefaultAttachComponent()->GetComponentLocation();
-			OutRotation = ParentActor->GetDefaultAttachComponent()->GetComponentRotation();
-		}
-		else
-		{
-			OutTranslation = ParentActor->GetActorLocation();
-			OutRotation = ParentActor->GetActorRotation();
-		}
-	}
-
-	FTransform ParentTransform(OutRotation, OutTranslation);
-	FTransform RelativeTransform = SceneComponent->GetRelativeTransform();
-
-	FTransform NewRelativeTransform = RelativeTransform * ParentTransform;
-
-	OutTranslation = NewRelativeTransform.GetLocation();
-	OutRotation = NewRelativeTransform.GetRotation().Rotator();
 
 	if (!bConstrainTx)
 	{
@@ -94,10 +41,10 @@ void UMovieScene3DAttachSection::Eval( USceneComponent* SceneComponent, float Po
 	{
 		OutTranslation[1] = SceneComponent->GetRelativeTransform().GetLocation()[1];
 	}
-	
+
 	if (!bConstrainTz)
 	{
-		OutTranslation[2] = SceneComponent->GetRelativeTransform().GetLocation()[2];
+		OutTranslation[1] = SceneComponent->GetRelativeTransform().GetLocation()[2];
 	}
 
 	if (!bConstrainRx)

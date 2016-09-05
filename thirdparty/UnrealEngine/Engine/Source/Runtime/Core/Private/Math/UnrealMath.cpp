@@ -277,29 +277,13 @@ FVector FMath::ClosestPointOnLine(const FVector& LineStart, const FVector& LineE
 {
 	// Solve to find alpha along line that is closest point
 	// Weisstein, Eric W. "Point-Line Distance--3-Dimensional." From MathWorld--A Wolfram Web Resource. http://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html 
-	const float A = (LineStart - Point) | (LineEnd - LineStart);
+	const float A = (LineStart-Point) | (LineEnd - LineStart);
 	const float B = (LineEnd - LineStart).SizeSquared();
-	// This should be robust to B == 0 (resulting in NaN) because clamp should return 1.
 	const float T = FMath::Clamp(-A/B, 0.f, 1.f);
 
 	// Generate closest point
 	FVector ClosestPoint = LineStart + (T * (LineEnd - LineStart));
 
-	return ClosestPoint;
-}
-
-FVector FMath::ClosestPointOnInfiniteLine(const FVector& LineStart, const FVector& LineEnd, const FVector& Point)
-{
-	const float A = (LineStart - Point) | (LineEnd - LineStart);
-	const float B = (LineEnd - LineStart).SizeSquared();
-	if (B < SMALL_NUMBER)
-	{
-		return LineStart;
-	}
-	const float T = -A/B;
-
-	// Generate closest point
-	const FVector ClosestPoint = LineStart + (T * (LineEnd - LineStart));
 	return ClosestPoint;
 }
 
@@ -492,10 +476,10 @@ FString FMatrix::ToString() const
 {
 	FString Output;
 
-	Output += FString::Printf(TEXT("[%g %g %g %g] "), M[0][0], M[0][1], M[0][2], M[0][3]);
-	Output += FString::Printf(TEXT("[%g %g %g %g] "), M[1][0], M[1][1], M[1][2], M[1][3]);
-	Output += FString::Printf(TEXT("[%g %g %g %g] "), M[2][0], M[2][1], M[2][2], M[2][3]);
-	Output += FString::Printf(TEXT("[%g %g %g %g] "), M[3][0], M[3][1], M[3][2], M[3][3]);
+	Output += FString::Printf(TEXT("[%f %f %f %f] "), M[0][0], M[0][1], M[0][2], M[0][3]);
+	Output += FString::Printf(TEXT("[%f %f %f %f] "), M[1][0], M[1][1], M[1][2], M[1][3]);
+	Output += FString::Printf(TEXT("[%f %f %f %f] "), M[2][0], M[2][1], M[2][2], M[2][3]);
+	Output += FString::Printf(TEXT("[%f %f %f %f] "), M[3][0], M[3][1], M[3][2], M[3][3]);
 
 	return Output;
 }
@@ -1202,25 +1186,20 @@ FQuat FQuat::SlerpFullPath_NotNormalized(const FQuat &quat1, const FQuat &quat2,
 
 FQuat FQuat::Squad(const FQuat& quat1, const FQuat& tang1, const FQuat& quat2, const FQuat& tang2, float Alpha)
 {
-	// Always slerp along the short path from quat1 to quat2 to prevent axis flipping.
-	// This approach is taken by OGRE engine, amongst others.
-	const FQuat Q1 = FQuat::Slerp_NotNormalized(quat1, quat2, Alpha);
-	const FQuat Q2 = FQuat::SlerpFullPath_NotNormalized(tang1, tang2, Alpha);
-	const FQuat Result = FQuat::SlerpFullPath(Q1, Q2, 2.f * Alpha * (1.f - Alpha));
-
-	return Result;
-}
-
-FQuat FQuat::SquadFullPath(const FQuat& quat1, const FQuat& tang1, const FQuat& quat2, const FQuat& tang2, float Alpha)
-{
 	const FQuat Q1 = FQuat::SlerpFullPath_NotNormalized(quat1, quat2, Alpha);
+	//UE_LOG(LogUnrealMath, Log, TEXT("Q1: %f %f %f %f"), Q1.X, Q1.Y, Q1.Z, Q1.W);
+
 	const FQuat Q2 = FQuat::SlerpFullPath_NotNormalized(tang1, tang2, Alpha);
+	//UE_LOG(LogUnrealMath, Log, TEXT("Q2: %f %f %f %f"), Q2.X, Q2.Y, Q2.Z, Q2.W);
+
 	const FQuat Result = FQuat::SlerpFullPath(Q1, Q2, 2.f * Alpha * (1.f - Alpha));
+	//FQuat Result = FQuat::Slerp(Q1, Q2, 2.f * Alpha * (1.f - Alpha));
+	//UE_LOG(LogUnrealMath, Log, TEXT("Result: %f %f %f %f"), Result.X, Result.Y, Result.Z, Result.W);
 
 	return Result;
 }
 
-void FQuat::CalcTangents(const FQuat& PrevP, const FQuat& P, const FQuat& NextP, float Tension, FQuat& OutTan)
+void FQuat::CalcTangents( const FQuat& PrevP, const FQuat& P, const FQuat& NextP, float Tension, FQuat& OutTan )
 {
 	const FQuat InvP = P.Inverse();
 	const FQuat Part1 = (InvP * PrevP).Log();
@@ -2075,30 +2054,28 @@ FVector FMath::ClosestPointOnTetrahedronToPoint(const FVector& Point, const FVec
 	return Result;
 }
 
-void FMath::SphereDistToLine(FVector SphereOrigin, float SphereRadius, FVector LineOrigin, FVector NormalizedLineDir, FVector& OutClosestPoint)
+void FMath::SphereDistToLine(FVector SphereOrigin, float SphereRadius, FVector LineOrigin, FVector LineDir, FVector& OutClosestPoint)
 {
-	//const float A = NormalizedLineDir | NormalizedLineDir  (this is 1 because normalized)
-	//solving quadratic formula in terms of t where closest point = LineOrigin + t * NormalizedLineDir
-	const FVector LineOriginToSphereOrigin = SphereOrigin - LineOrigin;
-	const float B = -2.f * (NormalizedLineDir | LineOriginToSphereOrigin);
-	const float C = LineOriginToSphereOrigin.SizeSquared() - FMath::Square(SphereRadius);
-	const float D	= FMath::Square(B) - 4.f * C;
+	const float A	= LineDir | LineDir;
+	const float B	= 2.f * (LineDir | (LineOrigin - SphereOrigin));
+	const float C	= (SphereOrigin|SphereOrigin) + (LineOrigin|LineOrigin) - 2.f *(SphereOrigin|LineOrigin) - FMath::Square(SphereRadius);
+	const float D	= FMath::Square(B) - 4.f * A * C;
 
 	if( D <= KINDA_SMALL_NUMBER )
 	{
 		// line is not intersecting sphere (or is tangent at one point if D == 0 )
-		const FVector PointOnLine = LineOrigin + ( -B * 0.5f ) * NormalizedLineDir;
+		const FVector PointOnLine = LineOrigin + ( -B / 2.f * A ) * LineDir;
 		OutClosestPoint = SphereOrigin + (PointOnLine - SphereOrigin).GetSafeNormal() * SphereRadius;
 	}
 	else
 	{
 		// Line intersecting sphere in 2 points. Pick closest to line origin.
 		const float	E	= FMath::Sqrt(D);
-		const float T1	= (-B + E) * 0.5f;
-		const float T2	= (-B - E) * 0.5f;
-		const float T	= FMath::Abs( T1 ) == FMath::Abs( T2 ) ? FMath::Abs( T1 ) : FMath::Abs( T1 ) < FMath::Abs( T2 ) ? T1 : T2;	// In the case where both points are exactly the same distance we take the one in the direction of LineDir
+		const float T1	= (-B + E) / (2.f * A);
+		const float T2	= (-B - E) / (2.f * A);
+		const float T	= FMath::Abs(T1) < FMath::Abs(T2) ? T1 : T2;
 
-		OutClosestPoint	= LineOrigin + T * NormalizedLineDir;
+		OutClosestPoint	= LineOrigin + T * LineDir;
 	}
 }
 
@@ -2368,7 +2345,7 @@ CORE_API FRotator FMath::RInterpTo( const FRotator& Current, const FRotator& Tar
 CORE_API float FMath::FInterpTo( float Current, float Target, float DeltaTime, float InterpSpeed )
 {
 	// If no interp speed, jump to target value
-	if( InterpSpeed <= 0.f )
+	if( InterpSpeed == 0.f )
 	{
 		return Target;
 	}
@@ -2761,29 +2738,6 @@ double FMath::RoundHalfToZero(double F)
 	return (F < 0.0) ? FloorToDouble(F + 0.5) : CeilToDouble(F - 0.5);
 }
 
-FString FMath::FormatIntToHumanReadable(int32 Val)
-{
-	FString Src = *FString::Printf(TEXT("%i"), Val);
-	FString Dst;
-
-	if (Val > 999)
-	{
-		Dst = FString::Printf(TEXT(",%s"), *Src.Mid(Src.Len() - 3, 3));
-		Src = Src.Left(Src.Len() - 3);
-
-	}
-
-	if (Val > 999999)
-	{
-		Dst = FString::Printf(TEXT(",%s%s"), *Src.Mid(Src.Len() - 3, 3), *Dst);
-		Src = Src.Left(Src.Len() - 3);
-	}
-
-	Dst = Src + Dst;
-
-	return Dst;
-}
-
 bool FMath::MemoryTest( void* BaseAddress, uint32 NumBytes )
 {
 	volatile uint32* Ptr;
@@ -3143,16 +3097,6 @@ bool FMath::Eval( FString Str, float& OutValue )
 	}
 
 	return bResult;
-}
-
-void FMath::WindRelativeAnglesDegrees(float InAngle0, float& InOutAngle1)
-{
-	const float Diff = InAngle0 - InOutAngle1;
-	const float AbsDiff = Abs(Diff);
-	if(AbsDiff > 180.0f)
-	{
-		InOutAngle1 += 360.0f * Sign(Diff) * FloorToFloat((AbsDiff / 360.0f) + 0.5f);
-	}
 }
 
 float FMath::FixedTurn(float InCurrent, float InDesired, float InDeltaRate)

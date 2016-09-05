@@ -291,10 +291,10 @@ protected:
 	virtual FString GetBeautifiedTestName() const override { return "System.AbilitySystem.GameplayEffects"; }
 	virtual void GetTests(TArray<FString>& OutBeautifiedNames, TArray <FString>& OutTestCommands) const override
 	{
-		for (const FString& TestFuncName : TestFunctionNames)
+		for (const FString& TestName : TestFunctionNames)
 		{
-			OutBeautifiedNames.Add(TestFuncName);
-			OutTestCommands.Add(TestFuncName);
+			OutBeautifiedNames.Add(TestName);
+			OutTestCommands.Add(TestName);
 		}
 	}
 

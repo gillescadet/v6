@@ -27,9 +27,6 @@ public:
 	// GetWorld() and so provide access to blueprint nodes using hidden WorldContextObject parameters.
 	virtual UWorld* GetWorld() const override;
 
-	/** [FTickableGameObject] get world function */
-	virtual UWorld* GetTickableGameObjectWorld() const override { return GetWorld(); }
-
 	/** [FTickableGameObject] tick function */
 	virtual void Tick(float DeltaTime) override;
 
@@ -135,7 +132,7 @@ public:
 	/** 
 	 *	unregisters given actor from the list of active stimuli sources
 	 */
-	void UnregisterSource(AActor& SourceActor, const TSubclassOf<UAISense> Sense = nullptr);
+	void UnregisterSource(AActor& SourceActor, TSubclassOf<UAISense> Sense = nullptr);
 
 	void OnListenerForgetsActor(const UAIPerceptionComponent& Listener, AActor& ActorToForget);
 	void OnListenerForgetsAll(const UAIPerceptionComponent& Listener);
@@ -157,7 +154,7 @@ public:
 protected:
 	
 	UFUNCTION()
-	void OnPerceptionStimuliSourceEndPlay(AActor* Actor, EEndPlayReason::Type EndPlayReason);
+	void OnPerceptionStimuliSourceEndPlay(EEndPlayReason::Type EndPlayReason);
 	
 	/** requests registration of a given actor as a perception data source for specified sense */
 	void RegisterSource(FAISenseID SenseID, AActor& SourceActor);
@@ -190,6 +187,21 @@ private:
 	/** cached world's timestamp */
 	float CurrentTime;
 
+public:
+
+#if !UE_BUILD_SHIPPING
+	//----------------------------------------------------------------------//
+	// DEBUG
+	//----------------------------------------------------------------------//
+	TArray<FColor> DebugSenseColors;
+	FString PerceptionDebugLegend;	// describes which color means what
+
+	FColor GetSenseDebugColor(FAISenseID SenseID) const;
+	FString GetSenseName(FAISenseID SenseID) const;
+	FString GetPerceptionDebugLegend() const { return PerceptionDebugLegend; }
+#endif 
+
+private:
 	FTimerHandle AgeStimuliTimerHandle;
 };
 

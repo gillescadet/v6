@@ -50,94 +50,73 @@ namespace
 #endif
 }
 
-/*-----------------------------------------------------------------------------
-FConfigValue
------------------------------------------------------------------------------*/
-
-bool FConfigValue::ExpandValue(const FString& InCollapsedValue, FString& OutExpandedValue)
+class FTextFriendHelper
 {
-	int32 NumReplacements = 0;
-	OutExpandedValue = InCollapsedValue;
+	friend class FConfigFile;
+	friend class FConfigCacheIni;
 
-	// Replace %GAME% with game name.
-	NumReplacements += OutExpandedValue.ReplaceInline(TEXT("%GAME%"), FApp::GetGameName(), ESearchCase::CaseSensitive);
-
-	// Replace %GAMEDIR% with the game directory.
-	NumReplacements += OutExpandedValue.ReplaceInline(TEXT("%GAMEDIR%"), *FPaths::GameDir(), ESearchCase::CaseSensitive);
-
-	// Replace %ENGINEUSERDIR% with the user's engine directory.
-	NumReplacements += OutExpandedValue.ReplaceInline(TEXT("%ENGINEUSERDIR%"), *FPaths::EngineUserDir(), ESearchCase::CaseSensitive);
-
-	// Replace %ENGINEVERSIONAGNOSTICUSERDIR% with the user's engine agnostic directory.
-	NumReplacements += OutExpandedValue.ReplaceInline(TEXT("%ENGINEVERSIONAGNOSTICUSERDIR%"), *FPaths::EngineVersionAgnosticUserDir(), ESearchCase::CaseSensitive);
-
-	// Replace %APPSETTINGSDIR% with the application settings directory.
-	FString AppSettingsDir = FPlatformProcess::ApplicationSettingsDir();
-	FPaths::NormalizeFilename(AppSettingsDir);
-	NumReplacements += OutExpandedValue.ReplaceInline(TEXT("%APPSETTINGSDIR%"), *AppSettingsDir, ESearchCase::CaseSensitive);
-
-	return NumReplacements > 0;
-}
-
-FString FConfigValue::ExpandValue(const FString& InCollapsedValue)
-{
-	FString ExpandedValue;
-	ExpandValue(InCollapsedValue, ExpandedValue);
-	return ExpandedValue;
-}
-
-bool FConfigValue::CollapseValue(const FString& InExpandedValue, FString& OutCollapsedValue)
-{
-	int32 NumReplacements = 0;
-	OutCollapsedValue = InExpandedValue;
-
-	auto ExpandPathValueInline = [&](const FString& InPath, const TCHAR* InReplacement)
+	static FString AsString( const FText& Text )
 	{
-		if (OutCollapsedValue.StartsWith(InPath, ESearchCase::CaseSensitive))
+		if( Text.IsTransient() )
 		{
-			NumReplacements += OutCollapsedValue.ReplaceInline(*InPath, InReplacement, ESearchCase::CaseSensitive);
+			UE_LOG( LogConfig, Warning, TEXT( "FTextFriendHelper::AsString() Transient FText") );
+			return FString(TEXT("Error: Transient FText"));
 		}
-		else if (FPaths::IsRelative(InPath))
+
+		FString Str;
+		if( FTextInspector::GetSourceString(Text) )
 		{
-			const FString AbsolutePath = FPaths::ConvertRelativePathToFull(InPath);
-			if (OutCollapsedValue.StartsWith(AbsolutePath, ESearchCase::CaseSensitive))
+			FString SourceString( *FTextInspector::GetSourceString(Text) );
+			for( auto Iter( SourceString.CreateConstIterator()); Iter; ++Iter )
 			{
-				NumReplacements += OutCollapsedValue.ReplaceInline(*AbsolutePath, InReplacement, ESearchCase::CaseSensitive);
+				const TCHAR Ch = *Iter;
+				if( Ch == '\"' )
+				{
+					Str += TEXT("\\\"");
+				}
+				else if( Ch == '\t' )
+				{
+					Str += TEXT("\\t");
+				}
+				else if( Ch == '\r' )
+				{
+					Str += TEXT("\\r");
+				}
+				else if( Ch == '\n' )
+				{
+					Str += TEXT("\\n");
+				}
+				else if( Ch == '\\' )
+				{
+					Str += TEXT("\\\\");
+				}
+				else
+				{
+					Str += Ch;
+				}
 			}
 		}
-	};
 
-	// Replace the game directory with %GAMEDIR%.
-	ExpandPathValueInline(FPaths::GameDir(), TEXT("%GAMEDIR%"));
-
-	// Replace the user's engine directory with %ENGINEUSERDIR%.
-	ExpandPathValueInline(FPaths::EngineUserDir(), TEXT("%ENGINEUSERDIR%"));
-
-	// Replace the user's engine agnostic directory with %ENGINEVERSIONAGNOSTICUSERDIR%.
-	ExpandPathValueInline(FPaths::EngineVersionAgnosticUserDir(), TEXT("%ENGINEVERSIONAGNOSTICUSERDIR%"));
-
-	// Replace the application settings directory with %APPSETTINGSDIR%.
-	FString AppSettingsDir = FPlatformProcess::ApplicationSettingsDir();
-	FPaths::NormalizeFilename(AppSettingsDir);
-	ExpandPathValueInline(AppSettingsDir, TEXT("%APPSETTINGSDIR%"));
-
-	// Note: We deliberately don't replace the game name with %GAME% here, as the game name may exist in many places (including paths)
-
-	return NumReplacements > 0;
-}
-
-FString FConfigValue::CollapseValue(const FString& InExpandedValue)
-{
-	FString CollapsedValue;
-	CollapseValue(InExpandedValue, CollapsedValue);
-	return CollapsedValue;
-}
+		//this prevents our source code text gatherer from trying to gather the following messages
+#define LOC_DEFINE_REGION
+		if( Text.IsCultureInvariant() )
+		{
+			return FString::Printf( TEXT( "NSLOCTEXT(\"\",\"\",\"%s\")" ), *Str );
+		}
+		else
+		{
+			return FString::Printf( TEXT( "NSLOCTEXT(\"%s\",\"%s\",\"%s\")" ),
+				*FTextInspector::GetNamespace(Text).Get(TEXT("")), *FTextInspector::GetKey(Text).Get(TEXT("")), *Str );
+		}
+#undef LOC_DEFINE_REGION
+	}
+};
 
 /*-----------------------------------------------------------------------------
 	FConfigSection
 -----------------------------------------------------------------------------*/
 
-bool FConfigSection::HasQuotes( const FString& Test )
+bool FConfigSection::HasQuotes( const FString& Test ) const
 {
 	return Test.Left(1) == TEXT("\"") && Test.Right(1) == TEXT("\"");
 }
@@ -145,25 +124,19 @@ bool FConfigSection::HasQuotes( const FString& Test )
 bool FConfigSection::operator==( const FConfigSection& Other ) const
 {
 	if ( Pairs.Num() != Other.Pairs.Num() )
-	{
 		return 0;
-	}
 
 	FConfigSectionMap::TConstIterator My(*this), Their(Other);
 	while ( My && Their )
 	{
 		if (My.Key() != Their.Key())
-		{
 			return 0;
-		}
 
-		const FString& MyValue = My.Value().GetValue(), &TheirValue = Their.Value().GetValue();
+		const FString& MyValue = My.Value(), &TheirValue = Their.Value();
 		if ( FCString::Strcmp(*MyValue,*TheirValue) &&
 			(!HasQuotes(MyValue) || FCString::Strcmp(*TheirValue,*MyValue.Mid(1,MyValue.Len()-2))) &&
 			(!HasQuotes(TheirValue) || FCString::Strcmp(*MyValue,*TheirValue.Mid(1,TheirValue.Len()-2))) )
-		{
 			return 0;
-		}
 
 		++My, ++Their;
 	}
@@ -182,15 +155,15 @@ FConfigFile::FConfigFile()
 : Dirty( false )
 , NoSave( false )
 , Name( NAME_None )
-, SourceConfigFile(nullptr)
+, SourceConfigFile(NULL)
 {}
 	
 FConfigFile::~FConfigFile()
 {
-	if( SourceConfigFile != nullptr )
+	if( SourceConfigFile != NULL )
 	{
 		delete SourceConfigFile;
-		SourceConfigFile = nullptr;
+		SourceConfigFile = NULL;
 	}
 }
 
@@ -233,8 +206,25 @@ bool FConfigFile::Combine(const FString& Filename)
 
 void FConfigFile::CombineFromBuffer(const FString& Buffer)
 {
-	const TCHAR* Ptr = *Buffer;
-	FConfigSection* CurrentSection = nullptr;
+	// Replace %GAME% with game name.
+	FString Text = Buffer.Replace(TEXT("%GAME%"), FApp::GetGameName(), ESearchCase::CaseSensitive);
+
+	// Replace %GAMEDIR% with the game directory.
+	Text = Text.Replace( TEXT("%GAMEDIR%"), *FPaths::GameDir(), ESearchCase::CaseSensitive );
+
+	// Replace %ENGINEUSERDIR% with the user's engine directory.
+	Text = Text.Replace(TEXT("%ENGINEUSERDIR%"), *FPaths::EngineUserDir(), ESearchCase::CaseSensitive);
+
+	// Replace %ENGINEVERSIONAGNOSTICUSERDIR% with the user's engine directory.
+	Text = Text.Replace(TEXT("%ENGINEVERSIONAGNOSTICUSERDIR%"), *FPaths::EngineVersionAgnosticUserDir(), ESearchCase::CaseSensitive);
+
+	// Replace %APPSETTINGSDIR% with the game directory.
+	FString AppSettingsDir = FPlatformProcess::ApplicationSettingsDir();
+	FPaths::NormalizeFilename(AppSettingsDir);
+	Text = Text.Replace( TEXT("%APPSETTINGSDIR%"), *AppSettingsDir, ESearchCase::CaseSensitive );
+
+	const TCHAR* Ptr = *Text;
+	FConfigSection* CurrentSection = NULL;
 	bool Done = false;
 	while( !Done )
 	{
@@ -248,7 +238,7 @@ void FConfigFile::CombineFromBuffer(const FString& Buffer)
 		FString TheLine;
 		int32 LinesConsumed = 0;
 		FParse::LineExtended(&Ptr, TheLine, LinesConsumed, false);
-		if (Ptr == nullptr || *Ptr == 0)
+		if (Ptr == NULL || *Ptr == 0)
 		{
 			Done = true;
 		}
@@ -357,12 +347,12 @@ void FConfigFile::CombineFromBuffer(const FString& Buffer)
 						}
 						else if( *Value == TEXT('u') && Value[1] && Value[2] && Value[3] && Value[4] )	// \uXXXX - UNICODE code point
 						{
-							ProcessedValue += (TCHAR)(FParse::HexDigit(Value[1])*(1<<12) + FParse::HexDigit(Value[2])*(1<<8) + FParse::HexDigit(Value[3])*(1<<4) + FParse::HexDigit(Value[4]));
+							ProcessedValue += FParse::HexDigit(Value[1])*(1<<12) + FParse::HexDigit(Value[2])*(1<<8) + FParse::HexDigit(Value[3])*(1<<4) + FParse::HexDigit(Value[4]);
 							Value += 5;
 						}
 						else if( Value[1] ) // some other escape sequence, assume it's a hex character value
 						{
-							ProcessedValue += (TCHAR)(FParse::HexDigit(Value[0])*16 + FParse::HexDigit(Value[1]));
+							ProcessedValue += FParse::HexDigit(Value[0])*16 + FParse::HexDigit(Value[1]);
 							Value += 2;
 						}
 					}
@@ -375,17 +365,17 @@ void FConfigFile::CombineFromBuffer(const FString& Buffer)
 				if( Cmd=='+' ) 
 				{
 					// Add if not already present.
-					CurrentSection->AddUnique( Start, ProcessedValue );
+					CurrentSection->AddUnique( Start, *ProcessedValue );
 				}
 				else if( Cmd=='-' )	
 				{
 					// Remove if present.
-					CurrentSection->RemoveSingle( Start, ProcessedValue );
+					CurrentSection->RemoveSingle( Start, *ProcessedValue );
 					CurrentSection->CompactStable();
 				}
 				else if ( Cmd=='.' )
 				{
-					CurrentSection->Add( Start, ProcessedValue );
+					CurrentSection->Add( Start, *ProcessedValue );
 				}
 				else if( Cmd=='!' )
 				{
@@ -394,19 +384,19 @@ void FConfigFile::CombineFromBuffer(const FString& Buffer)
 				else
 				{
 					// Add if not present and replace if present.
-					FConfigValue* ConfigValue = CurrentSection->Find( Start );
-					if( !ConfigValue )
+					FString* Str = CurrentSection->Find( Start );
+					if( !Str )
 					{
-						CurrentSection->Add( Start, ProcessedValue );
+						CurrentSection->Add( Start, *ProcessedValue );
 					}
 					else
 					{
-						*ConfigValue = FConfigValue(ProcessedValue);
+						*Str = ProcessedValue;
 					}
 				}
 
 				// Mark as dirty so "Write" will actually save the changes.
-				Dirty = true;
+				Dirty = 1;
 			}
 		}
 	}
@@ -426,10 +416,24 @@ void FConfigFile::CombineFromBuffer(const FString& Buffer)
  */
 void FConfigFile::ProcessInputFileContents(const FString& Contents)
 {
-	const TCHAR* Ptr = Contents.Len() > 0 ? *Contents : nullptr;
-	FConfigSection* CurrentSection = nullptr;
+	// Replace %GAME% with game name.
+	FString Text = Contents.Replace(TEXT("%GAME%"), FApp::GetGameName(), ESearchCase::CaseSensitive);
+
+	// Replace %GAMEDIR% with the game directory.
+	Text = Text.Replace( TEXT("%GAMEDIR%"), *FPaths::GameDir(), ESearchCase::CaseSensitive );
+
+	// Replace %ENGINEUSERDIR% with the user's engine directory.
+	Text = Text.Replace(TEXT("%ENGINEUSERDIR%"), *FPaths::EngineUserDir(), ESearchCase::CaseSensitive);
+
+	// Replace %APPSETTINGSDIR% with the game directory.
+	FString AppSettingsDir = FPlatformProcess::ApplicationSettingsDir();
+	FPaths::NormalizeFilename(AppSettingsDir);
+	Text = Text.Replace( TEXT("%APPSETTINGSDIR%"), *AppSettingsDir, ESearchCase::CaseSensitive );
+
+	const TCHAR* Ptr = Text.Len() > 0 ? *Text : NULL;
+	FConfigSection* CurrentSection = NULL;
 	bool Done = false;
-	while( !Done && Ptr != nullptr )
+	while( !Done && Ptr != NULL )
 	{
 		// Advance past new line characters
 		while( *Ptr=='\r' || *Ptr=='\n' )
@@ -440,7 +444,7 @@ void FConfigFile::ProcessInputFileContents(const FString& Contents)
 		FString TheLine;
 		int32 LinesConsumed = 0;
 		FParse::LineExtended(&Ptr, TheLine, LinesConsumed, false);
-		if (Ptr == nullptr || *Ptr == 0)
+		if (Ptr == NULL || *Ptr == 0)
 		{
 			Done = true;
 		}
@@ -535,12 +539,12 @@ void FConfigFile::ProcessInputFileContents(const FString& Contents)
 						}
 						else if( *NewValue == TEXT('u') && NewValue[1] && NewValue[2] && NewValue[3] && NewValue[4] )	// \uXXXX - UNICODE code point
 						{
-							ProcessedValue += (TCHAR)(FParse::HexDigit(NewValue[1])*(1<<12) + FParse::HexDigit(NewValue[2])*(1<<8) + FParse::HexDigit(NewValue[3])*(1<<4) + FParse::HexDigit(NewValue[4]));
+							ProcessedValue += FParse::HexDigit(NewValue[1])*(1<<12) + FParse::HexDigit(NewValue[2])*(1<<8) + FParse::HexDigit(NewValue[3])*(1<<4) + FParse::HexDigit(NewValue[4]);
 							NewValue += 5;
 						}
 						else if( NewValue[1] ) // some other escape sequence, assume it's a hex character value
 						{
-							ProcessedValue += (TCHAR)(FParse::HexDigit(NewValue[0])*16 + FParse::HexDigit(NewValue[1]));
+							ProcessedValue += FParse::HexDigit(NewValue[0])*16 + FParse::HexDigit(NewValue[1]);
 							NewValue += 2;
 						}
 					}
@@ -568,7 +572,7 @@ void FConfigFile::ProcessInputFileContents(const FString& Contents)
 void FConfigFile::Read( const FString& Filename )
 {
 	// we can't read in a file if file IO is disabled
-	if (GConfig == nullptr || !GConfig->AreFileOperationsDisabled())
+	if (GConfig == NULL || !GConfig->AreFileOperationsDisabled())
 	{
 		Empty();
 		FString Text;
@@ -581,75 +585,15 @@ void FConfigFile::Read( const FString& Filename )
 	}
 }
 
-bool FConfigFile::ShouldExportQuotedString(const FString& PropertyValue)
+bool FConfigFile::ShouldExportQuotedString(const FString& PropertyValue) const
 {
-	bool bEscapeNextChar = false;
-	bool bIsWithinQuotes = false;
-
-	// The value should be exported as quoted string if...
-	const TCHAR* const DataPtr = *PropertyValue;
-	for (const TCHAR* CharPtr = DataPtr; *CharPtr; ++CharPtr)
-	{
-		const TCHAR ThisChar = *CharPtr;
-		const TCHAR NextChar = *(CharPtr + 1);
-
-		const bool bIsFirstChar = CharPtr == DataPtr;
-		const bool bIsLastChar = NextChar == 0;
-
-		if (ThisChar == TEXT('"') && !bEscapeNextChar)
-		{
-			bIsWithinQuotes = !bIsWithinQuotes;
-		}
-		bEscapeNextChar = ThisChar == TEXT('\\') && bIsWithinQuotes && !bEscapeNextChar;
-
-		// ... it begins or ends with a space (which is stripped on import)
-		if (ThisChar == TEXT(' ') && (bIsFirstChar || bIsLastChar))
-		{
-			return true;
-		}
-
-		// ... it begins with a '"' (which would be treated as a quoted string)
-		if (ThisChar == TEXT('"') && bIsFirstChar)
-		{
-			return true;
-		}
-
-		// ... it ends with a '\' (which would be treated as a line extension)
-		if (ThisChar == TEXT('\\') && bIsLastChar)
-		{
-			return true;
-		}
-
-		// ... it contains unquoted '{' or '}' (which are stripped on import)
-		if ((ThisChar == TEXT('{') || ThisChar == TEXT('}')) && !bIsWithinQuotes)
-		{
-			return true;
-		}
-		
-		// ... it contains unquoted '//' (interpreted as a comment when importing)
-		if ((ThisChar == TEXT('/') && NextChar == TEXT('/')) && !bIsWithinQuotes)
-		{
-			return true;
-		}
-	}
-
-	return false;
+	// The value should be exported as quoted string if it begins with a space (which is stripped on import) or
+	// when it contains '//' (interpreted as a comment when importing).
+	return **PropertyValue == TEXT(' ') || FCString::Strstr(*PropertyValue, TEXT("//")) != NULL;
 }
 
-FString FConfigFile::GenerateExportedPropertyLine(const FString& PropertyName, const FString& PropertyValue)
-{
-	const bool bShouldQuote = ShouldExportQuotedString(PropertyValue);
-	if (bShouldQuote)
-	{
-		return FString::Printf(TEXT("%s=\"%s\"") LINE_TERMINATOR, *PropertyName, *PropertyValue.ReplaceCharWithEscapedChar());
-	}
-	else
-	{
-		return FString::Printf(TEXT("%s=%s") LINE_TERMINATOR, *PropertyName, *PropertyValue);
-	}
-}
 
-#if ALLOW_INI_OVERRIDE_FROM_COMMANDLINE
+#if !UE_BUILD_SHIPPING
 
 /** A collection of identifiers which will help us parse the commandline opions. */
 namespace CommandlineOverrideSpecifiers
@@ -657,9 +601,9 @@ namespace CommandlineOverrideSpecifiers
 	// -ini:IniName:[Section1]:Key1=Value1,[Section2]:Key2=Value2
 	FString	IniSwitchIdentifier		= TEXT("-ini:");
 	FString	IniNameEndIdentifier	= TEXT(":[");
-	FString	SectionStartIdentifier	= TEXT("[");
+	TCHAR	SectionStartIdentifier	= TCHAR('[');
 	FString PropertyStartIdentifier	= TEXT("]:");
-	FString	PropertySeperator		= TEXT(",");
+	TCHAR	PropertySeperator		= TCHAR(',');
 }
 
 /**
@@ -680,7 +624,7 @@ static void OverrideFromCommandline(FConfigFile* File, const FString& Filename)
 	{
 		// break apart on the commas
 		TArray<FString> SettingPairs;
-		Settings.ParseIntoArray(SettingPairs, *CommandlineOverrideSpecifiers::PropertySeperator, true);
+		Settings.ParseIntoArray(SettingPairs, &CommandlineOverrideSpecifiers::PropertySeperator, true);
 		for (int32 Index = 0; Index < SettingPairs.Num(); Index++)
 		{
 			// set each one, by splitting on the =
@@ -703,7 +647,7 @@ static void OverrideFromCommandline(FConfigFile* File, const FString& Filename)
 				// Remove commandline syntax from the section name.
 				CommandlineOption.Section = CommandlineOption.Section.Replace(*CommandlineOverrideSpecifiers::IniNameEndIdentifier, TEXT(""));
 				CommandlineOption.Section = CommandlineOption.Section.Replace(*CommandlineOverrideSpecifiers::PropertyStartIdentifier, TEXT(""));
-				CommandlineOption.Section = CommandlineOption.Section.Replace(*CommandlineOverrideSpecifiers::SectionStartIdentifier, TEXT(""));
+				CommandlineOption.Section = CommandlineOption.Section.Replace(&CommandlineOverrideSpecifiers::SectionStartIdentifier, TEXT(""));
 
 				CommandlineOption.PropertyKey = SectionAndKey.Mid(SectionNameEndIndex + CommandlineOverrideSpecifiers::PropertyStartIdentifier.Len());
 				CommandlineOption.PropertyValue = Value;
@@ -744,7 +688,7 @@ static bool LoadIniFileHierarchy(const FConfigFileHierarchy& HierarchyToLoad, FC
 		{
 			const FIniFilename& IniToLoad = HierarchyIt.Value;
 			if (IniToLoad.bRequired == false &&
-				 (!IsUsingLocalIniFile(*IniToLoad.Filename, nullptr) || IFileManager::Get().FileSize(*IniToLoad.Filename) >= 0))
+				 (!IsUsingLocalIniFile(*IniToLoad.Filename, NULL) || IFileManager::Get().FileSize(*IniToLoad.Filename) >= 0))
 			{
 				NumExistingOptionalInis++;
 			}
@@ -802,7 +746,7 @@ static bool LoadIniFileHierarchy(const FConfigFileHierarchy& HierarchyToLoad, FC
 			if (bDoProcess)
 			{
 				// Spit out friendly error if there was a problem locating .inis (e.g. bad command line parameter or missing folder, ...).
-				if (IsUsingLocalIniFile(*IniFileName, nullptr) && (IFileManager::Get().FileSize(*IniFileName) < 0))
+				if (IsUsingLocalIniFile(*IniFileName, NULL) && (IFileManager::Get().FileSize(*IniFileName) < 0))
 				{
 					if (IniToLoad.bRequired)
 					{
@@ -867,7 +811,7 @@ bool DoesConfigPropertyValueMatch( FConfigFile* InConfigFile, const FString& InS
 			// Start Array check, if the property is in an array, we need to iterate over all properties.
 			for (FConfigSection::TConstKeyIterator It(*Section, InPropertyName); It && !bFoundAMatch; ++It)
 			{
-				const FString& PropertyValue = It.Value().GetSavedValue();
+				const FString& PropertyValue = It.Value();
 				bFoundAMatch = PropertyValue == InPropertyValue;
 
 				// if our properties don't match, run further checks
@@ -915,7 +859,7 @@ bool PropertySetFromCommandlineOption(const FConfigFile* InConfigFile, const FSt
 {
 	bool bFromCommandline = false;
 
-#if ALLOW_INI_OVERRIDE_FROM_COMMANDLINE
+#if !UE_BUILD_SHIPPING
 	for (const FConfigCommandlineOverride& CommandlineOverride : InConfigFile->CommandlineOptions)
 	{
 		if (CommandlineOverride.PropertyKey.Equals(InPropertyName.ToString(), ESearchCase::IgnoreCase) &&
@@ -926,7 +870,7 @@ bool PropertySetFromCommandlineOption(const FConfigFile* InConfigFile, const FSt
 			bFromCommandline = true;
 		}
 	}
-#endif // ALLOW_INI_OVERRIDE_FROM_COMMANDLINE
+#endif // !UE_BUILD_SHIPPING
 
 	return bFromCommandline;
 }
@@ -974,7 +918,7 @@ bool FConfigFile::Write( const FString& Filename, bool bDoRemoteWrite/* = true*/
 		for( FConfigSection::TConstIterator It2(Section); It2; ++It2 )
 		{
 			const FName PropertyName = It2.Key();
-			const FString& PropertyValue = It2.Value().GetSavedValue();
+			const FString& PropertyValue = It2.Value();
 
 			// Check if the we've already processed a property of this name. If it was part of an array we may have already written it out.
 			if( !PropertiesAddedLookup.Contains( PropertyName ) )
@@ -983,13 +927,13 @@ bool FConfigFile::Write( const FString& Filename, bool bDoRemoteWrite/* = true*/
 				// This also catches the case where the property doesn't exist in the source in non-array cases
 				bool bDifferentNumberOfElements = false;
 				{
-					const FConfigSection* SourceSection = nullptr;
+					const FConfigSection* SourceSection = NULL;
 					if( SourceSection )
 					{
-						TArray<FConfigValue> SourceMatchingProperties;
+						TArray< FString > SourceMatchingProperties;
 						SourceSection->MultiFind( PropertyName, SourceMatchingProperties );
 
-						TArray<FConfigValue> DestMatchingProperties;
+						TArray< FString > DestMatchingProperties;
 						Section.MultiFind( PropertyName, DestMatchingProperties );
 
 						bDifferentNumberOfElements = SourceMatchingProperties.Num() != DestMatchingProperties.Num();
@@ -1015,8 +959,15 @@ bool FConfigFile::Write( const FString& Filename, bool bDoRemoteWrite/* = true*/
 						bWroteASectionProperty = true;
 					}
 
+					// Print the property to the file.
+					TCHAR QuoteString[2] = {0,0};
+					if (ShouldExportQuotedString(PropertyValue))
+					{
+						QuoteString[0] = TEXT('\"');
+					}
+
 					// Write out our property, if it is an array we need to write out the entire array.
-					TArray<FConfigValue> CompletePropertyToWrite;
+					TArray< FString > CompletePropertyToWrite;
 					Section.MultiFind( PropertyName, CompletePropertyToWrite, true );
 
 					if( bIsADefaultIniWrite )
@@ -1025,9 +976,10 @@ bool FConfigFile::Write( const FString& Filename, bool bDoRemoteWrite/* = true*/
 					}
 					else
 					{
-						for (const FConfigValue& ConfigValue : CompletePropertyToWrite)
+						for( int32 Idx = 0; Idx < CompletePropertyToWrite.Num(); Idx++ )
 						{
-							Text += GenerateExportedPropertyLine(PropertyName.ToString(), ConfigValue.GetSavedValue());
+							Text += FString::Printf( TEXT("%s=%s%s%s") LINE_TERMINATOR, 
+								*PropertyName.ToString(), QuoteString, *CompletePropertyToWrite[ Idx ], QuoteString);	
 						}
 					}
 
@@ -1088,7 +1040,7 @@ void FConfigFile::AddMissingProperties( const FConfigFile& InSourceFile )
 		{
 			// If we don't already have this section, go ahead and add it now
 			FConfigSection* DestSection = Find( SourceSectionName );
-			if( DestSection == nullptr )
+			if( DestSection == NULL )
 			{
 				DestSection = &Add( SourceSectionName, FConfigSection() );
 				Dirty = true;
@@ -1099,14 +1051,13 @@ void FConfigFile::AddMissingProperties( const FConfigFile& InSourceFile )
 				const FName SourcePropertyName = SourcePropertyIt.Key();
 				
 				// If we don't already have this property, go ahead and add it now
-				if( DestSection->Find( SourcePropertyName ) == nullptr )
+				if( DestSection->Find( SourcePropertyName ) == NULL )
 				{
-					TArray<FConfigValue> Results;
+					TArray<FString> Results;
 					SourceSection.MultiFind(SourcePropertyName, Results, true);
-					for (const FConfigValue& Result : Results)
+					for (int32 ResultsIdx = 0; ResultsIdx < Results.Num(); ++ResultsIdx)
 					{
-
-						DestSection->Add(SourcePropertyName, Result.GetSavedValue());
+						DestSection->Add(SourcePropertyName, Results[ResultsIdx]);
 						Dirty = true;
 					}
 				}
@@ -1132,19 +1083,19 @@ void FConfigFile::Dump(FOutputDevice& Ar)
 		{
 			const FName KeyName = *KeyNameIt;
 
-			TArray<FConfigValue> Values;
+			TArray<FString> Values;
 			Section.MultiFind(KeyName,Values,true);
 
 			if ( Values.Num() > 1 )
 			{
 				for ( int32 ValueIndex = 0; ValueIndex < Values.Num(); ValueIndex++ )
 				{
-					Ar.Logf(TEXT("	%s[%i]=%s"), *KeyName.ToString(), ValueIndex, *Values[ValueIndex].GetValue().ReplaceCharWithEscapedChar());
+					Ar.Logf(TEXT("	%s[%i]=%s"), *KeyName.ToString(), ValueIndex, *Values[ValueIndex].ReplaceCharWithEscapedChar());
 				}
 			}
 			else
 			{
-				Ar.Logf(TEXT("	%s=%s"), *KeyName.ToString(), *Values[0].GetValue().ReplaceCharWithEscapedChar());
+				Ar.Logf(TEXT("	%s=%s"), *KeyName.ToString(), *Values[0].ReplaceCharWithEscapedChar());
 			}
 		}
 
@@ -1155,32 +1106,44 @@ void FConfigFile::Dump(FOutputDevice& Ar)
 bool FConfigFile::GetString( const TCHAR* Section, const TCHAR* Key, FString& Value ) const
 {
 	const FConfigSection* Sec = Find( Section );
-	if( Sec == nullptr )
+	if( Sec == NULL )
 	{
 		return false;
 	}
-	const FConfigValue* PairString = Sec->Find( Key );
-	if( PairString == nullptr )
+	const FString* PairString = Sec->Find( Key );
+	if( PairString == NULL )
 	{
 		return false;
 	}
-	Value = PairString->GetValue();
-	return true;
+
+	//this prevents our source code text gatherer from trying to gather the following messages
+#define LOC_DEFINE_REGION
+	if( FCString::Strstr( **PairString, TEXT("LOCTEXT") ) )
+	{
+		UE_LOG( LogConfig, Warning, TEXT( "FConfigFile::GetString( %s, %s ) contains LOCTEXT"), Section, Key );
+		return false;
+	}
+	else
+	{
+		Value = **PairString;
+		return true;
+	}
+#undef LOC_DEFINE_REGION
 }
 
 bool FConfigFile::GetText( const TCHAR* Section, const TCHAR* Key, FText& Value ) const
 {
 	const FConfigSection* Sec = Find( Section );
-	if( Sec == nullptr )
+	if( Sec == NULL )
 	{
 		return false;
 	}
-	const FConfigValue* PairString = Sec->Find( Key );
-	if( PairString == nullptr )
+	const FString* PairString = Sec->Find( Key );
+	if( PairString == NULL )
 	{
 		return false;
 	}
-	return FTextStringHelper::ReadFromString( *PairString->GetValue(), Value, Section );
+	return FParse::Text( **PairString, Value, Section );
 }
 
 bool FConfigFile::GetInt64( const TCHAR* Section, const TCHAR* Key, int64& Value ) const
@@ -1199,45 +1162,44 @@ bool FConfigFile::GetInt64( const TCHAR* Section, const TCHAR* Key, int64& Value
 void FConfigFile::SetString( const TCHAR* Section, const TCHAR* Key, const TCHAR* Value )
 {
 	FConfigSection* Sec  = Find( Section );
-	if( Sec == nullptr )
+	if( Sec == NULL )
 	{
 		Sec = &Add( Section, FConfigSection() );
 	}
 
-	FConfigValue* ConfigValue = Sec->Find( Key );
-	if( ConfigValue == nullptr )
+	FString* Str = Sec->Find( Key );
+	if( Str == NULL )
 	{
 		Sec->Add( Key, Value );
-		Dirty = true;
+		Dirty = 1;
 	}
-	else if( FCString::Strcmp(*ConfigValue->GetSavedValue(),Value)!=0 )
+	else if( FCString::Strcmp(**Str,Value)!=0 )
 	{
 		Dirty = true;
-		*ConfigValue = FConfigValue(Value);
+		*Str = Value;
 	}
 }
 
 void FConfigFile::SetText( const TCHAR* Section, const TCHAR* Key, const FText& Value )
 {
 	FConfigSection* Sec  = Find( Section );
-	if( Sec == nullptr )
+	if( Sec == NULL )
 	{
 		Sec = &Add( Section, FConfigSection() );
 	}
 
-	FString StrValue;
-	FTextStringHelper::WriteToString(StrValue, Value);
+	FString* Str = Sec->Find( Key );
+	const FString StrValue = FTextFriendHelper::AsString( Value );
 
-	FConfigValue* ConfigValue = Sec->Find( Key );
-	if( ConfigValue == nullptr )
+	if( Str == NULL )
 	{
 		Sec->Add( Key, StrValue );
-		Dirty = true;
+		Dirty = 1;
 	}
-	else if( FCString::Strcmp(*ConfigValue->GetSavedValue(), *StrValue)!=0 )
+	else if( FCString::Strcmp(**Str, *StrValue)!=0 )
 	{
 		Dirty = true;
-		*ConfigValue = FConfigValue(StrValue);
+		*Str = StrValue;
 	}
 }
 
@@ -1266,8 +1228,17 @@ void FConfigFile::SaveSourceToBackupFile()
 		for( FConfigSection::TConstIterator PropertyIterator(Section); PropertyIterator; ++PropertyIterator )
 		{
 			const FName PropertyName = PropertyIterator.Key();
-			const FString& PropertyValue = PropertyIterator.Value().GetSavedValue();
-			Text += FConfigFile::GenerateExportedPropertyLine(PropertyName.ToString(), PropertyValue);
+			const FString& PropertyValue = PropertyIterator.Value();
+
+			// Print the property to the file.
+			TCHAR QuoteString[2] = {0,0};
+			if (ShouldExportQuotedString(PropertyValue))
+			{
+				QuoteString[0] = TEXT('\"');
+			}
+
+			Text += FString::Printf( TEXT("%s=%s%s%s") LINE_TERMINATOR, 
+				*PropertyName.ToString(), QuoteString, *PropertyValue, QuoteString);	
 		}
 		Text += LINE_TERMINATOR;
 	}
@@ -1307,7 +1278,7 @@ void FConfigFile::ProcessSourceAndCheckAgainstBackup()
 }
 
 
-void FConfigFile::ProcessPropertyAndWriteForDefaults( const TArray< FConfigValue >& InCompletePropertyToProcess, FString& OutText, const FString& SectionName, const FString& PropertyName )
+void FConfigFile::ProcessPropertyAndWriteForDefaults( const TArray< FString >& InCompletePropertyToProcess, FString& OutText, const FString& SectionName, const FString& PropertyName )
 {
 	// Only process against a hierarchy if this config file has one.
 	if (SourceIniHierarchy.Num() > 0)
@@ -1343,15 +1314,22 @@ void FConfigFile::ProcessPropertyAndWriteForDefaults( const TArray< FConfigValue
 			for (const FString& NextElement : ArrayProperties)
 			{
 				FString PropertyNameWithRemoveOp = PropertyName.Replace(TEXT("+"), TEXT("-"));
-				OutText += GenerateExportedPropertyLine(PropertyNameWithRemoveOp, NextElement);
+				OutText += FString::Printf(TEXT("%s=%s") LINE_TERMINATOR, *PropertyNameWithRemoveOp, *NextElement);
 			}
 		}
 	}
 
 	// Write the properties out to a file.
-	for ( const FConfigValue& PropertyIt : InCompletePropertyToProcess)
+	for ( auto& PropertyIt : InCompletePropertyToProcess)
 	{
-		OutText += GenerateExportedPropertyLine(PropertyName, PropertyIt.GetSavedValue());
+		FString PropertyValue = *PropertyIt;
+
+		if (ShouldExportQuotedString(PropertyValue))
+		{
+			PropertyValue = FString::Printf(TEXT("\"%s\""), *PropertyValue);
+		}
+
+		OutText += FString::Printf(TEXT("%s=%s") LINE_TERMINATOR, *PropertyName, *PropertyValue);
 	}
 }
 
@@ -1389,7 +1367,7 @@ FConfigFile* FConfigCacheIni::Find( const FString& Filename, bool CreateIfNotFou
 	// check for non-filenames
 	if(Filename.Len() == 0)
 	{
-		return nullptr;
+		return NULL;
 	}
 
 	// Get file.
@@ -1501,33 +1479,33 @@ void FConfigCacheIni::Parse1ToNSectionOfNames(const TCHAR* Section, const TCHAR*
 		return;
 	}
 
-	TArray<FName>* WorkingList = nullptr;
+	TArray<FName>* WorkingList = NULL;
 	for( FConfigSectionMap::TIterator It(*ConfigSection); It; ++It )
 	{
 		// is the current key the 1 key?
 		if (It.Key() == KeyOne)
 		{
-			const FName KeyName(*It.Value().GetValue());
+			FName KeyName(*It.Value());
 
 			// look for existing set in the map
 			WorkingList = OutMap.Find(KeyName);
 
 			// make a new one if it wasn't there
-			if (WorkingList == nullptr)
+			if (WorkingList == NULL)
 			{
 				WorkingList = &OutMap.Add(KeyName, TArray<FName>());
 			}
 		}
 		// is the current key the N key?
-		else if (It.Key() == KeyN && WorkingList != nullptr)
+		else if (It.Key() == KeyN && WorkingList != NULL)
 		{
 			// if so, add it to the N list for the current 1 key
-			WorkingList->Add(FName(*It.Value().GetValue()));
+			WorkingList->Add(FName(*It.Value()));
 		}
 		// if it's neither, then reset
 		else
 		{
-			WorkingList = nullptr;
+			WorkingList = NULL;
 		}
 	}
 }
@@ -1566,31 +1544,31 @@ void FConfigCacheIni::Parse1ToNSectionOfStrings(const TCHAR* Section, const TCHA
 		return;
 	}
 
-	TArray<FString>* WorkingList = nullptr;
+	TArray<FString>* WorkingList = NULL;
 	for( FConfigSectionMap::TIterator It(*ConfigSection); It; ++It )
 	{
 		// is the current key the 1 key?
 		if (It.Key() == KeyOne)
 		{
 			// look for existing set in the map
-			WorkingList = OutMap.Find(It.Value().GetValue());
+			WorkingList = OutMap.Find(*It.Value());
 
 			// make a new one if it wasn't there
-			if (WorkingList == nullptr)
+			if (WorkingList == NULL)
 			{
-				WorkingList = &OutMap.Add(It.Value().GetValue(), TArray<FString>());
+				WorkingList = &OutMap.Add(*It.Value(), TArray<FString>());
 			}
 		}
 		// is the current key the N key?
-		else if (It.Key() == KeyN && WorkingList != nullptr)
+		else if (It.Key() == KeyN && WorkingList != NULL)
 		{
 			// if so, add it to the N list for the current 1 key
-			WorkingList->Add(It.Value().GetValue());
+			WorkingList->Add(It.Value());
 		}
 		// if it's neither, then reset
 		else
 		{
-			WorkingList = nullptr;
+			WorkingList = NULL;
 		}
 	}
 }
@@ -1598,7 +1576,7 @@ void FConfigCacheIni::Parse1ToNSectionOfStrings(const TCHAR* Section, const TCHA
 void FConfigCacheIni::LoadFile( const FString& Filename, const FConfigFile* Fallback, const TCHAR* PlatformString )
 {
 	// if the file has some data in it, read it in
-	if( !IsUsingLocalIniFile(*Filename, nullptr) || (IFileManager::Get().FileSize(*Filename) >= 0) )
+	if( !IsUsingLocalIniFile(*Filename, NULL) || (IFileManager::Get().FileSize(*Filename) >= 0) )
 	{
 		FConfigFile* Result = &Add(Filename, FConfigFile());
 		bool bDoEmptyConfig = false;
@@ -1687,13 +1665,25 @@ bool FConfigCacheIni::GetString( const TCHAR* Section, const TCHAR* Key, FString
 #endif
 		return false;
 	}
-	const FConfigValue* ConfigValue = Sec->Find( Key );
-	if( !ConfigValue )
+	FString* PairString = Sec->Find( Key );
+	if( !PairString )
 	{
 		return false;
 	}
-	Value = ConfigValue->GetValue();
-	return true;
+
+	//this prevents our source code text gatherer from trying to gather the following messages
+#define LOC_DEFINE_REGION
+	if( FCString::Strstr( **PairString, TEXT("LOCTEXT") ) )
+	{
+		UE_LOG( LogConfig, Warning, TEXT( "FConfigCacheIni::GetString( %s, %s, %s ) contains LOCTEXT"), Section, Key, *Filename );
+		return false;
+	}
+	else
+	{
+		Value = **PairString;
+		return true;
+	}
+#undef LOC_DEFINE_REGION
 }
 
 bool FConfigCacheIni::GetText( const TCHAR* Section, const TCHAR* Key, FText& Value, const FString& Filename )
@@ -1712,53 +1702,40 @@ bool FConfigCacheIni::GetText( const TCHAR* Section, const TCHAR* Key, FText& Va
 #endif
 		return false;
 	}
-	const FConfigValue* ConfigValue = Sec->Find( Key );
-	if( !ConfigValue )
+	FString* PairString = Sec->Find( Key );
+	if( !PairString )
 	{
 		return false;
 	}
-	return FTextStringHelper::ReadFromString( *ConfigValue->GetValue(), Value, Section );
+	return FParse::Text( **PairString, Value, Section );
 }
 
 bool FConfigCacheIni::GetSection( const TCHAR* Section, TArray<FString>& Result, const FString& Filename )
 {
 	FRemoteConfig::Get()->FinishRead(*Filename); // Ensure the remote file has been loaded and processed
-	Result.Reset();
-	FConfigFile* File = Find( Filename, false );
-	if (!File)
-	{
-		return false;
-	}
+	Result.Empty();
+	FConfigFile* File = Find( Filename, 0 );
+	if( !File )
+		return 0;
 	FConfigSection* Sec = File->Find( Section );
-	if (!Sec)
-	{
-		return false;
-	}
-	Result.Reserve(Sec->Num());
-	for (FConfigSection::TIterator It(*Sec); It; ++It)
-	{
-		Result.Add(FString::Printf(TEXT("%s=%s"), *It.Key().ToString(), *It.Value().GetValue()));
-	}
-	return true;
+	if( !Sec )
+		return 0;
+	for( FConfigSection::TIterator It(*Sec); It; ++It )
+		new(Result) FString(FString::Printf( TEXT("%s=%s"), *It.Key().ToString(), *It.Value() ));
+	return 1;
 }
 
 FConfigSection* FConfigCacheIni::GetSectionPrivate( const TCHAR* Section, bool Force, bool Const, const FString& Filename )
 {
 	FRemoteConfig::Get()->FinishRead(*Filename); // Ensure the remote file has been loaded and processed
 	FConfigFile* File = Find( Filename, Force );
-	if (!File)
-	{
-		return nullptr;
-	}
+	if( !File )
+		return NULL;
 	FConfigSection* Sec = File->Find( Section );
-	if (!Sec && Force)
-	{
-		Sec = &File->Add(Section, FConfigSection());
-	}
-	if (Sec && (Force || !Const))
-	{
-		File->Dirty = true;
-	}
+	if( !Sec && Force )
+		Sec = &File->Add( Section, FConfigSection() );
+	if( Sec && (Force || !Const) )
+		File->Dirty = 1;
 	return Sec;
 }
 
@@ -1769,7 +1746,7 @@ bool FConfigCacheIni::DoesSectionExist(const TCHAR* Section, const FString& File
 	FRemoteConfig::Get()->FinishRead(*Filename); // Ensure the remote file has been loaded and processed
 	FConfigFile* File = Find(Filename, false);
 
-	bReturnVal = (File != nullptr && File->Find(Section) != nullptr);
+	bReturnVal = File != NULL && File->Find(Section) != NULL;
 
 	return bReturnVal;
 }
@@ -1784,20 +1761,18 @@ void FConfigCacheIni::SetString( const TCHAR* Section, const TCHAR* Key, const T
 	}
 
 	FConfigSection* Sec = File->Find( Section );
-	if (!Sec)
-	{
-		Sec = &File->Add(Section, FConfigSection());
-	}
-	FConfigValue* ConfigValue = Sec->Find( Key );
-	if( !ConfigValue )
+	if( !Sec )
+		Sec = &File->Add( Section, FConfigSection() );
+	FString* Str = Sec->Find( Key );
+	if( !Str )
 	{
 		Sec->Add( Key, Value );
-		File->Dirty = true;
+		File->Dirty = 1;
 	}
-	else if( FCString::Strcmp(*ConfigValue->GetSavedValue(),Value)!=0 )
+	else if( FCString::Stricmp(**Str,Value)!=0 )
 	{
-		File->Dirty = true;
-		*ConfigValue = FConfigValue(Value);
+		File->Dirty = (FCString::Strcmp(**Str,Value)!=0);
+		*Str = Value;
 	}
 }
 
@@ -1816,41 +1791,40 @@ void FConfigCacheIni::SetText( const TCHAR* Section, const TCHAR* Key, const FTe
 		Sec = &File->Add( Section, FConfigSection() );
 	}
 
-	FString StrValue;
-	FTextStringHelper::WriteToString(StrValue, Value);
+	FString* Str = Sec->Find( Key );
+	const FString StrValue = FTextFriendHelper::AsString( Value );
 
-	FConfigValue* ConfigValue = Sec->Find( Key );
-	if( !ConfigValue )
+	if( !Str )
 	{
 		Sec->Add( Key, StrValue );
-		File->Dirty = true;
+		File->Dirty = 1;
 	}
-	else if( FCString::Strcmp(*ConfigValue->GetSavedValue(), *StrValue)!=0 )
+	else if( FCString::Stricmp(**Str, *StrValue)!=0 )
 	{
-		File->Dirty = true;
-		*ConfigValue = FConfigValue(StrValue);
+		File->Dirty = (FCString::Strcmp(**Str, *StrValue)!=0);
+		*Str = StrValue;
 	}
 }
 
-bool FConfigCacheIni::RemoveKey( const TCHAR* Section, const TCHAR* Key, const FString& Filename )
+void FConfigCacheIni::RemoveKey( const TCHAR* Section, const TCHAR* Key, const FString& Filename )
 {
 	FConfigFile* File = Find( Filename, 1 );
-	if( File )
+	if ( !File )
 	{
-		FConfigSection* Sec = File->Find( Section );
-		if( Sec )
-		{
-			if( Sec->Remove(Key) > 0 )
-			{
-				File->Dirty = 1;
-				return true;
-			}
-		}
+		return;
 	}
-	return false;
+
+	FConfigSection* Sec = File->Find( Section );
+	if( !Sec )
+	{
+		return;
+	}
+
+	if ( Sec->Remove(Key) > 0 )
+		File->Dirty = 1;
 }
 
-bool FConfigCacheIni::EmptySection( const TCHAR* Section, const FString& Filename )
+void FConfigCacheIni::EmptySection( const TCHAR* Section, const FString& Filename )
 {
 	FConfigFile* File = Find( Filename, 0 );
 	if( File )
@@ -1860,9 +1834,8 @@ bool FConfigCacheIni::EmptySection( const TCHAR* Section, const FString& Filenam
 		if( Sec )
 		{
 			if ( FConfigSection::TIterator(*Sec) )
-			{
 				Sec->Empty();
-			}
+
 			File->Remove(Section);
 			if (bAreFileOperationsDisabled == false)
 			{
@@ -1876,15 +1849,12 @@ bool FConfigCacheIni::EmptySection( const TCHAR* Section, const FString& Filenam
 					IFileManager::Get().Delete(*Filename);	
 				}
 			}
-			return true;
 		}
 	}
-	return false;
 }
 
-bool FConfigCacheIni::EmptySectionsMatchingString( const TCHAR* SectionString, const FString& Filename )
+void FConfigCacheIni::EmptySectionsMatchingString( const TCHAR* SectionString, const FString& Filename )
 {
-	bool bEmptied = false;
 	FConfigFile* File = Find( Filename, 0 );
 	if (File)
 	{
@@ -1894,12 +1864,11 @@ bool FConfigCacheIni::EmptySectionsMatchingString( const TCHAR* SectionString, c
 		{
 			if (It.Key().Contains(SectionString) )
 			{
-				bEmptied |= EmptySection(*(It.Key()), Filename);
+				EmptySection(*(It.Key()), Filename);
 			}
 		}
 		bAreFileOperationsDisabled = bSaveOpsDisabled;
 	}
-	return bEmptied;
 }
 
 /**
@@ -1929,7 +1898,7 @@ bool FConfigCacheIni::GetSectionNames( const FString& Filename, TArray<FString>&
 	bool bResult = false;
 
 	FConfigFile* File = Find(Filename, false);
-	if ( File != nullptr )
+	if ( File != NULL )
 	{
 		out_SectionNames.Empty(Num());
 		for ( FConfigFile::TIterator It(*File); It; ++It )
@@ -1959,7 +1928,7 @@ bool FConfigCacheIni::GetPerObjectConfigSections( const FString& Filename, const
 
 	MaxResults = FMath::Max(0, MaxResults);
 	FConfigFile* File = Find(Filename, false);
-	if ( File != nullptr )
+	if ( File != NULL )
 	{
 		out_SectionNames.Empty();
 		for ( FConfigFile::TIterator It(*File); It && out_SectionNames.Num() < MaxResults; ++It )
@@ -1992,7 +1961,7 @@ void FConfigCacheIni::Exit()
 
 void FConfigCacheIni::Dump(FOutputDevice& Ar, const TCHAR* BaseIniName)
 {
-	if (BaseIniName == nullptr)
+	if (BaseIniName == NULL)
 	{
 		Ar.Log( TEXT("Files map:") );
 		TMap<FString,FConfigFile>::Dump( Ar );
@@ -2000,7 +1969,7 @@ void FConfigCacheIni::Dump(FOutputDevice& Ar, const TCHAR* BaseIniName)
 
 	for ( TIterator It(*this); It; ++It )
 	{
-		if (BaseIniName == nullptr || FPaths::GetBaseFilename(It.Key()) == BaseIniName)
+		if (BaseIniName == NULL || FPaths::GetBaseFilename(It.Key()) == BaseIniName)
 		{
 			Ar.Logf(TEXT("FileName: %s"), *It.Key());
 			FConfigFile& File = It.Value();
@@ -2008,10 +1977,8 @@ void FConfigCacheIni::Dump(FOutputDevice& Ar, const TCHAR* BaseIniName)
 			{
 				FConfigSection& Sec = FileIt.Value();
 				Ar.Logf(TEXT("   [%s]"), *FileIt.Key());
-				for (FConfigSectionMap::TConstIterator SecIt(Sec); SecIt; ++SecIt)
-				{
-					Ar.Logf(TEXT("   %s=%s"), *SecIt.Key().ToString(), *SecIt.Value().GetValue());
-				}
+				for ( FConfigSectionMap::TConstIterator SecIt(Sec); SecIt; ++SecIt )
+					Ar.Logf(TEXT("   %s=%s"), *SecIt.Key().ToString(), *SecIt.Value());
 
 				Ar.Log(LINE_TERMINATOR);
 			}
@@ -2103,19 +2070,19 @@ int32 FConfigCacheIni::GetArray
 	FRemoteConfig::Get()->FinishRead(*Filename); // Ensure the remote file has been loaded and processed
 	out_Arr.Empty();
 	FConfigFile* File = Find( Filename, 0 );
-	if ( File != nullptr )
+	if ( File != NULL )
 	{
 		FConfigSection* Sec = File->Find( Section );
-		if ( Sec != nullptr )
+		if ( Sec != NULL )
 		{
-			TArray<FConfigValue> RemapArray;
+			TArray<FString> RemapArray;
 			Sec->MultiFind(Key, RemapArray);
 
 			// TMultiMap::MultiFind will return the results in reverse order
 			out_Arr.AddZeroed(RemapArray.Num());
 			for ( int32 RemapIndex = RemapArray.Num() - 1, Index = 0; RemapIndex >= 0; RemapIndex--, Index++ )
 			{
-				out_Arr[Index] = RemapArray[RemapIndex].GetValue();
+				out_Arr[Index] = RemapArray[RemapIndex];
 			}
 		}
 #if !UE_BUILD_SHIPPING
@@ -2590,7 +2557,7 @@ bool FConfigCacheIni::ForEachEntry(const FKeyValueSink& Visitor, const TCHAR* Se
 
 	for(FConfigSectionMap::TIterator It(*Sec); It; ++It)
 	{
-		Visitor.Execute(*It.Key().GetPlainNameString(), *It.Value().GetValue());
+		Visitor.Execute(*It.Key().GetPlainNameString(), *It.Value());
 	}
 
 	return true;
@@ -2608,7 +2575,7 @@ static void LoadAnIniFile(const FString& FilenameToLoad, FConfigFile& ConfigFile
 	// This shouldn't be getting called if seekfree is enabled on console.
 	check(!GUseSeekFreeLoading || !FPlatformProperties::RequiresCookedData());
 
-	if( !IsUsingLocalIniFile(*FilenameToLoad, nullptr) || (IFileManager::Get().FileSize( *FilenameToLoad ) >= 0) )
+	if( !IsUsingLocalIniFile(*FilenameToLoad, NULL) || (IFileManager::Get().FileSize( *FilenameToLoad ) >= 0) )
 	{
 		ProcessIniContents(*FilenameToLoad, *FilenameToLoad, &ConfigFile, false, false);
 	}
@@ -2642,7 +2609,7 @@ static bool GenerateDestIniFile(FConfigFile& DestConfigFile, const FString& Dest
 	}
 	LoadAnIniFile(DestIniFilename, DestConfigFile);
 
-#if ALLOW_INI_OVERRIDE_FROM_COMMANDLINE
+#if !UE_BUILD_SHIPPING
 	// process any commandline overrides
 	OverrideFromCommandline(&DestConfigFile, DestIniFilename);
 #endif
@@ -2728,7 +2695,7 @@ static bool GenerateDestIniFile(FConfigFile& DestConfigFile, const FString& Dest
 		DestConfigFile.Dirty = true;
 	}
 		
-	if (!IsUsingLocalIniFile(*DestIniFilename, nullptr))
+	if (!IsUsingLocalIniFile(*DestIniFilename, NULL))
 	{
 		// Save off a copy of the local file prior to overwriting it with the contents of a remote file
 		MakeLocalCopy(*DestIniFilename);
@@ -2768,7 +2735,7 @@ static FString GetSourceIniFilename(const TCHAR* ConfigDir, const TCHAR* Prefix,
  * Creates a chain of ini filenames to load and combine.
  *
  * @param InBaseIniName Ini name.
- * @param InPlatformName Platform name, nullptr means to use the current platform
+ * @param InPlatformName Platform name, NULL means to use the current platform
  * @param OutHierarchy An array which is to receive the generated hierachy of ini filenames.
  */
 static void GetSourceIniHierarchyFilenames(const TCHAR* InBaseIniName, const TCHAR* InPlatformName, const TCHAR* EngineConfigDir, const TCHAR* SourceConfigDir, FConfigFileHierarchy& OutHierarchy, bool bRequireDefaultIni)
@@ -2856,7 +2823,7 @@ static void GetSourceIniHierarchyFilenames(const TCHAR* InBaseIniName, const TCH
  * Calculates the name of a dest (generated) .ini file for a given base (ie Engine, Game, etc)
  * 
  * @param IniBaseName Base name of the .ini (Engine, Game)
- * @param PlatformName Name of the platform to get the .ini path for (nullptr means to use the current platform)
+ * @param PlatformName Name of the platform to get the .ini path for (NULL means to use the current platform)
  * @param GeneratedConfigDir The base folder that will contain the generated config files.
  * 
  * @return Standardized .ini filename
@@ -2871,17 +2838,8 @@ static FString GetDestIniFilename(const TCHAR* BaseIniName, const TCHAR* Platfor
 	if (FParse::Value(FCommandLine::Get(), *CommandLineSwitch, IniFilename) == false)
 	{
 		FString Name(PlatformName ? PlatformName : ANSI_TO_TCHAR(FPlatformProperties::PlatformName()));
-
-		FString BaseIniNameString = BaseIniName;
-		if (BaseIniNameString.Contains(GeneratedConfigDir))
-		{
-			IniFilename = BaseIniNameString;
-		}
-		else
-		{
-			// put it all together
-			IniFilename = FString::Printf(TEXT("%s%s/%s.ini"), GeneratedConfigDir, *Name, BaseIniName);
-		}
+		// put it all together
+		IniFilename = FString::Printf(TEXT("%s%s/%s.ini"), GeneratedConfigDir, *Name, BaseIniName);
 	}
 
 	// standardize it!
@@ -2900,7 +2858,7 @@ void FConfigCacheIni::InitializeConfigSystem()
 	// load the main .ini files (unless we're running a program or a gameless UE4Editor.exe, DefaultEngine.ini is required).
 	const bool bIsGamelessExe = !FApp::HasGameName();
 	const bool bDefaultEngineIniRequired = !bIsGamelessExe && (GIsGameAgnosticExe || FApp::IsGameNameEmpty());
-	bool bEngineConfigCreated = FConfigCacheIni::LoadGlobalIniFile(GEngineIni, TEXT("Engine"), nullptr, bDefaultEngineIniRequired);
+	bool bEngineConfigCreated = FConfigCacheIni::LoadGlobalIniFile(GEngineIni, TEXT("Engine"), NULL, bDefaultEngineIniRequired);
 
 	if ( !bIsGamelessExe )
 	{
@@ -2936,9 +2894,9 @@ void FConfigCacheIni::InitializeConfigSystem()
 
 	// Project agnostic editor ini files
 	static const FString EditorSettingsDir = FPaths::Combine(*FPaths::GameAgnosticSavedDir(), TEXT("Config")) + TEXT("/");
-	FConfigCacheIni::LoadGlobalIniFile(GEditorSettingsIni, TEXT("EditorSettings"), nullptr, false, false, true, *EditorSettingsDir);
-	FConfigCacheIni::LoadGlobalIniFile(GEditorLayoutIni, TEXT("EditorLayout"), nullptr, false, false, true, *EditorSettingsDir);
-	FConfigCacheIni::LoadGlobalIniFile(GEditorKeyBindingsIni, TEXT("EditorKeyBindings"), nullptr, false, false, true, *EditorSettingsDir);
+	FConfigCacheIni::LoadGlobalIniFile(GEditorSettingsIni, TEXT("EditorSettings"), NULL, false, false, true, *EditorSettingsDir);
+	FConfigCacheIni::LoadGlobalIniFile(GEditorLayoutIni, TEXT("EditorLayout"), NULL, false, false, true, *EditorSettingsDir);
+	FConfigCacheIni::LoadGlobalIniFile(GEditorKeyBindingsIni, TEXT("EditorKeyBindings"), NULL, false, false, true, *EditorSettingsDir);
 
 #endif
 #if PLATFORM_DESKTOP
@@ -2949,15 +2907,12 @@ void FConfigCacheIni::InitializeConfigSystem()
 
 	// Load scalability settings.
 	FConfigCacheIni::LoadGlobalIniFile(GScalabilityIni, TEXT("Scalability"));
-	// Load driver blacklist
-	FConfigCacheIni::LoadGlobalIniFile(GHardwareIni, TEXT("Hardware"));
 	
 	// Load user game settings .ini, allowing merging. This also updates the user .ini if necessary.
 	FConfigCacheIni::LoadGlobalIniFile(GGameUserSettingsIni, TEXT("GameUserSettings"));
 
 	// now we can make use of GConfig
 	GConfig->bIsReadyForUse = true;
-	FCoreDelegates::ConfigReadyForUse.Broadcast();
 }
 
 bool FConfigCacheIni::LoadGlobalIniFile(FString& FinalIniFilename, const TCHAR* BaseIniName, const TCHAR* Platform, bool bForceReload, bool bRequireDefaultIni, bool bAllowGeneratedIniWhenCooked, const TCHAR* GeneratedConfigDir)
@@ -2980,7 +2935,7 @@ bool FConfigCacheIni::LoadGlobalIniFile(FString& FinalIniFilename, const TCHAR* 
 
 	// need to check to see if the file already exists in the GConfigManager's cache
 	// if it does exist then we are done, nothing else to do
-	if (!bForceReload && GConfig->FindConfigFile(*FinalIniFilename) != nullptr)
+	if (!bForceReload && GConfig->FindConfigFile(*FinalIniFilename) != NULL)
 	{
 		//UE_LOG(LogConfig, Log,  TEXT( "Request to load a config file that was already loaded: %s" ), GeneratedIniFile );
 		return true;
@@ -3085,23 +3040,63 @@ void FConfigCacheIni::LoadExternalIniFile(FConfigFile& ConfigFile, const TCHAR* 
 	ConfigFile.Name = IniName;
 }
 
+
+/**
+ * Needs to be called after GConfig is set and LoadCoalescedFile was called.
+ * Loads the state of console variables.
+ * Works even if the variable is registered after the ini file was loaded.
+ */
 void FConfigCacheIni::LoadConsoleVariablesFromINI()
 {
-	FString ConsoleVariablesPath = FPaths::EngineDir() + TEXT("Config/ConsoleVariables.ini");
+	FString Paths[2];
+	const TCHAR* Sections[2];
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	// First we read from "../../../Engine/Config/ConsoleVariables.ini" [Startup] section if it exists
-	// This is the only ini file where we allow cheat commands (this is why it's not there for UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	ApplyCVarSettingsFromIni(TEXT("Startup"), *ConsoleVariablesPath, ECVF_SetByConsoleVariablesIni, true);
-#endif
+	// First pass tries to read from "../../../Engine/Config/ConsoleVariables.ini" [Startup] section if it exists
+	Paths[0] = FPaths::EngineDir() + TEXT("Config/ConsoleVariables.ini");
+	Sections[0] = TEXT("Startup");
 
-	// We also apply from Engine.ini [ConsoleVariables] section
-	ApplyCVarSettingsFromIni(TEXT("ConsoleVariables"), *GEngineIni, ECVF_SetBySystemSettingsIni);
+	// Second pass looks at the Engine.ini [ConsoleVariables] section
+	Paths[1] = GEngineIni;
+	Sections[1] = TEXT("ConsoleVariables");
 
+	bool bFoundSection = false;
+
+	for(int32 PassIdx=0;PassIdx<2;PassIdx++)
+	{
+		FConfigSection* Section = GConfig->GetSectionPrivate(Sections[PassIdx], false, true, *Paths[PassIdx]);
+
+		if(Section)
+		{
+			for(FConfigSectionMap::TConstIterator It(*Section); It; ++It)
+			{
+				const FString& KeyString = It.Key().GetPlainNameString(); 
+				const FString& ValueString = It.Value();
+
+				IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*KeyString);
+
+				if(CVar)
+				{
+					// Set if the variable exists.
+					CVar->Set(*ValueString, ECVF_SetByConsoleVariablesIni);
+				}
+				else
+				{
+					// Create a dummy that is used when someone registers the variable later on.
+					IConsoleManager::Get().RegisterConsoleVariable(*KeyString, *ValueString, TEXT("IAmNoRealVariable"),
+						(uint32)ECVF_Unregistered | (uint32)ECVF_CreatedFromIni | (uint32)ECVF_SetByConsoleVariablesIni);
+				}
+			}
+			bFoundSection = true;
+		}
+	}
+
+	if(bFoundSection)
+	{
 		IConsoleManager::Get().CallAllConsoleVariableSinks();
+	}
 }
 
-void FConfigFile::UpdateSections(const TCHAR* DiskFilename, const TCHAR* IniRootName/*=nullptr*/)
+void FConfigFile::UpdateSections(const TCHAR* DiskFilename, const TCHAR* IniRootName/*=NULL*/)
 {
 	// since we don't want any modifications to other sections, we manually process the file, not read into sections, etc
 	FString DiskFile;
@@ -3110,7 +3105,7 @@ void FConfigFile::UpdateSections(const TCHAR* DiskFilename, const TCHAR* IniRoot
 	if (FFileHelper::LoadFileToString(DiskFile, DiskFilename))
 	{
 		// walk each line
-		const TCHAR* Ptr = DiskFile.Len() > 0 ? *DiskFile : nullptr;
+		const TCHAR* Ptr = DiskFile.Len() > 0 ? *DiskFile : NULL;
 		bool bDone = Ptr ? false : true;
 		bool bIsSkippingSection = true;
 		while (!bDone)
@@ -3144,11 +3139,11 @@ void FConfigFile::UpdateSections(const TCHAR* DiskFilename, const TCHAR* IniRoot
 	}
 
 	// load the hierarchy up to right before this file
-	if (IniRootName != nullptr)
+	if (IniRootName != NULL)
 	{
 		// get the standard ini files
 		SourceIniHierarchy.Empty();
-		GetSourceIniHierarchyFilenames(IniRootName, nullptr, *FPaths::EngineConfigDir(), *FPaths::SourceConfigDir(), SourceIniHierarchy, false);
+		GetSourceIniHierarchyFilenames(IniRootName, NULL, *FPaths::EngineConfigDir(), *FPaths::SourceConfigDir(), SourceIniHierarchy, false);
 
 		// now chop off this file and any after it
 		for (auto& HierarchyFileIt : SourceIniHierarchy)
@@ -3262,7 +3257,8 @@ private:
 			{
 				if (SectionLine.StartsWith(FString::Printf(TEXT("%s="), *PropertyName)))
 				{
-					UpdatedSection += FConfigFile::GenerateExportedPropertyLine(PropertyName, PropertyValue);
+					UpdatedSection += FString::Printf(TEXT("%s=%s"), *PropertyName, *PropertyValue);
+					UpdatedSection += LINE_TERMINATOR;
 					bWrotePropertyOnPass = true;
 				}
 				else
@@ -3342,7 +3338,8 @@ private:
 		// Make sure we dont leave much whitespace, and append the property name/value entry
 		ClearTrailingWhitespace(PreText);
 		PreText += LINE_TERMINATOR;
-		PreText += FConfigFile::GenerateExportedPropertyLine(PropertyName, PropertyValue);
+		PreText += FString::Printf(TEXT("%s=%s"), *PropertyName, *PropertyValue);
+		PreText += LINE_TERMINATOR;
 		PreText += LINE_TERMINATOR;
 	}
 
@@ -3383,9 +3380,9 @@ bool FConfigFile::UpdateSinglePropertyInSection(const TCHAR* DiskFilename, const
 	FString PropertyValue;
 	if (const FConfigSection* LocalSection = this->Find(SectionName))
 	{
-		if (const FConfigValue* ConfigValue = LocalSection->Find(PropertyName))
+		if (const FString* LocalSectionPropertyStr = LocalSection->Find(PropertyName))
 		{
-			PropertyValue = ConfigValue->GetSavedValue();
+			PropertyValue = *LocalSectionPropertyStr;
 			FSinglePropertyConfigHelper SinglePropertyConfigHelper(DiskFilename, SectionName, PropertyName, PropertyValue);
 			bSuccessfullyUpdatedFile = SinglePropertyConfigHelper.UpdateConfigFile();
 		}
@@ -3394,82 +3391,48 @@ bool FConfigFile::UpdateSinglePropertyInSection(const TCHAR* DiskFilename, const
 	return bSuccessfullyUpdatedFile;
 }
 
-// @param IniFile for error reporting
-// to have one single function to set a cvar from ini (handing friendly names, cheats for shipping and message about cheats in non shipping)
-CORE_API void OnSetCVarFromIniEntry(const TCHAR *IniFile, const TCHAR *Key, const TCHAR* Value, uint32 SetBy, bool bAllowCheating)
+void ApplyCVarSettingsFromIni(const TCHAR* InSectionName, const TCHAR* InIniFilename, uint32 SetBy)
 {
-	check(IniFile && Key && Value);
-	check((SetBy & ~ECVF_SetByMask) == 0);
-
-	// allow human friendly names
-	if (FCString::Stricmp(Value, TEXT("True")) == 0
-	|| FCString::Stricmp(Value, TEXT("Yes")) == 0
-	|| FCString::Stricmp(Value, TEXT("On")) == 0)
+	// Lookup the config section for this section and group number
+	TArray<FString> SectionStrings;
+	if (GConfig->GetSection(InSectionName, SectionStrings, InIniFilename))
 	{
-		Value = TEXT("1");
-	}
-	else if(FCString::Stricmp(Value, TEXT("False")) == 0
-	|| FCString::Stricmp(Value, TEXT("No")) == 0
-	|| FCString::Stricmp(Value, TEXT("Off")) == 0)
-	{
-		Value = TEXT("0");
-	}
-
-	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Key); 
-
-	if(CVar)
-	{
-		bool bCheatFlag = CVar->TestFlags(EConsoleVariableFlags::ECVF_Cheat); 
-		
-		if(SetBy == ECVF_SetByScalability)
+		// Apply each cvar in the group
+		for (int32 VarIndex = 0; VarIndex < SectionStrings.Num(); ++VarIndex)
 		{
-			if(!CVar->TestFlags(EConsoleVariableFlags::ECVF_Scalability))
+			FString CVarName;
+			FString CVarValue;
+			SectionStrings[VarIndex].Split(TEXT("="), &CVarName, &CVarValue, ESearchCase::CaseSensitive);
+
+			IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*CVarName);
+			if (CVar)
 			{
-				ensureMsgf(false, TEXT("Scalability.ini can only set ECVF_Scalability console variables ('%s'='%s' is ignored)"), Key, Value);
-				return;
-			}
-		}
-
-		bool bAllowChange = !bCheatFlag || bAllowCheating;
-
-		if(bAllowChange)
-		{
-			CVar->Set(Value, (EConsoleVariableFlags)SetBy);
-		}
-		else
-		{
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-			if(bCheatFlag)
-			{
-				// We have one special cvar to test cheating and here we don't want to both the user of the engine
-				if(FCString::Stricmp(Key, TEXT("con.DebugEarlyCheat")) != 0)
+				if (!CVar->TestFlags(EConsoleVariableFlags::ECVF_Cheat))
 				{
-					ensureMsgf(false, TEXT("The ini file '%s' tries to set the console variable '%s' marked with ECVF_Cheat, this is only allowed in consolevariables.ini"),
-						IniFile, Key);
+					if (FCString::Stricmp(*CVarValue, TEXT("True")) == 0
+						|| FCString::Stricmp(*CVarValue, TEXT("Yes")) == 0
+						|| FCString::Stricmp(*CVarValue, TEXT("On")) == 0)
+					{
+						CVar->Set(1, (EConsoleVariableFlags)SetBy);
+					}
+					else if(FCString::Stricmp(*CVarValue, TEXT("False")) == 0
+						|| FCString::Stricmp(*CVarValue, TEXT("No")) == 0
+						|| FCString::Stricmp(*CVarValue, TEXT("Off")) == 0)
+					{
+						CVar->Set(0, (EConsoleVariableFlags)SetBy);
+					}
+					else
+					{
+						CVar->Set(*CVarValue, (EConsoleVariableFlags)SetBy);
+					}
 				}
 			}
-#endif
-		}
-	}
-	else
-	{
-		// Create a dummy that is used when someone registers the variable later on.
-		// this is important for variables created in external modules, such as the game module
-		IConsoleManager::Get().RegisterConsoleVariable(Key, Value, TEXT("IAmNoRealVariable"),
-			(uint32)ECVF_Unregistered | (uint32)ECVF_CreatedFromIni | SetBy);
-	}
-}
-
-void ApplyCVarSettingsFromIni(const TCHAR* InSectionName, const TCHAR* InIniFilename, uint32 SetBy, bool bAllowCheating)
-{
-	if(FConfigSection* Section = GConfig->GetSectionPrivate(InSectionName, false, true, InIniFilename))
-	{
-		for(FConfigSectionMap::TConstIterator It(*Section); It; ++It)
-		{
-			const FString& KeyString = It.Key().GetPlainNameString(); 
-			const FString& ValueString = It.Value().GetValue();
-
-			OnSetCVarFromIniEntry(InIniFilename, *KeyString, *ValueString, SetBy, bAllowCheating);
+			else
+			{
+				// Create a dummy that is used when someone registers the variable later on.
+				// this is important for variables created in external modules, such as the game module
+				IConsoleManager::Get().RegisterConsoleVariable(*CVarName, *CVarValue, TEXT("IAmNoRealVariable"), (uint32)ECVF_Unregistered | (uint32)ECVF_CreatedFromIni | SetBy);
+			}
 		}
 	}
 }

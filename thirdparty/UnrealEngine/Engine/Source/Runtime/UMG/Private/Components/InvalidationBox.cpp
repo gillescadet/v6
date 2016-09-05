@@ -39,16 +39,16 @@ TSharedRef<SWidget> UInvalidationBox::RebuildWidget()
 	return BuildDesignTimeWidget(MyInvalidationPanel.ToSharedRef());
 }
 
-void UInvalidationBox::OnSlotAdded(UPanelSlot* InSlot)
+void UInvalidationBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live slot if it already exists
 	if ( MyInvalidationPanel.IsValid() )
 	{
-		MyInvalidationPanel->SetContent(InSlot->Content ? InSlot->Content->TakeWidget() : SNullWidget::NullWidget);
+		MyInvalidationPanel->SetContent(Slot->Content ? Slot->Content->TakeWidget() : SNullWidget::NullWidget);
 	}
 }
 
-void UInvalidationBox::OnSlotRemoved(UPanelSlot* InSlot)
+void UInvalidationBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyInvalidationPanel.IsValid() )
@@ -85,6 +85,11 @@ void UInvalidationBox::SetCanCache(bool CanCache)
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UInvalidationBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.MenuAnchor");
+}
 
 const FText UInvalidationBox::GetPaletteCategory()
 {

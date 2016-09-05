@@ -13,12 +13,10 @@ FMovieSceneFloatTrackInstance::FMovieSceneFloatTrackInstance( UMovieSceneFloatTr
 }
 
 
-void FMovieSceneFloatTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneFloatTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (InitFloatMap.Find(Object) == nullptr)
 		{
 			float FloatValue = PropertyBindings->GetCurrentValue<float>(Object);
@@ -28,12 +26,10 @@ void FMovieSceneFloatTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObjec
 }
 
 
-void FMovieSceneFloatTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieSceneFloatTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for( UObject* Object : RuntimeObjects )
 	{
-		UObject* Object = ObjectPtr.Get();
-
 		if (!IsValid(Object))
 		{
 			continue;
@@ -50,21 +46,20 @@ void FMovieSceneFloatTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UOb
 }
 
 
-void FMovieSceneFloatTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance ) 
+void FMovieSceneFloatTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
 	float FloatValue = 0.0f;
-	if( FloatTrack->Eval( UpdateData.Position, UpdateData.LastPosition, FloatValue ) )
+	if( FloatTrack->Eval( Position, LastPosition, FloatValue ) )
 	{
-		for(auto ObjectPtr : RuntimeObjects)
+		for(UObject* Object : RuntimeObjects)
 		{
-			UObject* Object = ObjectPtr.Get();
 			PropertyBindings->CallFunction<float>( Object, &FloatValue );
 		}
 	}
 }
 
 
-void FMovieSceneFloatTrackInstance::RefreshInstance( const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
+void FMovieSceneFloatTrackInstance::RefreshInstance( const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance )
 {
 	PropertyBindings->UpdateBindings( RuntimeObjects );
 }

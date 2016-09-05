@@ -94,21 +94,15 @@ public:
 	}
 
 	/**
-	 * Sets the interface to be used by this viewport for rendering and I/O
-	 *
-	 * @param InViewportInterface The interface to use
-	 */
-	TWeakPtr<ISlateViewport> GetViewportInterface()
-	{
-		return ViewportInterface;
-	}
-
-	/**
 	 * Sets the content for this widget
 	 *
 	 * @param InContent	The new content (can be null)
 	 */
 	void SetContent( TSharedPtr<SWidget> InContent );
+
+	void SetCustomHitTestPath( TSharedPtr<ICustomHitTestPath> CustomHitTestPath );
+
+	TSharedPtr<ICustomHitTestPath> GetCustomHitTestPath();
 
 	const TSharedPtr<SWidget> GetContent() const { return ChildSlot.GetWidget(); }
 
@@ -134,26 +128,6 @@ public:
 
 	/** @return Whether or not this viewport supports stereo rendering */
 	bool IsStereoRenderingAllowed() const { return bEnableStereoRendering; }
-
-	/**
-	 * Sets whether this viewport can render directly to the back buffer.  Advanced use only
-	 * 
-	 * @param	bInRenderDirectlyToWindow	Whether we should be able to render to the back buffer
-	 */
-	void SetRenderDirectlyToWindow( const bool bInRenderDirectlyToWindow )
-	{
-		bRenderDirectlyToWindow = bInRenderDirectlyToWindow;
-	}
-
-	/**
-	 * Sets whether stereo rendering is allowed for this viewport.  Advanced use only
-	 * 
-	 * @param	bInEnableStereoRendering	Whether stereo rendering should be allowed for this viewport
-	 */
-	void EnableStereoRendering( const bool bInEnableStereoRendering )
-	{
-		bEnableStereoRendering = bInEnableStereoRendering;
-	}
 
 	/** 
 	 * Sets whether this viewport is active. 
@@ -194,6 +168,8 @@ public:
 	virtual TOptional<bool> OnQueryShowFocus( const EFocusCause InFocusCause ) const override;
 	virtual FPopupMethodReply OnQueryPopupMethod() const override;
 	virtual void OnFinishedPointerInput() override;
+	virtual void OnArrangeChildren( const FGeometry& AllottedGeometry, FArrangedChildren& ArrangedChildren ) const override;
+	virtual TSharedPtr<struct FVirtualPointerPosition> TranslateMouseCoordinateFor3DChild(const TSharedRef<SWidget>& ChildWidget, const FGeometry& MyGeometry, const FVector2D& ScreenSpaceMouseCoordinate, const FVector2D& LastScreenSpaceMouseCoordinate) const override;
 	virtual FNavigationReply OnNavigation( const FGeometry& MyGeometry, const FNavigationEvent& InNavigationEvent ) override;
 
 private:
@@ -226,6 +202,8 @@ private:
 
 	/** Size of the viewport. */
 	TAttribute<FVector2D> ViewportSize;
+
+	TSharedPtr<ICustomHitTestPath> CustomHitTestPath;
 
 	/** Whether or not this viewport renders directly to the window back-buffer. */
 	bool bRenderDirectlyToWindow;

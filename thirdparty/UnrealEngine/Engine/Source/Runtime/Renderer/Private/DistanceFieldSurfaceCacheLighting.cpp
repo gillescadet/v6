@@ -31,25 +31,6 @@ FAutoConsoleVariableRef CVarDistanceFieldAO(
 	ECVF_Scalability | ECVF_RenderThreadSafe
 	);
 
-int32 GDistanceFieldAOApplyToStaticIndirect = 0;
-FAutoConsoleVariableRef CVarDistanceFieldAOApplyToStaticIndirect(
-	TEXT("r.AOApplyToStaticIndirect"),
-	GDistanceFieldAOApplyToStaticIndirect,
-	TEXT("Whether to apply DFAO as indirect shadowing even to static indirect sources (lightmaps + stationary skylight + reflection captures)"),
-	ECVF_Scalability | ECVF_RenderThreadSafe
-	);
-
-int32 GDistanceFieldAOSpecularOcclusionMode = 1;
-FAutoConsoleVariableRef CVarDistanceFieldAOSpecularOcclusionMode(
-	TEXT("r.AOSpecularOcclusionMode"),
-	GDistanceFieldAOSpecularOcclusionMode,
-	TEXT("Determines how specular should be occluded by DFAO\n")
-	TEXT("0: Apply non-directional AO to specular.\n")
-	TEXT("1: (default) Intersect the reflection cone with the unoccluded cone produced by DFAO.  This gives more accurate occlusion than 0, but can bring out DFAO sampling artifacts.\n")
-	TEXT("2: (experimental) Cone trace through distance fields along the reflection vector.  Costs about the same as DFAO again because more cone tracing is done, but produces more accurate occlusion."),
-	ECVF_Scalability | ECVF_RenderThreadSafe
-	);
-
 bool IsDistanceFieldGIAllowed(const FViewInfo& View)
 {
 	return DoesPlatformSupportDistanceFieldGI(View.GetShaderPlatform())
@@ -61,7 +42,7 @@ FAutoConsoleVariableRef CVarAOUseSurfaceCache(
 	TEXT("r.AOUseSurfaceCache"),
 	GAOUseSurfaceCache,
 	TEXT("Whether to use the surface cache or screen grid for cone tracing.  The screen grid has more constant performance characteristics."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOPowerOfTwoBetweenLevels = 2;
@@ -69,7 +50,7 @@ FAutoConsoleVariableRef CVarAOPowerOfTwoBetweenLevels(
 	TEXT("r.AOPowerOfTwoBetweenLevels"),
 	GAOPowerOfTwoBetweenLevels,
 	TEXT("Power of two in resolution between refinement levels of the surface cache"),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOMinLevel = 1;
@@ -79,7 +60,7 @@ FAutoConsoleVariableRef CVarAOMinLevel(
 	TEXT("Smallest downsample power of 4 to use for surface cache population.\n")
 	TEXT("The default is 1, which means every 8 full resolution pixels (BaseDownsampleFactor(2) * 4^1) will be checked for a valid interpolation from the cache or shaded.\n")
 	TEXT("Going down to 0 gives less aliasing, and removes the need for gap filling, but costs a lot."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOMaxLevel = FMath::Min(2, GAOMaxSupportedLevel);
@@ -87,7 +68,7 @@ FAutoConsoleVariableRef CVarAOMaxLevel(
 	TEXT("r.AOMaxLevel"),
 	GAOMaxLevel,
 	TEXT("Largest downsample power of 4 to use for surface cache population."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOReuseAcrossFrames = 1;
@@ -95,7 +76,7 @@ FAutoConsoleVariableRef CVarAOReuseAcrossFrames(
 	TEXT("r.AOReuseAcrossFrames"),
 	GAOReuseAcrossFrames,
 	TEXT("Whether to allow reusing surface cache results across frames."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOTrimOldRecordsFraction = .2f;
@@ -104,7 +85,7 @@ FAutoConsoleVariableRef CVarAOTrimOldRecordsFraction(
 	GAOTrimOldRecordsFraction,
 	TEXT("When r.AOReuseAcrossFrames is enabled, this is the fraction of the last frame's surface cache records that will not be reused.\n")
 	TEXT("Low settings provide better performance, while values closer to 1 give faster lighting updates when dynamic scene changes are happening."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAORecordRadiusScale = .3f;
@@ -112,7 +93,7 @@ FAutoConsoleVariableRef CVarAORecordRadiusScale(
 	TEXT("r.AORecordRadiusScale"),
 	GAORecordRadiusScale,
 	TEXT("Scale applied to the minimum occluder distance to produce the record radius.  This effectively controls how dense shading samples are."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOInterpolationRadiusScale = 1.3f;
@@ -120,7 +101,7 @@ FAutoConsoleVariableRef CVarAOInterpolationRadiusScale(
 	TEXT("r.AOInterpolationRadiusScale"),
 	GAOInterpolationRadiusScale,
 	TEXT("Scale applied to record radii during the final interpolation pass.  Values larger than 1 result in world space smoothing."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOMinPointBehindPlaneAngle = 4;
@@ -129,7 +110,7 @@ FAutoConsoleVariableRef CVarAOMinPointBehindPlaneAngle(
 	GAOMinPointBehindPlaneAngle,
 	TEXT("Minimum angle that a point can lie behind a record and still be considered valid.\n")
 	TEXT("This threshold helps reduce leaking that happens when interpolating records in front of the shading point, ignoring occluders in between."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOInterpolationMaxAngle = 15;
@@ -137,7 +118,7 @@ FAutoConsoleVariableRef CVarAOInterpolationMaxAngle(
 	TEXT("r.AOInterpolationMaxAngle"),
 	GAOInterpolationMaxAngle,
 	TEXT("Largest angle allowed between the shading point's normal and a nearby record's normal."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOInterpolationAngleScale = 1.5f;
@@ -145,7 +126,7 @@ FAutoConsoleVariableRef CVarAOInterpolationAngleScale(
 	TEXT("r.AOInterpolationAngleScale"),
 	GAOInterpolationAngleScale,
 	TEXT("Scale applied to angle error during the final interpolation pass.  Values larger than 1 result in smoothing."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOStepExponentScale = .5f;
@@ -153,7 +134,7 @@ FAutoConsoleVariableRef CVarAOStepExponentScale(
 	TEXT("r.AOStepExponentScale"),
 	GAOStepExponentScale,
 	TEXT("Exponent used to distribute AO samples along a cone direction."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 float GAOMaxViewDistance = 20000;
@@ -161,7 +142,7 @@ FAutoConsoleVariableRef CVarAOMaxViewDistance(
 	TEXT("r.AOMaxViewDistance"),
 	GAOMaxViewDistance,
 	TEXT("The maximum distance that AO will be computed at."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOScatterTileCulling = 1;
@@ -177,7 +158,7 @@ FAutoConsoleVariableRef CVarAOComputeShaderNormalCalculation(
 	TEXT("r.AOComputeShaderNormalCalculation"),
 	GAOComputeShaderNormalCalculation,
 	TEXT("Whether to use the compute shader version of the distance field normal computation."),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOSampleSet = 1;
@@ -185,7 +166,7 @@ FAutoConsoleVariableRef CVarAOSampleSet(
 	TEXT("r.AOSampleSet"),
 	GAOSampleSet,
 	TEXT("0 = Original set, 1 = Relaxed set"),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOInterpolationStencilTesting = 1;
@@ -193,7 +174,7 @@ FAutoConsoleVariableRef CVarAOInterpolationStencilTesting(
 	TEXT("r.AOInterpolationStencilTesting"),
 	GAOInterpolationStencilTesting,
 	TEXT("Whether to stencil out distant pixels from the interpolation splat pass, useful for debugging"),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOInterpolationDepthTesting = 1;
@@ -201,7 +182,7 @@ FAutoConsoleVariableRef CVarAOInterpolationDepthTesting(
 	TEXT("r.AOInterpolationDepthTesting"),
 	GAOInterpolationDepthTesting,
 	TEXT("Whether to use depth testing during the interpolation splat pass, useful for debugging"),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 int32 GAOOverwriteSceneColor = 0;
@@ -209,7 +190,7 @@ FAutoConsoleVariableRef CVarAOOverwriteSceneColor(
 	TEXT("r.AOOverwriteSceneColor"),
 	GAOOverwriteSceneColor,
 	TEXT(""),
-	ECVF_RenderThreadSafe
+	ECVF_Cheat | ECVF_RenderThreadSafe
 	);
 
 DEFINE_LOG_CATEGORY(LogDistanceField);
@@ -1163,7 +1144,7 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
 		OutEnvironment.CompilerFlags.Add(CFLAG_StandardOptimization);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance);
+		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance ? TEXT("1") : TEXT("0"));
 	}
 
 	TCopyIrradianceCacheSamplesCS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
@@ -1528,7 +1509,7 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("DOWNSAMPLE_FACTOR"), GAODownsampleFactor);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance);
+		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance ? TEXT("1") : TEXT("0"));
 
 		// To reduce shader compile time of compute shaders with shared memory, doesn't have an impact on generated code with current compiler (June 2010 DX SDK)
 		OutEnvironment.CompilerFlags.Add(CFLAG_StandardOptimization);
@@ -1946,7 +1927,7 @@ public:
 		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
 
 		OutEnvironment.SetDefine(TEXT("FINAL_INTERPOLATION_PASS"), (uint32)bFinalInterpolationPass);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance);
+		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance ? TEXT("1") : TEXT("0"));
 	}
 
 	TIrradianceCacheSplatVS(const ShaderMetaType::CompiledShaderInitializerType& Initializer):
@@ -2033,7 +2014,7 @@ public:
 		
 		OutEnvironment.SetDefine(TEXT("DOWNSAMPLE_FACTOR"), GAODownsampleFactor);
 		OutEnvironment.SetDefine(TEXT("FINAL_INTERPOLATION_PASS"), (uint32)bFinalInterpolationPass);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance);
+		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance ? TEXT("1") : TEXT("0"));
 	}
 
 	/** Default constructor. */
@@ -2743,7 +2724,7 @@ bool SupportsDistanceFieldAO(ERHIFeatureLevel::Type FeatureLevel, EShaderPlatfor
 		&& DoesPlatformSupportDistanceFieldAO(ShaderPlatform);
 }
 
-bool ShouldRenderDeferredDynamicSkyLight(const FScene* Scene, const FSceneViewFamily& ViewFamily)
+bool ShouldRenderDynamicSkyLight(const FScene* Scene, const FSceneViewFamily& ViewFamily)
 {
 	return Scene->SkyLight
 		&& Scene->SkyLight->ProcessedTexture
@@ -2751,18 +2732,17 @@ bool ShouldRenderDeferredDynamicSkyLight(const FScene* Scene, const FSceneViewFa
 		&& !Scene->SkyLight->bHasStaticLighting
 		&& ViewFamily.EngineShowFlags.SkyLighting
 		&& Scene->GetFeatureLevel() >= ERHIFeatureLevel::SM4
-		&& !IsAnyForwardShadingEnabled(Scene->GetShaderPlatform()) 
+		&& !IsSimpleDynamicLightingEnabled() 
 		&& !ViewFamily.EngineShowFlags.VisualizeLightCulling;
 }
 
 bool FDeferredShadingSceneRenderer::ShouldPrepareForDistanceFieldAO() const
 {
 	return SupportsDistanceFieldAO(Scene->GetFeatureLevel(), Scene->GetShaderPlatform())
-		&& ((ShouldRenderDeferredDynamicSkyLight(Scene, ViewFamily) && Scene->SkyLight->bCastShadows && ViewFamily.EngineShowFlags.DistanceFieldAO)
+		&& ((ShouldRenderDynamicSkyLight(Scene, ViewFamily) && Scene->SkyLight->bCastShadows && ViewFamily.EngineShowFlags.DistanceFieldAO)
 			|| ViewFamily.EngineShowFlags.VisualizeMeshDistanceFields
 			|| ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO
-			|| ViewFamily.EngineShowFlags.VisualizeDistanceFieldGI
-			|| (GDistanceFieldAOApplyToStaticIndirect && ViewFamily.EngineShowFlags.DistanceFieldAO));
+			|| ViewFamily.EngineShowFlags.VisualizeDistanceFieldGI);
 }
 
 bool FDeferredShadingSceneRenderer::ShouldPrepareDistanceFields() const
@@ -2772,12 +2752,12 @@ bool FDeferredShadingSceneRenderer::ShouldPrepareDistanceFields() const
 		return false;
 	}
 
-	bool bShouldPrepareForAO = SupportsDistanceFieldAO(Scene->GetFeatureLevel(), Scene->GetShaderPlatform())
-		&& (ShouldPrepareForDistanceFieldAO()
+	return SupportsDistanceFieldAO(Scene->GetFeatureLevel(), Scene->GetShaderPlatform())
+		&& (ShouldPrepareForDistanceFieldAO() 
+			|| ShouldPrepareForDistanceFieldShadows() 
 			|| ((Views.Num() > 0) && Views[0].bUsesGlobalDistanceField)
-			|| ((Scene->FXSystem != nullptr) && Scene->FXSystem->UsesGlobalDistanceField()));
-
-	return bShouldPrepareForAO || ShouldPrepareForDistanceFieldShadows();
+			|| ((Scene->FXSystem != nullptr) && Scene->FXSystem->UsesGlobalDistanceField())
+		   );
 }
 
 void RenderDistanceFieldAOSurfaceCache(
@@ -2913,12 +2893,12 @@ void RenderDistanceFieldAOSurfaceCache(
 			// Create new records which haven't been shaded yet for shading points which don't have a valid interpolation from existing records
 			{
 		        FIntPoint DownsampledViewSize = FIntPoint::DivideAndRoundUp(View.ViewRect.Size(), DestLevelDownsampleFactor);
-				uint32 GroupSizeX = FMath::DivideAndRoundUp(DownsampledViewSize.X, GDistanceFieldAOTileSizeX);
-				uint32 GroupSizeY = FMath::DivideAndRoundUp(DownsampledViewSize.Y, GDistanceFieldAOTileSizeY);
+				        uint32 GroupSizeX = FMath::DivideAndRoundUp(DownsampledViewSize.X, GDistanceFieldAOTileSizeX);
+				        uint32 GroupSizeY = FMath::DivideAndRoundUp(DownsampledViewSize.Y, GDistanceFieldAOTileSizeY);
         
 		        TShaderMapRef<FPopulateCacheCS> ComputeShader(View.ShaderMap);
         
-				RHICmdList.SetComputeShader(ComputeShader->GetComputeShader());
+				        RHICmdList.SetComputeShader(ComputeShader->GetComputeShader());
 		        ComputeShader->SetParameters(RHICmdList, View, DistanceFieldAOBentNormalSplat->GetRenderTargetItem(), DistanceFieldNormal->GetRenderTargetItem(), DestLevelDownsampleFactor, DepthLevel, TileListGroupSize, Parameters);
 				DispatchComputeShader(RHICmdList, *ComputeShader, GroupSizeX, GroupSizeY, 1);
 
@@ -3018,31 +2998,18 @@ void RenderDistanceFieldAOSurfaceCache(
 
 	GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, BentNormalAccumulation);
 
-	// Post process the AO to cover over artifacts
-	PostProcessBentNormalAOSurfaceCache(
-		RHICmdList, 
-		Parameters, 
-		View, 
-		VelocityTexture, 
-		BentNormalAccumulation->GetRenderTargetItem(), 
-		IrradianceAccumulation, 
-		DistanceFieldNormal->GetRenderTargetItem(), 
-		OutDynamicBentNormalAO, 
-		OutDynamicIrradiance);
-}
+			// Post process the AO to cover over artifacts
 
-void FDeferredShadingSceneRenderer::RenderDFAOAsIndirectShadowing(
-	FRHICommandListImmediate& RHICmdList,
-	const TRefCountPtr<IPooledRenderTarget>& VelocityTexture, 
-	TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
-{
-	if (GDistanceFieldAOApplyToStaticIndirect && ShouldRenderDistanceFieldAO())
-	{
-		// Use the skylight's max distance if there is one, to be consistent with DFAO shadowing on the skylight
-		const float OcclusionMaxDistance = Scene->SkyLight && !Scene->SkyLight->bWantsStaticShadowing ? Scene->SkyLight->OcclusionMaxDistance : Scene->DefaultMaxDistanceFieldOcclusionDistance;
-		TRefCountPtr<IPooledRenderTarget> DummyOutput;
-		RenderDistanceFieldLighting(RHICmdList, FDistanceFieldAOParameters(OcclusionMaxDistance), VelocityTexture, DynamicBentNormalAO, DummyOutput, true, false, false);
-	}
+	PostProcessBentNormalAOSurfaceCache(
+				RHICmdList, 
+				Parameters, 
+				View, 
+	VelocityTexture, 
+			BentNormalAccumulation->GetRenderTargetItem(), 
+			IrradianceAccumulation, 
+			DistanceFieldNormal->GetRenderTargetItem(), 
+	OutDynamicBentNormalAO, 
+	OutDynamicIrradiance);
 }
 
 bool FDeferredShadingSceneRenderer::RenderDistanceFieldLighting(
@@ -3051,7 +3018,6 @@ bool FDeferredShadingSceneRenderer::RenderDistanceFieldLighting(
 	const TRefCountPtr<IPooledRenderTarget>& VelocityTexture,
 	TRefCountPtr<IPooledRenderTarget>& OutDynamicBentNormalAO, 
 	TRefCountPtr<IPooledRenderTarget>& OutDynamicIrradiance,
-	bool bModulateToSceneColor,
 	bool bVisualizeAmbientOcclusion,
 	bool bVisualizeGlobalIllumination)
 {
@@ -3165,9 +3131,6 @@ bool FDeferredShadingSceneRenderer::RenderDistanceFieldLighting(
 
 			GRenderTargetPool.VisualizeTexture.SetCheckPoint(RHICmdList, BentNormalOutput);
 
-			TRefCountPtr<IPooledRenderTarget> SpecularOcclusion;
-			RenderDistanceFieldSpecularOcclusion(RHICmdList, View, TileListGroupSize, Parameters, DistanceFieldNormal, SpecularOcclusion);
-
 			if (bVisualizeAmbientOcclusion || bVisualizeGlobalIllumination)
 			{
 				SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilNop);
@@ -3185,32 +3148,16 @@ bool FDeferredShadingSceneRenderer::RenderDistanceFieldLighting(
 					GRenderTargetPool.FindFreeElement(RHICmdList, Desc, OutDynamicIrradiance, TEXT("DynamicIrradiance"));
 				}
 
-				FTextureRHIParamRef RenderTargets[3] =
+				FTextureRHIParamRef RenderTargets[2] =
 				{
 					OutDynamicBentNormalAO->GetRenderTargetItem().TargetableTexture,
-					NULL,
-					NULL
+					bUseDistanceFieldGI ? OutDynamicIrradiance->GetRenderTargetItem().TargetableTexture : NULL
 				};
-
-				int32 NumRenderTargets = 1;
-
-				if (bModulateToSceneColor)
-				{
-					RenderTargets[NumRenderTargets] = SceneContext.GetSceneColorSurface();
-					NumRenderTargets++;
-				}
-
-				if (bUseDistanceFieldGI)
-				{
-					RenderTargets[NumRenderTargets] = OutDynamicIrradiance->GetRenderTargetItem().TargetableTexture;
-					NumRenderTargets++;
-				}
-
-				SetRenderTargets(RHICmdList, NumRenderTargets, RenderTargets, FTextureRHIParamRef(), 0, NULL);
+				SetRenderTargets(RHICmdList, ARRAY_COUNT(RenderTargets) - (bUseDistanceFieldGI ? 0 : 1), RenderTargets, FTextureRHIParamRef(), 0, NULL);
 			}
 
 			// Upsample to full resolution, write to output
-			UpsampleBentNormalAO(RHICmdList, Views, BentNormalOutput, IrradianceOutput, SpecularOcclusion, bModulateToSceneColor, bVisualizeAmbientOcclusion, bVisualizeGlobalIllumination);
+			UpsampleBentNormalAO(RHICmdList, Views, BentNormalOutput, IrradianceOutput, bVisualizeAmbientOcclusion, bVisualizeGlobalIllumination);
 
 			if (!bVisualizeAmbientOcclusion && !bVisualizeGlobalIllumination)
 			{
@@ -3244,8 +3191,8 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Platform,OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("DOWNSAMPLE_FACTOR"), GAODownsampleFactor);
-		OutEnvironment.SetDefine(TEXT("APPLY_SHADOWING"), bApplyShadowing);
-		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance);
+		OutEnvironment.SetDefine(TEXT("APPLY_SHADOWING"), (uint32)(bApplyShadowing ? 1 : 0));
+		OutEnvironment.SetDefine(TEXT("SUPPORT_IRRADIANCE"), bSupportIrradiance ? TEXT("1") : TEXT("0"));
 	}
 
 	/** Default constructor. */
@@ -3326,7 +3273,8 @@ IMPLEMENT_SKYLIGHT_PS_TYPE(false, false)
 
 bool FDeferredShadingSceneRenderer::ShouldRenderDistanceFieldAO() const
 {
-	return ViewFamily.EngineShowFlags.DistanceFieldAO 
+	return Scene->SkyLight->bCastShadows
+		&& ViewFamily.EngineShowFlags.DistanceFieldAO 
 		&& !ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO
 		&& !ViewFamily.EngineShowFlags.VisualizeDistanceFieldGI
 		&& !ViewFamily.EngineShowFlags.VisualizeMeshDistanceFields;
@@ -3334,7 +3282,7 @@ bool FDeferredShadingSceneRenderer::ShouldRenderDistanceFieldAO() const
 
 void FDeferredShadingSceneRenderer::RenderDynamicSkyLighting(FRHICommandListImmediate& RHICmdList, const TRefCountPtr<IPooledRenderTarget>& VelocityTexture, TRefCountPtr<IPooledRenderTarget>& DynamicBentNormalAO)
 {
-	if (ShouldRenderDeferredDynamicSkyLight(Scene, ViewFamily))
+	if (ShouldRenderDynamicSkyLight(Scene, ViewFamily))
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, SkyLightDiffuse);
 
@@ -3343,14 +3291,10 @@ void FDeferredShadingSceneRenderer::RenderDynamicSkyLighting(FRHICommandListImme
 		FDistanceFieldAOParameters Parameters(Scene->SkyLight->OcclusionMaxDistance, Scene->SkyLight->Contrast);
 		TRefCountPtr<IPooledRenderTarget> DynamicIrradiance;
 
-		if (Scene->SkyLight->bCastShadows 
-			&& !GDistanceFieldAOApplyToStaticIndirect
-			&& ShouldRenderDistanceFieldAO() 
-			&& ViewFamily.EngineShowFlags.AmbientOcclusion)
+		if (ShouldRenderDistanceFieldAO() && ViewFamily.EngineShowFlags.AmbientOcclusion)
 		{
-			bApplyShadowing = RenderDistanceFieldLighting(RHICmdList, Parameters, VelocityTexture, DynamicBentNormalAO, DynamicIrradiance, false, false, false);
+			bApplyShadowing = RenderDistanceFieldLighting(RHICmdList, Parameters, VelocityTexture, DynamicBentNormalAO, DynamicIrradiance, false, false);
 		}
-
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 		SceneContext.BeginRenderingSceneColor(RHICmdList, ESimpleRenderTargetMode::EExistingColorAndDepth, FExclusiveDepthStencil::DepthRead_StencilRead);
@@ -3443,7 +3387,7 @@ public:
 		OutEnvironment.SetDefine(TEXT("DOWNSAMPLE_FACTOR"), GAODownsampleFactor);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZEX"), GDistanceFieldAOTileSizeX);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZEY"), GDistanceFieldAOTileSizeY);
-		OutEnvironment.SetDefine(TEXT("USE_GLOBAL_DISTANCE_FIELD"), bUseGlobalDistanceField);
+		OutEnvironment.SetDefine(TEXT("USE_GLOBAL_DISTANCE_FIELD"), bUseGlobalDistanceField ? TEXT("1") : TEXT("0"));
 	}
 
 	/** Default constructor. */

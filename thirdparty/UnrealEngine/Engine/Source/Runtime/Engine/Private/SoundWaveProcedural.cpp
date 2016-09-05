@@ -7,93 +7,51 @@ USoundWaveProcedural::USoundWaveProcedural(const FObjectInitializer& ObjectIniti
 	: Super(ObjectInitializer)
 {
 	bProcedural = true;
-	bReset = false;
-	NumBufferUnderrunSamples = 512;
-	NumSamplesToGeneratePerCallback = 1024;
-	checkf(NumSamplesToGeneratePerCallback >= NumBufferUnderrunSamples, TEXT("Should generate more samples than this per callback."));
 }
 
-void USoundWaveProcedural::QueueAudio(const uint8* AudioData, const int32 BufferSize)
+void USoundWaveProcedural::QueueAudio( const uint8* AudioData, const int32 BufferSize )
 {
-	if (BufferSize == 0 || !ensure((BufferSize % sizeof(int16)) == 0))
+	if (BufferSize == 0 || !ensure( ( BufferSize % sizeof( int16 ) ) == 0 ))
 	{
 		return;
 	}
-
-	TArray<uint8> NewAudioBuffer;
-	NewAudioBuffer.AddUninitialized(BufferSize);
-	FMemory::Memcpy(NewAudioBuffer.GetData(), AudioData, BufferSize);
-	QueuedAudio.Enqueue(NewAudioBuffer);
-
-	AvailableByteCount.Add(BufferSize);
+	const int32 Position = QueuedAudio.AddUninitialized( BufferSize );
+	FMemory::Memcpy( &QueuedAudio[ Position ], AudioData, BufferSize );
 }
 
-void USoundWaveProcedural::PumpQueuedAudio()
+int32 USoundWaveProcedural::GeneratePCMData( uint8* PCMData, const int32 SamplesNeeded )
 {
-	// Pump the enqueued audio
-	TArray<uint8> NewQueuedBuffer;
-	while (QueuedAudio.Dequeue(NewQueuedBuffer))
-	{
-		AudioBuffer.Append(NewQueuedBuffer);
-	}
-}
+	int32 SamplesAvailable = QueuedAudio.Num() / sizeof( int16 );
 
-int32 USoundWaveProcedural::GeneratePCMData(uint8* PCMData, const int32 SamplesNeeded)
-{
-	// Check if we've been told to reset our audio buffer
-	if (bReset)
+	// if delegate is bound and we don't have enough samples, call it so system can supply more
+	if (SamplesNeeded > SamplesAvailable && OnSoundWaveProceduralUnderflow.IsBound())
 	{
-		bReset = false;
-		AudioBuffer.Reset();
+		OnSoundWaveProceduralUnderflow.Execute(this, SamplesNeeded);
+		// Update available samples
+		SamplesAvailable = QueuedAudio.Num() / sizeof( int16 );
 	}
 
-	int32 SamplesAvailable = AudioBuffer.Num() / sizeof(int16);
-	int32 SamplesToGenerate = FMath::Min(NumSamplesToGeneratePerCallback, SamplesNeeded);
-
-	check(SamplesToGenerate >= NumBufferUnderrunSamples);
-
-	if (SamplesAvailable < SamplesToGenerate && OnSoundWaveProceduralUnderflow.IsBound())
+	if (SamplesAvailable > 0 && SamplesNeeded > 0)
 	{
-		OnSoundWaveProceduralUnderflow.Execute(this, SamplesToGenerate);
-	}
+		const int32 SamplesToCopy = FMath::Min<int32>( SamplesNeeded, SamplesAvailable );
+		const int32 BytesToCopy = SamplesToCopy * sizeof( int16 );
 
-	PumpQueuedAudio();
-
-	SamplesAvailable = AudioBuffer.Num() / sizeof(int16);
-
-	// Wait until we have enough samples that are requested before starting.
-	if (SamplesAvailable >= SamplesToGenerate)
-	{
-		const int32 SamplesToCopy = FMath::Min<int32>(SamplesToGenerate, SamplesAvailable);
-		const int32 BytesToCopy = SamplesToCopy * sizeof(int16);
-
-		FMemory::Memcpy((void*)PCMData, &AudioBuffer[0], BytesToCopy);
-		AudioBuffer.RemoveAt(0, BytesToCopy);
-
-		// Decrease the available by count
-		AvailableByteCount.Subtract(BytesToCopy);
-
+		FMemory::Memcpy( ( void* )PCMData,  &QueuedAudio[ 0 ], BytesToCopy );
+		QueuedAudio.RemoveAt( 0, BytesToCopy );
 		return BytesToCopy;
 	}
 
-	// There wasn't enough data ready, write out zeros
-	const int32 BytesCopied = NumBufferUnderrunSamples * sizeof(int16);
-	FMemory::Memzero(PCMData, BytesCopied);
-	return BytesCopied;
+	return 0;
 }
 
 void USoundWaveProcedural::ResetAudio()
 {
-	// Empty out any enqueued audio buffers
 	QueuedAudio.Empty();
-
-	// Flag that we need to reset our audio buffer (on the audio thread)
-	bReset = true;
 }
 
 int32 USoundWaveProcedural::GetAvailableAudioByteCount()
 {
-	return AvailableByteCount.GetValue();
+	return QueuedAudio.Num();
 }
 
 SIZE_T USoundWaveProcedural::GetResourceSize(EResourceSizeMode::Type Mode)
@@ -112,24 +70,19 @@ void USoundWaveProcedural::GetAssetRegistryTags(TArray<FAssetRegistryTag>& OutTa
 	check(false);
 }
 
-bool USoundWaveProcedural::HasCompressedData(FName Format) const
-{
-	return false;
-}
-
 FByteBulkData* USoundWaveProcedural::GetCompressedData(FName Format)
 {
 	// SoundWaveProcedural does not have compressed data and should generally not be asked about it
 	return nullptr;
 }
 
-void USoundWaveProcedural::Serialize(FArchive& Ar)
+void USoundWaveProcedural::Serialize( FArchive& Ar )
 {
 	// Do not call the USoundWave version of serialize
-	USoundBase::Serialize(Ar);
+	USoundBase::Serialize( Ar );
 }
 
-void USoundWaveProcedural::InitAudioResource(FByteBulkData& CompressedData)
+void USoundWaveProcedural::InitAudioResource( FByteBulkData& CompressedData )
 {
 	// Should never be pushing compressed data to a SoundWaveProcedural
 	check(false);

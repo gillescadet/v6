@@ -244,7 +244,7 @@ ADirectionalLight::ADirectionalLight(const FObjectInitializer& ObjectInitializer
 		ArrowComponent->bTreatAsASprite = true;
 		ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Lighting;
 		ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Lighting;
-		ArrowComponent->SetupAttachment(DirectionalLightComponent);
+		ArrowComponent->AttachParent = DirectionalLightComponent;
 		ArrowComponent->bLightAttachment = true;
 		ArrowComponent->bIsScreenSizeScaled = true;
 	}

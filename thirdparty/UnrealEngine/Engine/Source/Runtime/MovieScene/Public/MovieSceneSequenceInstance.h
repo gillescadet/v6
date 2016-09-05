@@ -28,14 +28,6 @@ public:
 	 * @param InMovieSceneSequence The sequence that this instance represents.
 	 */
 	MOVIESCENE_API FMovieSceneSequenceInstance(const UMovieSceneSequence& InMovieSceneSequence);
-
-	/** 
-	 * Creates and initializes a new instance that is primed for recording 
-	 * 
-	 * @param InMovieSceneSubTrack The subtrack we are primed for recording in
-	 */
-	MOVIESCENE_API FMovieSceneSequenceInstance(const UMovieSceneTrack& InMovieSceneSubTrack);
-
 	MOVIESCENE_API ~FMovieSceneSequenceInstance();
 
 	/**
@@ -76,38 +68,13 @@ public:
 	/** Restore state of the objects that this movie scene controls. */
 	MOVIESCENE_API void RestoreState(IMovieScenePlayer& Player);
 
-	/** Restore state of a specific object track that this movie scene controls. */
-	MOVIESCENE_API void RestoreSpecificState(const FGuid& ObjectGuid, IMovieScenePlayer& Player);
-
 	/**
 	 * Updates this movie scene.
 	 *
-	 * @param UpdateData The current and previous position of the moviescene that is playing.
+	 * @param Position The local playback position.
 	 * @param Player Movie scene player interface for interaction with runtime data.
 	 */
-	MOVIESCENE_API void Update(EMovieSceneUpdateData& UpdateData, IMovieScenePlayer& Player);
-
-	/*
-	 * Pre update - spawnables, any stale runtime objects.
-	 */
-	MOVIESCENE_API void PreUpdate(IMovieScenePlayer& Player);
-	
-	/*
-	 * Update all the passes
-	 */
-	MOVIESCENE_API void UpdatePasses(EMovieSceneUpdateData& UpdateData, IMovieScenePlayer& Player);
-
-	/*
-	 * Post update - clean up spawnables.
-	 */
-	MOVIESCENE_API void PostUpdate(IMovieScenePlayer& Player);
-
-	/*
-	 * Update a single pass
-	 */
-	MOVIESCENE_API void UpdatePassSingle(EMovieSceneUpdateData& UpdateData, IMovieScenePlayer& Player);
-
-	MOVIESCENE_API void UpdateFromSubSceneDeactivate();
+	MOVIESCENE_API void Update(float Position, float LastPosition, IMovieScenePlayer& Player);
 
 	/**
 	 * Refreshes the existing instance.
@@ -157,19 +124,11 @@ public:
 		return TimeRange;
 	}
 
-	/** Handle the sequence this instance refers to changing */
-	MOVIESCENE_API void HandleSequenceSectionChanged(UMovieSceneSequence* Sequence);
-
-#if WITH_EDITOR
-	/**
-	 * @return a transient but, unique identifier for this instance
-	 */
-	const FGuid& GetInstanceId() const { return InstanceId; }
-#endif
-
 protected:
 
-	void RefreshInstanceMap(const TArray<UMovieSceneTrack*>& Tracks, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, FMovieSceneInstanceMap& TrackInstances, IMovieScenePlayer& Player);
+	void RefreshInstanceMap(const TArray<UMovieSceneTrack*>& Tracks, const TArray<UObject*>& RuntimeObjects, FMovieSceneInstanceMap& TrackInstances, IMovieScenePlayer& Player);
+
+	void UpdateInternal(float Position, float LastPosition, IMovieScenePlayer& Player, EMovieSceneUpdatePass UpdatePass);
 
 	/** Update the object binding instance for the specified object */
 	void UpdateObjectBinding(const FGuid& ObjectId, IMovieScenePlayer& Player);
@@ -183,7 +142,7 @@ private:
 		FGuid ObjectGuid;
 
 		/** Actual runtime objects */	
-		TArray<TWeakObjectPtr<UObject>> RuntimeObjects;
+		TArray<UObject*> RuntimeObjects;
 
 		/** Instances that animate the runtime objects */
 		FMovieSceneInstanceMap TrackInstances;
@@ -191,10 +150,10 @@ private:
 
 
 	/** MovieScene that is instanced */
-	TWeakObjectPtr<UMovieSceneSequence> MovieSceneSequence;
+	const TWeakObjectPtr<UMovieSceneSequence> MovieSceneSequence;
 
-	/** The camera cut track instance map */
-	TSharedPtr<IMovieSceneTrackInstance> CameraCutTrackInstance;
+	/** The shot track instance map */
+	TSharedPtr<IMovieSceneTrackInstance> ShotTrackInstance;
 
 	/** All Master track instances */
 	FMovieSceneInstanceMap MasterTrackInstances;
@@ -207,8 +166,4 @@ private:
 
 	/** Cached time range for the movie scene */
 	TRange<float> TimeRange;
-
-#if WITH_EDITOR
-	FGuid InstanceId;
-#endif
 };

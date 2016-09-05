@@ -66,9 +66,9 @@ bool FText::FSortPredicate::operator()(const FText& A, const FText& B) const
 	return A.ToString() < B.ToString();
 }
 
-bool FUnicodeChar::CodepointToString(const uint32 InCodepoint, FString& OutString)
+bool FText::IsLetter( const TCHAR Char )
 {
-	return false;
+	return (Char>='A' && Char<='Z') || (Char>='a' && Char<='z');
 }
 
 namespace TextBiDi

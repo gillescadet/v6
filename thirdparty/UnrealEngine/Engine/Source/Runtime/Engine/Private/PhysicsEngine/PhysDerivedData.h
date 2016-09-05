@@ -20,15 +20,13 @@ private:
 	UObject* CollisionDataProvider;
 	FName Format;
 	bool bGenerateNormalMesh;
-	bool bGenerateMirroredMesh;
-	bool bGenerateUVInfo;
-	int32 RuntimeCookFlags;
+	bool bGenerateMirroredMesh;	
 	const class IPhysXFormat* Cooker;
 	FGuid DataGuid;
 	FString MeshId;
 
 public:
-	FDerivedDataPhysXCooker(FName InFormat, int32 InRuntimeCookFlags, UBodySetup* InBodySetup);
+	FDerivedDataPhysXCooker( FName InFormat, UBodySetup* InBodySetup );
 
 	virtual const TCHAR* GetPluginName() const override
 	{
@@ -40,7 +38,7 @@ public:
 		// This is a version string that mimics the old versioning scheme. If you
 		// want to bump this version, generate a new guid using VS->Tools->Create GUID and
 		// return it here. Ex.
-		return TEXT("6FF6F996840F4A23995CD1B9DD0D80B7");
+		return TEXT("1D9C17C451EA4FB88CB7A27536A65DB0");
 	}
 
 	virtual FString GetPluginSpecificCacheKeySuffix() const override
@@ -55,14 +53,12 @@ public:
 				((PX_PHYSICS_VERSION_BUGFIX & 0xF) << 4) |
 				((UE_PHYSX_DERIVEDDATA_VER	& 0xF));
 
-		return FString::Printf( TEXT("%s_%s_%s_%d_%d_%d_%d_%hu_%hu"),
+		return FString::Printf( TEXT("%s_%s_%s_%d_%d_%hu_%hu"),
 			*Format.ToString(),
 			*DataGuid.ToString(),
 			*MeshId,
 			(int32)bGenerateNormalMesh,
 			(int32)bGenerateMirroredMesh,
-			(int32)bGenerateUVInfo,
-			(int32)RuntimeCookFlags,
 			PhysXVersion,
 			Cooker ? Cooker->GetVersion( Format ) : 0xffff
 			);
@@ -85,7 +81,7 @@ private:
 
 	void InitCooker();
 	int32 BuildConvex( TArray<uint8>& OutData, bool InMirrored );
-	int32 BuildTriMesh( TArray<uint8>& OutData, bool InUseAllTriData, FBodySetupUVInfo* UVInfo);
+	int32 BuildTriMesh( TArray<uint8>& OutData, bool InUseAllTriData );
 	bool ShouldGenerateTriMeshData(bool InUseAllTriData);
 };
 

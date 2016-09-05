@@ -6,7 +6,6 @@
 #include "Scalability.h"
 #include "GameFramework/GameUserSettings.h"
 #include "Engine/GameEngine.h"
-#include "Kismet/KismetSystemLibrary.h"
 
 extern EWindowMode::Type GetWindowModeType(EWindowMode::Type WindowMode);
 
@@ -33,37 +32,10 @@ FIntPoint UGameUserSettings::GetLastConfirmedScreenResolution() const
 	return FIntPoint(LastUserConfirmedResolutionSizeX, LastUserConfirmedResolutionSizeY);
 }
 
-FIntPoint UGameUserSettings::GetDesktopResolution() const
+void UGameUserSettings::SetScreenResolution( FIntPoint Resolution )
 {
-	FDisplayMetrics DisplayMetrics;
-	if (FSlateApplication::IsInitialized())
-	{
-		FSlateApplication::Get().GetInitialDisplayMetrics(DisplayMetrics);
-	}
-	else
-	{
-		if (FApp::CanEverRender())
-		{
-			FDisplayMetrics::GetDisplayMetrics(DisplayMetrics);
-		}
-		else
-		{
-			// assume headless
-			DisplayMetrics.PrimaryDisplayWidth = 0;
-			DisplayMetrics.PrimaryDisplayHeight = 0;
-		}
-	}
-	return FIntPoint(DisplayMetrics.PrimaryDisplayWidth, DisplayMetrics.PrimaryDisplayHeight);
-}
-
-void UGameUserSettings::SetScreenResolution(FIntPoint Resolution)
-{
-	if (ResolutionSizeX != Resolution.X || ResolutionSizeY != Resolution.Y)
-	{
-		ResolutionSizeX = Resolution.X;
-		ResolutionSizeY = Resolution.Y;
-		UpdateResolutionQuality();
-	}
+	ResolutionSizeX = Resolution.X;
+	ResolutionSizeY = Resolution.Y;
 }
 
 EWindowMode::Type UGameUserSettings::GetFullscreenMode() const
@@ -86,13 +58,14 @@ void UGameUserSettings::SetFullscreenMode( EWindowMode::Type InFullscreenMode )
 		case EWindowMode::WindowedFullscreen:
 			FullscreenMode = 1;
 			break;
+		case EWindowMode::WindowedMirror:
+			FullscreenMode = 3;
+			break;
 		case EWindowMode::Windowed:
 		default:
 			FullscreenMode = 2;
 			break;
 	}
-
-	UpdateResolutionQuality();
 }
 
 void UGameUserSettings::SetVSyncEnabled( bool bEnable )
@@ -166,26 +139,8 @@ void UGameUserSettings::SetToDefaults()
 	WindowPosY = GetDefaultWindowPosition().Y;
 	FullscreenMode = GetDefaultWindowMode();
 	FrameRateLimit = 0.0f;
-	MinResolutionScale = Scalability::MinResolutionScale;
-	DesiredScreenWidth = 1280;
-	DesiredScreenHeight = 720;
-	LastCPUBenchmarkResult = -1.0f;
-	LastGPUBenchmarkResult = -1.0f;
-	LastCPUBenchmarkSteps.Empty();
-	LastGPUBenchmarkSteps.Empty();
-	LastGPUBenchmarkMultiplier = 1.0f;
-	LastRecommendedScreenWidth = -1.0f;
-	LastRecommendedScreenHeight = -1.0f;
-
-	static const auto CVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.FullScreenMode"));
-	PreferredFullscreenMode = CVar->GetValueOnGameThread();
 
 	ScalabilityQuality.SetDefaults();
-
-	if (!FApp::ShouldUseNullRHI())
-	{
-		UpdateResolutionQuality();
-	}
 }
 
 bool UGameUserSettings::IsVersionValid()
@@ -196,101 +151,6 @@ bool UGameUserSettings::IsVersionValid()
 void UGameUserSettings::UpdateVersion()
 {
 	Version = UE_GAMEUSERSETTINGS_VERSION;
-}
-
-void UGameUserSettings::UpdateResolutionQuality()
-{
-	const int32 MinHeight = UKismetSystemLibrary::GetMinYResolutionFor3DView();
-	const int32 ScreenWidth = (FullscreenMode == EWindowMode::WindowedFullscreen) ? GetDesktopResolution().X : ResolutionSizeX;
-	const int32 ScreenHeight = (FullscreenMode == EWindowMode::WindowedFullscreen) ? GetDesktopResolution().Y : ResolutionSizeY;
-	MinResolutionScale = FMath::Max<float>(Scalability::MinResolutionScale, ((float)MinHeight / (float)ScreenHeight) * 100.0f);
-
-	// Clamp the desired width to the actual window width
-	if (ScreenWidth > 0 && DesiredScreenWidth > ScreenWidth)
-	{
-		DesiredScreenWidth = ScreenWidth;
-	}
-
-	// Clamp the desired height to the actual window height
-	if (ScreenHeight > 0 && DesiredScreenHeight > ScreenHeight)
-	{
-		DesiredScreenHeight = ScreenHeight;
-	}
-
-	if (bUseDesiredScreenHeight)
-	{
-		ScalabilityQuality.ResolutionQuality = UGameUserSettings::GetDefaultResolutionScale();
-	}
-	else
-	{
-		ScalabilityQuality.ResolutionQuality = FMath::Max(ScalabilityQuality.ResolutionQuality, MinResolutionScale);
-	}
-
-	OnGameUserSettingsUINeedsUpdate.Broadcast();
-}
-
-float UGameUserSettings::GetDefaultResolutionScale()
-{
-	const float DesiredResQuality = FindResolutionQualityForScreenSize(DesiredScreenWidth, DesiredScreenHeight);
-
-	return FMath::Max(DesiredResQuality, MinResolutionScale);
-}
-
-float UGameUserSettings::FindResolutionQualityForScreenSize(float Width, float Height)
-{
-	float ResolutionQuality = 100.0f;
-
-	const FIntPoint ScreenSize = (FullscreenMode == EWindowMode::WindowedFullscreen) ? GetDesktopResolution() : FIntPoint(ResolutionSizeX, ResolutionSizeY);
-	const float ScreenAspectRatio = (float)ScreenSize.X / (float)ScreenSize.Y;
-	const float AspectRatio = Width / Height;
-
-	// If the screen aspect ratio is different than the target resolution's aspect ratio, we need to adjust the target width and height
-	if (!FMath::IsNearlyEqual(ScreenAspectRatio, AspectRatio))
-	{
-		if (ScreenAspectRatio < AspectRatio)
-		{
-			// For smaller aspect ratios we allow more vertical space so that the screen width matches the width of the original mode
-			Height = (Height * AspectRatio) / ScreenAspectRatio;
-		}
-		else
-		{
-			// For wider screens we try to choose a screen size that'd have similar total number of pixels as the original mode
-			Height = FMath::Sqrt((Height * Height * AspectRatio) / ScreenAspectRatio);
-		}
-		Width = Height * AspectRatio;
-	}
-
-	if (Height < ScreenSize.Y)
-	{
-		ResolutionQuality = ((float)Height / (float)ScreenSize.Y) * 100.0f;
-	}
-
-	return ResolutionQuality;
-}
-
-void UGameUserSettings::SetFrameRateLimitCVar(float InLimit)
-{
-	static IConsoleVariable* MaxFPSCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("t.MaxFPS"));
-	if (ensure(MaxFPSCVar))
-	{
-		MaxFPSCVar->Set(FMath::Max(InLimit, 0.0f), ECVF_SetByGameSetting);
-	}
-}
-
-float UGameUserSettings::GetEffectiveFrameRateLimit()
-{
-	return FrameRateLimit;
-}
-
-void UGameUserSettings::SetPreferredFullscreenMode(int32 Mode)
-{
-	PreferredFullscreenMode = Mode;
-
-	auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FullScreenMode"));
-	if (CVar)
-	{
-		CVar->Set(Mode, ECVF_SetByGameSetting);
-	}
 }
 
 void UGameUserSettings::ValidateSettings()
@@ -355,11 +215,16 @@ void UGameUserSettings::ApplyNonResolutionSettings()
 
 	if (!IsRunningDedicatedServer())
 	{
-		SetFrameRateLimitCVar(GetEffectiveFrameRateLimit());
+		// Update MaxFPS cvar
+		static IConsoleVariable* MaxFPSCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("t.MaxFPS"));
+		if (ensure(MaxFPSCVar) && (FrameRateLimit >= 0.0f))
+		{
+			MaxFPSCVar->Set(FrameRateLimit, ECVF_SetByGameSetting);
+		}
 	}
 
 	// in init those are loaded earlier, after that we apply consolevariables.ini
-	if (GEngine->IsInitialized())
+	if(GEngine->IsInitialized())
 	{
 		Scalability::SetQualityLevels(ScalabilityQuality);
 	}
@@ -379,12 +244,6 @@ void UGameUserSettings::ApplyResolutionSettings(bool bCheckForCommandLineOverrid
 
 	// Request a resolution change
 	RequestResolutionChange(ResolutionSizeX, ResolutionSizeY, NewFullscreenMode, bCheckForCommandLineOverrides);
-
-	if (NewFullscreenMode == EWindowMode::Fullscreen || NewFullscreenMode == EWindowMode::WindowedFullscreen)
-	{
-		SetPreferredFullscreenMode(NewFullscreenMode == EWindowMode::Fullscreen ? 0 : 1);
-	}
-
 	IConsoleManager::Get().CallAllConsoleVariableSinks();
 }
 
@@ -405,6 +264,7 @@ void UGameUserSettings::LoadSettings( bool bForceReload/*=false*/ )
 	}
 	LoadConfig(GetClass(), *GGameUserSettingsIni);
 
+
 	// Note: Scalability::LoadState() should not be needed as we already loaded the settings earlier (needed so the engine can startup with that before the game is initialized)
 	ScalabilityQuality = Scalability::GetQualityLevels();
 
@@ -415,9 +275,6 @@ void UGameUserSettings::LoadSettings( bool bForceReload/*=false*/ )
 	{
 		ConfirmVideoMode();
 	}
-
-	// Update r.FullScreenMode CVar
-	SetPreferredFullscreenMode(PreferredFullscreenMode);
 }
 
 void UGameUserSettings::RequestResolutionChange(int32 InResolutionX, int32 InResolutionY, EWindowMode::Type InWindowMode, bool bInDoOverrides /* = true */)
@@ -525,8 +382,6 @@ void UGameUserSettings::ResetToCurrentSettings()
 
 		// Reset the quality settings to the current levels
 		ScalabilityQuality = Scalability::GetQualityLevels();
-
-		UpdateResolutionQuality();
 	}
 }
 
@@ -563,7 +418,8 @@ float UGameUserSettings::GetFrameRateLimit() const
 
 void UGameUserSettings::SetOverallScalabilityLevel(int32 Value)
 {
-	ScalabilityQuality.SetFromSingleQualityLevel(Value);	
+	Value = FMath::Clamp(Value, 0, 3);
+	ScalabilityQuality.SetFromSingleQualityLevel(Value);
 }
 
 int32 UGameUserSettings::GetOverallScalabilityLevel() const
@@ -574,42 +430,25 @@ int32 UGameUserSettings::GetOverallScalabilityLevel() const
 void UGameUserSettings::GetResolutionScaleInformation(float& CurrentScaleNormalized, int32& CurrentScaleValue, int32& MinScaleValue, int32& MaxScaleValue) const
 {
 	CurrentScaleValue = ScalabilityQuality.ResolutionQuality;
-	MinScaleValue = MinResolutionScale;
-	MaxScaleValue = Scalability::MaxResolutionScale;
-	CurrentScaleNormalized = ((float)CurrentScaleValue - (float)MinScaleValue) / (float)(MaxScaleValue - MinScaleValue);
-}
-
-void UGameUserSettings::GetResolutionScaleInformationEx(float& CurrentScaleNormalized, float& CurrentScaleValue, float& MinScaleValue, float& MaxScaleValue) const
-{
-	CurrentScaleValue = ScalabilityQuality.ResolutionQuality;
-	MinScaleValue = MinResolutionScale;
+	MinScaleValue = Scalability::MinResolutionScale;
 	MaxScaleValue = Scalability::MaxResolutionScale;
 	CurrentScaleNormalized = ((float)CurrentScaleValue - (float)MinScaleValue) / (float)(MaxScaleValue - MinScaleValue);
 }
 
 void UGameUserSettings::SetResolutionScaleValue(int32 NewScaleValue)
 {
-	SetResolutionScaleValueEx((float)NewScaleValue);
-}
-
-void UGameUserSettings::SetResolutionScaleValueEx(float NewScaleValue)
-{
-	ScalabilityQuality.ResolutionQuality = FMath::Clamp(NewScaleValue, MinResolutionScale, Scalability::MaxResolutionScale);
-	const int32 ScreenWidth = (FullscreenMode == EWindowMode::WindowedFullscreen) ? GetDesktopResolution().X : ResolutionSizeX;
-	const int32 ScreenHeight = (FullscreenMode == EWindowMode::WindowedFullscreen) ? GetDesktopResolution().Y : ResolutionSizeY;
-	DesiredScreenWidth = ScreenWidth * ScalabilityQuality.ResolutionQuality / 100.0f;
-	DesiredScreenHeight = ScreenHeight * ScalabilityQuality.ResolutionQuality / 100.0f;
+	ScalabilityQuality.ResolutionQuality = FMath::Clamp(NewScaleValue, Scalability::MinResolutionScale, Scalability::MaxResolutionScale);
 }
 
 void UGameUserSettings::SetResolutionScaleNormalized(float NewScaleNormalized)
 {
-	const float RemappedValue = FMath::Lerp((float)MinResolutionScale, (float)Scalability::MaxResolutionScale, NewScaleNormalized);
-	SetResolutionScaleValueEx(RemappedValue);
+	const int32 RemappedValue = (int32)FMath::Lerp((float)Scalability::MinResolutionScale, (float)Scalability::MaxResolutionScale, NewScaleNormalized);
+	SetResolutionScaleValue(RemappedValue);
 }
 
 void UGameUserSettings::SetViewDistanceQuality(int32 Value)
 {
-	ScalabilityQuality.ViewDistanceQuality = Value;
+	ScalabilityQuality.ViewDistanceQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetViewDistanceQuality() const
@@ -619,7 +458,7 @@ int32 UGameUserSettings::GetViewDistanceQuality() const
 
 void UGameUserSettings::SetShadowQuality(int32 Value)
 {
-	ScalabilityQuality.ShadowQuality = Value;
+	ScalabilityQuality.ShadowQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetShadowQuality() const
@@ -629,7 +468,7 @@ int32 UGameUserSettings::GetShadowQuality() const
 
 void UGameUserSettings::SetAntiAliasingQuality(int32 Value)
 {
-	ScalabilityQuality.AntiAliasingQuality = Value;
+	ScalabilityQuality.AntiAliasingQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetAntiAliasingQuality() const
@@ -639,7 +478,7 @@ int32 UGameUserSettings::GetAntiAliasingQuality() const
 
 void UGameUserSettings::SetTextureQuality(int32 Value)
 {
-	ScalabilityQuality.TextureQuality = Value;
+	ScalabilityQuality.TextureQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetTextureQuality() const
@@ -649,7 +488,7 @@ int32 UGameUserSettings::GetTextureQuality() const
 
 void UGameUserSettings::SetVisualEffectQuality(int32 Value)
 {
-	ScalabilityQuality.EffectsQuality = Value;
+	ScalabilityQuality.EffectsQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetVisualEffectQuality() const
@@ -659,7 +498,7 @@ int32 UGameUserSettings::GetVisualEffectQuality() const
 
 void UGameUserSettings::SetPostProcessingQuality(int32 Value)
 {
-	ScalabilityQuality.PostProcessQuality = Value;
+	ScalabilityQuality.PostProcessQuality = FMath::Clamp(Value, 0, 3);
 }
 
 int32 UGameUserSettings::GetPostProcessingQuality() const
@@ -667,36 +506,7 @@ int32 UGameUserSettings::GetPostProcessingQuality() const
 	return ScalabilityQuality.PostProcessQuality;
 }
 
-void UGameUserSettings::SetFoliageQuality(int32 Value)
-{
-	ScalabilityQuality.FoliageQuality = FMath::Clamp(Value, 0, 3);
-}
-
-int32 UGameUserSettings::GetFoliageQuality() const
-{
-	return ScalabilityQuality.FoliageQuality;
-}
-
 UGameUserSettings* UGameUserSettings::GetGameUserSettings()
 {
 	return GEngine->GetGameUserSettings();
-}
-
-void UGameUserSettings::RunHardwareBenchmark(int32 WorkScale, float CPUMultiplier, float GPUMultiplier)
-{
-	ScalabilityQuality = Scalability::BenchmarkQualityLevels(WorkScale, CPUMultiplier, GPUMultiplier);
-	LastCPUBenchmarkResult = ScalabilityQuality.CPUBenchmarkResults;
-	LastGPUBenchmarkResult = ScalabilityQuality.GPUBenchmarkResults;
-	LastCPUBenchmarkSteps = ScalabilityQuality.CPUBenchmarkSteps;
-	LastGPUBenchmarkSteps = ScalabilityQuality.GPUBenchmarkSteps;
-	LastGPUBenchmarkMultiplier = GPUMultiplier;
-}
-
-void UGameUserSettings::ApplyHardwareBenchmarkResults()
-{
-	// Apply the new settings and save them
-	Scalability::SetQualityLevels(ScalabilityQuality);
-	Scalability::SaveState(GGameUserSettingsIni);
-
-	SaveSettings();
 }

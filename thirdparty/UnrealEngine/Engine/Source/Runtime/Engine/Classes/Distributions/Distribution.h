@@ -16,8 +16,8 @@ enum DistributionParamMode
 	DPM_MAX,
 };
 
-#if !CPP      //noexport struct
 /** Lookup table for distributions. */
+#if !CPP      //noexport struct
 USTRUCT(noexport)
 struct FDistributionLookupTable
 {
@@ -47,8 +47,8 @@ struct FDistributionLookupTable
 };
 #endif
 
-#if !CPP      //noexport struct
 // Base class for raw (baked out) Distribution type
+#if !CPP      //noexport struct
 USTRUCT(noexport)
 struct FRawDistribution
 {

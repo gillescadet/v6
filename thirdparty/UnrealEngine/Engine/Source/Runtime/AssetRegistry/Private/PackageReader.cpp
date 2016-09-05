@@ -17,34 +17,14 @@ FPackageReader::~FPackageReader()
 	}
 }
 
-bool FPackageReader::OpenPackageFile(const FString& InPackageFilename, EOpenPackageResult* OutErrorCode)
+bool FPackageReader::OpenPackageFile(const FString& InPackageFilename)
 {
 	PackageFilename = InPackageFilename;
-	Loader = IFileManager::Get().CreateFileReader(*PackageFilename);
-	return OpenPackageFile(OutErrorCode);
-}
-
-bool FPackageReader::OpenPackageFile(FArchive* InLoader, EOpenPackageResult* OutErrorCode)
-{
-	Loader = InLoader;
-	PackageFilename = Loader->GetArchiveName();
-	return OpenPackageFile(OutErrorCode);
-}
-
-bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
-{
-	auto SetPackageErrorCode = [&](const EOpenPackageResult InErrorCode)
-	{
-		if (OutErrorCode)
-		{
-			*OutErrorCode = InErrorCode;
-		}
-	};
+	Loader = IFileManager::Get().CreateFileReader( *PackageFilename );
 
 	if( Loader == NULL )
 	{
 		// Couldn't open the file
-		SetPackageErrorCode(EOpenPackageResult::NoLoader);
 		return false;
 	}
 
@@ -57,21 +37,18 @@ bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
 	if( PackageFileSummary.Tag != PACKAGE_FILE_TAG )
 	{
 		// Unrecognized or malformed package file
-		SetPackageErrorCode(EOpenPackageResult::MalformedTag);
 		return false;
 	}
 
 	// Don't read packages that are too old
 	if( PackageFileSummary.GetFileVersionUE4() < VER_UE4_OLDEST_LOADABLE_PACKAGE )
 	{
-		SetPackageErrorCode(EOpenPackageResult::VersionTooOld);
 		return false;
 	}
 
 	// Don't read packages that were saved with an package version newer than the current one.
 	if( (PackageFileSummary.GetFileVersionUE4() > GPackageFileUE4Version) || (PackageFileSummary.GetFileVersionLicenseeUE4() > GPackageFileLicenseeUE4Version) )
 	{
-		SetPackageErrorCode(EOpenPackageResult::VersionTooNew);
 		return false;
 	}
 
@@ -81,14 +58,8 @@ bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
 	for (const FCustomVersion& SerializedCustomVersion : PackageCustomVersions)
 	{
 		auto* LatestVersion = LatestCustomVersions.GetVersion(SerializedCustomVersion.Key);
-		if (!LatestVersion)
+		if (!LatestVersion || SerializedCustomVersion.Version > LatestVersion->Version)
 		{
-			SetPackageErrorCode(EOpenPackageResult::CustomVersionMissing);
-			return false;
-		}
-		else if (SerializedCustomVersion.Version > LatestVersion->Version)
-		{
-			SetPackageErrorCode(EOpenPackageResult::VersionTooNew);
 			return false;
 		}
 	}
@@ -96,9 +67,6 @@ bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
 	// check if this is a compressed package and decompress header 
 	if ( !!(PackageFileSummary.PackageFlags & PKG_StoreCompressed) )
 	{
-#if USE_NEW_ASYNC_IO
-		check(!"Package level compression cannot be used with the async io scheme.");
-#else
 		check(PackageFileSummary.CompressedChunks.Num() > 0);
 
 		int64 CurPos = Loader->Tell();
@@ -114,7 +82,6 @@ bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
 		}
 		
 		Seek(Loader->Tell());
-#endif
 	}
 
 	//make sure the filereader gets the correct version number (it defaults to latest version)
@@ -129,7 +96,6 @@ bool FPackageReader::OpenPackageFile(EOpenPackageResult* OutErrorCode)
 	SetCustomVersions(PackageFileSummaryVersions);
 	Loader->SetCustomVersions(PackageFileSummaryVersions);
 
-	SetPackageErrorCode(EOpenPackageResult::Success);
 	return true;
 }
 
@@ -330,7 +296,7 @@ bool FPackageReader::ReadAssetRegistryDataIfCookedPackage(TArray<FAssetData*>& A
 						ObjectClassName = ClassImport.ObjectName;
 					}
 
-					AssetDataList.Add(new FAssetData(FName(*PackageName), FName(*PackagePath), FName(*GroupNames), Export.ObjectName, ObjectClassName, Tags, ChunkIDs, GetPackageFlags()));
+					new(AssetDataList) FAssetData(FName(*PackageName), FName(*PackagePath), FName(*GroupNames), Export.ObjectName, ObjectClassName, Tags, ChunkIDs, GetPackageFlags());
 					bFoundAtLeastOneAsset = true;
 				}
 			}
@@ -365,10 +331,14 @@ void FPackageReader::SerializeNameMap()
 		for ( int32 NameMapIdx = 0; NameMapIdx < PackageFileSummary.NameCount; ++NameMapIdx )
 		{
 			// Read the name entry from the file.
-			FNameEntrySerialized NameEntry(ENAME_LinkerConstructor);
+			FNameEntry NameEntry(ENAME_LinkerConstructor);
 			*this << NameEntry;
 
-			NameMap.Add(FName(NameEntry));
+			NameMap.Add( 
+				NameEntry.IsWide() ? 
+					FName(ENAME_LinkerConstructor, NameEntry.GetWideName()) : 
+					FName(ENAME_LinkerConstructor, NameEntry.GetAnsiName())
+				);
 		}
 	}
 }

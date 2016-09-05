@@ -22,7 +22,6 @@ UAISystem::UAISystem(const FObjectInitializer& ObjectInitializer)
 	bFinishMoveOnGoalOverlap = true;
 	bAcceptPartialPaths = true;
 	bAllowStrafing = false;
-	DefaultSightCollisionChannel = ECC_Visibility;
 
 	bEnableBTAITasks = false;
 
@@ -67,8 +66,6 @@ void UAISystem::PostInitProperties()
 			FOnActorSpawned::FDelegate ActorSpawnedDelegate = FOnActorSpawned::FDelegate::CreateUObject(this, &UAISystem::OnActorSpawned);
 			ActorSpawnedDelegateHandle = WorldOuter->AddOnActorSpawnedHandler(ActorSpawnedDelegate);
 		}
-
-		ConditionalLoadDebuggerPlugin();
 	}
 }
 
@@ -131,7 +128,7 @@ void UAISystem::AILoggingVerbose()
 
 void UAISystem::RunEQS(const FString& QueryName, UObject* Target)
 {
-#if !UE_BUILD_SHIPPING
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	UWorld* OuterWorld = GetOuterWorld();
 	if (OuterWorld == NULL || OuterWorld->GetGameInstance() == NULL)
 	{
@@ -158,7 +155,7 @@ void UAISystem::RunEQS(const FString& QueryName, UObject* Target)
 	{
 		MyPC->ClientMessage(TEXT("No debugging target"));
 	}
-#endif // !UE_BUILD_SHIPPING
+#endif
 }
 
 UAISystem::FBlackboardDataToComponentsIterator::FBlackboardDataToComponentsIterator(FBlackboardDataToComponentsMap& InBlackboardDataToComponentsMap, UBlackboardData* BlackboardAsset)
@@ -205,19 +202,4 @@ void UAISystem::UnregisterBlackboardComponent(UBlackboardData& BlackboardData, U
 UAISystem::FBlackboardDataToComponentsIterator UAISystem::CreateBlackboardDataToComponentsIterator(UBlackboardData& BlackboardAsset)
 {
 	return UAISystem::FBlackboardDataToComponentsIterator(BlackboardDataToComponentsMap, &BlackboardAsset);
-}
-
-void UAISystem::ConditionalLoadDebuggerPlugin()
-{
-#if ENABLED_GAMEPLAY_DEBUGGER
-	if (bEnableDebuggerPlugin)
-	{
-		LoadDebuggerPlugin();
-	}
-#endif
-}
-
-void UAISystem::LoadDebuggerPlugin()
-{
-	FModuleManager::LoadModulePtr< IModuleInterface >("GameplayDebugger");
 }

@@ -250,12 +250,12 @@ void FStreamableManager::RequestAsyncLoad(const TArray<FStringAssetReference>& T
 	NewRequest->CompletionDelegate = DelegateToCall;
 
 	TArray<FStreamable *> ExistingStreamables;
-	ExistingStreamables.Reserve(TargetsToStream.Num());
+	ExistingStreamables.SetNum(TargetsToStream.Num());
 
 	for (int32 i = 0; i < TargetsToStream.Num(); i++)
 	{
 		FStreamable* Existing = StreamInternal(TargetsToStream[i], Priority);
-		ExistingStreamables.Add(Existing);
+		ExistingStreamables[i] = Existing;
 
 		if (Existing)
 		{

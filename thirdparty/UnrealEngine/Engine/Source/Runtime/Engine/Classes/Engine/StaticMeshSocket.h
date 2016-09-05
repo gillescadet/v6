@@ -51,8 +51,6 @@ class UStaticMeshSocket : public UObject
 	 */
 	ENGINE_API bool AttachActor(AActor* Actor, class UStaticMeshComponent* MeshComp) const;
 
-	virtual void Serialize(FArchive& Ar) override;
-
 public:
 #if WITH_EDITOR
 	/** Broadcasts a notification whenever the socket property has changed. */

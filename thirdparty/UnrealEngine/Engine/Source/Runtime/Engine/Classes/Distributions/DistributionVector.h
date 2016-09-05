@@ -25,8 +25,8 @@ enum EDistributionVectorMirrorFlags
 	EDVMF_MAX,
 };
 
-#if !CPP      //noexport struct
 /** Type-safe vector distribution. */
+#if !CPP      //noexport struct
 USTRUCT(noexport)
 struct FVectorDistribution
 {
@@ -36,8 +36,8 @@ struct FVectorDistribution
 };
 #endif
 
-#if !CPP      //noexport struct
 /** Type-safe 4-vector distribution. */
+#if !CPP      //noexport struct
 USTRUCT(noexport)
 struct FVector4Distribution
 {
@@ -59,24 +59,14 @@ private:
 	UPROPERTY()
 	float MaxValue;
 
-	UPROPERTY()
-	FVector MinValueVec;
-
-	UPROPERTY()
-	FVector MaxValueVec;
-
 public:
 	UPROPERTY(EditAnywhere, export, noclear, Category=RawDistributionVector)
 	class UDistributionVector* Distribution;
 
-	/** Whether the distribution data has been cooked or the object itself is available */
-	bool IsCreated();
 
 	FRawDistributionVector()
 		: MinValue(0)
 		, MaxValue(0)
-		, MinValueVec(FVector::ZeroVector)
-		, MaxValueVec(FVector::ZeroVector)
 		, Distribution(NULL)
 	{
 	}
@@ -86,7 +76,7 @@ public:
 	/**
 	* Initialize a raw distribution from the original Unreal distribution
 	*/
-	ENGINE_API void Initialize();
+	void Initialize();
 #endif
 
 	/**
@@ -105,24 +95,16 @@ public:
 	void GetOutRange(float& MinOut, float& MaxOut);
 
 	/**
-	* Get the min and max values
-	*/
-	void GetRange(FVector& MinOut, FVector& MaxOut);
-
-	/**
 	* Is this distribution a uniform type? (ie, does it have two values per entry?)
 	*/
 	inline bool IsUniform() { return LookupTable.SubEntryStride != 0; }
 
 	void InitLookupTable();
 
-	FORCEINLINE bool HasLookupTable(bool bInitializeIfNeeded = true)
+	FORCEINLINE bool HasLookupTable()
 	{
 #if WITH_EDITOR
-		if(bInitializeIfNeeded)
-		{
-			InitLookupTable();
-		}
+		InitLookupTable();
 #endif
 		return GDistributionType != 0 && !LookupTable.IsEmpty();
 	}
@@ -134,7 +116,6 @@ public:
 		//return !Distribution || HasLookupTable();
 	}
 };
-
 
 UCLASS(abstract, customconstructor)
 class ENGINE_API UDistributionVector : public UDistribution
@@ -148,10 +129,6 @@ class ENGINE_API UDistributionVector : public UDistribution
 	/** Set internally when the distribution is updated so that that FRawDistribution can know to update itself*/
 	UPROPERTY()
 	uint32 bIsDirty:1;
-protected:
-	UPROPERTY()
-	uint32 bBakedDataSuccesfully:1;	//It's possible that even though we want to bake we are not able to because of content or code.
-public:
 
 	/** Script-accessible way to query a FVector distribution */
 	virtual FVector GetVectorValue(float F = 0);
@@ -198,11 +175,6 @@ public:
 		return bCanBeBaked; 
 	}
 
-	bool HasBakedSuccesfully() const
-	{
-		return bBakedDataSuccesfully;
-	}
-
 	/**
 	 * Returns the number of values in the distribution. 3 for vector.
 	 */
@@ -217,8 +189,6 @@ public:
 #endif // WITH_EDITOR
 	virtual bool NeedsLoadForClient() const override;
 	virtual bool NeedsLoadForServer() const override;
-	virtual bool NeedsLoadForEditorGame() const override;
-	virtual void Serialize(FArchive& Ar) override;
 	/** End UObject interface */
 
 };

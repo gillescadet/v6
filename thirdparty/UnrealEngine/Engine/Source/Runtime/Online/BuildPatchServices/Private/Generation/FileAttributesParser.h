@@ -1,17 +1,10 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 #pragma once
 
+#if WITH_BUILDPATCHGENERATION
+
 namespace BuildPatchServices
 {
-	struct FFileAttributes
-	{
-		bool bReadOnly;
-		bool bCompressed;
-		bool bUnixExecutable;
-		TSet<FString> InstallTags;
-		FFileAttributes();
-	};
-
 	class FFileAttributesParser
 	{
 	public:
@@ -33,3 +26,5 @@ namespace BuildPatchServices
 		static FFileAttributesParserRef Create(IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile());
 	};
 }
+
+#endif

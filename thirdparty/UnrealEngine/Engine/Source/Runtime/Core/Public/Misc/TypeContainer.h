@@ -3,6 +3,8 @@
 #pragma once
 
 
+#if PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES
+
 /**
  * Enumerates the scopes for instance creation in type containers.
  */
@@ -414,3 +416,6 @@ private:
 
 /** Thread-unsafe type container (for backwards compatibility). */
 class FTypeContainer : public TTypeContainer<ESPMode::Fast> { };
+
+
+#endif //PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES

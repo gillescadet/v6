@@ -177,11 +177,11 @@ void FAnimationUtils::BuildSkeletonMetaData(USkeleton* Skeleton, TArray<FBoneDat
 */
 void FAnimationUtils::BuildComponentSpaceTransform(FTransform& OutTransform,
 											   int32 BoneIndex,
-											   const TArray<FTransform>& BoneSpaceTransforms,
+											   const TArray<FTransform>& LocalAtoms,
 											   const TArray<FBoneData>& BoneData)
 {
 	// Put root-to-component in OutTransform.
-	OutTransform = BoneSpaceTransforms[0];
+	OutTransform = LocalAtoms[0];
 
 	if ( BoneIndex > 0 )
 	{
@@ -193,11 +193,11 @@ void FAnimationUtils::BuildComponentSpaceTransform(FTransform& OutTransform,
 		for ( int32 i = Bone.BonesToRoot.Num()-2 ; i >=0 ; --i )
 		{
 			const int32 AncestorIndex = Bone.BonesToRoot[i];
-			OutTransform = BoneSpaceTransforms[AncestorIndex]*OutTransform;
+			OutTransform = LocalAtoms[AncestorIndex]*OutTransform;
 		}
 
 		// Finally, include the bone's local-to-parent.
-		OutTransform = BoneSpaceTransforms[BoneIndex]*OutTransform;
+		OutTransform = LocalAtoms[BoneIndex]*OutTransform;
 	}
 }
 
@@ -243,18 +243,15 @@ void FAnimationUtils::ComputeCompressionError(const UAnimSequence* AnimSeq, cons
 
 		FTransform const DummyBone(FQuat::Identity, FVector(END_EFFECTOR_SOCKET_DUMMY_BONE_SIZE, END_EFFECTOR_SOCKET_DUMMY_BONE_SIZE, END_EFFECTOR_SOCKET_DUMMY_BONE_SIZE));
 
-		const bool bCanUseCompressedData = AnimSeq->CompressedTrackOffsets.Num() > 0;
-
 		// for each whole increment of time (frame stepping)
 		for( float Time = 0.0f; Time < AnimSeq->SequenceLength; Time+= TimeStep )
 		{
 			// get the raw and compressed atom for each bone
 			for( int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex )
 			{
-				int32 const RawTrackIndex = Skeleton->GetAnimationTrackIndex(BoneIndex, AnimSeq, true);
-				int32 const CompressedTrackIndex = bCanUseCompressedData ? Skeleton->GetAnimationTrackIndex(BoneIndex, AnimSeq, false) : RawTrackIndex;
+				int32 const TrackIndex = Skeleton->GetAnimationTrackIndex(BoneIndex, AnimSeq);
 
-				if (RawTrackIndex == INDEX_NONE)
+				if( TrackIndex == INDEX_NONE )
 				{
 					// No track for the bone was found, so use the reference pose.
 					RawAtoms[BoneIndex]	= RefPose[BoneIndex];
@@ -262,8 +259,8 @@ void FAnimationUtils::ComputeCompressionError(const UAnimSequence* AnimSeq, cons
 				}
 				else
 				{
-					AnimSeq->GetBoneTransform(RawAtoms[BoneIndex], RawTrackIndex, Time, true);
-					AnimSeq->GetBoneTransform(NewAtoms[BoneIndex], CompressedTrackIndex, Time, false);
+					AnimSeq->GetBoneTransform(RawAtoms[BoneIndex], TrackIndex, Time, true);
+					AnimSeq->GetBoneTransform(NewAtoms[BoneIndex], TrackIndex, Time, false);
 
 
 					bool bSkipTranslationTrack = false;
@@ -324,7 +321,7 @@ void FAnimationUtils::ComputeCompressionError(const UAnimSequence* AnimSeq, cons
 					{
 						ErrorStats.MaxError		= Error;
 						ErrorStats.MaxErrorBone = BoneIndex;
-						MaxErrorTrack = RawTrackIndex;
+						MaxErrorTrack = TrackIndex;
 						ErrorStats.MaxErrorTime = Time;
 					}
 				}
@@ -438,8 +435,7 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 	#define TRYCOMPRESSION_INNER(compressionname,winningcompressor_count,winningcompressor_error,winningcompressor_margin,compressionalgorithm)				\
 {																																							\
 	/* try the alternative compressor	*/																													\
-	(compressionalgorithm)->Reduce( AnimSeq, CompressContext );																				\
-	AnimSeq->SetUseRawDataOnly(false);																								\
+	(compressionalgorithm)->Reduce( AnimSeq, bOutput );																				\
 	const SIZE_T NewSize = AnimSeq->GetResourceSize(EResourceSizeMode::Inclusive);																												\
 																																							\
 	/* compute the savings and compression error*/																											\
@@ -461,7 +457,7 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 	bKeepNewCompressionMethod |= bErrorUnderThreshold && bLowersError && (MemorySavingsFromPrevious >= 0);													\
 																																							\
 	if (bKeepNewCompressionMethod)																															\
-			{																																						\
+	{																																						\
 		WinningCompressorMarginalSavings = MemorySavingsFromPrevious;																						\
 		WinningCompressorCounter = &(winningcompressor_count);																							\
 		WinningCompressorErrorSum = &(winningcompressor_error);																							\
@@ -470,7 +466,7 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 		CurrentSize = NewSize;																																\
 		WinningCompressorSavings = MemorySavingsFromOriginal;																								\
 		WinningCompressorError = NewErrorStats.MaxError;																									\
-			}																																						\
+	}																																						\
 																																							\
 	PctSaving = OriginalSize > 0 ? 100.f - (100.f * float(NewSize) / float(OriginalSize)) : 0.f;															\
 	UE_LOG(LogAnimation, Warning, TEXT("- %s - bytes saved: %i (%3.1f%% saved), maxdiff: %f %s"),																					\
@@ -479,6 +475,8 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 	if( !bKeepNewCompressionMethod )																														\
 	{																																						\
 		/* revert back to the old method by copying back the data we cached */																				\
+		AnimSeq->TranslationData = SavedTranslationData;																									\
+		AnimSeq->RotationData = SavedRotationData;																											\
 		AnimSeq->CompressionScheme = SavedCompressionScheme;																								\
 		AnimSeq->TranslationCompressionFormat = SavedTranslationCompressionFormat;																			\
 		AnimSeq->RotationCompressionFormat = SavedRotationCompressionFormat;																				\
@@ -489,15 +487,16 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 		AnimSeq->TranslationCodec = SavedTranslationCodec;																									\
 		AnimSeq->RotationCodec = SavedRotationCodec;																										\
 		AnimSeq->ScaleCodec = SavedScaleCodec;																												\
-		AnimSeq->SetUseRawDataOnly(bSavedUseRawDataOnly);																									\
 		AnimationFormat_SetInterfaceLinks(*AnimSeq);																										\
 																																							\
-		const SIZE_T RestoredSize = AnimSeq->GetResourceSize(EResourceSizeMode::Inclusive);																	\
+		const SIZE_T RestoredSize = AnimSeq->GetResourceSize(EResourceSizeMode::Inclusive);																										\
 		check(RestoredSize == CurrentSize);																													\
 	}																																						\
 	else																																					\
 	{																																						\
 		/* backup key information from the sequence */																										\
+		SavedTranslationData				= AnimSeq->TranslationData;																						\
+		SavedRotationData					= AnimSeq->RotationData;																						\
 		SavedCompressionScheme				= AnimSeq->CompressionScheme;																					\
 		SavedTranslationCompressionFormat	= AnimSeq->TranslationCompressionFormat;																		\
 		SavedRotationCompressionFormat		= AnimSeq->RotationCompressionFormat;																			\
@@ -508,7 +507,6 @@ bool FAnimationUtils::GetForcedRecompressionSetting()
 		SavedTranslationCodec				= AnimSeq->TranslationCodec;																					\
 		SavedRotationCodec					= AnimSeq->RotationCodec;																						\
 		SavedScaleCodec						= AnimSeq->ScaleCodec;																							\
-		bSavedUseRawDataOnly				= false;																										\
 	}																																						\
 }
 #endif
@@ -538,7 +536,7 @@ bool GDisableAnimationRecompression	= false;
  * @param	bOutput		If false don't generate output or compute memory savings.
  * @return				None.
  */
-void FAnimationUtils::CompressAnimSequence(UAnimSequence* AnimSeq, FAnimCompressContext& CompressContext)
+void FAnimationUtils::CompressAnimSequence(UAnimSequence* AnimSeq,  bool bAllowAlternateCompressor, bool bOutput)
 {
 	if (FPlatformProperties::HasEditorOnlyData())
 	{
@@ -563,7 +561,7 @@ void FAnimationUtils::CompressAnimSequence(UAnimSequence* AnimSeq, FAnimCompress
 			bool bFirstRecompressUsingCurrentOrDefault = AnimSetting->bFirstRecompressUsingCurrentOrDefault;
 			bool bRaiseMaxErrorToExisting = AnimSetting->bRaiseMaxErrorToExisting;
 			// If we don't allow alternate compressors, and just want to recompress with default/existing, then make sure we do so.
-			if( !CompressContext.bAllowAlternateCompressor )
+			if( !bAllowAlternateCompressor )
 			{
 				bFirstRecompressUsingCurrentOrDefault = true;
 			}
@@ -575,8 +573,8 @@ void FAnimationUtils::CompressAnimSequence(UAnimSequence* AnimSeq, FAnimCompress
 
 			CompressAnimSequenceExplicit(
 				AnimSeq,
-				CompressContext,
-				CompressContext.bAllowAlternateCompressor ? MasterTolerance : 0.0f,
+				bAllowAlternateCompressor ? MasterTolerance : 0.0f,
+				bOutput,
 				bFirstRecompressUsingCurrentOrDefault,
 				bForceBelowThreshold,
 				bRaiseMaxErrorToExisting,
@@ -602,8 +600,8 @@ void FAnimationUtils::CompressAnimSequence(UAnimSequence* AnimSeq, FAnimCompress
  */
 void FAnimationUtils::CompressAnimSequenceExplicit(
 	UAnimSequence* AnimSeq,
-	FAnimCompressContext& CompressContext,
 	float MasterTolerance,
+	bool bOutput,
 	const bool bFirstRecompressUsingCurrentOrDefault,
 	const bool bForceBelowThreshold,
 	const bool bRaiseMaxErrorToExisting,
@@ -722,8 +720,7 @@ void FAnimationUtils::CompressAnimSequenceExplicit(
 				OriginalCompressionAlgorithm = FAnimationUtils::GetDefaultAnimationCompressionAlgorithm();
 			}
 
-			OriginalCompressionAlgorithm->Reduce( AnimSeq, CompressContext );
-			AnimSeq->SetUseRawDataOnly(false);
+			OriginalCompressionAlgorithm->Reduce( AnimSeq, bOutput );
 			AfterOriginalRecompression = AnimSeq->GetResourceSize(EResourceSizeMode::Inclusive);
 
 			// figure out our current compression error
@@ -750,6 +747,8 @@ void FAnimationUtils::CompressAnimSequenceExplicit(
 
 			{
 				// backup key information from the sequence
+				TArray<struct FTranslationTrack> SavedTranslationData = AnimSeq->TranslationData;
+				TArray<struct FRotationTrack> SavedRotationData = AnimSeq->RotationData;
 				class UAnimCompress* SavedCompressionScheme = AnimSeq->CompressionScheme;
 				AnimationCompressionFormat SavedTranslationCompressionFormat = AnimSeq->TranslationCompressionFormat;
 				AnimationCompressionFormat SavedRotationCompressionFormat = AnimSeq->RotationCompressionFormat;
@@ -760,7 +759,6 @@ void FAnimationUtils::CompressAnimSequenceExplicit(
 				AnimEncoding* SavedTranslationCodec = AnimSeq->TranslationCodec;
 				AnimEncoding* SavedRotationCodec = AnimSeq->RotationCodec;
 				AnimEncoding* SavedScaleCodec = AnimSeq->ScaleCodec;
-				bool bSavedUseRawDataOnly = AnimSeq->OnlyUseRawData();
 
 				// count all attempts for debugging
 				++TotalRecompressions;
@@ -1505,7 +1503,7 @@ void FAnimationUtils::CalculateTrackHeights(UAnimSequence* AnimSeq, const TArray
 			for (int32 FamilyIndex = 0; FamilyIndex < EffectorBoneData.BonesToRoot.Num(); ++FamilyIndex)
 			{
 				const int32 NextParentBoneIndex = EffectorBoneData.BonesToRoot[FamilyIndex];
-				const int32 NextParentTrackIndex = Skeleton->GetAnimationTrackIndex(NextParentBoneIndex, AnimSeq, true);
+				const int32 NextParentTrackIndex = Skeleton->GetAnimationTrackIndex(NextParentBoneIndex, AnimSeq);
 				if (NextParentTrackIndex != INDEX_NONE)
 				{
 					const int32 CurHeight = TrackHeights[NextParentTrackIndex];
@@ -1608,7 +1606,7 @@ void FAnimationUtils::TallyErrorsFromPerturbation(
 			// get the raw and compressed atom for each bone
 			for (int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
 			{
-				const int32 TrackIndex = Skeleton->GetAnimationTrackIndex(BoneIndex, AnimSeq, true);
+				const int32 TrackIndex = Skeleton->GetAnimationTrackIndex(BoneIndex, AnimSeq);
 
 				if (TrackIndex == INDEX_NONE)
 				{

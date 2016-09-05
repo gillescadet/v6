@@ -130,7 +130,7 @@ void FTransform::SetToRelativeTransform(const FTransform& ParentTransform)
  	FMatrix BM = ParentTransform.ToMatrixWithScale();
 #endif
 
-	const FVector SafeRecipScale3D = GetSafeScaleReciprocal(ParentTransform.Scale3D, SMALL_NUMBER);
+	const FVector SafeRecipScale3D = GetSafeScaleReciprocal(ParentTransform.Scale3D);
 	const FQuat InverseRot = ParentTransform.Rotation.Inverse();
 
 	Scale3D *= SafeRecipScale3D;	
@@ -140,18 +140,6 @@ void FTransform::SetToRelativeTransform(const FTransform& ParentTransform)
 #if DEBUG_INVERSE_TRANSFORM
  	DebugEqualMatrix(AM *  BM.InverseFast());
 #endif
-}
-
-void FTransform::GetRelativeTransformUsingMatrixWithScale(FTransform* OutTransform, const FTransform* Base, const FTransform* Relative)
-{
-	// the goal of using M is to get the correct orientation
-	// but for translation, we still need scale
-	FMatrix AM = Base->ToMatrixWithScale();
-	FMatrix BM = Relative->ToMatrixWithScale();
-	// get combined scale
-	FVector SafeRecipScale3D = GetSafeScaleReciprocal(Relative->Scale3D, SMALL_NUMBER);
-	FVector DesiredScale3D = Base->Scale3D*SafeRecipScale3D;
-	ConstructTransformFromMatrixWithDesiredScale(AM, BM.Inverse(), DesiredScale3D, *OutTransform);
 }
 
 FTransform FTransform::GetRelativeTransform(const FTransform& Other) const
@@ -164,35 +152,26 @@ FTransform FTransform::GetRelativeTransform(const FTransform& Other) const
 	// where A = this, B = Other
 	FTransform Result;
 
-	const bool bHaveNegativeScale = Scale3D.GetMin() < 0 || Other.Scale3D.GetMin() < 0;
-	if (bHaveNegativeScale)
+	FVector SafeRecipScale3D = GetSafeScaleReciprocal(Other.Scale3D);
+	Result.Scale3D = Scale3D*SafeRecipScale3D;	
+
+	if (Other.Rotation.IsNormalized() == false)
 	{
-		// @note, if you have 0 scale with negative, you're going to lose rotation as it can't convert back to quat
-		GetRelativeTransformUsingMatrixWithScale(&Result, this, &Other);
+		return FTransform::Identity;
 	}
-	else
-	{
-		FVector SafeRecipScale3D = GetSafeScaleReciprocal(Other.Scale3D, SMALL_NUMBER);
-		Result.Scale3D = Scale3D*SafeRecipScale3D;
 
-		if (Other.Rotation.IsNormalized() == false)
-		{
-			return FTransform::Identity;
-		}
+	FQuat Inverse = Other.Rotation.Inverse();
+	Result.Rotation = Inverse*Rotation;
 
-		FQuat Inverse = Other.Rotation.Inverse();
-		Result.Rotation = Inverse*Rotation;
-
-		Result.Translation = (Inverse*(Translation - Other.Translation))*(SafeRecipScale3D);
+	Result.Translation = (Inverse*(Translation - Other.Translation))*(SafeRecipScale3D);
 
 #if DEBUG_INVERSE_TRANSFORM
-		FMatrix AM = ToMatrixWithScale();
-		FMatrix BM = Other.ToMatrixWithScale();
-
-		Result.DebugEqualMatrix(AM *  BM.InverseFast());
+ 	FMatrix AM = ToMatrixWithScale();
+ 	FMatrix BM = Other.ToMatrixWithScale();
+ 
+ 	Result.DebugEqualMatrix(AM *  BM.InverseFast());
 
 #endif
-	}
 
 	return Result;
 }

@@ -9,7 +9,16 @@ UAbilityTask_WaitOverlap::UAbilityTask_WaitOverlap(const FObjectInitializer& Obj
 
 }
 
-void UAbilityTask_WaitOverlap::OnHitCallback(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+
+void UAbilityTask_WaitOverlap::OnOverlapCallback(AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (OtherActor && bFromSweep)
+	{	
+		//OnOverlap.Broadcast(SweepResult);
+	}
+}
+
+void UAbilityTask_WaitOverlap::OnHitCallback(AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	if(OtherActor)
 	{
@@ -40,11 +49,10 @@ UAbilityTask_WaitOverlap* UAbilityTask_WaitOverlap::WaitForOverlap(UObject* Worl
 
 void UAbilityTask_WaitOverlap::Activate()
 {
-	SetWaitingOnAvatar();
-
 	UPrimitiveComponent* PrimComponent = GetComponent();
 	if (PrimComponent)
 	{
+		PrimComponent->OnComponentBeginOverlap.AddDynamic(this, &UAbilityTask_WaitOverlap::OnOverlapCallback);
 		PrimComponent->OnComponentHit.AddDynamic(this, &UAbilityTask_WaitOverlap::OnHitCallback);
 	}
 }
@@ -54,6 +62,7 @@ void UAbilityTask_WaitOverlap::OnDestroy(bool AbilityEnded)
 	UPrimitiveComponent* PrimComponent = GetComponent();
 	if (PrimComponent)
 	{
+		PrimComponent->OnComponentBeginOverlap.RemoveDynamic(this, &UAbilityTask_WaitOverlap::OnOverlapCallback);
 		PrimComponent->OnComponentHit.RemoveDynamic(this, &UAbilityTask_WaitOverlap::OnHitCallback);
 	}
 

@@ -14,7 +14,6 @@
 #include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/DamageType.h"
-#include "Engine/SkeletalMeshSocket.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCharacter, Log, All);
 DEFINE_LOG_CATEGORY_STATIC(LogAvatar, Log, All);
@@ -61,11 +60,6 @@ ACharacter::ACharacter(const FObjectInitializer& ObjectInitializer)
 	bClientCheckEncroachmentOnNetUpdate = true;
 	JumpKeyHoldTime = 0.0f;
 	JumpMaxHoldTime = 0.0f;
-    JumpMaxCount = 1;
-    JumpCurrentCount = 0;
-    bJumpMaxCountExceeded = false;
-
-	AnimRootMotionTranslationScale = 1.0f;
 
 #if WITH_EDITORONLY_DATA
 	ArrowComponent = CreateEditorOnlyDefaultSubobject<UArrowComponent>(TEXT("Arrow"));
@@ -75,7 +69,7 @@ ACharacter::ACharacter(const FObjectInitializer& ObjectInitializer)
 		ArrowComponent->bTreatAsASprite = true;
 		ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Characters;
 		ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Characters;
-		ArrowComponent->SetupAttachment(CapsuleComponent);
+		ArrowComponent->AttachParent = CapsuleComponent;
 		ArrowComponent->bIsScreenSizeScaled = true;
 	}
 #endif // WITH_EDITORONLY_DATA
@@ -97,7 +91,7 @@ ACharacter::ACharacter(const FObjectInitializer& ObjectInitializer)
 		Mesh->bCastDynamicShadow = true;
 		Mesh->bAffectDynamicIndirectLighting = true;
 		Mesh->PrimaryComponentTick.TickGroup = TG_PrePhysics;
-		Mesh->SetupAttachment(CapsuleComponent);
+		Mesh->AttachParent = CapsuleComponent;
 		static FName MeshCollisionProfileName(TEXT("CharacterMesh"));
 		Mesh->SetCollisionProfileName(MeshCollisionProfileName);
 		Mesh->bGenerateOverlapEvents = false;
@@ -157,9 +151,9 @@ UPawnMovementComponent* ACharacter::GetMovementComponent() const
 }
 
 
-void ACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+void ACharacter::SetupPlayerInputComponent(UInputComponent* InputComponent)
 {
-	check(PlayerInputComponent);
+	check(InputComponent);
 }
 
 
@@ -255,23 +249,9 @@ bool ACharacter::CanJump() const
 
 bool ACharacter::CanJumpInternal_Implementation() const
 {
-    const bool bIsHoldTimeValid = (GetJumpMaxHoldTime() <= 0.0f) || IsJumpProvidingForce();
+	const bool bCanHoldToJumpHigher = (GetJumpMaxHoldTime() > 0.0f) && IsJumpProvidingForce();
 
-	const bool bIsCharacterMovementStateValid = (CharacterMovement &&
-													CharacterMovement->IsJumpAllowed() &&
-													!CharacterMovement->bWantsToCrouch &&
-													// We can only jump from the ground, or multi-jump if we're already falling.
-													(CharacterMovement->IsMovingOnGround() || CharacterMovement->IsFalling()));
-
-	return !bIsCrouched && !bJumpMaxCountExceeded && bIsHoldTimeValid && bIsCharacterMovementStateValid;
-}
-
-void ACharacter::CheckResetJumpCount()
-{
-	if (CharacterMovement && !CharacterMovement->IsFalling())
-	{
-		JumpCurrentCount = 0;
-	}
+	return !bIsCrouched && CharacterMovement && (CharacterMovement->IsMovingOnGround() || bCanHoldToJumpHigher) && CharacterMovement->IsJumpAllowed() && !CharacterMovement->bWantsToCrouch;
 }
 
 void ACharacter::OnJumped_Implementation()
@@ -370,15 +350,14 @@ void ACharacter::OnEndCrouch( float HeightAdjust, float ScaledHeightAdjust )
 {
 	RecalculateBaseEyeHeight();
 
-	const ACharacter* DefaultChar = GetDefault<ACharacter>(GetClass());
-	if (Mesh && DefaultChar->Mesh)
+	if (Mesh)
 	{
-		Mesh->RelativeLocation.Z = DefaultChar->Mesh->RelativeLocation.Z;
+		Mesh->RelativeLocation.Z = GetDefault<ACharacter>(GetClass())->Mesh->RelativeLocation.Z;
 		BaseTranslationOffset.Z = Mesh->RelativeLocation.Z;
 	}
 	else
 	{
-		BaseTranslationOffset.Z = DefaultChar->BaseTranslationOffset.Z;
+		BaseTranslationOffset.Z = GetDefault<ACharacter>(GetClass())->BaseTranslationOffset.Z;
 	}
 
 	K2_OnEndCrouch(HeightAdjust, ScaledHeightAdjust);
@@ -388,10 +367,9 @@ void ACharacter::OnStartCrouch( float HeightAdjust, float ScaledHeightAdjust )
 {
 	RecalculateBaseEyeHeight();
 
-	const ACharacter* DefaultChar = GetDefault<ACharacter>(GetClass());
-	if (Mesh && DefaultChar->Mesh)
+	if (Mesh)
 	{
-		Mesh->RelativeLocation.Z = DefaultChar->Mesh->RelativeLocation.Z + HeightAdjust;
+		Mesh->RelativeLocation.Z = GetDefault<ACharacter>(GetClass())->Mesh->RelativeLocation.Z + HeightAdjust;
 		BaseTranslationOffset.Z = Mesh->RelativeLocation.Z;
 	}
 	else
@@ -530,12 +508,9 @@ namespace MovementBaseUtility
 			}
 
 			// Fall back to physics velocity.
-			if (BaseVelocity.IsZero())
+			if (BaseVelocity.IsZero() && MovementBase->GetBodyInstance())
 			{
-				if (FBodyInstance* BaseBodyInstance = MovementBase->GetBodyInstance())
-				{
-					BaseVelocity = BaseBodyInstance->GetUnrealWorldVelocity();
-				}
+				BaseVelocity = MovementBase->GetBodyInstance()->GetUnrealWorldVelocity();
 			}
 		}
 		
@@ -572,32 +547,22 @@ namespace MovementBaseUtility
 		{
 			if (BoneName != NAME_None)
 			{
-				bool bFoundBone = false;
-				const USkinnedMeshComponent* SkinnedBase = Cast<USkinnedMeshComponent>(MovementBase);
-				if (SkinnedBase)
+				const USkeletalMeshComponent* SkeletalBase = Cast<USkeletalMeshComponent>(MovementBase);
+				if (SkeletalBase)
 				{
-					// Check if this socket or bone exists (DoesSocketExist checks for either, as does requesting the transform).
-					if (SkinnedBase->DoesSocketExist(BoneName))
+					const int32 BoneIndex = SkeletalBase->GetBoneIndex(BoneName);
+					if (BoneIndex != INDEX_NONE)
 					{
-						SkinnedBase->GetSocketWorldLocationAndRotation(BoneName, OutLocation, OutQuat);
-						bFoundBone = true;
+						const FTransform BoneTransform = SkeletalBase->GetBoneTransform(BoneIndex);
+						OutLocation = BoneTransform.GetLocation();
+						OutQuat = BoneTransform.GetRotation();
+						return true;
 					}
-					else
-					{
-						UE_LOG(LogCharacter, Warning, TEXT("GetMovementBaseTransform(): Invalid bone or socket '%s' for SkinnedMeshComponent base %s"), *BoneName.ToString(), *GetPathNameSafe(MovementBase));
-					}
-				}
-				else
-				{
-					UE_LOG(LogCharacter, Warning, TEXT("GetMovementBaseTransform(): Requested bone or socket '%s' for non-SkinnedMeshComponent base %s, this is not supported"), *BoneName.ToString(), *GetPathNameSafe(MovementBase));
-				}
 
-				if (!bFoundBone)
-				{
-					OutLocation = MovementBase->GetComponentLocation();
-					OutQuat = MovementBase->GetComponentQuat();
+					UE_LOG(LogCharacter, Warning, TEXT("GetMovementBaseTransform(): Invalid bone '%s' for SkeletalMeshComponent base %s"), *BoneName.ToString(), *GetPathNameSafe(MovementBase));
+					return false;
 				}
-				return bFoundBone;
+				// TODO: warn if not a skeletal mesh but providing bone index.
 			}
 
 			// No bone supplied
@@ -747,9 +712,6 @@ void ACharacter::Restart()
 {
 	Super::Restart();
 
-    JumpCurrentCount = 0;
-    bJumpMaxCountExceeded = false;
-
 	bPressedJump = false;
 	JumpKeyHoldTime = 0.0f;
 	ClearJumpInput();
@@ -894,11 +856,6 @@ void ACharacter::LaunchCharacter(FVector LaunchVelocity, bool bXYOverride, bool 
 
 void ACharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PrevCustomMode)
 {
-	if (!bPressedJump)
-	{
-		CheckResetJumpCount();
-	}
-
 	K2_OnMovementModeChanged(PrevMovementMode, CharacterMovement->MovementMode, PrevCustomMode, CharacterMovement->CustomMovementMode);
 	MovementModeChangedDelegate.Broadcast(this, PrevMovementMode, PrevCustomMode);
 }
@@ -929,44 +886,19 @@ void ACharacter::StopJumping()
 {
 	bPressedJump = false;
 	JumpKeyHoldTime = 0.0f;
-
-	CheckResetJumpCount();
 }
 
 void ACharacter::CheckJumpInput(float DeltaTime)
 {
-	if (CharacterMovement)
+	const bool bWasJumping = bPressedJump && JumpKeyHoldTime > 0.0f;
+	if (bPressedJump)
 	{
-		const bool bWasJumping = JumpKeyHoldTime > 0.0f;
-		if (bPressedJump)
+		// Increment our timer first so calls to IsJumpProvidingForce() will return true
+		JumpKeyHoldTime += DeltaTime;
+		const bool bDidJump = CanJump() && CharacterMovement && CharacterMovement->DoJump(bClientUpdating);
+		if (!bWasJumping && bDidJump)
 		{
-			// Increment our timer first so calls to IsJumpProvidingForce() will return true
-			JumpKeyHoldTime += DeltaTime;
-
-			if (CharacterMovement->IsFalling() && JumpCurrentCount == 0)
-			{
-				JumpCurrentCount++;
-			}
-
-			if (!bWasJumping)
-			{
-				JumpCurrentCount++;
-				bJumpMaxCountExceeded = JumpCurrentCount > JumpMaxCount;
-			}
-
-			const bool bDidJump = CanJump() && CharacterMovement->DoJump(bClientUpdating);
-			if (!bWasJumping && bDidJump)
-			{
-				OnJumped();
-			}
-		}
-
-		// If the jump key is no longer pressed and the character is no longer falling,
-		// but it still "looks" like the character was jumping, reset the counters.
-		else if (bWasJumping && !CharacterMovement->IsFalling())
-		{
-			JumpKeyHoldTime = 0.0f;
-			JumpCurrentCount = 0;
+			OnJumped();
 		}
 	}
 }
@@ -1339,7 +1271,7 @@ void ACharacter::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTra
 
 	const FAnimMontageInstance* RootMotionMontageInstance = GetRootMotionAnimMontageInstance();
 
-	if ( CharacterMovement->CurrentRootMotion.HasActiveRootMotionSources() || RootMotionMontageInstance )
+	if ( (CharacterMovement && CharacterMovement->CurrentRootMotion.HasActiveRootMotionSources()) || RootMotionMontageInstance )
 	{
 		RepRootMotion.bIsActive = true;
 		// Is position stored in local space?
@@ -1358,10 +1290,18 @@ void ACharacter::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTra
 		{
 			RepRootMotion.AnimMontage = nullptr;
 		}
-
-		RepRootMotion.AuthoritativeRootMotion = CharacterMovement->CurrentRootMotion;
-		RepRootMotion.Acceleration = CharacterMovement->GetCurrentAcceleration();
-		RepRootMotion.LinearVelocity = CharacterMovement->Velocity;
+		if (CharacterMovement)
+		{
+			RepRootMotion.AuthoritativeRootMotion = CharacterMovement->CurrentRootMotion;
+			RepRootMotion.Acceleration = CharacterMovement->GetCurrentAcceleration();
+			RepRootMotion.LinearVelocity = CharacterMovement->Velocity;
+		}
+		else
+		{
+			RepRootMotion.AuthoritativeRootMotion.Clear();
+			RepRootMotion.Acceleration = FVector::ZeroVector;
+			RepRootMotion.LinearVelocity = FVector::ZeroVector;
+		}
 
 		DOREPLIFETIME_ACTIVE_OVERRIDE( ACharacter, RepRootMotion, true );
 	}
@@ -1372,7 +1312,6 @@ void ACharacter::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTra
 		DOREPLIFETIME_ACTIVE_OVERRIDE( ACharacter, RepRootMotion, false );
 	}
 
-	ReplicatedServerLastTransformUpdateTimeStamp = CharacterMovement->GetServerLastTransformUpdateTimeStamp();
 	ReplicatedMovementMode = CharacterMovement->PackNetworkMovementMode();	
 	ReplicatedBasedMovement = BasedMovement;
 
@@ -1388,59 +1327,16 @@ void ACharacter::PreReplication( IRepChangedPropertyTracker & ChangedPropertyTra
 			ReplicatedBasedMovement.Rotation = GetActorRotation();
 		}
 	}
-
-	if ( ChangedPropertyTracker.IsReplay() )
-	{
-		// If this is a replay, we save out certain values we need to runtime to do smooth interpolation
-		// We'll be able to look ahead in the replay to have these ahead of time for smoother playback
-		FCharacterReplaySample ReplaySample;
-
-		// If this is a client-recorded replay, use the mesh location and rotation, since these will always
-		// be smoothed - unlike the actor position and rotation.
-		const USkeletalMeshComponent* const MeshComponent = GetMesh();
-		if (MeshComponent && GetWorld()->IsRecordingClientReplay())
-		{
-			// Remove the base transform from the mesh's transform, since on playback the base transform
-			// will be stored in the mesh's RelativeLocation and RelativeRotation.
-			const FTransform BaseTransform(GetBaseRotationOffset(), GetBaseTranslationOffset());
-			const FTransform MeshRootTransform = BaseTransform.Inverse() * MeshComponent->GetComponentTransform();
-
-			ReplaySample.Location		= MeshRootTransform.GetLocation();
-			ReplaySample.Rotation		= MeshRootTransform.GetRotation().Rotator();
-		}
-		else
-		{
-			ReplaySample.Location		= GetActorLocation();
-			ReplaySample.Rotation		= GetActorRotation();
-		}
-
-		ReplaySample.Velocity			= GetVelocity();
-		ReplaySample.Acceleration		= CharacterMovement->GetCurrentAcceleration();
-		ReplaySample.RemoteViewPitch	= RemoteViewPitch;
-
-		FBitWriter Writer( 0, true );
-		Writer << ReplaySample;
-
-		ChangedPropertyTracker.SetExternalData( Writer.GetData(), Writer.GetNumBits() );
-	}
-
-	bReplayHasRootMotionSources = CharacterMovement ? CharacterMovement->HasRootMotionSources() : false;
 }
 
 void ACharacter::GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifetimeProps ) const
 {
 	Super::GetLifetimeReplicatedProps( OutLifetimeProps );
 
-	DOREPLIFETIME_CONDITION( ACharacter, RepRootMotion,						COND_SimulatedOnlyNoReplay );
-	DOREPLIFETIME_CONDITION( ACharacter, ReplicatedBasedMovement,			COND_SimulatedOnly );
-	DOREPLIFETIME_CONDITION( ACharacter, ReplicatedServerLastTransformUpdateTimeStamp, COND_SimulatedOnlyNoReplay );
-	DOREPLIFETIME_CONDITION( ACharacter, ReplicatedMovementMode,			COND_SimulatedOnly );
-	DOREPLIFETIME_CONDITION( ACharacter, bIsCrouched,						COND_SimulatedOnly );
-	DOREPLIFETIME_CONDITION( ACharacter, AnimRootMotionTranslationScale,	COND_SimulatedOnly );
-	DOREPLIFETIME_CONDITION( ACharacter, bReplayHasRootMotionSources,		COND_ReplayOnly );
-
-	// Change the condition of the replicated movement property to not replicate in replays since we handle this specifically via saving this out in external replay data
-	DOREPLIFETIME_CHANGE_CONDITION( AActor, ReplicatedMovement,				COND_SimulatedOrPhysicsNoReplay );
+	DOREPLIFETIME_CONDITION( ACharacter, RepRootMotion,				COND_SimulatedOnly );
+	DOREPLIFETIME_CONDITION( ACharacter, ReplicatedBasedMovement,	COND_SimulatedOnly );
+	DOREPLIFETIME_CONDITION( ACharacter, ReplicatedMovementMode,	COND_SimulatedOnly );
+	DOREPLIFETIME_CONDITION( ACharacter, bIsCrouched,				COND_SimulatedOnly );
 }
 
 bool ACharacter::IsPlayingRootMotion() const
@@ -1469,16 +1365,6 @@ bool ACharacter::IsPlayingNetworkedRootMotionMontage() const
 		}
 	}
 	return false;
-}
-
-void ACharacter::SetAnimRootMotionTranslationScale(float InAnimRootMotionTranslationScale)
-{
-	AnimRootMotionTranslationScale = InAnimRootMotionTranslationScale;
-}
-
-float ACharacter::GetAnimRootMotionTranslationScale() const
-{
-	return AnimRootMotionTranslationScale;
 }
 
 float ACharacter::PlayAnimMontage(class UAnimMontage* AnimMontage, float InPlayRate, FName StartSectionName)
@@ -1528,37 +1414,31 @@ class UAnimMontage * ACharacter::GetCurrentMontage()
 
 void ACharacter::ClientCheatWalk_Implementation()
 {
-#if !UE_BUILD_SHIPPING
 	SetActorEnableCollision(true);
 	if (CharacterMovement)
 	{
 		CharacterMovement->bCheatFlying = false;
 		CharacterMovement->SetMovementMode(MOVE_Falling);
 	}
-#endif
 }
 
 void ACharacter::ClientCheatFly_Implementation()
 {
-#if !UE_BUILD_SHIPPING
 	SetActorEnableCollision(true);
 	if (CharacterMovement)
 	{
 		CharacterMovement->bCheatFlying = true;
 		CharacterMovement->SetMovementMode(MOVE_Flying);
 	}
-#endif
 }
 
 void ACharacter::ClientCheatGhost_Implementation()
 {
-#if !UE_BUILD_SHIPPING
 	SetActorEnableCollision(false);
 	if (CharacterMovement)
 	{
 		CharacterMovement->bCheatFlying = true;
 		CharacterMovement->SetMovementMode(MOVE_Flying);
 	}
-#endif
 }
 

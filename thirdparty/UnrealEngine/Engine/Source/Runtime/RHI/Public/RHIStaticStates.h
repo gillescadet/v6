@@ -88,7 +88,6 @@ public:
 					StaticResource = new FStaticStateResource();
 				}
 			}
-			CA_ASSUME(StaticResource);
 		}
 		return StaticResource->StateRHI;
 	};

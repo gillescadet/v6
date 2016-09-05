@@ -4,12 +4,10 @@
 #include "Linux/LinuxPlatformCrashContext.h"
 #include "Misc/App.h"
 #include "EngineVersion.h"
-#include "PlatformMallocCrash.h"
-#include "LinuxPlatformRunnableThread.h"
 
 #include <sys/utsname.h>	// for uname()
 #include <signal.h>
-#include "HAL/ThreadHeartBeat.h"
+
 
 FString DescribeSignal(int32 Signal, siginfo_t* Info)
 {
@@ -51,8 +49,6 @@ FString DescribeSignal(int32 Signal, siginfo_t* Info)
 #undef HANDLE_CASE
 }
 
-__thread siginfo_t FLinuxCrashContext::FakeSiginfoForEnsures;
-
 FLinuxCrashContext::~FLinuxCrashContext()
 {
 	if (BacktraceSymbols)
@@ -72,40 +68,30 @@ void FLinuxCrashContext::InitFromSignal(int32 InSignal, siginfo_t* InInfo, void*
 	FCString::Strcat(SignalDescription, ARRAY_COUNT( SignalDescription ) - 1, *DescribeSignal(Signal, Info));
 }
 
-void FLinuxCrashContext::InitFromEnsureHandler(const TCHAR* EnsureMessage, const void* CrashAddress)
-{
-	Signal = SIGTRAP;
-
-	FakeSiginfoForEnsures.si_signo = SIGTRAP;
-	FakeSiginfoForEnsures.si_code = TRAP_TRACE;
-	FakeSiginfoForEnsures.si_addr = const_cast<void *>(CrashAddress);
-	Info = &FakeSiginfoForEnsures;
-
-	Context = nullptr;
-
-	// set signal description to a more human-readable one for ensures
-	FCString::Strcpy(SignalDescription, ARRAY_COUNT(SignalDescription) - 1, EnsureMessage);
-
-	// only need the first string
-	for (int Idx = 0; Idx < ARRAY_COUNT(SignalDescription); ++Idx)
-	{
-		if (SignalDescription[Idx] == TEXT('\n'))
-		{
-			SignalDescription[Idx] = 0;
-			break;
-		}
-	}
-}
-
 /**
  * Handles graceful termination. Gives time to exit gracefully, but second signal will quit immediately.
  */
 void GracefulTerminationHandler(int32 Signal, siginfo_t* Info, void* Context)
 {
-	// do not flush logs at this point; this can result in a deadlock if the signal was received while we were holding lock in the malloc (flushing allocates memory)
+	printf("CtrlCHandler: Signal=%d\n", Signal);
+
+	// make sure as much data is written to disk as possible
+	if (GLog)
+	{
+		GLog->Flush();
+	}
+	if (GWarn)
+	{
+		GWarn->Flush();
+	}
+	if (GError)
+	{
+		GError->Flush();
+	}
+
 	if( !GIsRequestingExit )
 	{
-		FPlatformMisc::RequestExitWithStatus(false, 128 + Signal);	// Keeping the established shell practice of returning 128 + signal for terminations by signal. Allows to distinguish SIGINT/SIGTERM/SIGHUP.
+		GIsRequestingExit = 1;
 	}
 	else
 	{
@@ -192,14 +178,14 @@ void FLinuxCrashContext::GenerateReport(const FString & DiagnosticsPath) const
 		utsname UnixName;
 		if (uname(&UnixName) == 0)
 		{
-			Line = FString::Printf(TEXT( "OS version %s %s (network name: %s)" ), UTF8_TO_TCHAR(UnixName.sysname), UTF8_TO_TCHAR(UnixName.release), UTF8_TO_TCHAR(UnixName.nodename));
+			Line = FString::Printf(TEXT( "OS version %s %s (network name: %s)" ), ANSI_TO_TCHAR(UnixName.sysname), ANSI_TO_TCHAR(UnixName.release), ANSI_TO_TCHAR(UnixName.nodename));
 			WriteLine(ReportFile, TCHAR_TO_UTF8(*Line));	
-			Line = FString::Printf( TEXT( "Running %d %s processors (%d logical cores)" ), FPlatformMisc::NumberOfCores(), UTF8_TO_TCHAR(UnixName.machine), FPlatformMisc::NumberOfCoresIncludingHyperthreads());
+			Line = FString::Printf( TEXT( "Running %d %s processors (%d logical cores)" ), FPlatformMisc::NumberOfCores(), ANSI_TO_TCHAR(UnixName.machine), FPlatformMisc::NumberOfCoresIncludingHyperthreads());
 			WriteLine(ReportFile, TCHAR_TO_UTF8(*Line));
 		}
 		else
 		{
-			Line = FString::Printf(TEXT("OS version could not be determined (%d, %s)"), errno, UTF8_TO_TCHAR(strerror(errno)));
+			Line = FString::Printf(TEXT("OS version could not be determined (%d, %s)"), errno, ANSI_TO_TCHAR(strerror(errno)));
 			WriteLine(ReportFile, TCHAR_TO_UTF8(*Line));	
 			Line = FString::Printf( TEXT( "Running %d unknown processors" ), FPlatformMisc::NumberOfCores());
 			WriteLine(ReportFile, TCHAR_TO_UTF8(*Line));
@@ -232,7 +218,7 @@ void FLinuxCrashContext::GenerateReport(const FString & DiagnosticsPath) const
 /** 
  * Mimics Windows WER format
  */
-void GenerateWindowsErrorReport(const FString & WERPath, bool bReportingNonCrash)
+void GenerateWindowsErrorReport(const FString & WERPath)
 {
 	FArchive* ReportFile = IFileManager::Get().CreateFileWriter(*WERPath);
 	if (ReportFile != NULL)
@@ -279,10 +265,6 @@ void GenerateWindowsErrorReport(const FString & WERPath, bool bReportingNonCrash
 		WriteLine(ReportFile, TEXT("\t<DynamicSignatures>"));
 		WriteLine(ReportFile, TEXT("\t\t<Parameter1>6.1.7601.2.1.0.256.48</Parameter1>"));
 		WriteLine(ReportFile, TEXT("\t\t<Parameter2>1033</Parameter2>"));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<DeploymentName>%s</DeploymentName>"), FApp::GetDeploymentName()));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<IsEnsure>%s</IsEnsure>"), bReportingNonCrash ? TEXT("1") : TEXT("0")));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<IsAssert>%s</IsAssert>"), FDebug::bHasAsserted ? TEXT("1") : TEXT("0")));
-		WriteLine(ReportFile, *FString::Printf(TEXT("\t\t<CrashType>%s</CrashType>"), FGenericCrashContext::GetCrashTypeString(bReportingNonCrash, FDebug::bHasAsserted)));
 		WriteLine(ReportFile, TEXT("\t</DynamicSignatures>"));
 
 		WriteLine(ReportFile, TEXT("\t<SystemInformation>"));
@@ -318,104 +300,51 @@ void GenerateMinidump(const FString & Path)
 }
 
 
-void FLinuxCrashContext::CaptureStackTrace()
+int32 DLLEXPORT ReportCrash(const FLinuxCrashContext & Context)
 {
-	// Only do work the first time this function is called - this is mainly a carry over from Windows where it can be called multiple times, left intact for extra safety.
-	if (!bCapturedBacktrace)
+	static bool GAlreadyCreatedMinidump = false;
+	// Only create a minidump the first time this function is called.
+	// (Can be called the first time from the RenderThread, then a second time from the MainThread.)
+	if ( GAlreadyCreatedMinidump == false )
 	{
+		GAlreadyCreatedMinidump = true;
+
 		const SIZE_T StackTraceSize = 65535;
 		ANSICHAR* StackTrace = (ANSICHAR*) FMemory::Malloc( StackTraceSize );
 		StackTrace[0] = 0;
-		// Walk the stack and dump it to the allocated memory (do not ignore any stack frames to be consistent with check()/ensure() handling)
-		FPlatformStackWalk::StackWalkAndDump( StackTrace, StackTraceSize, 0, this);
+		// Walk the stack and dump it to the allocated memory (ignore first 2 callstack lines as those are in stack walking code)
+		FPlatformStackWalk::StackWalkAndDump( StackTrace, StackTraceSize, 2, const_cast< FLinuxCrashContext* >( &Context ) );
 
-		FCString::Strncat( GErrorHist, UTF8_TO_TCHAR(StackTrace), ARRAY_COUNT(GErrorHist) - 1 );
-		CreateExceptionInfoString(Signal, Info);
+		FCString::Strncat( GErrorHist, ANSI_TO_TCHAR(StackTrace), ARRAY_COUNT(GErrorHist) - 1 );
+		CreateExceptionInfoString(Context.Signal, Context.Info);
 
 		FMemory::Free( StackTrace );
-		bCapturedBacktrace = true;
 	}
+
+	return 0;
 }
 
-namespace LinuxCrashReporterTracker
-{
-	FProcHandle CurrentlyRunningCrashReporter;
-	FDelegateHandle CurrentTicker;
-
-	bool Tick(float DeltaTime)
-	{
-		if (!FPlatformProcess::IsProcRunning(CurrentlyRunningCrashReporter))
-		{
-			FPlatformProcess::CloseProc(CurrentlyRunningCrashReporter);
-			CurrentlyRunningCrashReporter = FProcHandle();
-
-			FTicker::GetCoreTicker().RemoveTicker(CurrentTicker);
-			CurrentTicker.Reset();
-
-			UE_LOG(LogLinux, Log, TEXT("Done sending crash report for ensure()."));
-			return false;
-		}
-
-		// tick again
-		return true;
-	}
-
-	/**
-	 * Waits for the proc with timeout (busy loop, workaround for platform abstraction layer not exposing this)
-	 *
-	 * @param Proc proc handle to wait for
-	 * @param TimeoutInSec timeout in seconds
-	 * @param SleepIntervalInSec sleep interval (the smaller the more CPU we will eat, but the faster we will detect the program exiting)
-	 *
-	 * @return true if exited cleanly, false if timeout has expired
-	 */
-	bool WaitForProcWithTimeout(FProcHandle Proc, const double TimeoutInSec, const double SleepIntervalInSec)
-	{
-		double StartSeconds = FPlatformTime::Seconds();
-		for (;;)
-		{
-			if (!FPlatformProcess::IsProcRunning(Proc))
-			{
-				break;
-			}
-
-			if (FPlatformTime::Seconds() - StartSeconds > TimeoutInSec)
-			{
-				return false;
-			}
-
-			FPlatformProcess::Sleep(SleepIntervalInSec);
-		};
-
-		return true;
-	}
-}
-
-
-void FLinuxCrashContext::GenerateCrashInfoAndLaunchReporter(bool bReportingNonCrash) const
+/**
+ * Generates information for crash reporter
+ */
+void DLLEXPORT GenerateCrashInfoAndLaunchReporter(const FLinuxCrashContext & Context)
 {
 	// do not report crashes for tools (particularly for crash reporter itself)
 #if !IS_PROGRAM
 
 	// create a crash-specific directory
-	FString CrashGuid;
-	if (!FParse::Value(FCommandLine::Get(), TEXT("CrashGUID="), CrashGuid) || CrashGuid.Len() <= 0)
-	{
-		CrashGuid = FGuid::NewGuid().ToString();
-	}
-
-	FString CrashInfoFolder = FPaths::Combine(*FPaths::GameSavedDir(), TEXT("Crashes"), *FString::Printf(TEXT("%sinfo-%s-pid-%d-%s"), bReportingNonCrash ? TEXT("ensure") : TEXT("crash"), FApp::GetGameName(), getpid(), *CrashGuid));
+	FString CrashInfoFolder = FString::Printf(TEXT("crashinfo-%s-pid-%d-%s"), FApp::GetGameName(), getpid(), *FGuid::NewGuid().ToString());
 	FString CrashInfoAbsolute = FPaths::ConvertRelativePathToFull(CrashInfoFolder);
-	if (IFileManager::Get().MakeDirectory(*CrashInfoAbsolute, true))
+	if (IFileManager::Get().MakeDirectory(*CrashInfoFolder))
 	{
 		// generate "minidump"
-		GenerateReport(FPaths::Combine(*CrashInfoAbsolute, TEXT("Diagnostics.txt")));
+		Context.GenerateReport(FPaths::Combine(*CrashInfoFolder, TEXT("diagnostics.txt")));
 
 		// generate "WER"
-		GenerateWindowsErrorReport(FPaths::Combine(*CrashInfoAbsolute, TEXT("wermeta.xml")), bReportingNonCrash);
+		GenerateWindowsErrorReport(FPaths::Combine(*CrashInfoFolder, TEXT("wermeta.xml")));
 
 		// generate "minidump" (just >1 byte)
-		GenerateMinidump(FPaths::Combine(*CrashInfoAbsolute, TEXT("minidump.dmp")));
+		GenerateMinidump(FPaths::Combine(*CrashInfoFolder, TEXT("minidump.dmp")));
 
 		// Introduces a new runtime crash context. Will replace all Windows related crash reporting.
 		//FCStringAnsi::Strncpy(FilePath, CrashInfoFolder, PATH_MAX);
@@ -425,22 +354,9 @@ void FLinuxCrashContext::GenerateCrashInfoAndLaunchReporter(bool bReportingNonCr
 
 		// copy log
 		FString LogSrcAbsolute = FPlatformOutputDevices::GetAbsoluteLogFilename();
-		FString LogFolder = FPaths::GetPath(LogSrcAbsolute);
-		FString LogFilename = FPaths::GetCleanFilename(LogSrcAbsolute);
-		FString LogBaseFilename = FPaths::GetBaseFilename(LogSrcAbsolute);
-		FString LogExtension = FPaths::GetExtension(LogSrcAbsolute, true);
-		FString LogDstAbsolute = FPaths::Combine(*CrashInfoAbsolute, *LogFilename);
+		FString LogDstAbsolute = FPaths::Combine(*CrashInfoAbsolute, *FPaths::GetCleanFilename(LogSrcAbsolute));
 		FPaths::NormalizeDirectoryName(LogDstAbsolute);
 		static_cast<void>(IFileManager::Get().Copy(*LogDstAbsolute, *LogSrcAbsolute));	// best effort, so don't care about result: couldn't copy -> tough, no log
-
-		// If present, include the crash report config file to pass config values to the CRC
-		const TCHAR* CrashConfigFilePath = GetCrashConfigFilePath();
-		if (IFileManager::Get().FileExists(CrashConfigFilePath))
-		{
-			FString CrashConfigFilename = FPaths::GetCleanFilename(CrashConfigFilePath);
-			FString CrashConfigDstAbsolute = FPaths::Combine(*CrashInfoAbsolute, *CrashConfigFilename);
-			static_cast<void>(IFileManager::Get().Copy(*CrashConfigDstAbsolute, CrashConfigFilePath));	// best effort, so don't care about result
-		}
 
 		// try launching the tool and wait for its exit, if at all
 		const TCHAR * RelativePathToCrashReporter = TEXT("../../../Engine/Binaries/Linux/CrashReportClient");	// FIXME: painfully hard-coded
@@ -449,11 +365,7 @@ void FLinuxCrashContext::GenerateCrashInfoAndLaunchReporter(bool bReportingNonCr
 			RelativePathToCrashReporter = TEXT("../../../engine/binaries/linux/crashreportclient");	// FIXME: even more painfully hard-coded
 		}
 
-		FString CrashReportLogFilename = LogBaseFilename + TEXT("-CRC") + LogExtension;
-		FString CrashReportLogFilepath = FPaths::Combine(*LogFolder, *CrashReportLogFilename);
-		FString CrashReportClientArguments = TEXT(" -Abslog=");
-		CrashReportClientArguments += *CrashReportLogFilepath;
-		CrashReportClientArguments += TEXT(" ");
+		FString CrashReportClientArguments;
 
 		// Suppress the user input dialog if we're running in unattended mode
 		bool bNoDialog = FApp::IsUnattended() || IsRunningDedicatedServer();
@@ -464,59 +376,34 @@ void FLinuxCrashContext::GenerateCrashInfoAndLaunchReporter(bool bReportingNonCr
 
 		CrashReportClientArguments += CrashInfoAbsolute + TEXT("/");
 
-		if (bReportingNonCrash)
+		// show on the console
+		printf("Starting %s\n", StringCast<ANSICHAR>(RelativePathToCrashReporter).Get());
+		FProcHandle RunningProc = FPlatformProcess::CreateProc(RelativePathToCrashReporter, *CrashReportClientArguments, true, false, false, NULL, 0, NULL, NULL);
+		if (FPlatformProcess::IsProcRunning(RunningProc))
 		{
-			// If we're reporting non-crash, try to avoid spinning here and instead do that in the tick.
-			// However, if there was already a crash reporter running (i.e. we hit ensure() too quickly), take a hitch here
-			if (FPlatformProcess::IsProcRunning(LinuxCrashReporterTracker::CurrentlyRunningCrashReporter))
+			// do not wait indefinitely
+			double kTimeOut = 3 * 60.0;
+			double StartSeconds = FPlatformTime::Seconds();
+			for(;;)
 			{
-				// do not wait indefinitely, allow 45 second hitch (anticipating callstack parsing)
-				const double kEnsureTimeOut = 45.0;
-				const double kEnsureSleepInterval = 0.1;
-				if (!LinuxCrashReporterTracker::WaitForProcWithTimeout(LinuxCrashReporterTracker::CurrentlyRunningCrashReporter, kEnsureTimeOut, kEnsureSleepInterval))
+				if (!FPlatformProcess::IsProcRunning(RunningProc))
 				{
-					FPlatformProcess::TerminateProc(LinuxCrashReporterTracker::CurrentlyRunningCrashReporter);
+					break;
 				}
 
-				LinuxCrashReporterTracker::Tick(0.001f);	// tick one more time to make it clean up after itself
-			}
+				if (FPlatformTime::Seconds() - StartSeconds > kTimeOut)
+				{
+					break;
+				}
 
-			LinuxCrashReporterTracker::CurrentlyRunningCrashReporter = FPlatformProcess::CreateProc(RelativePathToCrashReporter, *CrashReportClientArguments, true, false, false, NULL, 0, NULL, NULL);
-			LinuxCrashReporterTracker::CurrentTicker = FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateStatic(&LinuxCrashReporterTracker::Tick), 1.f);
-		}
-		else
-		{
-			// spin here until CrashReporter exits
-			FProcHandle RunningProc = FPlatformProcess::CreateProc(RelativePathToCrashReporter, *CrashReportClientArguments, true, false, false, NULL, 0, NULL, NULL);
-			// do not wait indefinitely - can be more generous about the hitch than in ensure() case
-			const double kCrashTimeOut = 3 * 60.0;
-			const double kCrashSleepInterval = 1.0;
-			if (!LinuxCrashReporterTracker::WaitForProcWithTimeout(RunningProc, kCrashTimeOut, kCrashSleepInterval))
-			{
-				FPlatformProcess::TerminateProc(RunningProc);
-			}
-
-			FPlatformProcess::CloseProc(RunningProc);
+				FPlatformProcess::Sleep(1.0f);
+			};
 		}
 	}
 
 #endif
 
-	if (!bReportingNonCrash)
-	{
-		// remove the handler for this signal and re-raise it (which should generate the proper core dump)
-		// print message to stdout directly, it may be too late for the log (doesn't seem to be printed during a crash in the thread) 
-		printf("Engine crash handling finished; re-raising signal %d for the default handler. Good bye.\n", Signal);
-		fflush(stdout);
-
-		struct sigaction ResetToDefaultAction;
-		FMemory::Memzero(ResetToDefaultAction);
-		ResetToDefaultAction.sa_handler = SIG_DFL;
-		sigfillset(&ResetToDefaultAction.sa_mask);
-		sigaction(Signal, &ResetToDefaultAction, nullptr);
-
-		raise(Signal);
-	}
+	FPlatformMisc::RequestExit(true);
 }
 
 /**
@@ -524,14 +411,12 @@ void FLinuxCrashContext::GenerateCrashInfoAndLaunchReporter(bool bReportingNonCr
  */
 void DefaultCrashHandler(const FLinuxCrashContext & Context)
 {
+	// Switch to malloc crash.
+	//FMallocCrash::Get().SetAsGMalloc(); 
+
 	printf("DefaultCrashHandler: Signal=%d\n", Context.Signal);
 
-	// Stop the heartbeat thread so that it doesn't interfere with crashreporting
-	FThreadHeartBeat::Get().Stop();
-
-	// at this point we should already be using malloc crash handler (see PlatformCrashHandler)
-
-	const_cast<FLinuxCrashContext&>(Context).CaptureStackTrace();
+	ReportCrash(Context);
 	if (GLog)
 	{
 		GLog->Flush();
@@ -546,7 +431,7 @@ void DefaultCrashHandler(const FLinuxCrashContext & Context)
 		GError->HandleError();
 	}
 
-	return Context.GenerateCrashInfoAndLaunchReporter();
+	return GenerateCrashInfoAndLaunchReporter(Context);
 }
 
 /** Global pointer to crash handler */
@@ -556,9 +441,6 @@ void (* GCrashHandlerPointer)(const FGenericCrashContext & Context) = NULL;
 void PlatformCrashHandler(int32 Signal, siginfo_t* Info, void* Context)
 {
 	fprintf(stderr, "Signal %d caught.\n", Signal);
-
-	// Switch to malloc crash.
-	FPlatformMallocCrash::Get().SetAsGMalloc();
 
 	FLinuxCrashContext CrashContext;
 	CrashContext.InitFromSignal(Signal, Info, Context);
@@ -577,85 +459,28 @@ void PlatformCrashHandler(int32 Signal, siginfo_t* Info, void* Context)
 void FLinuxPlatformMisc::SetGracefulTerminationHandler()
 {
 	struct sigaction Action;
-	FMemory::Memzero(Action);
+	FMemory::Memzero(&Action, sizeof(struct sigaction));
 	Action.sa_sigaction = GracefulTerminationHandler;
-	sigfillset(&Action.sa_mask);
+	sigemptyset(&Action.sa_mask);
 	Action.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
-	sigaction(SIGINT, &Action, nullptr);
-	sigaction(SIGTERM, &Action, nullptr);
-	sigaction(SIGHUP, &Action, nullptr);	//  this should actually cause the server to just re-read configs (restart?)
+	sigaction(SIGINT, &Action, NULL);
+	sigaction(SIGTERM, &Action, NULL);
+	sigaction(SIGHUP, &Action, NULL);	//  this should actually cause the server to just re-read configs (restart?)
 }
-
-// reserve stack for the main thread in BSS
-char FRunnableThreadLinux::MainThreadSignalHandlerStack[FRunnableThreadLinux::EConstants::CrashHandlerStackSize];
 
 void FLinuxPlatformMisc::SetCrashHandler(void (* CrashHandler)(const FGenericCrashContext & Context))
 {
 	GCrashHandlerPointer = CrashHandler;
 
-	// This table lists all signals that we handle. 0 is not a valid signal, it is used as a separator: everything 
-	// before is considered a crash and handled by the crash handler; everything above it is handled elsewhere 
-	// and also omitted from setting to ignore
-	int HandledSignals[] = 
-	{
-		// signals we consider crashes
-		SIGQUIT, 
-		SIGILL, 
-		SIGFPE, 
-		SIGBUS, 
-		SIGSEGV, 
-		SIGSYS,
-		SIGTRAP,
-		0,	// marks the end of crash signals
-		SIGINT,
-		SIGTERM,
-		SIGHUP,
-		SIGCHLD
-	};
-
 	struct sigaction Action;
-	FMemory::Memzero(Action);
-	sigfillset(&Action.sa_mask);
-	Action.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
+	FMemory::Memzero(&Action, sizeof(struct sigaction));
 	Action.sa_sigaction = PlatformCrashHandler;
-
-	// install this handler for all the "crash" signals
-	for (int Signal : HandledSignals)
-	{
-		if (!Signal)
-		{
-			// hit the end of crash signals, the rest is already handled elsewhere
-			break;
-		}
-		sigaction(Signal, &Action, nullptr);
-	}
-
-	// reinitialize the structure, since assigning to both sa_handler and sa_sigacton is ill-advised
-	FMemory::Memzero(Action);
-	sigfillset(&Action.sa_mask);
+	sigemptyset(&Action.sa_mask);
 	Action.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
-	Action.sa_handler = SIG_IGN;
-
-	// set all the signals except ones we know we are handling to be ignored
-	for (int Signal = 1; Signal < NSIG; ++Signal)
-	{
-		bool bSignalShouldBeIgnored = true;
-		for (int HandledSignal : HandledSignals)
-		{
-			if (Signal == HandledSignal)
-			{
-				bSignalShouldBeIgnored = false;
-				break;
-			}
-		}
-
-		if (bSignalShouldBeIgnored)
-		{
-			sigaction(Signal, &Action, nullptr);
-		}
-	}
-
-	checkf(IsInGameThread(), TEXT("Crash handler for the game thread should be set from the game thread only."));
-
-	FRunnableThreadLinux::SetupSignalHandlerStack(FRunnableThreadLinux::MainThreadSignalHandlerStack, sizeof(FRunnableThreadLinux::MainThreadSignalHandlerStack), nullptr);
+	sigaction(SIGQUIT, &Action, NULL);	// SIGQUIT is a user-initiated "crash".
+	sigaction(SIGILL, &Action, NULL);
+	sigaction(SIGFPE, &Action, NULL);
+	sigaction(SIGBUS, &Action, NULL);
+	sigaction(SIGSEGV, &Action, NULL);
+	sigaction(SIGSYS, &Action, NULL);
 }

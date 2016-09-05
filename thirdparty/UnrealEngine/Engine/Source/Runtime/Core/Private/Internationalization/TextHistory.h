@@ -21,6 +21,8 @@ enum class ETextHistoryType
 class CORE_API FTextHistory
 {
 public:
+	friend class FTextSnapshot;
+
 	FTextHistory();
 
 	virtual ~FTextHistory() {}
@@ -50,15 +52,12 @@ public:
 	/** Will rebuild the display string if out of date. */
 	void Rebuild(TSharedRef< FString, ESPMode::ThreadSafe > InDisplayString);
 
-	/** Get the raw revision history. Note: Usually you can to call IsOutOfDate rather than test this! */
-	uint16 GetRevision() const { return Revision; }
-
 protected:
 	/** Returns true if this kind of text history is able to rebuild its text */
 	virtual bool CanRebuildText() { return true; }
 
 	/** Revision index of this history, rebuilds when it is out of sync with the FTextLocalizationManager */
-	uint16 Revision;
+	int32 Revision;
 
 private:
 	/** Disallow copying */
@@ -71,7 +70,7 @@ class CORE_API FTextHistory_Base : public FTextHistory
 {
 public:
 	FTextHistory_Base() {}
-	explicit FTextHistory_Base(FString&& InSourceString);
+	explicit FTextHistory_Base(FString InSourceString);
 
 	/** Allow moving */
 	FTextHistory_Base(FTextHistory_Base&& Other);
@@ -103,7 +102,7 @@ class CORE_API FTextHistory_NamedFormat : public FTextHistory
 {
 public:
 	FTextHistory_NamedFormat() {}
-	FTextHistory_NamedFormat(FTextFormat&& InSourceFmt, FFormatNamedArguments&& InArguments);
+	FTextHistory_NamedFormat(FText InSourceText, FFormatNamedArguments InArguments);
 
 	/** Allow moving */
 	FTextHistory_NamedFormat(FTextHistory_NamedFormat&& Other);
@@ -121,7 +120,7 @@ private:
 	FTextHistory_NamedFormat& operator=(FTextHistory_NamedFormat&);
 
 	/** The pattern used to format the text */
-	FTextFormat SourceFmt;
+	FText SourceText;
 	/** Arguments to replace in the pattern string */
 	FFormatNamedArguments Arguments;
 };
@@ -131,7 +130,7 @@ class CORE_API FTextHistory_OrderedFormat : public FTextHistory
 {
 public:
 	FTextHistory_OrderedFormat() {}
-	FTextHistory_OrderedFormat(FTextFormat&& InSourceFmt, FFormatOrderedArguments&& InArguments);
+	FTextHistory_OrderedFormat(FText InSourceText, FFormatOrderedArguments InArguments);
 
 	/** Allow moving */
 	FTextHistory_OrderedFormat(FTextHistory_OrderedFormat&& Other);
@@ -149,7 +148,7 @@ private:
 	FTextHistory_OrderedFormat& operator=(FTextHistory_OrderedFormat&);
 
 	/** The pattern used to format the text */
-	FTextFormat SourceFmt;
+	FText SourceText;
 	/** Arguments to replace in the pattern string */
 	FFormatOrderedArguments Arguments;
 };
@@ -159,7 +158,7 @@ class CORE_API FTextHistory_ArgumentDataFormat : public FTextHistory
 {
 public:
 	FTextHistory_ArgumentDataFormat() {}
-	FTextHistory_ArgumentDataFormat(FTextFormat&& InSourceFmt, TArray<FFormatArgumentData>&& InArguments);
+	FTextHistory_ArgumentDataFormat(FText InSourceText, TArray<FFormatArgumentData> InArguments);
 
 	/** Allow moving */
 	FTextHistory_ArgumentDataFormat(FTextHistory_ArgumentDataFormat&& Other);
@@ -177,7 +176,7 @@ private:
 	FTextHistory_ArgumentDataFormat& operator=(FTextHistory_ArgumentDataFormat&);
 
 	/** The pattern used to format the text */
-	FTextFormat SourceFmt;
+	FText SourceText;
 	/** Arguments to replace in the pattern string */
 	TArray<FFormatArgumentData> Arguments;
 };

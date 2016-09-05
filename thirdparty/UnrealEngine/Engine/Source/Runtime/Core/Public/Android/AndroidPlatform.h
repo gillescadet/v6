@@ -50,15 +50,10 @@ typedef FAndroidTypes FPlatformTypes;
 #define VARARGS													/* Functions with variable arguments */
 #define CDECL													/* Standard C function */
 #define STDCALL													/* Standard calling convention */
-#if UE_BUILD_DEBUG 
-	#define FORCEINLINE	inline									/* Easier to debug */
-#else
-	#define FORCEINLINE inline __attribute__ ((always_inline))	/* Force code to be inline */
-#endif
+#define FORCEINLINE inline __attribute__ ((always_inline))		/* Force code to be inline */
 #define FORCENOINLINE __attribute__((noinline))					/* Force code to NOT be inline */
 
-#define FUNCTION_CHECK_RETURN_END __attribute__ ((warn_unused_result))	/* Warn that callers should not ignore the return value. */
-#define FUNCTION_NO_RETURN_END __attribute__ ((noreturn))				/* Indicate that the function never returns. */
+#define FUNCTION_CHECK_RETURN(...) __VA_ARGS__ __attribute__ ((warn_unused_result))	/* Wrap a function signature in this to warn that callers should not ignore the return value. */
 
 #define TEXT_HELPER(a,b)	a ## b
 #define TEXT(s)				TEXT_HELPER(L, s)

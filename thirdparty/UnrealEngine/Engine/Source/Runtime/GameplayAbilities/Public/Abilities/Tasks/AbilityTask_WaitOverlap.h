@@ -4,7 +4,7 @@
 #include "Abilities/GameplayAbilityTypes.h"
 #include "AbilityTask_WaitOverlap.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWaitOverlapDelegate, const FGameplayAbilityTargetDataHandle&, TargetData);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWaitOverlapDelegate, FGameplayAbilityTargetDataHandle, TargetData);
 
 class AActor;
 class UPrimitiveComponent;
@@ -23,7 +23,10 @@ class UAbilityTask_WaitOverlap : public UAbilityTask
 	FWaitOverlapDelegate	OnOverlap;
 
 	UFUNCTION()
-	void OnHitCallback(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+	void OnOverlapCallback(AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnHitCallback(AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
 	virtual void Activate() override;
 

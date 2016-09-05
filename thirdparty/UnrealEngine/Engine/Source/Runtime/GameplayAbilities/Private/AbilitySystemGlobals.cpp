@@ -14,10 +14,9 @@ UAbilitySystemGlobals::UAbilitySystemGlobals(const FObjectInitializer& ObjectIni
 : Super(ObjectInitializer)
 {
 	AbilitySystemGlobalsClassName = FStringClassReference(TEXT("/Script/GameplayAbilities.AbilitySystemGlobals"));
+	GlobalGameplayCueManagerName = FStringClassReference(TEXT("/Script/GameplayAbilities.GameplayCueManager"));
 
 	PredictTargetGameplayEffects = true;
-
-	MinimalReplicationTagCountBits = 5;
 
 #if WITH_EDITORONLY_DATA
 	RegisteredReimportCallback = false;
@@ -39,34 +38,41 @@ void UAbilitySystemGlobals::InitGlobalData()
 	GetGameplayCueManager();
 	GetGameplayTagResponseTable();
 	InitGlobalTags();
-
-	// Register for PreloadMap so cleanup can occur on map transitions
-	FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &UAbilitySystemGlobals::HandlePreLoadMap);
 }
-
 
 UCurveTable * UAbilitySystemGlobals::GetGlobalCurveTable()
 {
-	if (!GlobalCurveTable && GlobalCurveTableName.IsValid())
-	{
-		GlobalCurveTable = Cast<UCurveTable>(GlobalCurveTableName.TryLoad());
-	}
-	return GlobalCurveTable;
+	return InternalGetLoadTable<UCurveTable>(GlobalCurveTable, GlobalCurveTableName);
 }
 
 UDataTable * UAbilitySystemGlobals::GetGlobalAttributeMetaDataTable()
 {
-	if (!GlobalAttributeMetaDataTable && GlobalAttributeMetaDataTableName.IsValid())
+	return InternalGetLoadTable<UDataTable>(GlobalAttributeMetaDataTable, GlobalAttributeMetaDataTableName);
+}
+
+template <class T>
+T* UAbilitySystemGlobals::InternalGetLoadTable(T*& Table, FString TableName)
+{
+	if (!Table && !TableName.IsEmpty())
 	{
-		GlobalAttributeMetaDataTable = Cast<UDataTable>(GlobalAttributeMetaDataTableName.TryLoad());
+		Table = LoadObject<T>(NULL, *TableName, NULL, LOAD_None, NULL);
+#if WITH_EDITOR
+		// Hook into notifications for object re-imports so that the gameplay tag tree can be reconstructed if the table changes
+		if (GIsEditor && Table && !RegisteredReimportCallback)
+		{
+			GEditor->OnObjectReimported().AddUObject(this, &UAbilitySystemGlobals::OnTableReimported);
+			RegisteredReimportCallback = true;
+		}
+#endif
 	}
-	return GlobalAttributeMetaDataTable;
+
+	return Table;
 }
 
 void UAbilitySystemGlobals::DeriveGameplayCueTagFromAssetName(FString AssetName, FGameplayTag& GameplayCueTag, FName& GameplayCueName)
 {
 	// In the editor, attempt to infer GameplayCueTag from our asset name (if there is no valid GameplayCueTag already).
-#if WITH_EDITOR
+	#if WITH_EDITOR
 	if (GIsEditor)
 	{
 		if (GameplayCueTag.IsValid() == false)
@@ -87,7 +93,7 @@ void UAbilitySystemGlobals::DeriveGameplayCueTagFromAssetName(FString AssetName,
 		}
 		GameplayCueName = GameplayCueTag.GetTagName();
 	}
-#endif
+	#endif
 }
 
 
@@ -95,13 +101,9 @@ void UAbilitySystemGlobals::DeriveGameplayCueTagFromAssetName(FString AssetName,
 
 void UAbilitySystemGlobals::OnTableReimported(UObject* InObject)
 {
-	if (GIsEditor && !IsRunningCommandlet() && InObject)
+	if (GIsEditor && !IsRunningCommandlet() && InObject && InObject == GlobalAttributeDefaultsTable)
 	{
-		UCurveTable* ReimportedCurveTable = Cast<UCurveTable>(InObject);
-		if (ReimportedCurveTable && GlobalAttributeDefaultsTables.Contains(ReimportedCurveTable))
-		{
-			ReloadAttributeDefaults();
-		}
+		ReloadAttributeDefaults();
 	}	
 }
 
@@ -115,6 +117,16 @@ FGameplayAbilityActorInfo * UAbilitySystemGlobals::AllocAbilityActorInfo() const
 FGameplayEffectContext* UAbilitySystemGlobals::AllocGameplayEffectContext() const
 {
 	return new FGameplayEffectContext();
+}
+
+/** This is just some syntax sugar to avoid calling gode to have to IGameplayAbilitiesModule::Get() */
+UAbilitySystemGlobals& UAbilitySystemGlobals::Get()
+{
+	static UAbilitySystemGlobals* GlobalPtr = IGameplayAbilitiesModule::Get().GetAbilitySystemGlobals();
+	check(GlobalPtr == IGameplayAbilitiesModule::Get().GetAbilitySystemGlobals());
+	check(GlobalPtr);
+
+	return *GlobalPtr;
 }
 
 /** Helping function to avoid having to manually cast */
@@ -186,44 +198,10 @@ UFunction* UAbilitySystemGlobals::GetGameplayCueFunction(const FGameplayTag& Chi
 
 // --------------------------------------------------------------------
 
-void UAbilitySystemGlobals::InitGameplayCueParameters(FGameplayCueParameters& CueParameters, const FGameplayEffectSpecForRPC& Spec)
+void UAbilitySystemGlobals::InitGameplayCueParameters(FGameplayCueParameters& CueParameters, const FGameplayEffectSpecForRPC &Spec)
 {
 	CueParameters.AggregatedSourceTags = Spec.AggregatedSourceTags;
 	CueParameters.AggregatedTargetTags = Spec.AggregatedTargetTags;
-	CueParameters.GameplayEffectLevel = Spec.GetLevel();
-	CueParameters.AbilityLevel = Spec.GetAbilityLevel();
-	InitGameplayCueParameters(CueParameters, Spec.GetContext());
-}
-
-void UAbilitySystemGlobals::InitGameplayCueParameters_GESpec(FGameplayCueParameters& CueParameters, const FGameplayEffectSpec& Spec)
-{
-	CueParameters.AggregatedSourceTags = *Spec.CapturedSourceTags.GetAggregatedTags();
-	CueParameters.AggregatedTargetTags = *Spec.CapturedTargetTags.GetAggregatedTags();
-
-	// Look for a modified attribute magnitude to pass to the CueParameters
-	for (const FGameplayEffectCue& CueDef : Spec.Def->GameplayCues)
-	{	
-		bool FoundMatch = false;
-		if (CueDef.MagnitudeAttribute.IsValid())
-		{
-			for (const FGameplayEffectModifiedAttribute& ModifiedAttribute : Spec.ModifiedAttributes)
-			{
-				if (ModifiedAttribute.Attribute == CueDef.MagnitudeAttribute)
-				{
-					CueParameters.RawMagnitude = ModifiedAttribute.TotalMagnitude;
-					FoundMatch = true;
-					break;
-				}
-			}
-			if (FoundMatch)
-			{
-				break;
-			}
-		}
-	}
-
-	CueParameters.GameplayEffectLevel = Spec.GetLevel();
-	CueParameters.AbilityLevel = Spec.GetEffectContext().GetAbilityLevel();
 
 	InitGameplayCueParameters(CueParameters, Spec.GetContext());
 }
@@ -252,7 +230,7 @@ void UAbilitySystemGlobals::StartAsyncLoadingObjectLibraries()
 /** Initialize FAttributeSetInitter. This is virtual so projects can override what class they use */
 void UAbilitySystemGlobals::AllocAttributeSetInitter()
 {
-	GlobalAttributeSetInitter = TSharedPtr<FAttributeSetInitter>(new FAttributeSetInitterDiscreteLevels());
+	GlobalAttributeSetInitter = TSharedPtr<FAttributeSetInitter>(new FAttributeSetInitter());
 }
 
 FAttributeSetInitter* UAbilitySystemGlobals::GetAttributeSetInitter() const
@@ -263,45 +241,8 @@ FAttributeSetInitter* UAbilitySystemGlobals::GetAttributeSetInitter() const
 
 void UAbilitySystemGlobals::InitAttributeDefaults()
 {
- 	bool bLoadedAnyDefaults = false;
- 
-	// Handle deprecated, single global table name
-	if (GlobalAttributeSetDefaultsTableName.IsValid())
-	{
-		UCurveTable* AttribTable = Cast<UCurveTable>(GlobalAttributeSetDefaultsTableName.TryLoad());
-		if (AttribTable)
-		{
-			GlobalAttributeDefaultsTables.Add(AttribTable);
-			bLoadedAnyDefaults = true;
-		}
-	}
-
-	// Handle array of global curve tables for attribute defaults
- 	for (const FStringAssetReference& AttribDefaultTableName : GlobalAttributeSetDefaultsTableNames)
- 	{
-		if (AttribDefaultTableName.IsValid())
-		{
-			UCurveTable* AttribTable = Cast<UCurveTable>(AttribDefaultTableName.TryLoad());
-			if (AttribTable)
-			{
-				GlobalAttributeDefaultsTables.Add(AttribTable);
-				bLoadedAnyDefaults = true;
-			}
-		}
- 	}
-	
-	if (bLoadedAnyDefaults)
-	{
-		// Subscribe for reimports if in the editor
-#if WITH_EDITOR
-		if (GIsEditor && !RegisteredReimportCallback)
-		{
-			GEditor->OnObjectReimported().AddUObject(this, &UAbilitySystemGlobals::OnTableReimported);
-			RegisteredReimportCallback = true;
-		}
-#endif
-
-
+	if (InternalGetLoadTable<UCurveTable>(GlobalAttributeDefaultsTable, GlobalAttributeSetDefaultsTableName))
+	{	
 		ReloadAttributeDefaults();
 	}
 }
@@ -309,7 +250,7 @@ void UAbilitySystemGlobals::InitAttributeDefaults()
 void UAbilitySystemGlobals::ReloadAttributeDefaults()
 {
 	AllocAttributeSetInitter();
-	GlobalAttributeSetInitter->PreloadAttributeSetData(GlobalAttributeDefaultsTables);
+	GlobalAttributeSetInitter->PreloadAttributeSetData(GlobalAttributeDefaultsTable);
 }
 
 // --------------------------------------------------------------------
@@ -318,23 +259,12 @@ UGameplayCueManager* UAbilitySystemGlobals::GetGameplayCueManager()
 {
 	if (GlobalGameplayCueManager == nullptr)
 	{
-		// Load specific gameplaycue manager object if specified
 		if (GlobalGameplayCueManagerName.IsValid())
 		{
 			GlobalGameplayCueManager = LoadObject<UGameplayCueManager>(nullptr, *GlobalGameplayCueManagerName.ToString(), nullptr, LOAD_None, nullptr);
 			if (GlobalGameplayCueManager == nullptr)
 			{
 				ABILITY_LOG(Error, TEXT("Unable to Load GameplayCueManager %s"), *GlobalGameplayCueManagerName.ToString() );
-			}
-		}
-
-		// Load specific gameplaycue manager class if specified
-		if ( GlobalGameplayCueManager == nullptr && GlobalGameplayCueManagerClass.IsValid() )
-		{
-			UClass* GCMClass = LoadClass<UObject>(NULL, *GlobalGameplayCueManagerClass.ToString(), NULL, LOAD_None, NULL);
-			if (GCMClass)
-			{
-				GlobalGameplayCueManager = NewObject<UGameplayCueManager>(this, GCMClass, NAME_None);
 			}
 		}
 
@@ -345,14 +275,8 @@ UGameplayCueManager* UAbilitySystemGlobals::GetGameplayCueManager()
 		}
 
 		GlobalGameplayCueManager->OnCreated();
-
-		if (GameplayCueNotifyPaths.Num() == 0)
-		{
-			GameplayCueNotifyPaths.Add(TEXT("/Game"));
-			ABILITY_LOG(Warning, TEXT("No GameplayCueNotifyPaths were specified in DefaultGame.ini under [/Script/GameplayAbilities.AbilitySystemGlobals]. Falling back to using all of /Game/. This may be slow on large projects. Consider specifying which paths are to be searched."));
-		}
 		
-		if (GlobalGameplayCueManager->ShouldAsyncLoadObjectLibrariesAtStart())
+		if (GlobalGameplayCueManager->ShouldAsyncLoadObjectLibrariesAtStart() && GameplayCueNotifyPaths.Num() > 0)
 		{
 			StartAsyncLoadingObjectLibraries();
 		}
@@ -407,10 +331,4 @@ bool UAbilitySystemGlobals::ShouldIgnoreCosts() const
 #else
 	return false;
 #endif // #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-}
-
-void UAbilitySystemGlobals::HandlePreLoadMap(const FString& MapName)
-{
-	IGameplayCueInterface::ClearTagToFunctionMap();
-	FActiveGameplayEffectHandle::ResetGlobalHandleMap();
 }

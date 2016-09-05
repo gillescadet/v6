@@ -26,7 +26,6 @@
 	#include "HideWindowsPlatformTypes.h"
 #endif
 
-class FBrowserBufferedVideo;
 /**
  * Helper for containing items required for CEF browser window creation.
  */
@@ -62,7 +61,7 @@ private:
 	 * @param InContentsToLoad Optional string to load as a web page.
 	 * @param InShowErrorMessage Whether to show an error message in case of loading errors.
 	 */
-	FWebBrowserWindow(CefRefPtr<CefBrowser> InBrowser, CefRefPtr<FWebBrowserHandler> InHandler, FString InUrl, TOptional<FString> InContentsToLoad, bool ShowErrorMessage, bool bThumbMouseButtonNavigation, bool bUseTransparency);
+	FWebBrowserWindow(CefRefPtr<CefBrowser> InBrowser, FString InUrl, TOptional<FString> InContentsToLoad, bool ShowErrorMessage, bool bThumbMouseButtonNavigation, bool bUseTransparency);
 
 public:
 	/** Virtual Destructor. */
@@ -153,7 +152,7 @@ public:
 
 	virtual FOnCreateWindow& OnCreateWindow() override
 	{
-		return WebBrowserHandler->OnCreateWindow();
+		return CreateWindowDelegate;
 	}
 
 	virtual FOnCloseWindow& OnCloseWindow() override
@@ -168,7 +167,7 @@ public:
 
 	virtual FOnBeforePopupDelegate& OnBeforePopup() override
 	{
-		return WebBrowserHandler->OnBeforePopup();
+		return BeforePopupDelegate;
 	}
 
 	DECLARE_DERIVED_EVENT(FWebBrowserWindow, IWebBrowserWindow::FOnShowPopup, FOnShowPopup);
@@ -313,6 +312,12 @@ private:
 	void OnRenderProcessTerminated(CefRequestHandler::TerminationStatus Status);
 
 
+	/** Specifies if window creation functionality is available. 
+	 *
+	 * @return true if window creation functionality was provided, false otherwise.  If false, RequestCreateWindow() will always return false.
+	 */
+	bool SupportsNewWindows();
+
 	/** Called when the browser requests a new UI window
 	 *
 	 * @param NewBrowserWindow The web browser window to display in the new UI window.
@@ -352,6 +357,9 @@ private:
 
 public:
 
+	// Trigger an OnBeforePopup event chain
+	bool OnCefBeforePopup(const CefString& Target_Url, const CefString& Target_Frame_Name);
+
 	/**
 	 * Gets the Cef Keyboard Modifiers based on a Key Event.
 	 * 
@@ -384,11 +392,6 @@ public:
 	void CheckTickActivity();
 
 	/**
-	* Called from the engine tick.
-	*/
-	void UpdateVideoBuffering();
-
-	/**
 	 * Called on every browser window when CEF launches a new render process.
 	 * Used to ensure global JS objects are registered as soon as possible.
 	 */
@@ -414,9 +417,6 @@ private:
 
 	/** Pointer to the CEF Browser for this window. */
 	CefRefPtr<CefBrowser> InternalCefBrowser;
-
-	/** Pointer to the CEF handler for this window. */
-	CefRefPtr<FWebBrowserHandler> WebBrowserHandler;
 
 	/** Current title of this window. */
 	FString Title;
@@ -469,6 +469,12 @@ private:
 	/** Delegate for overriding Url contents. */
 	FOnLoadUrl LoadUrlDelegate;
 
+	/** Delegate for notifying that a popup window is attempting to open. */
+	FOnBeforePopupDelegate BeforePopupDelegate;
+	
+	/** Delegate for handling requests to create new windows. */
+	FOnCreateWindow CreateWindowDelegate;
+
 	/** Delegate for handling requests to close new windows that were created. */
 	FOnCloseWindow CloseWindowDelegate;
 
@@ -515,8 +521,6 @@ private:
 	bool bRecoverFromRenderProcessCrash;
 
 	int ErrorCode;
-
-	TUniquePtr<FBrowserBufferedVideo> BufferedVideo;
 
 	/** Handling of passing and marshalling messages for JS integration is delegated to a helper class*/
 	TSharedPtr<FWebJSScripting> Scripting;

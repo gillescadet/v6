@@ -2,13 +2,11 @@
 
 #include "CoreUObjectPrivate.h"
 #include "PropertyLocalizationDataGathering.h"
-#include "TextPackageNamespaceUtil.h"
 #include "UTextProperty.h"
 
-FPropertyLocalizationDataGatherer::FPropertyLocalizationDataGatherer(TArray<FGatherableTextData>& InOutGatherableTextDataArray, const UPackage* const InPackage, EPropertyLocalizationGathererResultFlags& OutResultFlags)
-	: GatherableTextDataArray(InOutGatherableTextDataArray)
+FPropertyLocalizationDataGatherer::FPropertyLocalizationDataGatherer(TArray<FGatherableTextData>& InGatherableTextDataArray, const UPackage* const InPackage)
+	: GatherableTextDataArray(InGatherableTextDataArray)
 	, Package(InPackage)
-	, ResultFlags(OutResultFlags)
 	, AllObjectsInPackage()
 {
 	// Build up the list of objects that are within our package - we won't follow object references to things outside of our package
@@ -33,20 +31,6 @@ FPropertyLocalizationDataGatherer::FPropertyLocalizationDataGatherer(TArray<FGat
 	}
 }
 
-bool FPropertyLocalizationDataGatherer::ShouldProcessObject(const UObject* Object, const EPropertyLocalizationGathererTextFlags GatherTextFlags)
-{
-	if (Object->HasAnyFlags(RF_Transient))
-	{
-		// Transient objects aren't saved, so skip them as part of the gather
-		return false;
-	}
-
-	// Skip objects that we've already processed to avoid repeated work and cyclic chains
-	bool bAlreadyProcessed = false;
-	ProcessedObjects.Add(FObjectAndGatherFlags(Object, GatherTextFlags), &bAlreadyProcessed);
-	return !bAlreadyProcessed;
-}
-
 void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromObjectWithCallbacks(const UObject* Object, const EPropertyLocalizationGathererTextFlags GatherTextFlags)
 {
 	// See if we have a custom handler for this type
@@ -62,12 +46,7 @@ void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromObjectWithCall
 
 	if (CustomCallback)
 	{
-		checkf(IsObjectValidForGather(Object), TEXT("Cannot gather for objects outside of the current package! Package: '%s'. Object: '%s'."), *Package->GetFullName(), *Object->GetFullName());
-
-		if (ShouldProcessObject(Object, GatherTextFlags))
-		{
-			(*CustomCallback)(Object, *this, GatherTextFlags);
-		}
+		(*CustomCallback)(Object, *this, GatherTextFlags);
 	}
 	else
 	{
@@ -79,9 +58,23 @@ void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromObject(const U
 {
 	checkf(IsObjectValidForGather(Object), TEXT("Cannot gather for objects outside of the current package! Package: '%s'. Object: '%s'."), *Package->GetFullName(), *Object->GetFullName());
 
-	if (!ShouldProcessObject(Object, GatherTextFlags))
+	if (Object->HasAnyFlags(RF_Transient))
 	{
+		// Transient objects aren't saved, so skip them as part of the gather
 		return;
+	}
+
+	// Skip objects that we've already processed to avoid repeated work and cyclic chains
+	{
+		FObjectAndGatherFlags Key(Object, GatherTextFlags);
+
+		bool bAlreadyProcessed = false;
+		ProcessedObjects.Add(Key, &bAlreadyProcessed);
+
+		if (bAlreadyProcessed)
+		{
+			return;
+		}
 	}
 
 	const FString Path = Object->GetPathName();
@@ -91,11 +84,6 @@ void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromObject(const U
 
 	// Also gather from the script data on UStruct types.
 	{
-		if (!!(GatherTextFlags & EPropertyLocalizationGathererTextFlags::ForceHasScript))
-		{
-			ResultFlags |= EPropertyLocalizationGathererResultFlags::HasScript;
-		}
-
 		const UStruct* Struct = Cast<UStruct>(Object);
 		if (Struct)
 		{
@@ -174,7 +162,6 @@ void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromChildTextPrope
 	const UTextProperty* const TextProperty = Cast<const UTextProperty>(Property);
 	const UArrayProperty* const ArrayProperty = Cast<const UArrayProperty>(Property);
 	const UMapProperty* const MapProperty = Cast<const UMapProperty>(Property);
-	const USetProperty* const SetProperty = Cast<const USetProperty>(Property);
 	const UStructProperty* const StructProperty = Cast<const UStructProperty>(Property);
 	const UObjectPropertyBase* const ObjectProperty = Cast<const UObjectPropertyBase>(Property);
 
@@ -223,23 +210,6 @@ void FPropertyLocalizationDataGatherer::GatherLocalizationDataFromChildTextPrope
 					GatherLocalizationDataFromChildTextProperties(PathToElement + FString::Printf(TEXT("(%d - Value)"), j), MapProperty->ValueProp, MapPairPtr + MapProperty->MapLayout.ValueOffset, ChildPropertyGatherTextFlags);
 				}
 			}
-			// Property is a set property.
-			else if (SetProperty)
-			{
-				// Iterate over all elements of the Set.
-				FScriptSetHelper ScriptSetHelper(SetProperty, ElementValueAddress);
-				const int32 ElementCount = ScriptSetHelper.Num();
-				for(int32 j = 0; j < ElementCount; ++j)
-				{
-					if (!ScriptSetHelper.IsValidIndex(j))
-					{
-						continue;
-					}
-
-					const uint8* ElementPtr = ScriptSetHelper.GetElementPtr(j);
-					GatherLocalizationDataFromChildTextProperties(PathToElement + FString::Printf(TEXT("(%d)"), j), SetProperty->ElementProp, ElementPtr + SetProperty->SetLayout.ElementOffset, ChildPropertyGatherTextFlags);
-				}
-			}
 			// Property is a struct property.
 			else if (StructProperty)
 			{
@@ -283,14 +253,12 @@ void FPropertyLocalizationDataGatherer::GatherTextInstance(const FText& Text, co
 	FString Namespace;
 	FString Key;
 	const FTextDisplayStringRef DisplayString = FTextInspector::GetSharedDisplayString(Text);
-	const bool bFoundNamespaceAndKey = FTextLocalizationManager::Get().FindNamespaceAndKeyFromDisplayString(DisplayString, Namespace, Key);
+	const bool FoundNamespaceAndKey = FTextLocalizationManager::Get().FindNamespaceAndKeyFromDisplayString(DisplayString, Namespace, Key);
 
-	if (!bFoundNamespaceAndKey || !Text.ShouldGatherForLocalization())
+	if (!Text.ShouldGatherForLocalization())
 	{
 		return;
 	}
-
-	ResultFlags |= EPropertyLocalizationGathererResultFlags::HasText;
 
 	FTextSourceData SourceData;
 	{
@@ -311,39 +279,33 @@ void FPropertyLocalizationDataGatherer::GatherTextInstance(const FText& Text, co
 		GatherableTextData->SourceData = SourceData;
 	}
 
-#if USE_STABLE_LOCALIZATION_KEYS
-	// Make sure the namespace is what we expect for this package
-	// This would usually be done when the text is loaded, but we also gather text when saving packages so we need to make sure things are consistent
+	// If this text has no key, fix it by generating a new GUID for the key.
+	if (!FoundNamespaceAndKey || Key.IsEmpty())
 	{
-		const FString PackageNamespace = TextNamespaceUtil::GetPackageNamespace(Package);
-		if (!PackageNamespace.IsEmpty())
+		const FString NewKey = FGuid::NewGuid().ToString();
+		bool HasSuccessfullySetKey = false;
+		if (FoundNamespaceAndKey)
 		{
-			Namespace = TextNamespaceUtil::BuildFullNamespace(Namespace, PackageNamespace);
+			HasSuccessfullySetKey = FTextLocalizationManager::Get().UpdateDisplayString(DisplayString, *DisplayString, Namespace, NewKey);
+		}
+		else
+		{
+			HasSuccessfullySetKey = FTextLocalizationManager::Get().AddDisplayString(DisplayString, TEXT(""), NewKey);
+		}
+
+		if (HasSuccessfullySetKey)
+		{
+			Key = NewKey;
 		}
 	}
-#endif // USE_STABLE_LOCALIZATION_KEYS
 
-	// We might attempt to add the same text multiple times if we process the same object with slightly different flags - only add this source site once though.
+	// Add to map.
 	{
-		static const FLocMetadataObject DefaultMetadataObject;
-		const bool bFoundSourceSiteContext = GatherableTextData->SourceSiteContexts.ContainsByPredicate([&](const FTextSourceSiteContext& InSourceSiteContext) -> bool
-		{
-			return InSourceSiteContext.KeyName.Equals(Key, ESearchCase::CaseSensitive)
-				&& InSourceSiteContext.SiteDescription.Equals(Description, ESearchCase::CaseSensitive)
-				&& InSourceSiteContext.IsEditorOnly == bIsEditorOnly
-				&& InSourceSiteContext.IsOptional == false
-				&& InSourceSiteContext.InfoMetaData == DefaultMetadataObject
-				&& InSourceSiteContext.KeyMetaData == DefaultMetadataObject;
-		});
-
-		if (!bFoundSourceSiteContext)
-		{
-			FTextSourceSiteContext& SourceSiteContext = GatherableTextData->SourceSiteContexts[GatherableTextData->SourceSiteContexts.AddDefaulted()];
-			SourceSiteContext.KeyName = Key;
-			SourceSiteContext.SiteDescription = Description;
-			SourceSiteContext.IsEditorOnly = bIsEditorOnly;
-			SourceSiteContext.IsOptional = false;
-		}
+		FTextSourceSiteContext& SourceSiteContext = GatherableTextData->SourceSiteContexts[GatherableTextData->SourceSiteContexts.AddDefaulted()];
+		SourceSiteContext.KeyName = Key;
+		SourceSiteContext.SiteDescription = Description;
+		SourceSiteContext.IsEditorOnly = bIsEditorOnly;
+		SourceSiteContext.IsOptional = false;
 	}
 }
 
@@ -444,50 +406,22 @@ void FPropertyLocalizationDataGatherer::GatherScriptBytecode(const FString& Path
 
 		void SerializeText(int32& iCode, FArchive& Ar)
 		{
-			// What kind of text are we dealing with?
-			const EBlueprintTextLiteralType TextLiteralType = (EBlueprintTextLiteralType)Script[iCode++];
+			bIsParsingText = true;
 
-			switch (TextLiteralType)
-			{
-			case EBlueprintTextLiteralType::Empty:
-				// Don't need to gather empty text
-				break;
+			SerializeExpr(iCode, Ar);
+			const FString SourceString = MoveTemp(LastParsedString);
 
-			case EBlueprintTextLiteralType::LocalizedText:
-				{
-					bIsParsingText = true;
+			SerializeExpr(iCode, Ar);
+			const FString TextKey = MoveTemp(LastParsedString);
 
-					SerializeExpr(iCode, Ar);
-					const FString SourceString = MoveTemp(LastParsedString);
+			SerializeExpr(iCode, Ar);
+			const FString TextNamespace = MoveTemp(LastParsedString);
 
-					SerializeExpr(iCode, Ar);
-					const FString TextKey = MoveTemp(LastParsedString);
+			const FText TextInstance = FInternationalization::ForUseOnlyByLocMacroAndGraphNodeTextLiterals_CreateText(*SourceString, *TextNamespace, *TextKey);
 
-					SerializeExpr(iCode, Ar);
-					const FString TextNamespace = MoveTemp(LastParsedString);
+			PropertyLocalizationDataGatherer.GatherTextInstance(TextInstance, FString::Printf(TEXT("%s [Script Bytecode]"), SourceDescription), bTreatAsEditorOnlyData);
 
-					bIsParsingText = false;
-
-					const FText TextInstance = FInternationalization::ForUseOnlyByLocMacroAndGraphNodeTextLiterals_CreateText(*SourceString, *TextNamespace, *TextKey);
-
-					PropertyLocalizationDataGatherer.GatherTextInstance(TextInstance, FString::Printf(TEXT("%s [Script Bytecode]"), SourceDescription), bTreatAsEditorOnlyData);
-				}
-				break;
-
-			case EBlueprintTextLiteralType::InvariantText:
-				// Don't need to gather invariant text, but we do need to walk over the string in the buffer
-				SerializeExpr(iCode, Ar);
-				break;
-
-			case EBlueprintTextLiteralType::LiteralString:
-				// Don't need to gather literal strings, but we do need to walk over the string in the buffer
-				SerializeExpr(iCode, Ar);
-				break;
-
-			default:
-				checkf(false, TEXT("Unknown EBlueprintTextLiteralType! Please update FGatherTextFromScriptBytecode::SerializeText to handle this type of text."));
-				break;
-			}
+			bIsParsingText = false;
 		}
 
 		const TCHAR* SourceDescription;
@@ -499,11 +433,6 @@ void FPropertyLocalizationDataGatherer::GatherScriptBytecode(const FString& Path
 		bool bIsParsingText;
 		FString LastParsedString;
 	};
-
-	if (ScriptData.Num() > 0)
-	{
-		ResultFlags |= EPropertyLocalizationGathererResultFlags::HasScript;
-	}
 
 	FGatherTextFromScriptBytecode(*PathToScript, ScriptData, *this, bIsEditorOnly);
 }

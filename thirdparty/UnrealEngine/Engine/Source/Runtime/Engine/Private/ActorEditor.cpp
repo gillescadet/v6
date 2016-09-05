@@ -67,7 +67,7 @@ void AActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 				}
 				if (USceneComponent* ASC = Cast<USceneComponent>(&A))
 				{
-					if (ASC->GetAttachParent() == &B)
+					if (ASC->AttachParent == &B)
 					{
 						return false;
 					}
@@ -85,7 +85,7 @@ void AActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 				else if (Component->CreationMethod == EComponentCreationMethod::Instance)
 				{
 					USceneComponent* SC = Cast<USceneComponent>(Component);
-					if (SC == nullptr || SC == RootComponent || (SC->GetAttachParent() && SC->GetAttachParent()->IsRegistered()))
+					if (SC == nullptr || SC == RootComponent || (SC->AttachParent && SC->AttachParent->IsRegistered()))
 					{
 						Component->RegisterComponent();
 					}
@@ -109,9 +109,8 @@ void AActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 		}
 		else
 		{
-			UnregisterAllComponents();
-			RerunConstructionScripts();
 			ReregisterAllComponents();
+			RerunConstructionScripts();
 		}
 	}
 
@@ -240,7 +239,7 @@ void AActor::DebugShowOneComponentHierarchy( USceneComponent* SceneComp, int32& 
 	{
 		UE_LOG(LogActor, Warning, TEXT("%sSceneComp [%x] (%s) No Owner"), *Nest, SceneComp, *SceneComp->GetFName().ToString() );
 	}
-	if( SceneComp->GetAttachParent())
+	if( SceneComp->AttachParent )
 	{
 		if( bShowPosition )
 		{
@@ -252,17 +251,18 @@ void AActor::DebugShowOneComponentHierarchy( USceneComponent* SceneComp, int32& 
 		{
 			PosString = "";
 		}
-		UE_LOG(LogActor, Warning, TEXT("%sAttachParent [%x] (%s) %s"), *Nest, SceneComp->GetAttachParent(), *SceneComp->GetAttachParent()->GetFName().ToString(), *PosString );
+		UE_LOG(LogActor, Warning, TEXT("%sAttachParent [%x] (%s) %s"), *Nest, SceneComp->AttachParent , *SceneComp->AttachParent->GetFName().ToString(), *PosString );
 	}
 	else
 	{
 		UE_LOG(LogActor, Warning, TEXT("%s[NO PARENT]"), *Nest );
 	}
 
-	if( SceneComp->GetAttachChildren().Num() != 0 )
+	if( SceneComp->AttachChildren.Num() != 0 )
 	{
-		for (USceneComponent* EachSceneComp : SceneComp->GetAttachChildren())
+		for (int32 iChild = 0; iChild < SceneComp->AttachChildren.Num() ; iChild++)
 		{			
+			USceneComponent* EachSceneComp = Cast<USceneComponent>(SceneComp->AttachChildren[iChild]);			
 			DebugShowOneComponentHierarchy(EachSceneComp,NestLevel, bShowPosition );
 		}
 	}
@@ -272,26 +272,26 @@ void AActor::DebugShowOneComponentHierarchy( USceneComponent* SceneComp, int32& 
 	}
 }
 
-AActor::FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor* Actor, const bool bCacheRootComponentData)
+AActor::FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor* Actor)
 	: ComponentInstanceData(Actor)
 {
 	USceneComponent* ActorRootComponent = Actor->GetRootComponent();
-	if (bCacheRootComponentData && ActorRootComponent && ActorRootComponent->IsCreatedByConstructionScript())
+	if (ActorRootComponent && ActorRootComponent->IsCreatedByConstructionScript())
 	{
 		bRootComponentDataCached = true;
 		RootComponentData.Transform = ActorRootComponent->ComponentToWorld;
 		RootComponentData.Transform.SetTranslation(ActorRootComponent->GetComponentLocation()); // take into account any custom location
 
-		if (ActorRootComponent->GetAttachParent())
+		if (ActorRootComponent->AttachParent)
 		{
-			RootComponentData.AttachedParentInfo.Actor = ActorRootComponent->GetAttachParent()->GetOwner();
-			RootComponentData.AttachedParentInfo.AttachParent = ActorRootComponent->GetAttachParent();
-			RootComponentData.AttachedParentInfo.AttachParentName = ActorRootComponent->GetAttachParent()->GetFName();
-			RootComponentData.AttachedParentInfo.SocketName = ActorRootComponent->GetAttachSocketName();
+			RootComponentData.AttachedParentInfo.Actor = ActorRootComponent->AttachParent->GetOwner();
+			RootComponentData.AttachedParentInfo.AttachParent = ActorRootComponent->AttachParent;
+			RootComponentData.AttachedParentInfo.AttachParentName = ActorRootComponent->AttachParent->GetFName();
+			RootComponentData.AttachedParentInfo.SocketName = ActorRootComponent->AttachSocketName;
 			RootComponentData.AttachedParentInfo.RelativeTransform = ActorRootComponent->GetRelativeTransform();
 		}
 
-		for (USceneComponent* AttachChild : ActorRootComponent->GetAttachChildren())
+		for (USceneComponent* AttachChild : ActorRootComponent->AttachChildren)
 		{
 			AActor* ChildOwner = (AttachChild ? AttachChild->GetOwner() : NULL);
 			if (ChildOwner && ChildOwner != Actor)
@@ -299,7 +299,7 @@ AActor::FActorTransactionAnnotation::FActorTransactionAnnotation(const AActor* A
 				// Save info about actor to reattach
 				FActorRootComponentReconstructionData::FAttachedActorInfo Info;
 				Info.Actor = ChildOwner;
-				Info.SocketName = AttachChild->GetAttachSocketName();
+				Info.SocketName = AttachChild->AttachSocketName;
 				Info.RelativeTransform = AttachChild->GetRelativeTransform();
 				RootComponentData.AttachedToInfo.Add(Info);
 			}
@@ -323,17 +323,12 @@ bool AActor::FActorTransactionAnnotation::HasInstanceData() const
 
 TSharedPtr<ITransactionObjectAnnotation> AActor::GetTransactionAnnotation() const
 {
-	if (CurrentTransactionAnnotation.IsValid())
-	{
-		return CurrentTransactionAnnotation;
-	}
-
 	TSharedPtr<FActorTransactionAnnotation> TransactionAnnotation = MakeShareable(new FActorTransactionAnnotation(this));
 
 	if (!TransactionAnnotation->HasInstanceData())
 	{
 		// If there is nothing in the annotation don't bother storing it.
-		TransactionAnnotation = nullptr;
+		TransactionAnnotation = NULL;
 	}
 
 	return TransactionAnnotation;
@@ -452,9 +447,7 @@ void AActor::EditorApplyTranslation(const FVector& DeltaTranslation, bool bAltDo
 {
 	if( RootComponent != NULL )
 	{
-		FTransform NewTransform = GetRootComponent()->GetComponentTransform();
-		NewTransform.SetTranslation(NewTransform.GetTranslation() + DeltaTranslation);
-		GetRootComponent()->SetWorldTransform(NewTransform);
+		GetRootComponent()->SetWorldLocation( GetRootComponent()->GetComponentLocation() + DeltaTranslation );
 	}
 	else
 	{
@@ -521,13 +514,11 @@ void AActor::EditorApplyScale( const FVector& DeltaScale, const FVector* PivotLo
 										   CurrentScale.Y ? CurrentScale.Y : 1.0f,
 										   CurrentScale.Z ? CurrentScale.Z : 1.0f);
 
-			const FRotator ActorRotation = GetActorRotation();
-			const FVector WorldDelta = GetActorLocation() - (*PivotLocation);
-			const FVector LocalDelta = (ActorRotation.GetInverse()).RotateVector(WorldDelta);
-			const FVector LocalScaledDelta = LocalDelta * (ScaleToApply / CurrentScaleSafe);
-			const FVector WorldScaledDelta = ActorRotation.RotateVector(LocalScaledDelta);
-
-			GetRootComponent()->SetWorldLocation(WorldScaledDelta + (*PivotLocation));
+			FVector Loc = GetActorLocation();
+			Loc -= *PivotLocation;
+			Loc *= (ScaleToApply / CurrentScaleSafe);
+			Loc += *PivotLocation;
+			GetRootComponent()->SetWorldLocation(Loc);
 		}
 	}
 	else

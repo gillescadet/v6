@@ -87,10 +87,8 @@ class UMaterialExpressionSceneTexture : public UMaterialExpression
 	bool bFiltered;
 
 	//~ Begin UMaterialExpression Interface
-#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
-#endif
 	//~ End UMaterialExpression Interface
 };
 

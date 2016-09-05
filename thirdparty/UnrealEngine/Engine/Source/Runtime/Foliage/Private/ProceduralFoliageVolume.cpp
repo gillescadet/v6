@@ -11,14 +11,14 @@ AProceduralFoliageVolume::AProceduralFoliageVolume(const FObjectInitializer& Obj
 	ProceduralComponent = ObjectInitializer.CreateDefaultSubobject<UProceduralFoliageComponent>(this, TEXT("ProceduralFoliageComponent"));
 	ProceduralComponent->SetSpawningVolume(this);
 
-	if (UBrushComponent* MyBrushComponent = GetBrushComponent())
+	if (UBrushComponent* BrushComponent = GetBrushComponent())
 	{
-		MyBrushComponent->SetCollisionObjectType(ECC_WorldStatic);
-		MyBrushComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+		BrushComponent->SetCollisionObjectType(ECC_WorldStatic);
+		BrushComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
 
 		// This is important because the volume overlaps with all procedural foliage
 		// That means during streaming we'll get a huge hitch for UpdateOverlaps
-		MyBrushComponent->bGenerateOverlapEvents = false;
+		BrushComponent->bGenerateOverlapEvents = false;
 	}
 }
 

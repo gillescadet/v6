@@ -2,20 +2,19 @@
 
 #pragma once
 
-#include "MovieSceneTrack.h"
+#include "MovieSceneNameableTrack.h"
 #include "MovieSceneSpawnTrack.generated.h"
 
 
-class IMovieSceneTrackInstance;
 class UMovieSceneSection;
 
 
 /**
  * Handles when a spawnable should be spawned and destroyed
  */
-UCLASS(MinimalAPI)
+UCLASS( MinimalAPI )
 class UMovieSceneSpawnTrack
-	: public UMovieSceneTrack
+	: public UMovieSceneNameableTrack
 {
 public:
 
@@ -45,15 +44,12 @@ public:
 
 	virtual UMovieSceneSection* CreateNewSection() override;
 	virtual TSharedPtr<IMovieSceneTrackInstance> CreateInstance() override;
-	virtual bool HasSection(const UMovieSceneSection& Section) const override;
+	virtual bool HasSection(const UMovieSceneSection& Section ) const override;
 	virtual void AddSection(UMovieSceneSection& Section) override;
 	virtual void RemoveSection(UMovieSceneSection& Section) override;
 	virtual bool IsEmpty() const override;
 	virtual TRange<float> GetSectionBoundaries() const override;
 	virtual const TArray<UMovieSceneSection*>& GetAllSections() const override;
-#if WITH_EDITOR
-	virtual ECookOptimizationFlags GetCookOptimizationFlags() const override;
-#endif
 
 #if WITH_EDITORONLY_DATA
 	virtual FText GetDisplayName() const override;

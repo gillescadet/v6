@@ -69,9 +69,7 @@ class ULandscapeMeshCollisionComponent : public ULandscapeHeightfieldCollisionCo
 	TRefCountPtr<struct FPhysXMeshRef>			MeshRef;
 
 	//~ Begin UActorComponent Interface.
-protected:
-	virtual void OnCreatePhysicsState() override;
-public:
+	virtual void CreatePhysicsState() override;
 	virtual void ApplyWorldOffset(const FVector& InOffset, bool bWorldShift) override;
 	//~ End UActorComponent Interface.
 

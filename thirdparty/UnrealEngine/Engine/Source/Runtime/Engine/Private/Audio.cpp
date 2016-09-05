@@ -8,7 +8,6 @@
 #include "ActiveSound.h"
 #include "Audio.h"
 #include "AudioDevice.h"
-#include "AudioThread.h"
 #include "Sound/SoundCue.h"
 #include "Sound/SoundWave.h"
 #include "Sound/SoundNodeWavePlayer.h"
@@ -53,6 +52,7 @@ DEFINE_STAT(STAT_AudioSourceCreateTime);
 DEFINE_STAT(STAT_AudioSubmitBuffersTime);
 DEFINE_STAT(STAT_AudioStartSources);
 DEFINE_STAT(STAT_AudioGatherWaveInstances);
+DEFINE_STAT(STAT_AudioUpdateTime);
 DEFINE_STAT(STAT_AudioFindNearestLocation);
 
 
@@ -172,10 +172,20 @@ FString FSoundBuffer::Describe(bool bUseLongName)
 
 FString FSoundSource::Describe(bool bUseLongName)
 {
+	// look for a component and its owner
+	AActor* SoundOwner = NULL;
+	
+	// TODO - Audio Threading. This won't work cross thread.
+	UAudioComponent* AudioComponent = (WaveInstance->ActiveSound ? WaveInstance->ActiveSound->GetAudioComponent() : nullptr);
+	if (AudioComponent)
+	{
+		SoundOwner = AudioComponent->GetOwner();
+	}
+
 	return FString::Printf(TEXT("Wave: %s, Volume: %6.2f, Owner: %s"), 
 		bUseLongName ? *WaveInstance->WaveData->GetPathName() : *WaveInstance->WaveData->GetName(),
-		WaveInstance->GetVolume(),
-		WaveInstance->ActiveSound ? *WaveInstance->ActiveSound->GetOwnerName() : TEXT("None"));
+		WaveInstance->GetActualVolume(), 
+		SoundOwner ? *SoundOwner->GetName() : TEXT("None"));
 }
 
 void FSoundSource::Stop( void )
@@ -317,45 +327,31 @@ void FSoundSource::UpdateStereoEmitterPositions()
 void FSoundSource::DrawDebugInfo()
 {
 	// Draw 3d Debug information about this source, if enabled
+	// TODO - Audio Threading. This won't work cross thread.
 	FAudioDeviceManager* DeviceManager = GEngine->GetAudioDeviceManager();
 
 	if (DeviceManager && DeviceManager->IsVisualizeDebug3dEnabled())
 	{
-		const uint32 AudioComponentID = WaveInstance->ActiveSound->GetAudioComponentID();
-
-		if (AudioComponentID > 0)
+		UAudioComponent* AudioComponent = (WaveInstance->ActiveSound ? WaveInstance->ActiveSound->GetAudioComponent() : nullptr);
+		if (AudioComponent)
 		{
-			DECLARE_CYCLE_STAT(TEXT("FAudioThreadTask.DrawSourceDebugInfo"), STAT_AudioDrawSourceDebugInfo, STATGROUP_TaskGraphTasks);
-
-			USoundBase* Sound = WaveInstance->ActiveSound->GetSound();
-			const FVector Location = WaveInstance->Location;
-
-			const bool bSpatialized = Buffer->NumChannels == 2 && WaveInstance->bUseSpatialization;
-			const FVector LeftChannelSourceLoc = LeftChannelSourceLocation;
-			const FVector RightChannelSourceLoc = RightChannelSourceLocation;
-
-			FAudioThread::RunCommandOnGameThread([AudioComponentID, Sound, bSpatialized, Location, LeftChannelSourceLoc, RightChannelSourceLoc]()
+			UWorld* SoundWorld = AudioComponent->GetWorld();
+			if (SoundWorld)
 			{
-				UAudioComponent* AudioComponent = UAudioComponent::GetAudioComponentFromID(AudioComponentID);
-				if (AudioComponent)
+				FRotator SoundRotation = AudioComponent->GetComponentRotation();
+				DrawDebugCrosshairs(SoundWorld, WaveInstance->Location, SoundRotation, 20.0f, FColor::White, false, -1.0f, SDPG_Foreground);
+
+				FString Name;
+				WaveInstance->ActiveSound->Sound->GetName(Name);
+
+				if (Buffer->NumChannels == 2 && WaveInstance->bUseSpatialization)
 				{
-					UWorld* SoundWorld = AudioComponent->GetWorld();
-					if (SoundWorld)
-					{
-						FRotator SoundRotation = AudioComponent->GetComponentRotation();
-						DrawDebugCrosshairs(SoundWorld, Location, SoundRotation, 20.0f, FColor::White, false, -1.0f, SDPG_Foreground);
-
-						if (bSpatialized)
-						{
-							DrawDebugCrosshairs(SoundWorld, LeftChannelSourceLoc, SoundRotation, 20.0f, FColor::Red, false, -1.0f, SDPG_Foreground);
-							DrawDebugCrosshairs(SoundWorld, RightChannelSourceLoc, SoundRotation, 20.0f, FColor::Green, false, -1.0f, SDPG_Foreground);
-						}
-
-						const FString Name = Sound->GetName();
-						DrawDebugString(SoundWorld, AudioComponent->GetComponentLocation() + FVector(0, 0, 32), *Name, nullptr, FColor::White, 0.033, false);
-					}
+					DrawDebugCrosshairs(SoundWorld, LeftChannelSourceLocation, SoundRotation, 20.0f, FColor::Red, false, -1.0f, SDPG_Foreground);
+					DrawDebugCrosshairs(SoundWorld, RightChannelSourceLocation, SoundRotation, 20.0f, FColor::Green, false, -1.0f, SDPG_Foreground);
 				}
-			}, GET_STATID(STAT_AudioDrawSourceDebugInfo));
+
+				DrawDebugString(SoundWorld, AudioComponent->GetComponentLocation() + FVector(0, 0, 32), *Name, nullptr, FColor::White, 0.033, false);
+			}
 		}
 	}
 }
@@ -364,7 +360,7 @@ FSpatializationParams FSoundSource::GetSpatializationParams()
 {
 	FSpatializationParams Params;
 
-		// Calculate direction from listener to sound, where the sound is at the origin if unspatialized.
+		// Calculate direction from listener to sound, where the sound is at the origin if unspatialised.
 	if (WaveInstance->bUseSpatialization)
 	{
 		FVector EmitterPosition = AudioDevice->GetListenerTransformedDirection(WaveInstance->Location, &Params.Distance);
@@ -485,7 +481,6 @@ FWaveInstance::FWaveInstance( FActiveSound* InActiveSound )
 ,	ActiveSound( InActiveSound )
 ,	Volume( 0.0f )
 ,	VolumeMultiplier( 1.0f )
-,	VolumeApp( 1.0f )
 ,	Priority( 1.0f )
 ,	VoiceCenterChannelVolume( 0.0f )
 ,	RadioFilterVolume( 0.0f )
@@ -584,15 +579,9 @@ void FWaveInstance::AddReferencedObjects( FReferenceCollector& Collector )
 
 float FWaveInstance::GetActualVolume() const
 {
-	// Include all volumes 
-	return GetVolume() * VolumeApp;
-}
-
-float FWaveInstance::GetVolume() const
-{
-	// Include all volumes 
 	return Volume * VolumeMultiplier;
 }
+
 
 bool FWaveInstance::ShouldStopDueToMaxConcurrency() const
 {
@@ -602,10 +591,10 @@ bool FWaveInstance::ShouldStopDueToMaxConcurrency() const
 float FWaveInstance::GetVolumeWeightedPriority() const
 {
 	// This will result in zero-volume sounds still able to be sorted due to priority but give non-zero volumes higher priority than 0 volumes
-	float ActualVolume = GetVolume();
+	float ActualVolume = GetActualVolume();
 	if (ActualVolume > 0.0f)
 	{
-		return ActualVolume * Priority;
+		return GetActualVolume() * Priority;
 	}
 	else
 	{
@@ -617,16 +606,6 @@ bool FWaveInstance::IsStreaming() const
 {
 	return FPlatformProperties::SupportsAudioStreaming() && WaveData != nullptr && WaveData->IsStreaming();
 }
-
-FString FWaveInstance::GetName() const
-{
-	if (WaveData)
-	{
-		return WaveData->GetName();
-	}
-	return TEXT("Null");
-}
-
 
 /*-----------------------------------------------------------------------------
 	WaveModInfo implementation - downsampling of wave files.

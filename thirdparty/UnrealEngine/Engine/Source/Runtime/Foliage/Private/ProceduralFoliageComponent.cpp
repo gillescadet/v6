@@ -6,7 +6,6 @@
 #include "InstancedFoliage.h"
 #include "InstancedFoliageActor.h"
 #include "ProceduralFoliageSpawner.h"
-#include "Engine/LevelBounds.h"
 
 #include "Async/Async.h"
 
@@ -18,10 +17,6 @@ UProceduralFoliageComponent::UProceduralFoliageComponent(const FObjectInitialize
 	TileOverlap = 0.f;
 	ProceduralGuid = FGuid::NewGuid();
 #if WITH_EDITORONLY_DATA
-	bAllowLandscape = true;
-	bAllowBSP = true;
-	bAllowStaticMesh = true;
-	bAllowTranslucent = true;
 	bShowDebugTiles = false;
 #endif
 }
@@ -37,64 +32,31 @@ FBox2D GetTileRegion(const int32 X, const int32 Y, const float InnerSize, const 
 	return Region;
 }
 
-FBox UProceduralFoliageComponent::GetBounds() const
-{
-	UBrushComponent* Brush = SpawningVolume ? SpawningVolume->GetBrushComponent() : nullptr;
-	if (Brush)
-	{
-		return Brush->Bounds.GetBox();
-	}
-	else
-	{
-		AActor* LocalOwner = GetOwner();
-		ULevel* Level = LocalOwner ? LocalOwner->GetLevel() : nullptr;
-		ALevelBounds* LevelBoundsActor = Level ? Level->LevelBoundsActor.Get() : nullptr;
-		if (LevelBoundsActor)
-		{
-			return LevelBoundsActor->GetComponentsBoundingBox(false);
-		}
-	}
-
-	return FBox(ForceInitToZero);
-}
-
-FBodyInstance* UProceduralFoliageComponent::GetBoundsBodyInstance() const
-{
-	UBrushComponent* Brush = SpawningVolume ? SpawningVolume->GetBrushComponent() : nullptr;
-	if (Brush)
-	{
-		return Brush->GetBodyInstance();
-	}
-
-	return nullptr;
-}
-
 void UProceduralFoliageComponent::GetTileLayout(FTileLayout& OutTileLayout) const
 {
-	FBox Bounds = GetBounds();
-	if (Bounds.IsValid)
+	if (UBrushComponent* Brush = SpawningVolume->GetBrushComponent())
 	{
 		// Determine the bottom-left-most tile that contains the min position (when accounting for overlap)
-		const FVector MinPosition = Bounds.Min + TileOverlap;
+		const FVector MinPosition = Brush->Bounds.GetBox().Min + TileOverlap;
 		OutTileLayout.BottomLeftX = FMath::FloorToInt(MinPosition.X / FoliageSpawner->TileSize);
 		OutTileLayout.BottomLeftY = FMath::FloorToInt(MinPosition.Y / FoliageSpawner->TileSize);
 
 		// Determine the total number of tiles along each active axis
-		const FVector MaxPosition = Bounds.Max - TileOverlap;
+		const FVector MaxPosition = Brush->Bounds.GetBox().Max - TileOverlap;
 		const int32 MaxXIdx = FMath::FloorToInt(MaxPosition.X / FoliageSpawner->TileSize);
 		const int32 MaxYIdx = FMath::FloorToInt(MaxPosition.Y / FoliageSpawner->TileSize);
 
 		OutTileLayout.NumTilesX = (MaxXIdx - OutTileLayout.BottomLeftX) + 1;
 		OutTileLayout.NumTilesY = (MaxYIdx - OutTileLayout.BottomLeftY) + 1;
 
-		OutTileLayout.HalfHeight = Bounds.GetExtent().Z;
+		OutTileLayout.HalfHeight = Brush->Bounds.GetBox().GetExtent().Z;
 	}
 }
 
 FVector UProceduralFoliageComponent::GetWorldPosition() const
 {
-	FBox Bounds = GetBounds();
-	if (!Bounds.IsValid || FoliageSpawner == nullptr)
+	UBrushComponent* Brush = SpawningVolume->GetBrushComponent();
+	if (Brush == nullptr || FoliageSpawner == nullptr)
 	{
 		return FVector::ZeroVector;
 	}
@@ -103,14 +65,13 @@ FVector UProceduralFoliageComponent::GetWorldPosition() const
 	GetTileLayout(TileLayout);
 
 	const float TileSize = FoliageSpawner->TileSize;
-	return FVector(TileLayout.BottomLeftX * TileSize, TileLayout.BottomLeftY * TileSize, Bounds.GetCenter().Z);
+	return FVector(TileLayout.BottomLeftX * TileSize, TileLayout.BottomLeftY * TileSize, Brush->Bounds.Origin.Z);
 }
 
 bool UProceduralFoliageComponent::ExecuteSimulation(TArray<FDesiredFoliageInstance>& OutInstances)
 {
 #if WITH_EDITOR
-	FBodyInstance* BoundsBodyInstance = GetBoundsBodyInstance();
-	if (FoliageSpawner)
+	if (FoliageSpawner && SpawningVolume && SpawningVolume->GetBrushComponent())
 	{
 		// Establish the counter used to check if the user has canceled the simulation
 		FThreadSafeCounter LastCancel;
@@ -122,6 +83,8 @@ bool UProceduralFoliageComponent::ExecuteSimulation(TArray<FDesiredFoliageInstan
 		const FVector WorldPosition = GetWorldPosition();
 		FTileLayout TileLayout;
 		GetTileLayout(TileLayout);
+
+		FBodyInstance* VolumeBodyInstance = SpawningVolume->GetBrushComponent()->GetBodyInstance();
 
 		FoliageSpawner->SimulateIfNeeded();
 
@@ -189,7 +152,7 @@ bool UProceduralFoliageComponent::ExecuteSimulation(TArray<FDesiredFoliageInstan
 					const FTransform TileTM(OrientedOffset + WorldPosition);
 
 					TArray<FDesiredFoliageInstance>* DesiredInstances = new TArray<FDesiredFoliageInstance>();
-					CompositeTile->ExtractDesiredInstances(*DesiredInstances, TileTM, ProceduralGuid, TileLayout.HalfHeight, BoundsBodyInstance);
+					CompositeTile->ExtractDesiredInstances(*DesiredInstances, TileTM, ProceduralGuid, TileLayout.HalfHeight, VolumeBodyInstance);
 
 					return DesiredInstances;
 					

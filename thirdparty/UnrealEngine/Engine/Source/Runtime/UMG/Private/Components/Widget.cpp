@@ -3,9 +3,6 @@
 #include "UMGPrivatePCH.h"
 
 #include "ReflectionMetadata.h"
-#include "SObjectWidget.h"
-
-#define LOCTEXT_NAMESPACE "UMG"
 
 /**
 * Interface for tool tips.
@@ -407,24 +404,14 @@ bool UWidget::HasUserFocusedDescendants(APlayerController* PlayerController) con
 
 void UWidget::SetUserFocus(APlayerController* PlayerController)
 {
-	if ( PlayerController == nullptr || !PlayerController->IsLocalPlayerController() || PlayerController->Player == nullptr )
+	if ( PlayerController == nullptr || !PlayerController->IsLocalPlayerController() )
 	{
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		FMessageLog("PIE").Error(LOCTEXT("NoPlayerControllerToFocus", "The PlayerController is not a valid local player so it can't focus the widget."));
-#endif
 		return;
 	}
 
 	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
 	if ( SafeWidget.IsValid() )
 	{
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		if ( !SafeWidget->SupportsKeyboardFocus() )
-		{
-			FMessageLog("PIE").Warning(LOCTEXT("ThisWidgetDoesntSupportFocus", "This widget does not support focus.  If this is a UserWidget, you should set bIsFocusable to true."));
-		}
-#endif
-
 		FLocalPlayerContext Context(PlayerController);
 
 		if ( ULocalPlayer* LocalPlayer = Context.GetLocalPlayer() )
@@ -485,25 +472,7 @@ void UWidget::RemoveFromParent()
 	}
 }
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-void UWidget::VerifySynchronizeProperties()
-{
-	ensureMsgf(bRoutedSynchronizeProperties, TEXT("%s failed to route SynchronizeProperties.  Please call Super::SynchronizeProperties() in your <className>::SynchronizeProperties() function."), *GetFullName());
-}
-#endif
-
-void UWidget::OnWidgetRebuilt()
-{
-}
-
 TSharedRef<SWidget> UWidget::TakeWidget()
-{
-	return TakeWidget_Private( []( UUserWidget* Widget, TSharedRef<SWidget> Content ) -> TSharedPtr<SObjectWidget> {
-		       return SNew( SObjectWidget, Widget )[ Content ];
-		   } );
-}
-
-TSharedRef<SWidget> UWidget::TakeWidget_Private( ConstructMethodType ConstructMethod )
 {
 	TSharedPtr<SWidget> SafeWidget;
 	bool bNewlyCreated = false;
@@ -522,7 +491,7 @@ TSharedRef<SWidget> UWidget::TakeWidget_Private( ConstructMethodType ConstructMe
 	}
 
 	// If it is a user widget wrap it in a SObjectWidget to keep the instance from being GC'ed
-	if ( IsA( UUserWidget::StaticClass() ) )
+	if ( IsA(UUserWidget::StaticClass()) )
 	{
 		TSharedPtr<SObjectWidget> SafeGCWidget = MyGCWidget.Pin();
 
@@ -531,9 +500,13 @@ TSharedRef<SWidget> UWidget::TakeWidget_Private( ConstructMethodType ConstructMe
 		{
 			return SafeGCWidget.ToSharedRef();
 		}
-		else // Otherwise we need to recreate the wrapper widget
+		// Otherwise we need to recreate the wrapper widget
+		else
 		{
-			SafeGCWidget = ConstructMethod( Cast<UUserWidget>( this ), SafeWidget.ToSharedRef() );
+			SafeGCWidget = SNew(SObjectWidget, Cast<UUserWidget>(this))
+				[
+					SafeWidget.ToSharedRef()
+				];
 
 			MyGCWidget = SafeGCWidget;
 
@@ -565,6 +538,17 @@ TSharedRef<SWidget> UWidget::TakeWidget_Private( ConstructMethodType ConstructMe
 
 		return SafeWidget.ToSharedRef();
 	}
+}
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+void UWidget::VerifySynchronizeProperties()
+{
+	ensureMsgf(bRoutedSynchronizeProperties, TEXT("%s failed to route SynchronizeProperties.  Please call Super::SynchronizeProperties() in your <className>::SynchronizeProperties() function."), *GetFullName());
+}
+#endif
+
+void UWidget::OnWidgetRebuilt()
+{
 }
 
 TSharedPtr<SWidget> UWidget::GetCachedWidget() const
@@ -610,7 +594,6 @@ TSharedRef<SWidget> UWidget::BuildDesignTimeWidget(TSharedRef<SWidget> WrapWidge
 }
 
 #if WITH_EDITOR
-#undef LOCTEXT_NAMESPACE
 #define LOCTEXT_NAMESPACE "UMGEditor"
 
 void UWidget::SetDesignerFlags(EWidgetDesignFlags::Type NewFlags)
@@ -695,7 +678,7 @@ const FText UWidget::GetPaletteCategory()
 
 const FSlateBrush* UWidget::GetEditorIcon()
 {
-	return nullptr;
+	return FUMGStyle::Get().GetBrush("Widget");
 }
 
 EVisibility UWidget::GetVisibilityInDesigner() const
@@ -739,7 +722,6 @@ void UWidget::Deselect()
 }
 
 #undef LOCTEXT_NAMESPACE
-#define LOCTEXT_NAMESPACE "UMG"
 #endif
 
 bool UWidget::Modify(bool bAlwaysMarkDirty)
@@ -851,21 +833,19 @@ void UWidget::SynchronizeProperties()
 
 void UWidget::BuildNavigation()
 {
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	check(SafeWidget.IsValid());
+
 	if ( Navigation != nullptr )
 	{
-		TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
-
-		if ( ensure(SafeWidget.IsValid()) )
+		TSharedPtr<FNavigationMetaData> MetaData = SafeWidget->GetMetaData<FNavigationMetaData>();
+		if ( !MetaData.IsValid() )
 		{
-			TSharedPtr<FNavigationMetaData> MetaData = SafeWidget->GetMetaData<FNavigationMetaData>();
-			if ( !MetaData.IsValid() )
-			{
-				MetaData = MakeShareable(new FNavigationMetaData());
-				SafeWidget->AddMetadata(MetaData.ToSharedRef());
-			}
-
-			Navigation->UpdateMetaData(MetaData.ToSharedRef());
+			MetaData = MakeShareable(new FNavigationMetaData());
+			SafeWidget->AddMetadata(MetaData.ToSharedRef());
 		}
+
+		Navigation->UpdateMetaData(MetaData.ToSharedRef());
 	}
 }
 
@@ -1075,5 +1055,3 @@ void UWidget::OnBindingChanged(const FName& Property)
 {
 
 }
-
-#undef LOCTEXT_NAMESPACE

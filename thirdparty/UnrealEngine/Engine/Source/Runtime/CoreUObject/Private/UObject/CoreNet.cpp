@@ -64,52 +64,55 @@ uint32 FClassNetCacheMgr::SortedStructFieldsChecksum( const UStruct* Struct, uin
 	// Evolve the checksum on the sorted list
 	for ( auto Field : Fields )
 	{
-		Checksum = GetPropertyChecksum( Field, Checksum, true );
+		Checksum = GetPropertyChecksum( Field, Checksum );
 	}
 
 	return Checksum;
 }
 
-uint32 FClassNetCacheMgr::GetPropertyChecksum( const UProperty* Property, uint32 Checksum, const bool bIncludeChildren ) const
+uint32 FClassNetCacheMgr::GetPropertyChecksum( const UProperty* Property, uint32 Checksum ) const
 {
 	if ( bDebugChecksum )
 	{
 		UE_LOG( LogCoreNet, Warning, TEXT( "%s%s [%s] [%u] [%u]" ), FCString::Spc( 2 * DebugChecksumIndent ), *Property->GetName().ToLower(), *Property->GetClass()->GetName().ToLower(), Property->ArrayDim, Checksum );
 	}
 
-	Checksum = FCrc::StrCrc32( *Property->GetName().ToLower(), Checksum );							// Evolve checksum on name
-	Checksum = FCrc::StrCrc32( *Property->GetCPPType( nullptr, 0 ).ToLower(), Checksum );			// Evolve by property type
-	Checksum = FCrc::StrCrc32( *FString::Printf( TEXT( "%u" ), Property->ArrayDim ), Checksum );	// Evolve checksum on array dim (to detect when static arrays change size)
+	// Evolve checksum on name
+	Checksum = FCrc::StrCrc32( *Property->GetName().ToLower(), Checksum );
 
-	if ( bIncludeChildren )
+	// Evolve checksum on class name
+	Checksum = FCrc::StrCrc32( *Property->GetClass()->GetName().ToLower(), Checksum );
+
+	// Evolve checksum on array dim (to detect when static arrays change size)
+	// We use a string to be endian agnostic
+	Checksum = FCrc::StrCrc32( *FString::Printf( TEXT( "%u" ), Property->ArrayDim ), Checksum );
+
+	const UArrayProperty* ArrayProperty = Cast< UArrayProperty >( Property );
+
+	// Evolve checksum on array inner
+	if ( ArrayProperty != NULL )
 	{
-		const UArrayProperty* ArrayProperty = Cast< UArrayProperty >( Property );
+		return GetPropertyChecksum( ArrayProperty->Inner, Checksum );
+	}
 
-		// Evolve checksum on array inner
-		if ( ArrayProperty != NULL )
+	const UStructProperty* StructProperty = Cast< UStructProperty >( Property );
+
+	// Evolve checksum on property struct fields
+	if ( StructProperty != NULL )
+	{
+		if ( bDebugChecksum )
 		{
-			return GetPropertyChecksum( ArrayProperty->Inner, Checksum, bIncludeChildren );
+			UE_LOG( LogCoreNet, Warning, TEXT( "%s [%s] [%u]" ), FCString::Spc( 2 * DebugChecksumIndent ), *StructProperty->Struct->GetName().ToLower(), Checksum );
 		}
 
-		const UStructProperty* StructProperty = Cast< UStructProperty >( Property );
+		// Evolve checksum on struct name
+		Checksum = FCrc::StrCrc32( *StructProperty->Struct->GetName().ToLower(), Checksum );
 
-		// Evolve checksum on property struct fields
-		if ( StructProperty != NULL )
-		{
-			if ( bDebugChecksum )
-			{
-				UE_LOG( LogCoreNet, Warning, TEXT( "%s [%s] [%u]" ), FCString::Spc( 2 * DebugChecksumIndent ), *StructProperty->Struct->GetName().ToLower(), Checksum );
-			}
+		const_cast< FClassNetCacheMgr* >( this )->DebugChecksumIndent++;
 
-			// Evolve checksum on struct name
-			Checksum = FCrc::StrCrc32( *StructProperty->Struct->GetName().ToLower(), Checksum );
+		Checksum = SortedStructFieldsChecksum( StructProperty->Struct, Checksum );
 
-			const_cast< FClassNetCacheMgr* >( this )->DebugChecksumIndent++;
-
-			Checksum = SortedStructFieldsChecksum( StructProperty->Struct, Checksum );
-
-			const_cast< FClassNetCacheMgr* >( this )->DebugChecksumIndent--;
-		}
+		const_cast< FClassNetCacheMgr* >( this )->DebugChecksumIndent--;
 	}
 
 	return Checksum;
@@ -123,7 +126,6 @@ uint32 FClassNetCacheMgr::GetFunctionChecksum( const UFunction* Function, uint32
 	// Evolve the checksum on function flags
 	Checksum = FCrc::StrCrc32( *FString::Printf( TEXT( "%u" ), Function->FunctionFlags ), Checksum );
 
-#if 0	// This is disabled now that we have backwards compatibility for RPC parameters working in replays 
 	TArray< UProperty * > Parms;
 
 	for ( TFieldIterator< UProperty > It( Function ); It && ( It->PropertyFlags & ( CPF_Parm | CPF_ReturnParm ) ) == CPF_Parm; ++It )
@@ -137,9 +139,8 @@ uint32 FClassNetCacheMgr::GetFunctionChecksum( const UFunction* Function, uint32
 	// Evolve checksum on sorted function parameters
 	for ( UProperty* Parm : Parms )
 	{
-		Checksum = GetPropertyChecksum( Parm, Checksum, true );
+		Checksum = GetPropertyChecksum( Parm, Checksum );
 	}
-#endif
 
 	return Checksum;
 }
@@ -148,7 +149,7 @@ uint32 FClassNetCacheMgr::GetFieldChecksum( const UField* Field, uint32 Checksum
 {
 	if ( Cast< UProperty >( Field ) != NULL )
 	{
-		return GetPropertyChecksum( (UProperty*)Field, Checksum, false );
+		return GetPropertyChecksum( (UProperty*)Field, Checksum );
 	}
 	else if ( Cast< UFunction >( Field ) != NULL )
 	{
@@ -225,7 +226,7 @@ const FClassNetCache* FClassNetCacheMgr::GetClassNetCache( const UClass* Class )
 
 		for ( auto Property : Properties )
 		{
-			Result->ClassChecksum = GetPropertyChecksum( Property, Result->ClassChecksum, true );
+			Result->ClassChecksum = GetPropertyChecksum( Property, Result->ClassChecksum );
 		}
 	}
 	return Result;

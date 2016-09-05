@@ -35,7 +35,7 @@ bool UCameraModifier_CameraShake::ModifyCamera(float DeltaTime, FMinimalViewInfo
 		// Delete any obsolete shakes
 		for (int32 i=ActiveShakes.Num()-1; i>=0; i--)
 		{
-			UCameraShake* const ShakeInst = ActiveShakes[i];
+			UCameraShake* ShakeInst = ActiveShakes[i];
 			if ((ShakeInst == nullptr) || ShakeInst->IsFinished())
 			{
 				ActiveShakes.RemoveAt(i, 1);
@@ -106,49 +106,39 @@ UCameraShake* UCameraModifier_CameraShake::AddCameraShake(TSubclassOf<class UCam
 	return nullptr;
 }
 
-void UCameraModifier_CameraShake::RemoveCameraShake(UCameraShake* ShakeInst, bool bImmediately)
+void UCameraModifier_CameraShake::RemoveCameraShake(UCameraShake* ShakeInst)
 {
 	for (int32 i = 0; i < ActiveShakes.Num(); ++i)
 	{
 		if (ActiveShakes[i] == ShakeInst)
 		{
-			ShakeInst->StopShake(bImmediately);
-
-			if (bImmediately)
-			{
-				ActiveShakes.RemoveAt(i, 1);
-			}
+			ShakeInst->StopShake();
+			ActiveShakes.RemoveAt(i, 1);
 			break;
 		}
 	}
 }
 
-void UCameraModifier_CameraShake::RemoveAllCameraShakesOfClass(TSubclassOf<class UCameraShake> ShakeClass, bool bImmediately)
+void UCameraModifier_CameraShake::RemoveAllCameraShakesOfClass(TSubclassOf<class UCameraShake> ShakeClass)
 {
 	for (int32 i = ActiveShakes.Num()-1; i >= 0; --i)
 	{
 		if ( ActiveShakes[i] && (ActiveShakes[i]->GetClass()->IsChildOf(ShakeClass)) )
 		{
-			ActiveShakes[i]->StopShake(bImmediately);
-			if (bImmediately)
-			{
-				ActiveShakes.RemoveAt(i, 1);
-			}
+			ActiveShakes[i]->StopShake();
+			ActiveShakes.RemoveAt(i, 1);
 		}
 	}
 }
 
-void UCameraModifier_CameraShake::RemoveAllCameraShakes(bool bImmediately)
+void UCameraModifier_CameraShake::RemoveAllCameraShakes()
 {
 	// clean up any active camera shake anims
 	for (UCameraShake* Inst : ActiveShakes)
 	{
-		Inst->StopShake(bImmediately);
+		Inst->StopShake();
 	}
 
-	if (bImmediately)
-	{
-		// clear ActiveShakes array
-		ActiveShakes.Empty();
-	}
+	// clear ActiveShakes array
+	ActiveShakes.Empty();
 }

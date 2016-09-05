@@ -1,8 +1,0 @@
-ensure that there is no pending modifications
-update v6
-branch v6\trunk\thirdparty\UnrealEngine to v6\branches\pre_unreal_engine_release_NEW_VERSION
-update v6
-delete v6\trunk\thirdparty\UnrealEngine (working copy)
-extract the source version of unreal engine release in v6\trunk\thirdparty\UnrealEngine
-update v6
-commit v6

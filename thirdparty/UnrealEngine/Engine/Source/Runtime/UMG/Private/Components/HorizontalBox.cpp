@@ -28,21 +28,21 @@ UClass* UHorizontalBox::GetSlotClass() const
 	return UHorizontalBoxSlot::StaticClass();
 }
 
-void UHorizontalBox::OnSlotAdded(UPanelSlot* InSlot)
+void UHorizontalBox::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live canvas if it already exists
 	if ( MyHorizontalBox.IsValid() )
 	{
-		CastChecked<UHorizontalBoxSlot>(InSlot)->BuildSlot(MyHorizontalBox.ToSharedRef());
+		Cast<UHorizontalBoxSlot>(Slot)->BuildSlot(MyHorizontalBox.ToSharedRef());
 	}
 }
 
-void UHorizontalBox::OnSlotRemoved(UPanelSlot* InSlot)
+void UHorizontalBox::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyHorizontalBox.IsValid() )
 	{
-		TSharedPtr<SWidget> Widget = InSlot->Content->GetCachedWidget();
+		TSharedPtr<SWidget> Widget = Slot->Content->GetCachedWidget();
 		if ( Widget.IsValid() )
 		{
 			MyHorizontalBox->RemoveSlot(Widget.ToSharedRef());
@@ -59,9 +59,9 @@ TSharedRef<SWidget> UHorizontalBox::RebuildWidget()
 {
 	MyHorizontalBox = SNew(SHorizontalBox);
 
-	for ( UPanelSlot* PanelSlot : Slots )
+	for ( UPanelSlot* Slot : Slots )
 	{
-		if ( UHorizontalBoxSlot* TypedSlot = Cast<UHorizontalBoxSlot>(PanelSlot) )
+		if ( UHorizontalBoxSlot* TypedSlot = Cast<UHorizontalBoxSlot>(Slot) )
 		{
 			TypedSlot->Parent = this;
 			TypedSlot->BuildSlot(MyHorizontalBox.ToSharedRef());
@@ -72,6 +72,11 @@ TSharedRef<SWidget> UHorizontalBox::RebuildWidget()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UHorizontalBox::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.HorizontalBox");
+}
 
 const FText UHorizontalBox::GetPaletteCategory()
 {

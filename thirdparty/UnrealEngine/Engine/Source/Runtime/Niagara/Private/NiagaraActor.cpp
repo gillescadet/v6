@@ -42,7 +42,7 @@ ANiagaraActor::ANiagaraActor(const FObjectInitializer& ObjectInitializer)
 			SpriteComponent->bIsScreenSizeScaled = true;
 			SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Effects;
 			SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Effects;
-			SpriteComponent->SetupAttachment(NiagaraComponent);
+			SpriteComponent->AttachParent = NiagaraComponent;
 			SpriteComponent->bReceivesDecals = false;
 		}
 
@@ -54,7 +54,7 @@ ANiagaraActor::ANiagaraActor(const FObjectInitializer& ObjectInitializer)
 			ArrowComponent->bTreatAsASprite = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Effects;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Effects;
-			ArrowComponent->SetupAttachment(NiagaraComponent);
+			ArrowComponent->AttachParent = NiagaraComponent;
 			ArrowComponent->bIsScreenSizeScaled = true;
 		}
 	}

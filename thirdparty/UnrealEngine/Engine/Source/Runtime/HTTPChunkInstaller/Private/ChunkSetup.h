@@ -299,13 +299,13 @@ public:
 			{
 				if (FCoreDelegates::OnMountPak.IsBound())
 				{
-					auto bSuccess = FCoreDelegates::OnMountPak.Execute(PakPath, PakReadOrder, nullptr);
+					auto bSuccess = FCoreDelegates::OnMountPak.Execute(PakPath, PakReadOrder);
 #if !UE_BUILD_SHIPPING
 					if (!bSuccess)
 					{
 						// This can fail because of the sandbox system - which the pak system doesn't understand.
 						auto SandboxedPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*PakPath);
-						bSuccess = FCoreDelegates::OnMountPak.Execute(SandboxedPath, PakReadOrder, nullptr);
+						bSuccess = FCoreDelegates::OnMountPak.Execute(SandboxedPath, PakReadOrder);
 					}
 #endif
 					//Register the install

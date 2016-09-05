@@ -14,6 +14,7 @@ class FMaterialCompiler;
 struct FPrimitiveViewRelevance;
 class UTexture;
 
+UENUM()
 enum EMaterialUsage
 {
 	MATUSAGE_SkeletalMesh,
@@ -23,53 +24,78 @@ enum EMaterialUsage
 	MATUSAGE_StaticLighting,
 	MATUSAGE_MorphTargets,
 	MATUSAGE_SplineMesh,
+	MATUSAGE_Landscape,
 	MATUSAGE_InstancedStaticMeshes,
 	MATUSAGE_Clothing,
 	MATUSAGE_MAX,
 };
 
-// the class is only storing bits, initialized to 0 and has an |= operator
-// to provide a combined set of multiple materials (component / mesh)
+USTRUCT()
 struct ENGINE_API FMaterialRelevance
 {
-	// bits that express which EMaterialShadingModel are used
-	uint16 ShadingModelMask;
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY()
 	uint32 bOpaque : 1;
+
+	UPROPERTY()
 	uint32 bMasked : 1;
+
+	UPROPERTY()
 	uint32 bDistortion : 1;
+
+	UPROPERTY()
 	uint32 bSeparateTranslucency : 1;
-	uint32 bMobileSeparateTranslucency : 1;
+
+	UPROPERTY()
 	uint32 bNormalTranslucency : 1;
+
+	UPROPERTY()
 	uint32 bDisableDepthTest : 1;
+	
+	UPROPERTY()
 	uint32 bOutputsVelocityInBasePass : 1;
+
+	UPROPERTY()
 	uint32 bUsesGlobalDistanceField : 1;
-	uint32 bUsesWorldPositionOffset : 1;
-	uint32 bDecal : 1;
-	uint32 bTranslucentSurfaceLighting : 1;
 
-	/** Default constructor */
+	UPROPERTY()
+	uint16 ShadingModelMask;
+
+	/** Default constructor. */
 	FMaterialRelevance()
-	{
-		// the class is only storing bits initialized to 0, the following avoids code redundancy
-		uint8 * RESTRICT p = (uint8*)this;
-		for(uint32 i = 0; i < sizeof(*this); ++i)
-		{
-			*p++ = 0;
-		}
-	}
+		: bOpaque(false)
+		, bMasked(false)
+		, bDistortion(false)
+		, bSeparateTranslucency(false)
+		, bNormalTranslucency(false)
+		, bDisableDepthTest(false)		
+		, bOutputsVelocityInBasePass(true)
+		, bUsesGlobalDistanceField(false)
+		, ShadingModelMask(0)
+	{}
 
-	/** Bitwise OR operator.  Sets any relevance bits which are present in either. */
+	/** Bitwise OR operator.  Sets any relevance bits which are present in either FMaterialRelevance. */
 	FMaterialRelevance& operator|=(const FMaterialRelevance& B)
 	{
-		// the class is only storing bits, the following avoids code redundancy
-		const uint8 * RESTRICT s = (const uint8*)&B;
-		uint8 * RESTRICT d = (uint8*)this;
-		for(uint32 i = 0; i < sizeof(*this); ++i)
-		{
-			*d = *d | *s; 
-			++s;++d;
-		}
+		bOpaque |= B.bOpaque;
+		bMasked |= B.bMasked;
+		bDistortion |= B.bDistortion;
+		bSeparateTranslucency |= B.bSeparateTranslucency;
+		bNormalTranslucency |= B.bNormalTranslucency;
+		bDisableDepthTest |= B.bDisableDepthTest;
+		ShadingModelMask |= B.ShadingModelMask;
+		bOutputsVelocityInBasePass |= B.bOutputsVelocityInBasePass;
+		bUsesGlobalDistanceField |= B.bUsesGlobalDistanceField;
 		return *this;
+	}
+
+	/** Binary bitwise OR operator. */
+	friend FMaterialRelevance operator|(const FMaterialRelevance& A, const FMaterialRelevance& B)
+	{
+		FMaterialRelevance Result(A);
+		Result |= B;
+		return Result;
 	}
 
 	/** Copies the material's relevance flags to a primitive's view relevance flags. */
@@ -243,13 +269,6 @@ public:
 	virtual void GetUsedTextures(TArray<UTexture*>& OutTextures, EMaterialQualityLevel::Type QualityLevel, bool bAllQualityLevels, ERHIFeatureLevel::Type FeatureLevel, bool bAllFeatureLevels) const
 		PURE_VIRTUAL(UMaterialInterface::GetUsedTextures,);
 
-	/** 
-	* Return the textures used to render this material and the material indices bound to each. 
-	* Because material indices can change for each shader, this is limited to a single platform and quality level.
-	* An empty array in OutIndices means the index is undefined.
-	*/
-	ENGINE_API virtual void GetUsedTexturesAndIndices(TArray<UTexture*>& OutTextures, TArray< TArray<int32> >& OutIndices, EMaterialQualityLevel::Type QualityLevel, ERHIFeatureLevel::Type FeatureLevel) const;
-
 	/**
 	 * Override a specific texture (transient)
 	 *
@@ -325,15 +344,6 @@ public:
 	ENGINE_API FMaterialRelevance GetRelevance(ERHIFeatureLevel::Type InFeatureLevel) const;
 	/** @return The material's relevance, from concurrent render thread updates. */
 	ENGINE_API FMaterialRelevance GetRelevance_Concurrent(ERHIFeatureLevel::Type InFeatureLevel) const;
-
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-	/**
-	 * Output to the log which materials and textures are used by this material.
-	 * @param Indent	Number of tabs to put before the log.
-	 */
-	ENGINE_API virtual void LogMaterialsAndTextures(FOutputDevice& Ar, int32 Indent) const {}
-#endif
-
 private:
 	// might get called from game or render thread
 	FMaterialRelevance GetRelevance_Internal(const UMaterial* Material, ERHIFeatureLevel::Type InFeatureLevel) const;
@@ -470,7 +480,6 @@ public:
 		LightmassSettings.ExportResolutionScale = InExportResolutionScale;
 	}
 
-#if WITH_EDITOR
 	/**
 	 *	Get all of the textures in the expression chain for the given property (ie fill in the given array with all textures in the chain).
 	 *
@@ -483,7 +492,6 @@ public:
 	 */
 	virtual bool GetTexturesInPropertyChain(EMaterialProperty InProperty, TArray<UTexture*>& OutTextures,  TArray<FName>* OutTextureParamNames, class FStaticParameterSet* InStaticParameterSet)
 		PURE_VIRTUAL(UMaterialInterface::GetTexturesInPropertyChain,return false;);
-#endif
 
 	ENGINE_API virtual bool GetParameterDesc(FName ParameterName, FString& OutDesc) const;
 	ENGINE_API virtual bool GetFontParameterValue(FName ParameterName,class UFont*& OutFontValue, int32& OutFontPage) const;
@@ -501,13 +509,12 @@ public:
 	/**
 		Access to overridable properties of the base material.
 	*/
-	ENGINE_API virtual float GetOpacityMaskClipValue() const;
-	ENGINE_API virtual EBlendMode GetBlendMode() const;
-	ENGINE_API virtual EMaterialShadingModel GetShadingModel() const;
-	ENGINE_API virtual bool IsTwoSided() const;
-	ENGINE_API virtual bool IsDitheredLODTransition() const;
-	ENGINE_API virtual bool IsMasked() const;
-	ENGINE_API virtual bool IsDeferredDecal() const;
+	ENGINE_API virtual float GetOpacityMaskClipValue(bool bIsGameThread = IsInGameThread()) const;
+	ENGINE_API virtual EBlendMode GetBlendMode(bool bIsGameThread = IsInGameThread()) const;
+	ENGINE_API virtual EMaterialShadingModel GetShadingModel(bool bIsGameThread = IsInGameThread()) const;
+	ENGINE_API virtual bool IsTwoSided(bool bIsGameThread = IsInGameThread()) const;
+	ENGINE_API virtual bool IsDitheredLODTransition(bool bIsGameThread = IsInGameThread()) const;
+	ENGINE_API virtual bool IsMasked(bool bIsGameThread = IsInGameThread()) const;
 
 	ENGINE_API virtual USubsurfaceProfile* GetSubsurfaceProfile_Internal() const;
 
@@ -553,13 +560,11 @@ public:
 	/** Checks to see if an input property should be active, based on the state of the material */
 	ENGINE_API virtual bool IsPropertyActive(EMaterialProperty InProperty) const;
 
-#if WITH_EDITOR
 	/** Compiles a material property. */
 	ENGINE_API int32 CompileProperty(FMaterialCompiler* Compiler, EMaterialProperty Property);
 
 	/** Allows material properties to be compiled with the option of being overridden by the material attributes input. */
 	ENGINE_API virtual int32 CompilePropertyEx( class FMaterialCompiler* Compiler, EMaterialProperty Property );
-#endif // WITH_EDITOR
 
 	/** Get bitfield indicating which feature levels should be compiled by default */
 	ENGINE_API static uint32 GetFeatureLevelsToCompileForAllMaterials() { return FeatureLevelsForAllMaterials | (1 << GMaxRHIFeatureLevel); }
@@ -605,7 +610,4 @@ private:
 };
 
 /** Helper function to serialize inline shader maps for the given material resources. */
-extern void SerializeInlineShaderMaps(const TMap<const class ITargetPlatform*, TArray<FMaterialResource*>>* PlatformMaterialResourcesToSave, FArchive& Ar, TArray<FMaterialResource>& OutLoadedResources);
-/** Helper function to process (register) serialized inline shader maps for the given material resources. */
-extern void ProcessSerializedInlineShaderMaps(UMaterialInterface* Owner, TArray<FMaterialResource>& LoadedResources, FMaterialResource* (&OutMaterialResourcesLoaded)[EMaterialQualityLevel::Num][ERHIFeatureLevel::Num]);
-
+extern void SerializeInlineShaderMaps(const TMap<const class ITargetPlatform*, TArray<FMaterialResource*>>* PlatformMaterialResourcesToSave, FArchive& Ar, FMaterialResource* (&OutMaterialResourcesLoaded)[EMaterialQualityLevel::Num][ERHIFeatureLevel::Num]);

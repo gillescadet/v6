@@ -99,7 +99,7 @@ public:
 	FGetLinearColor ShadowColorAndOpacityDelegate;
 
 	/** The minimum desired size for the text */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Appearance, AdvancedDisplay)
 	float MinDesiredWidth;
 
 	/** If true, it will automatically wrap this text widget with an invalidation panel */
@@ -134,6 +134,7 @@ public:
 
 #if WITH_EDITOR
 	//~ Begin UWidget Interface
+	virtual const FSlateBrush* GetEditorIcon() override;
 	virtual const FText GetPaletteCategory() override;
 	virtual void OnCreationFromPalette() override;
 	//~ End UWidget Interface

@@ -35,7 +35,6 @@ namespace EMessageToken
 		Text,
 		Tutorial,
 		URL,
-		EdGraph,
 	};
 }
 
@@ -574,4 +573,3 @@ private:
 	/** The name of the tutorial asset. */
 	FString TutorialAssetName;
 };
-

@@ -3,7 +3,6 @@
 
 #include "EnginePrivate.h"
 #include "Components/BoxComponent.h"
-#include "PhysicsEngine/BodySetup.h"
 
 UBoxComponent::UBoxComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -17,7 +16,6 @@ UBoxComponent::UBoxComponent(const FObjectInitializer& ObjectInitializer)
 void UBoxComponent::SetBoxExtent(FVector NewBoxExtent, bool bUpdateOverlaps)
 {
 	BoxExtent = NewBoxExtent;
-	UpdateBounds();
 	MarkRenderStateDirty();
 	UpdateBodySetup();
 
@@ -35,65 +33,41 @@ void UBoxComponent::SetBoxExtent(FVector NewBoxExtent, bool bUpdateOverlaps)
 	}
 }
 
-
-template <EShapeBodySetupHelper UpdateBodySetupAction>
-bool InvalidateOrUpdateBoxBodySetup(UBodySetup*& ShapeBodySetup, bool bUseArchetypeBodySetup, FVector BoxExtent)
+void UBoxComponent::UpdateBodySetup()
 {
-	check((bUseArchetypeBodySetup && UpdateBodySetupAction == EShapeBodySetupHelper::InvalidateSharingIfStale) || (!bUseArchetypeBodySetup && UpdateBodySetupAction == EShapeBodySetupHelper::UpdateBodySetup));
+	if(ShapeBodySetup == NULL || ShapeBodySetup->IsPendingKill())
+	{
+		ShapeBodySetup = NewObject<UBodySetup>(this);
+		ShapeBodySetup->CollisionTraceFlag = CTF_UseSimpleAsComplex;
+		ShapeBodySetup->AggGeom.BoxElems.Add(FKBoxElem());
+		ShapeBodySetup->bNeverNeedsCookedCollisionData = true;
+	}
+
 	check(ShapeBodySetup->AggGeom.BoxElems.Num() == 1);
 	FKBoxElem* se = ShapeBodySetup->AggGeom.BoxElems.GetData();
 
 	// @todo UE4 do we allow this now?
 	// check for malformed values
-	if (BoxExtent.X < KINDA_SMALL_NUMBER)
+	if( BoxExtent.X < KINDA_SMALL_NUMBER )
 	{
 		BoxExtent.X = 1.0f;
 	}
 
-	if (BoxExtent.Y < KINDA_SMALL_NUMBER)
+	if( BoxExtent.Y < KINDA_SMALL_NUMBER )
 	{
 		BoxExtent.Y = 1.0f;
 	}
 
-	if (BoxExtent.Z < KINDA_SMALL_NUMBER)
+	if( BoxExtent.Z < KINDA_SMALL_NUMBER )
 	{
 		BoxExtent.Z = 1.0f;
 	}
 
-	float XExtent = BoxExtent.X * 2.f;
-	float YExtent = BoxExtent.Y * 2.f;
-	float ZExtent = BoxExtent.Z * 2.f;
-
-	if (UpdateBodySetupAction == EShapeBodySetupHelper::UpdateBodySetup)
-	{
-		// now set the PhysX data values
-		se->SetTransform(FTransform::Identity);
-		se->X = XExtent;
-		se->Y = YExtent;
-		se->Z = ZExtent;
-	}
-	else if(se->X != XExtent || se->Y != YExtent || se->Z != ZExtent)
-	{
-		ShapeBodySetup = nullptr;
-		bUseArchetypeBodySetup = false;
-	}
-
-	return bUseArchetypeBodySetup;
-}
-
-void UBoxComponent::UpdateBodySetup()
-{
-	if (PrepareSharedBodySetup<UBoxComponent>())
-	{
-		bUseArchetypeBodySetup = InvalidateOrUpdateBoxBodySetup<EShapeBodySetupHelper::InvalidateSharingIfStale>(ShapeBodySetup, bUseArchetypeBodySetup, BoxExtent);
-	}
-
-	CreateShapeBodySetupIfNeeded<FKBoxElem>();
-
-	if (!bUseArchetypeBodySetup)
-	{
-		InvalidateOrUpdateBoxBodySetup<EShapeBodySetupHelper::UpdateBodySetup>(ShapeBodySetup, bUseArchetypeBodySetup, BoxExtent);
-	}
+	// now set the PhysX data values
+	se->SetTransform( FTransform::Identity );
+	se->X = BoxExtent.X*2;
+	se->Y = BoxExtent.Y*2;
+	se->Z = BoxExtent.Z*2;
 }
 
 bool UBoxComponent::IsZeroExtent() const
@@ -145,13 +119,10 @@ FPrimitiveSceneProxy* UBoxComponent::CreateSceneProxy()
 
 		virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override
 		{
-			const bool bProxyVisible = !bDrawOnlyIfSelected || IsSelected();
-
-			// Should we draw this because collision drawing is enabled, and we have collision
-			const bool bShowForCollision = View->Family->EngineShowFlags.Collision && IsCollisionEnabled();
+			const bool bVisible = !bDrawOnlyIfSelected || IsSelected();
 
 			FPrimitiveViewRelevance Result;
-			Result.bDrawRelevance = (IsShown(View) && bProxyVisible) || bShowForCollision;
+			Result.bDrawRelevance = IsShown(View) && bVisible;
 			Result.bDynamicRelevance = true;
 			Result.bShadowRelevance = IsShadowCast(View);
 			Result.bEditorPrimitiveRelevance = UseEditorCompositing(View);

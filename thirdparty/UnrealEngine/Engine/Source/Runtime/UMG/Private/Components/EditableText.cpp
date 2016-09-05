@@ -16,7 +16,7 @@ UEditableText::UEditableText(const FObjectInitializer& ObjectInitializer)
 
 	ColorAndOpacity_DEPRECATED = FLinearColor::Black;
 
-	if (!IsRunningDedicatedServer())
+	if (!UE_SERVER)
 	{
 		static ConstructorHelpers::FObjectFinder<UFont> RobotoFontObj(TEXT("/Engine/EngineFonts/Roboto"));
 		Font_DEPRECATED = FSlateFontInfo(RobotoFontObj.Object, 12, FName("Bold"));
@@ -71,8 +71,6 @@ void UEditableText::SynchronizeProperties()
 	MyEditableText->SetIsPassword(IsPassword);
 	MyEditableText->SetAllowContextMenu(AllowContextMenu);
 	// TODO UMG Complete making all properties settable on SEditableText
-
-	ShapedTextOptions.SynchronizeShapedTextProperties(*MyEditableText);
 }
 
 FText UEditableText::GetText() const
@@ -184,6 +182,11 @@ void UEditableText::PostLoad()
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UEditableText::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.EditableText");
+}
 
 const FText UEditableText::GetPaletteCategory()
 {

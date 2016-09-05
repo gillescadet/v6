@@ -92,7 +92,7 @@ private:
 	bool CanPlayAnimation(class UAnimSequenceBase* AnimAssetBase=NULL) const;
 
 	// currently actively playing montage
-	TMap<FName, TWeakObjectPtr<class UAnimMontage>> CurrentlyPlayingMontages;
+	TWeakObjectPtr<class UAnimMontage> CurrentlyPlayingMontage;
 
 public:
 	/** Returns SkeletalMeshComponent subobject **/

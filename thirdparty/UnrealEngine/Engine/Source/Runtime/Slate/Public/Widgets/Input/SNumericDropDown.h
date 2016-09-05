@@ -116,10 +116,8 @@ public:
 					.ButtonContent()
 					[
 						SNew( SEditableTextBox )
-						.MinDesiredWidth( InArgs._MinDesiredValueWidth )
-						.RevertTextOnEscape(true)
-						.SelectAllTextWhenFocused(true)
 						.Text( this, &SNumericDropDown<NumericType>::GetValueText )
+						.MinDesiredWidth( InArgs._MinDesiredValueWidth )
 						.OnTextCommitted( this, &SNumericDropDown<NumericType>::ValueTextComitted )
 					]
 				]
@@ -175,7 +173,6 @@ private:
 
 	void SetValue( NumericType InValue )
 	{
-		FSlateApplication::Get().ClearKeyboardFocus( EFocusCause::Cleared );
 		OnValueChanged.ExecuteIfBound(InValue);
 	}
 

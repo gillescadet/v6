@@ -10,13 +10,12 @@
 #include "Engine/Channel.h"
 #include "Engine/Player.h"
 #include "Engine/NetDriver.h"
-#include "GameFramework/OnlineReplStructs.h"
 #include "Runtime/PacketHandlers/PacketHandler/Public/PacketHandler.h"
 
 #include "NetConnection.generated.h"
 
 class FObjectReplicator;
-struct FNetworkObjectInfo;
+class FUniqueNetId;
 
 /*-----------------------------------------------------------------------------
 	Types.
@@ -25,7 +24,7 @@ enum { RELIABLE_BUFFER = 256 }; // Power of 2 >= 1.
 enum { MAX_PACKETID = 16384 };  // Power of 2 >= 1, covering guaranteed loss/misorder time.
 enum { MAX_CHSEQUENCE = 1024 }; // Power of 2 >RELIABLE_BUFFER, covering loss/misorder time.
 enum { MAX_BUNCH_HEADER_BITS = 64 };
-enum { MAX_PACKET_HEADER_BITS = 15 }; // = FMath::CeilLogTwo(MAX_PACKETID) + 1 (IsAck)
+enum { MAX_PACKET_HEADER_BITS = 16 };
 enum { MAX_PACKET_TRAILER_BITS = 1 };
 
 class UNetDriver;
@@ -113,29 +112,13 @@ namespace EClientLoginState
 };
 
 #if DO_ENABLE_NET_TEST
-/**
- * An artificially lagged packet
- */
+//
+// A lagged packet
+//
 struct DelayedPacket
 {
-	/** The packet data to send */
 	TArray<uint8> Data;
-
-	/** The size of the packet in bits */
-	int32 SizeBits;
-
-	/** The time at which to send the packet */
 	double SendTime;
-
-public:
-	FORCEINLINE DelayedPacket(uint8* InData, int32 InSizeBytes, int32 InSizeBits)
-		: Data()
-		, SizeBits(InSizeBits)
-		, SendTime(0.0)
-	{
-		Data.AddUninitialized(InSizeBytes);
-		FMemory::Memcpy(Data.GetData(), InData, InSizeBytes);
-	}
 };
 #endif
 
@@ -195,9 +178,6 @@ class UNetConnection : public UPlayer
 	/** Number of bits used for padding in the current packet. */
 	int NumPaddingBits;
 
-	/** The maximum number of bits all packet handlers will reserve */
-	int32 MaxPacketHandlerBits;
-
 	/** Sets all of the bit-tracking variables to zero. */
 	void ResetPacketBitCounts();
 
@@ -219,19 +199,13 @@ public:
 	
 	uint32 bPendingDestroy:1;    // when true, playercontroller or beaconclient is being destroyed
 
-
-	/** PacketHandler, for managing layered handler components, which modify packets as they are sent/received */
+	// Packet Handler
 	TUniquePtr<PacketHandler> Handler;
-
-	/** Reference to the PacketHandler component, for managing stateless connection handshakes */
-	TWeakPtr<StatelessConnectHandlerComponent> StatelessConnectComponent;
-
 
 	/** Whether this channel needs to byte swap all data or not */
 	bool			bNeedsByteSwapping;
-	/** Net id of remote player on this connection. Only valid on client connections (server side).*/
-	UPROPERTY()
-	FUniqueNetIdRepl PlayerId;
+	/** Net id of remote player on this connection. Only valid on client connections. */
+	TSharedPtr<const FUniqueNetId> PlayerId;
 
 	// Negotiated parameters.
 	int32			PacketOverhead;			// Bytes overhead per packet sent.
@@ -255,7 +229,7 @@ public:
 	double			LastGoodPacketRealtime;	// Last real time a packet was considered valid
 	double			LastSendTime;			// Last time a packet was sent, for keepalives.
 	double			LastTickTime;			// Last time of polling.
-	int32			QueuedBits;			// Bits assumed to be queued up.
+	int32			QueuedBytes;			// Bytes assumed to be queued up.
 	int32			TickCount;				// Count of ticks.
 	/** The last time an ack was received */
 	float			LastRecvAckTime;
@@ -287,24 +261,18 @@ public:
 	int32			CountedFrames;
 	/** bytes sent/received on this connection (accumulated during a StatPeriod) */
 	int32 InBytes, OutBytes;
-	/** packets sent/received on this connection (accumulated during a StatPeriod) */
-	int32 InPackets, OutPackets;
 	/** bytes sent/received on this connection (per second) - these are from previous StatPeriod interval */
 	int32 InBytesPerSecond, OutBytesPerSecond;
-	/** packets sent/received on this connection (per second) - these are from previous StatPeriod interval */
-	int32 InPacketsPerSecond, OutPacketsPerSecond;
 	/** packets lost on this connection */
 	int32 InPacketsLost, OutPacketsLost;
 
 	// Packet.
-	FBitWriter		SendBuffer;						// Queued up bits waiting to send
-	double			OutLagTime[256];				// For lag measuring.
-	int32			OutLagPacketId[256];			// For lag measuring.
-	int32			OutBytesPerSecondHistory[256];	// For saturation measuring.
-	float			RemoteSaturation;
-	int32			InPacketId;						// Full incoming packet index.
-	int32			OutPacketId;					// Most recently sent packet.
-	int32 			OutAckPacketId;					// Most recently acked outgoing packet.
+	FBitWriter		SendBuffer;				// Queued up bits waiting to send
+	double			OutLagTime[256];		// For lag measuring.
+	int32			OutLagPacketId[256];	// For lag measuring.
+	int32			InPacketId;				// Full incoming packet index.
+	int32			OutPacketId;			// Most recently sent packet.
+	int32 			OutAckPacketId;			// Most recently acked outgoing packet.
 
 	bool			bLastHasServerFrameTime;
 
@@ -315,20 +283,16 @@ public:
 	int32				PendingOutRec	[ MAX_CHANNELS ];	// Outgoing reliable unacked data from previous (now destroyed) channel in this slot.  This contains the first chsequence not acked
 	TArray<int32> QueuedAcks, ResendAcks;
 
-	// Network version
-	uint32				EngineNetworkProtocolVersion;
-	uint32				GameNetworkProtocolVersion;
-
 	// Log tracking
 	double			LogCallLastTime;
 	int32			LogCallCount;
 	int32			LogSustainedCount;
 
 	/** @todo document */
-	TMap<TWeakObjectPtr<AActor>, UActorChannel*, FDefaultSetAllocator, TWeakObjectPtrMapKeyFuncs<TWeakObjectPtr<AActor>, UActorChannel*>> ActorChannels;
+	TMap<TWeakObjectPtr<AActor>,class UActorChannel*> ActorChannels;
 
 	/** This holds a list of actor channels that want to fully shutdown, but need to continue processing bunches before doing so */
-	TMap<FNetworkGUID, TArray<class UActorChannel*>> KeepProcessingActorChannelBunchesMap;
+	TMap<FNetworkGUID,class UActorChannel*> KeepProcessingActorChannelBunchesMap;
 
 	/** Actors that have gone dormant on this connection	
 	 *  The only way to get on this list is when the actor channel closes. UActorChannel::Close.
@@ -365,6 +329,9 @@ public:
 	 */
 	TArray<FName> ClientVisibleLevelNames;
 
+	/** @todo document */
+	class TArray<AActor*> OwnedConsiderList;
+
 #if DO_ENABLE_NET_TEST
 	// For development.
 	/** Packet settings for testing lag, net errors, etc */
@@ -376,15 +343,6 @@ public:
 	/** Copies the settings from the net driver to our local copy */
 	void UpdatePacketSimulationSettings(void);
 #endif
-
-	/** 
-	 * If true, will resend everything this connection has ever sent, since the connection has been open.
-	 *	This functionality is used during replay checkpoints for example, so we can re-use the existing connection and channels to record
-	 *	a version of each actor and capture all properties that have changed since the actor has been alive...
-	 *	This will also act as if it needs to re-open all the channels, etc.
-	 *   NOTE - This doesn't force all exports to happen again though, it will only export new stuff, so keep that in mind.
-	 */
-	bool bResendAllDataSinceOpen;
 
 	/**
 	 * Called to determine if a voice packet should be replicated to this
@@ -455,13 +413,10 @@ public:
 	/**
 	 * Sends a byte stream to the remote endpoint using the underlying socket
 	 *
-	 * @param Data			The byte stream to send
-	 * @param CountBytes	The length of the stream to send, in bytes
-	 * @param CountBits		The length of the stream to send, in bits (to support bit-level additions to packets, from PacketHandler's)
+	 * @param Data the byte stream to send
+	 * @param Count the length of the stream to send
 	 */
-	// @todo: Deprecate 'CountBytes' eventually
-	ENGINE_API virtual void LowLevelSend(void* Data, int32 CountBytes, int32 CountBits)
-		PURE_VIRTUAL(UNetConnection::LowLevelSend,);
+	virtual void LowLevelSend( void* Data, int32 Count ) PURE_VIRTUAL(UNetConnection::LowLevelSend,); //!! "Looks like an FArchive"
 
 	/** Validates the FBitWriter to make sure it's not in an error state */
 	ENGINE_API virtual void ValidateSendBuffer();
@@ -562,12 +517,6 @@ public:
 	ENGINE_API virtual void InitConnection(UNetDriver* InDriver, EConnectionState InState, const FURL& InURL, int32 InConnectionSpeed=0, int32 InMaxPacket=0);
 
 
-	/**
-	 * Initializes the PacketHandler
-	 */
-	ENGINE_API virtual void InitHandler();
-
-
 	/** 
 	* Gets a unique ID for the connection, this ID depends on the underlying connection
 	* For IP connections this is an IP Address and port, for steam this is a SteamID
@@ -575,9 +524,6 @@ public:
 	ENGINE_API virtual FString RemoteAddressToString() PURE_VIRTUAL(UNetConnection::RemoteAddressToString, return TEXT("Error"););
 	
 	
-	/** Called by UActorChannel. Handles creating a new replicator for an actor */
-	ENGINE_API virtual TSharedPtr<FObjectReplicator> CreateReplicatorForNewActorChannel(UObject* Object);
-
 	// Functions.
 
 	/** Resend any pending acks. */
@@ -623,12 +569,6 @@ public:
 
 	/** Send a raw bunch. */
 	ENGINE_API int32 SendRawBunch( FOutBunch& Bunch, bool InAllowMerge );
-
-	/** The maximum number of bits allowed within a single bunch. */
-	FORCEINLINE int32 GetMaxSingleBunchSizeBits() const
-	{
-		return (MaxPacket * 8) - MAX_BUNCH_HEADER_BITS - MAX_PACKET_TRAILER_BITS - MAX_PACKET_HEADER_BITS - MaxPacketHandlerBits;
-	}
 
 	/** @return The driver object */
 	UNetDriver* GetDriver() {return Driver;}
@@ -692,8 +632,6 @@ public:
 	/** Removes a channel from the ticking list directly */
 	void StopTickingChannel(UChannel* Channel) { ChannelsToTick.Remove(Channel); }
 
-	FORCEINLINE FHistogram GetNetHistogram() const { return NetConnectionHistogram; }
-
 protected:
 
 	void CleanupDormantActorState();
@@ -707,9 +645,6 @@ private:
 	 */
 	UPROPERTY()
 	TArray<UChannel*> ChannelsToTick;
-
-	/** Histogram of the received packet time */
-	FHistogram NetConnectionHistogram;
 };
 
 

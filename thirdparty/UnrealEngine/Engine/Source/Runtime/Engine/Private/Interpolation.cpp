@@ -355,7 +355,7 @@ AMatineeActor::AMatineeActor(const FObjectInitializer& ObjectInitializer)
 		SpriteComponent->RelativeScale3D = FVector(0.5f, 0.5f, 0.5f);
 		SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Matinee;
 		SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Matinee;
-		SpriteComponent->SetupAttachment(RootComponent);
+		SpriteComponent->AttachParent = RootComponent;
 		SpriteComponent->bIsScreenSizeScaled = true;
 	}
 #endif // WITH_EDITORONLY_DATA
@@ -427,13 +427,15 @@ void AMatineeActor::NotifyEventTriggered(FName EventName, float EventTime, bool 
 #if !UE_BUILD_SHIPPING
 	if (EventName == NAME_PerformanceCapture)
 	{
+		//get the map name
 		FString PackageName = GetOutermost()->GetName();
 		
 		FString MapName;
 		FString FolderName;
 		PackageName.Split(TEXT("/"), &FolderName, &MapName, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
 
-		GEngine->PerformanceCapture(GetWorld(), MapName, GetName(), EventTime);
+		FString CaptureName = FString::Printf(TEXT("PerformanceCapture/%s/%s_%4.2f"), *MapName, *GetName(), EventTime);
+		GEngine->PerformanceCapture(GetWorld(), CaptureName);
 	}
 #endif	// UE_BUILD_SHIPPING
 }
@@ -469,14 +471,6 @@ void AMatineeActor::Play()
 		UpdateInterp(0.f, false, true);
 	}
 
-	if (!bIsPlaying)
-	{
-		if (OnPlay.IsBound())
-		{
-			OnPlay.Broadcast();
-		}
-	}
-
 	bReversePlayback = false;
 	bIsPlaying = true;
 	bPaused = false;
@@ -491,14 +485,6 @@ void AMatineeActor::Reverse()
 		InitInterp();
 	}
 
-	if (!bIsPlaying)
-	{
-		if (OnPlay.IsBound())
-		{
-			OnPlay.Broadcast();
-		}
-	}
-
 	bReversePlayback = true;
 	bIsPlaying = true;
 	bPaused = false;
@@ -509,14 +495,6 @@ void AMatineeActor::Stop()
 {
 	// Re-enable the radio filter
 	EnableRadioFilter();
-
-	if (bIsPlaying)
-	{
-		if (OnStop.IsBound())
-		{
-			OnStop.Broadcast();
-		}
-	}
 
 	bIsPlaying = false;
 	bPaused = false;
@@ -531,20 +509,8 @@ void AMatineeActor::Stop()
 
 void AMatineeActor::Pause()
 {
-	if (bIsPlaying)
+	if( bIsPlaying )
 	{
-		if (!bPaused)
-		{
-			if (OnPause.IsBound())
-			{
-				OnPause.Broadcast();
-			}
-		}
-		else if (OnPlay.IsBound())
-		{
-			OnPlay.Broadcast();
-		}
-
 		EnableRadioFilter();
 		bPaused = !bPaused;
 		SetActorTickEnabled(!bPaused);
@@ -553,14 +519,6 @@ void AMatineeActor::Pause()
 
 void AMatineeActor::ChangePlaybackDirection()
 {
-	if (!bIsPlaying)
-	{
-		if (OnPlay.IsBound())
-		{
-			OnPlay.Broadcast();
-		}
-	}
-
 	bReversePlayback = !bReversePlayback;
 	bIsPlaying = true;
 	bPaused = false;
@@ -598,20 +556,6 @@ void AMatineeActor::OnObjectsReplaced(const TMap<UObject*,UObject*>& Replacement
 	ReplaceMapKeys(ReplacementMap, SavedActorVisibilities);
 }
 #endif //WITH_EDITOR
-
-void AMatineeActor::EnableGroupByName(FString GroupName, bool bEnable)
-{
-	UInterpGroupInst* FirstGroupInst = FindFirstGroupInstByName(GroupName);
-
-	if (FirstGroupInst)
-	{
-		UInterpGroup* Group = FirstGroupInst->Group;
-		for ( UInterpTrack* Track : Group->InterpTracks)
-		{
-			Track->EnableTrack(bEnable, true);
-		}
-	}
-}
 
 void AMatineeActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
@@ -1006,16 +950,13 @@ void AMatineeActor::UpdateInterpForParentMovementTracks( float Time, UInterpGrou
 				}
 			}
 
-			if(ParentTrackInst && ParentInst->Group)
+			if(ParentTrackInst)
 			{
 				TArray<UInterpTrack*> FoundTracks;
 				ParentInst->Group->FindTracksByClass(UInterpTrackMove::StaticClass(), FoundTracks);
-				if (FoundTracks.Num() > 0)
-				{
-					//Just use the first one, multiple move tracks wouldnt work well anyway
-					UInterpTrackMove* MoveTrack = CastChecked<UInterpTrackMove>(FoundTracks[0]);
-					MoveTrack->ConditionalUpdateTrack(Time, ParentTrackInst, true);
-				}
+				//Just use the first one, multiple move tracks wouldnt work well anyway
+				UInterpTrackMove* MoveTrack = CastChecked<UInterpTrackMove>(FoundTracks[0]);
+				MoveTrack->ConditionalUpdateTrack(Time, ParentTrackInst, true);
 			}
 		}
 	}
@@ -1689,17 +1630,17 @@ void AMatineeActor::RecaptureActorState()
 	for(int32 i=0; i<GroupInst.Num(); i++)
 	{
 		UInterpGroupInst* GrInst = GroupInst[i];
-		AActor* InstGroupActor = GrInst->GetGroupActor();
-		if( InstGroupActor )
+		AActor* GroupActor = GrInst->GetGroupActor();
+		if( GroupActor )
 		{
-			ConditionallySaveActorState( GrInst, InstGroupActor );
+			ConditionallySaveActorState( GrInst, GroupActor );
 		}
 	}
 	UpdateInterp( SavedScrubPosition, true );
 #endif // WITH_EDITORONLY_DATA
 }
 
-void AMatineeActor::InitGroupActorForGroup(class UInterpGroup* InGroup, class AActor* InGroupActor)
+void AMatineeActor::InitGroupActorForGroup(class UInterpGroup* InGroup, class AActor* GroupActor)
 {
 	bool bFoundGroup = false;
 	for( int32 GroupIndex = 0; GroupIndex < GroupActorInfos.Num(); ++GroupIndex )
@@ -1708,11 +1649,11 @@ void AMatineeActor::InitGroupActorForGroup(class UInterpGroup* InGroup, class AA
 		if( Info.ObjectName == InGroup->GetFName() )
 		{
 			bFoundGroup = true;
-			Info.Actors.AddUnique( InGroupActor );
+			Info.Actors.AddUnique( GroupActor );
 
-			if (InGroupActor)
+			if (GroupActor)
 			{
-				InGroupActor->AddControllingMatineeActor(*this);
+				GroupActor->AddControllingMatineeActor(*this);
 			}
 		}
 	}
@@ -1721,13 +1662,13 @@ void AMatineeActor::InitGroupActorForGroup(class UInterpGroup* InGroup, class AA
 	{
 		FInterpGroupActorInfo NewInfo;
 		NewInfo.ObjectName = InGroup->GetFName();
-		NewInfo.Actors.Add( InGroupActor );
+		NewInfo.Actors.Add( GroupActor );
 
 		GroupActorInfos.Add( NewInfo );
 
-		if (InGroupActor)
+		if (GroupActor)
 		{
-			InGroupActor->AddControllingMatineeActor(*this);
+			GroupActor->AddControllingMatineeActor(*this);
 		}
 	}
 
@@ -2101,7 +2042,7 @@ void UInterpGroup::PostLoad()
 
 void UInterpGroup::UpdateGroup(float NewPosition, UInterpGroupInst* GrInst, bool bPreview, bool bJump)
 {
-	checkf( InterpTracks.Num() == GrInst->TrackInst.Num(), TEXT("UpdateGroup track mismatch! Outer = %s"), *GetNameSafe(GetOuter()) );
+	check( InterpTracks.Num() == GrInst->TrackInst.Num() );
 
 	// Update animation state of Actor.
 #if 0
@@ -2582,11 +2523,6 @@ AActor* UInterpGroupInst::GetGroupActor() const
 	}
 }
 
-void UInterpGroupInst::SetGroupActor(AActor* Actor)
-{
-	GroupActor = Actor;
-}
-
 void UInterpGroupInst::SaveGroupActorState()
 {
 	check(Group);
@@ -2633,7 +2569,7 @@ void UInterpGroupInst::InitGroupInst(UInterpGroup* InGroup, AActor* InGroupActor
 	bool bHasAnimTrack = Group->HasAnimControlTrack();
 	if (bHasAnimTrack && GroupActor != NULL && !GroupActor->IsPendingKill())
 	{
-		IMatineeAnimInterface* IMAI = Cast<IMatineeAnimInterface>(GroupActor);
+		IMatineeAnimInterface * IMAI = Cast<IMatineeAnimInterface>(GroupActor);
 		if (IMAI)
 		{
 			// If in the editor and we haven't started playing, this should be Matinee! Bit yuck...
@@ -2651,7 +2587,7 @@ void UInterpGroupInst::InitGroupInst(UInterpGroup* InGroup, AActor* InGroupActor
 		else
 		{
 			// this is when initialized. Print error if the interface is not found
-			UE_LOG(LogMatinee, Warning, TEXT("InterpGroup : MatineeAnimInterface is missing for (%s)"), *GroupActor->GetName());		
+			UE_LOG(LogMatinee, Warning, TEXT("IntepGroup : MatineeAnimInterface is missing for (%s)"), *GroupActor->GetName());		
 		}
 	}
 }
@@ -4805,9 +4741,9 @@ FTransform UInterpTrackMove::GetMoveRefFrame(UInterpTrackInstMove* MoveTrackInst
 	AActor* Actor = MoveTrackInst->GetGroupActor();
 	FTransform BaseTM = FTransform::Identity;
 
-	if(Actor && Actor->GetRootComponent() && Actor->GetRootComponent()->GetAttachParent())
+	if(Actor && Actor->GetRootComponent() && Actor->GetRootComponent()->AttachParent)
 	{
-		BaseTM = Actor->GetRootComponent()->GetAttachParent()->GetSocketTransform(Actor->GetRootComponent()->GetAttachSocketName());
+		BaseTM = Actor->GetRootComponent()->AttachParent->GetSocketTransform(Actor->GetRootComponent()->AttachSocketName);
 	}
 
 	return BaseTM;
@@ -6645,12 +6581,12 @@ void UInterpTrackDirector::PreviewUpdateTrack(float NewPosition, UInterpTrackIns
 }
 
 #if WITH_EDITOR
-bool UInterpTrackDirector::UpdatePreviewCamera(AMatineeActor* MatineeActor, bool bInIsSelected)
+bool UInterpTrackDirector::UpdatePreviewCamera(AMatineeActor* MatineeActor, bool bIsSelected)
 {
 	check( MatineeActor );
 #if WITH_EDITORONLY_DATA
 	// If selected, get the viewed actor in the matinee
-	AActor* Actor = bInIsSelected ? MatineeActor->FindViewedActor() : NULL;
+	AActor* Actor = bIsSelected ? MatineeActor->FindViewedActor() : NULL;
 	if ( PreviewCamera != Actor )
 	{
 		// Try casting it to a camera actor
@@ -7435,8 +7371,8 @@ void UInterpTrackAnimControl::UpdateTrack(float NewPosition, UInterpTrackInst* T
 	if(AnimSeqs.Num() == 0 || NewPosition <= AnimInst->LastUpdatePosition || bJump)
 	{
 		UAnimSequence* NewAnimSequence = NULL;
-		float NewAnimPosition = 0.0f;
-		bool bNewLooping = false;
+		float NewAnimPosition;
+		bool bNewLooping;
 		GetAnimForTime(NewPosition, &NewAnimSequence, NewAnimPosition, bNewLooping);
 
 		if( NewAnimSequence != NULL )
@@ -7690,7 +7626,6 @@ int32 UInterpTrackAnimControl::CalcChannelIndex()
 		}
 
 		// If not this track, but has same slot name, increment ChannelIndex
-		CA_SUPPRESS(6011);
 		if(AnimTrack && !AnimTrack->IsDisabled() && AnimTrack->SlotName == SlotName)
 		{
 			ChannelIndex++;
@@ -7998,11 +7933,11 @@ void UInterpTrackSound::UpdateTrack(float NewPosition, UInterpTrackInst* TrInst,
 					{
 						if (bAttach && Actor->GetRootComponent())
 						{
-							SoundInst->PlayAudioComp->AttachToComponent(Actor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+							SoundInst->PlayAudioComp->AttachTo(Actor->GetRootComponent());
 						}
 						else
 						{
-							SoundInst->PlayAudioComp->DetachFromComponent(FDetachmentTransformRules::KeepRelativeTransform);
+							SoundInst->PlayAudioComp->DetachFromParent();
 							SoundInst->PlayAudioComp->SetWorldLocation(Actor->GetActorLocation());
 						}
 					}
@@ -8029,7 +7964,7 @@ void UInterpTrackSound::UpdateTrack(float NewPosition, UInterpTrackInst* TrInst,
 						{
 							if (bAttach && Actor->GetRootComponent())
 							{
-								SoundInst->PlayAudioComp->AttachToComponent(Actor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+								SoundInst->PlayAudioComp->AttachTo(Actor->GetRootComponent());
 							}
 							else
 							{
@@ -8051,8 +7986,11 @@ void UInterpTrackSound::UpdateTrack(float NewPosition, UInterpTrackInst* TrInst,
 	// play the sound, then stop any already playing sounds
 	else if( SoundInst->PlayAudioComp && SoundInst->PlayAudioComp->IsPlaying() )
 	{
-		SoundInst->PlayAudioComp->Stop();
-		bPlaying = false;
+		FSoundTrackKey& SoundTrackKey = GetSoundTrackKeyAtPosition(NewPosition);
+		if (SoundTrackKey.Sound != SoundInst->PlayAudioComp->Sound)
+		{
+			SoundInst->PlayAudioComp->Stop();
+		}
 	}
 
 
@@ -8897,7 +8835,7 @@ AMaterialInstanceActor::AMaterialInstanceActor(const FObjectInitializer& ObjectI
 		SpriteComponent->Sprite = ConstructorStatics.MaterialInstanceSpriteObject.Get();
 		SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Materials;
 		SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Materials;
-		SpriteComponent->SetupAttachment(SceneComponent);
+		SpriteComponent->AttachParent = SceneComponent;
 		SpriteComponent->bIsScreenSizeScaled = true;
 	}
 #endif // WITH_EDITORONLY_DATA

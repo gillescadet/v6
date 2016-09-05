@@ -14,12 +14,8 @@ class UParticleModuleVectorFieldScale : public UParticleModuleVectorFieldBase
 	GENERATED_UCLASS_BODY()
 
 	/** Per-particle vector field scale. Evaluated using emitter time. */
-	UPROPERTY()
-	class UDistributionFloat* VectorFieldScale_DEPRECATED;
-
-	/** Per-particle vector field scale. Evaluated using emitter time. */
 	UPROPERTY(EditAnywhere, Category=VectorField)
-	FRawDistributionFloat VectorFieldScaleRaw;
+	class UDistributionFloat* VectorFieldScale;
 
 	/** Initializes the default values for this property */
 	void InitializeDefaults();
@@ -29,7 +25,6 @@ class UParticleModuleVectorFieldScale : public UParticleModuleVectorFieldBase
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif // WITH_EDITOR
 	virtual void PostInitProperties() override;
-	virtual void PostLoad() override;
 	//~ End UObject Interface
 
 	//~ Begin UParticleModule Interface

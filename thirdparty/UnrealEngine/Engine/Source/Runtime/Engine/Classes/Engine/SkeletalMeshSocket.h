@@ -85,8 +85,6 @@ class USkeletalMeshSocket : public UObject
 	 */
 	ENGINE_API bool AttachActor (class AActor* Actor, class USkeletalMeshComponent* SkelComp) const;
 
-	virtual void Serialize(FArchive& Ar) override;
-
 #if WITH_EDITOR
 	/** Broadcasts a notification whenever the socket property has changed. */
 	DECLARE_EVENT_TwoParams(USkeletalMeshSocket, FSocketChangedEvent, const class USkeletalMeshSocket*, const class UProperty*);
@@ -95,9 +93,6 @@ class USkeletalMeshSocket : public UObject
 	//~ Begin UObject Interface
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	//~ End UObject Interface
-
-	// Utility function to copy socket 
-	ENGINE_API void CopyFrom(const class USkeletalMeshSocket* OtherSocket);
 
 private: 
 	/** Broadcasts a notification whenever the socket property has changed. */

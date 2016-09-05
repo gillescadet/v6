@@ -11,7 +11,6 @@
 #include "AnimInterpFilter.h"
 #include "Animation/Skeleton.h"
 #include "Engine/SkeletalMesh.h"
-#include "Interfaces/Interface_AssetUserData.h"
 #include "AnimationAsset.generated.h"
 
 namespace MarkerIndexSpecialValues
@@ -54,9 +53,6 @@ struct FBlendSampleData
 	int32 SampleDataIndex;
 
 	UPROPERTY()
-	class UAnimSequence* Animation;
-
-	UPROPERTY()
 	float TotalWeight;
 
 	UPROPERTY()
@@ -78,7 +74,6 @@ struct FBlendSampleData
 	{}
 	FBlendSampleData(int32 Index)
 		:	SampleDataIndex(Index)
-		,	Animation(nullptr)
 		,	TotalWeight(0.f)
 		,	Time(0.f)
 		,	PreviousTime(0.f)
@@ -154,20 +149,18 @@ namespace ERootMotionMode
 }
 
 /** Animation Extraction Context */
+USTRUCT()
 struct FAnimExtractContext
 {
+	GENERATED_USTRUCT_BODY()
+
 	/** Is Root Motion being extracted? */
+	UPROPERTY()
 	bool bExtractRootMotion;
 
 	/** Position in animation to extract pose from */
+	UPROPERTY()
 	float CurrentTime;
-
-	/** 
-	 * Pose Curve Values to extract pose from pose assets. 
-	 * This is used by pose asset extraction 
-	 * This always has to match with pose # in the asset it's extracting from
-	 */
-	TArray<float> PoseCurves;
 
 	FAnimExtractContext()
 		: bExtractRootMotion(false)
@@ -185,14 +178,6 @@ struct FAnimExtractContext
 		: bExtractRootMotion(InbExtractRootMotion)
 		, CurrentTime(InCurrentTime)
 	{
-	}
-
-	FAnimExtractContext(TArray<float>& InPoseCurves)
-		: bExtractRootMotion(false)
-		, CurrentTime(0.f)
-		, PoseCurves(InPoseCurves)
-	{
-		// @todo: no support on root motion
 	}
 };
 
@@ -258,8 +243,6 @@ struct FAnimTickRecord
 	float*  TimeAccumulator;
 	float PlayRateMultiplier;
 	float EffectiveBlendWeight;
-	float RootMotionWeightModifier;
-
 	bool bLooping;
 
 	union
@@ -286,15 +269,11 @@ struct FAnimTickRecord
 	bool bCanUseMarkerSync;
 	float LeaderScore;
 
-	// Return the root motion weight for this tick record
-	float GetRootMotionWeight() const { return EffectiveBlendWeight * RootMotionWeightModifier; }
-
 public:
 	FAnimTickRecord()
 		: TimeAccumulator(nullptr)
 		, PlayRateMultiplier(1.f)
 		, EffectiveBlendWeight(0.f)
-		, RootMotionWeightModifier(1.f)
 		, bLooping(false)
 		, MarkerTickRecord(nullptr)
 		, bCanUseMarkerSync(false)
@@ -437,7 +416,6 @@ public:
 		ActivePlayers.Reset();
 		bCanUseMarkerSync = false;
 		MontageLeaderWeight = 0.f;
-		MarkerTickContext = FMarkerTickContext();
 	}
 
 	// Checks the last tick record in the ActivePlayers array to see if it's a better leader than the current candidate.
@@ -461,72 +439,26 @@ struct FRootMotionMovementParams
 {
 	GENERATED_USTRUCT_BODY()
 
-private:
-	static FVector RootMotionScale;
-
-	// TODO: Remove when we make RootMotionTransform private
-	FORCEINLINE FTransform& GetRootMotionTransformInternal()
-	{
-		PRAGMA_DISABLE_DEPRECATION_WARNINGS
-		return RootMotionTransform;
-		PRAGMA_ENABLE_DEPRECATION_WARNINGS
-	}
-
-	FORCEINLINE const FTransform& GetRootMotionTransformInternal() const
-	{
-		PRAGMA_DISABLE_DEPRECATION_WARNINGS
-		return RootMotionTransform;
-		PRAGMA_ENABLE_DEPRECATION_WARNINGS
-	}
-
-public:
-	
 	UPROPERTY()
 	bool bHasRootMotion;
 
 	UPROPERTY()
 	float BlendWeight;
 
-	// To be made private
-	DEPRECATED(4.13, "RootMotionTransform should not be accessed directly, please use GetRootMotionTransform() to read it or one of the set/accumulate functions to modify it")
 	UPROPERTY()
 	FTransform RootMotionTransform;
 
 	FRootMotionMovementParams()
 		: bHasRootMotion(false)
 		, BlendWeight(0.f)
+		, RootMotionTransform(FTransform::Identity)
 	{
-	}
-
-	// Copy/Move constructors and assignment operator added for deprecation support
-	// Could be removed once RootMotionTransform is made private
-	FRootMotionMovementParams(const FRootMotionMovementParams& Other)
-		: bHasRootMotion(Other.bHasRootMotion)
-		, BlendWeight(Other.BlendWeight)
-	{
-		GetRootMotionTransformInternal() = Other.GetRootMotionTransformInternal();
-	}
-
-	FRootMotionMovementParams(const FRootMotionMovementParams&& Other)
-		: bHasRootMotion(Other.bHasRootMotion)
-		, BlendWeight(Other.BlendWeight)
-	{
-		GetRootMotionTransformInternal() = Other.GetRootMotionTransformInternal();
-	}
-
-	FRootMotionMovementParams& operator=(const FRootMotionMovementParams& Other)
-	{
-		bHasRootMotion = Other.bHasRootMotion;
-		BlendWeight = Other.BlendWeight;
-		GetRootMotionTransformInternal() = Other.GetRootMotionTransformInternal();
-		return *this;
 	}
 
 	void Set(const FTransform& InTransform)
 	{
 		bHasRootMotion = true;
-		GetRootMotionTransformInternal() = InTransform;
-		GetRootMotionTransformInternal().SetScale3D(RootMotionScale);
+		RootMotionTransform = InTransform;
 		BlendWeight = 1.f;
 	}
 
@@ -538,8 +470,7 @@ public:
 		}
 		else
 		{
-			GetRootMotionTransformInternal() = InTransform * GetRootMotionTransformInternal();
-			GetRootMotionTransformInternal().SetScale3D(RootMotionScale);
+			RootMotionTransform = InTransform * RootMotionTransform;
 		}
 	}
 
@@ -547,7 +478,7 @@ public:
 	{
 		if (MovementParams.bHasRootMotion)
 		{
-			Accumulate(MovementParams.GetRootMotionTransformInternal());
+			Accumulate(MovementParams.RootMotionTransform);
 		}
 	}
 
@@ -556,8 +487,7 @@ public:
 		const ScalarRegister VBlendWeight(InBlendWeight);
 		if (bHasRootMotion)
 		{
-			GetRootMotionTransformInternal().AccumulateWithShortestRotation(InTransform, VBlendWeight);
-			GetRootMotionTransformInternal().SetScale3D(RootMotionScale);
+			RootMotionTransform.AccumulateWithShortestRotation(InTransform, VBlendWeight);
 			BlendWeight += InBlendWeight;
 		}
 		else
@@ -571,7 +501,7 @@ public:
 	{
 		if (MovementParams.bHasRootMotion)
 		{
-			AccumulateWithBlend(MovementParams.GetRootMotionTransformInternal(), InBlendWeight);
+			AccumulateWithBlend(MovementParams.RootMotionTransform, InBlendWeight);
 		}
 	}
 
@@ -588,28 +518,25 @@ public:
 		{
 			AccumulateWithBlend(FTransform(), WeightLeft);
 		}
-		GetRootMotionTransformInternal().NormalizeRotation();
+		RootMotionTransform.NormalizeRotation();
 	}
 
 	FRootMotionMovementParams ConsumeRootMotion(float Alpha)
 	{
 		const ScalarRegister VAlpha(Alpha);
-		FTransform PartialRootMotion = (GetRootMotionTransformInternal()*VAlpha);
-		PartialRootMotion.SetScale3D(RootMotionScale); // Reset scale after multiplication above
+		FTransform PartialRootMotion = (RootMotionTransform*VAlpha);
+		PartialRootMotion.SetScale3D(FVector(1.f));
 		PartialRootMotion.NormalizeRotation();
-		GetRootMotionTransformInternal() = GetRootMotionTransformInternal().GetRelativeTransform(PartialRootMotion);
-		GetRootMotionTransformInternal().NormalizeRotation(); //Make sure we are normalized, this needs to be investigated further
+		RootMotionTransform = RootMotionTransform.GetRelativeTransform(PartialRootMotion);
+		RootMotionTransform.NormalizeRotation(); //Make sure we are normalized, this needs to be investigated further
 
 		FRootMotionMovementParams ReturnParams;
 		ReturnParams.Set(PartialRootMotion);
 
 		check(PartialRootMotion.IsRotationNormalized());
-		check(GetRootMotionTransformInternal().IsRotationNormalized());
+		check(RootMotionTransform.IsRotationNormalized());
 		return ReturnParams;
 	}
-
-	const FTransform& GetRootMotionTransform() const { return GetRootMotionTransformInternal(); }
-	void ScaleRootMotionTranslation(float TranslationScale) { GetRootMotionTransformInternal().ScaleTranslation(TranslationScale); }
 };
 
 // This structure is used to either advance or synchronize animation players
@@ -741,7 +668,7 @@ struct FAnimationGroupReference
 };
 
 UCLASS(abstract, MinimalAPI)
-class UAnimationAsset : public UObject, public IInterface_AssetUserData
+class UAnimationAsset : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
@@ -759,11 +686,6 @@ private:
 	 */
 	UPROPERTY(Category=MetaData, instanced, EditAnywhere)
 	TArray<class UAnimMetaData*> MetaData;
-
-protected:
-	/** Array of user data stored with the asset */
-	UPROPERTY(EditAnywhere, AdvancedDisplay, Instanced, Category = Animation)
-	TArray<UAssetUserData*> AssetUserData;
 
 public:
 	/** Advances the asset player instance 
@@ -808,22 +730,17 @@ public:
 	 */
 	ENGINE_API bool ReplaceSkeleton(USkeleton* NewSkeleton, bool bConvertSpaces=false);
 
-	// Helper function for GetAllAnimationSequencesReferred, it adds itself first and call GetAllAnimationSEquencesReferred
-	ENGINE_API void HandleAnimReferenceCollection(TArray<UAnimationAsset*>& AnimationAssets);
-
-protected:
 	/** Retrieve all animations that are used by this asset 
 	 * 
 	 * @param (out)		AnimationSequences 
 	 **/
-	ENGINE_API virtual bool GetAllAnimationSequencesReferred(TArray<class UAnimationAsset*>& AnimationSequences);
+	ENGINE_API virtual bool GetAllAnimationSequencesReferred(TArray<class UAnimSequence*>& AnimationSequences);
 
-public:
 	/** Replace this assets references to other animations based on ReplacementMap 
 	 * 
 	 * @param ReplacementMap	Mapping of original asset to new asset
 	 **/
-	ENGINE_API virtual void ReplaceReferredAnimations(const TMap<UAnimationAsset*, UAnimationAsset*>& ReplacementMap);
+	ENGINE_API virtual void ReplaceReferredAnimations(const TMap<UAnimSequence*, UAnimSequence*>& ReplacementMap);	
 
 	ENGINE_API void SetPreviewMesh(USkeletalMesh* PreviewMesh);
 	ENGINE_API USkeletalMesh* GetPreviewMesh();
@@ -833,13 +750,6 @@ public:
 
 	/** Return a list of unique marker names for blending compatibility */
 	ENGINE_API virtual TArray<FName>* GetUniqueMarkerNames() { return NULL; }
-
-	//~ Begin IInterface_AssetUserData Interface
-	ENGINE_API virtual void AddAssetUserData(UAssetUserData* InUserData) override;
-	ENGINE_API virtual void RemoveUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass) override;
-	ENGINE_API virtual UAssetUserData* GetAssetUserDataOfClass(TSubclassOf<UAssetUserData> InUserDataClass) override;
-	ENGINE_API virtual const TArray<UAssetUserData*>* GetAssetUserDataArray() const override;
-	//~ End IInterface_AssetUserData Interface
 
 	/**
 	* return true if this is valid additive animation
@@ -852,21 +762,11 @@ public:
 	UPROPERTY(VisibleAnywhere, Instanced, Category = Thumbnail)
 	class UThumbnailInfo* ThumbnailInfo;
 
-	/** The default skeletal mesh to use when previewing this asset - this only applies when you open Persona using this asset*/
-	// @todo: note that this doesn't retarget right now
-	UPROPERTY(duplicatetransient, EditAnywhere, Category = Animation)
-	class UPoseAsset* PreviewPoseAsset;
-
 private:
 	/** The default skeletal mesh to use when previewing this asset - this only applies when you open Persona using this asset*/
 	UPROPERTY(duplicatetransient, AssetRegistrySearchable)
 	TAssetPtr<class USkeletalMesh> PreviewSkeletalMesh;
 #endif //WITH_EDITORONLY_DATA
-
-protected:
-#if WITH_EDITOR
-	virtual void RemapTracksToNewSkeleton(USkeleton* NewSkeleton, bool bConvertSpaces);
-#endif // WITH_EDITOR
 
 public:
 	class USkeleton* GetSkeleton() const { return Skeleton; }

@@ -7,9 +7,8 @@
 #include "ModuleVersion.h"
 #include "UObject/ReleaseObjectVersion.h"
 
-/** Version numbers for networking - DEPRECATED!!!! Use FNetworkVersion::GetNetworkCompatibleChangelist instead!!! */
-int32 GEngineNetVersion = ENGINE_NET_VERSION;
-
+/** Version numbers for networking */
+int32 GEngineNetVersion			= BUILT_FROM_CHANGELIST;
 const int32 GEngineMinNetVersion		= 7038;
 const int32 GEngineNegotiationVersion	= 3077;
 
@@ -216,6 +215,7 @@ bool FEngineVersion::OverrideCurrentVersionChangelist(int32 NewChangelist)
 
 	CurrentVersion.Set(CurrentVersion.Major, CurrentVersion.Minor, CurrentVersion.Patch, NewChangelist | (ENGINE_IS_LICENSEE_VERSION << 31), CurrentVersion.Branch);
 	CompatibleWithVersion.Set(CompatibleWithVersion.Major, CompatibleWithVersion.Minor, CompatibleWithVersion.Patch, NewChangelist | (ENGINE_IS_LICENSEE_VERSION << 31), CompatibleWithVersion.Branch);
+	GEngineNetVersion = NewChangelist;
 	return true;
 }
 

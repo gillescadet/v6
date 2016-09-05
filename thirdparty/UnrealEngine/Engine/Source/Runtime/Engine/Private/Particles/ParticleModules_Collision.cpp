@@ -50,37 +50,36 @@ UParticleModuleCollision::UParticleModuleCollision(const FObjectInitializer& Obj
 	bCollideOnlyIfVisible = true;
 	MaxCollisionDistance = 1000.0f;
 	bIgnoreSourceActor = true;
-	bIgnoreTriggerVolumes = true;
 	CollisionTypes.Add(UEngineTypes::ConvertToObjectType(ECC_WorldStatic));
 }
 
 void UParticleModuleCollision::InitializeDefaults()
 {
-	if (!DampingFactor.IsCreated())
+	if (!DampingFactor.Distribution)
 	{
 		DampingFactor.Distribution = NewObject<UDistributionVectorUniform>(this, TEXT("DistributionDampingFactor"));
 	}
 
-	if (!DampingFactorRotation.IsCreated())
+	if (!DampingFactorRotation.Distribution)
 	{
 		UDistributionVectorConstant* DistributionDampingFactorRotation = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionDampingFactorRotation"));
 		DistributionDampingFactorRotation->Constant = FVector(1.0f, 1.0f, 1.0f);
 		DampingFactorRotation.Distribution = DistributionDampingFactorRotation; 
 	}
 
-	if (!MaxCollisions.IsCreated())
+	if (!MaxCollisions.Distribution)
 	{
 		MaxCollisions.Distribution = NewObject<UDistributionFloatUniform>(this, TEXT("DistributionMaxCollisions"));
 	}
 
-	if (!ParticleMass.IsCreated())
+	if (!ParticleMass.Distribution)
 	{
 		UDistributionFloatConstant* DistributionParticleMass = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionParticleMass"));
 		DistributionParticleMass->Constant = 0.1f;
 		ParticleMass.Distribution = DistributionParticleMass;
 	}
 
-	if (!DelayAmount.IsCreated())
+	if (!DelayAmount.Distribution)
 	{
 		UDistributionFloatConstant* DistributionDelayAmount = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionDelayAmount"));
 		DistributionDelayAmount->Constant = 0.0f;
@@ -151,14 +150,6 @@ void UParticleModuleCollision::Spawn(FParticleEmitterInstance* Owner, int32 Offs
 	}
 }
 
-static float GParticleCollisionIgnoreInvisibleTime = .1f;
-static FAutoConsoleVariableRef ParticleCollisionIgnoreInvisibleTime(
-	TEXT("fx.ParticleCollisionIgnoreInvisibleTime"),
-	GParticleCollisionIgnoreInvisibleTime,
-	TEXT("The time a particle system component has to be invisible for to have all collision ignored. \n"),
-	ECVF_Default
-	);
-
 void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Offset, float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_ParticleCollisionTime);
@@ -179,8 +170,11 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 	const int32 MeshRotationOffset = Owner->GetMeshRotationOffset();
 	const bool bMeshRotationActive = Owner->IsMeshRotationActive();
 
-	const FTransform& OwnerTM = Owner->Component->GetAsyncComponentToWorld();
-	const FVector ParentScale = OwnerTM.GetScale3D();
+	FVector ParentScale = FVector(1.0f, 1.0f, 1.0f);
+	if (Owner->Component)
+	{
+		ParentScale = Owner->Component->ComponentToWorld.GetScale3D();
+	}
 
 	FParticleEventInstancePayload* EventPayload = NULL;
 	if (LODLevel->EventGenerator)
@@ -196,17 +190,17 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 
 	FParticleCollisionInstancePayload* CollisionInstPayload = (FParticleCollisionInstancePayload*)(Owner->GetModuleInstanceData(this));
 
-	const TArray<FVector>& PlayerLocations = Owner->Component->GetPlayerLocations();
-	TArray<float> PlayerLODDistanceFactor = Owner->Component->GetPlayerLODDistanceFactor();	//Make a copy because we need to square it later
-	const int32 PlayerCount = PlayerLocations.Num();
+	TArray<FVector> PlayerLocations;
+	TArray<float> PlayerLODDistanceFactor;
+	int32 PlayerCount = 0;
 
-	if (World->IsGameWorld())
+	if (Owner->GetWorld()->IsGameWorld())
 	{
 		bool bIgnoreAllCollision = false;
 
 		// LOD collision based on visibility
 		// This is at the 'emitter instance' level as it will be true or false for the whole instance...
-		if (bCollideOnlyIfVisible && ((World->TimeSeconds - Owner->Component->LastRenderTime) > GParticleCollisionIgnoreInvisibleTime))
+		if (bCollideOnlyIfVisible && ((World->TimeSeconds - Owner->Component->LastRenderTime) > 0.1f))
 		{
 			// no collision if not recently rendered
 			bIgnoreAllCollision = true;
@@ -216,6 +210,24 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 			// If the MaxCollisionDistance is greater than WORLD_MAX, they obviously want the check disabled...
 			if (MaxCollisionDistance < WORLD_MAX)
 			{
+				// Store off the player locations and LOD distance factors
+				
+				for( FConstPlayerControllerIterator Iterator = World->GetPlayerControllerIterator(); Iterator; ++Iterator )
+				{
+					APlayerController* PlayerController = *Iterator;
+					if (PlayerController->IsLocalPlayerController())
+					{
+						FVector POVLoc;
+						FRotator POVRotation;
+						PlayerController->GetPlayerViewPoint(POVLoc, POVRotation);
+
+						PlayerLocations.Add(POVLoc);
+						PlayerLODDistanceFactor.Add(PlayerController->LocalPlayerCachedLODDistanceFactor);
+					}
+				}
+
+				PlayerCount = PlayerLocations.Num();
+
 				// If we have at least a few particles, do a simple check vs. the bounds
 				if (Owner->ActiveParticles > 7)
 				{
@@ -225,12 +237,12 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 						BoundingBox.Init();
 						if (Owner->Component->Template && Owner->Component->Template->bUseFixedRelativeBoundingBox)
 						{
-							BoundingBox = Owner->Component->Template->FixedRelativeBoundingBox.TransformBy(OwnerTM);
+							BoundingBox = Owner->Component->Template->FixedRelativeBoundingBox.TransformBy(Owner->Component->ComponentToWorld);
 						}
 						else
 						{
 							// A frame behind, but shouldn't be an issue...
-							BoundingBox = Owner->Component->GetAsyncBounds().GetBox();
+							BoundingBox = Owner->Component->Bounds.GetBox();
 						}
 
 						// see if any player is within the extended bounds...
@@ -317,8 +329,8 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 		if (LODLevel->RequiredModule->bUseLocalSpace)
 		{
 			// Transform the location and old location into world space
-			Location		= OwnerTM.TransformPosition(Location);
-			OldLocation		= OwnerTM.TransformPosition(Particle.OldLocation);
+			Location		= Owner->Component->ComponentToWorld.TransformPosition(Location);
+			OldLocation		= Owner->Component->ComponentToWorld.TransformPosition(Particle.OldLocation);
 		}
 		else
 		{
@@ -348,7 +360,7 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 
 		FVector End = Location + Direction * Size / DirScalar;
 
-		if ((World->IsGameWorld() == true) && (MaxCollisionDistance < WORLD_MAX))
+		if ((Owner->GetWorld()->IsGameWorld() == true) && (MaxCollisionDistance < WORLD_MAX))
 		{
 			// LOD collision by distance
 			bool bCloseEnough = false;
@@ -377,7 +389,7 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 			if (Hit.GetActor())
 			{
 				bDecrementMaxCount = !bPawnsDoNotDecrementCount || !Cast<APawn>(Hit.GetActor());
-				bIgnoreCollision = bIgnoreTriggerVolumes && Hit.GetActor()->IsA(ATriggerBase::StaticClass());
+				bIgnoreCollision = Hit.GetActor()->IsA(ATriggerBase::StaticClass());
 				//@todo.SAS. Allow for PSys to say what it wants to collide w/?
 			}
 
@@ -402,11 +414,11 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 					if (LODLevel->RequiredModule->bUseLocalSpace)
 					{
 						// Transform the particle velocity to world space
-						FVector OldVelocity		= OwnerTM.TransformVector(Particle.Velocity);
-						FVector	BaseVelocity	= OwnerTM.TransformVector(Particle.BaseVelocity);
+						FVector OldVelocity		= Owner->Component->ComponentToWorld.TransformVector(Particle.Velocity);
+						FVector	BaseVelocity	= Owner->Component->ComponentToWorld.TransformVector(Particle.BaseVelocity);
 						BaseVelocity			= BaseVelocity.MirrorByVector(Hit.Normal) * CollisionPayload.UsedDampingFactor;
 
-						Particle.BaseVelocity		= OwnerTM.InverseTransformVector(BaseVelocity);
+						Particle.BaseVelocity		= Owner->Component->ComponentToWorld.InverseTransformVector(BaseVelocity);
 						Particle.BaseRotationRate	= Particle.BaseRotationRate * CollisionPayload.UsedDampingFactorRotation.X;
 						if (bMeshRotationActive && MeshRotationOffset > 0)
 						{
@@ -420,11 +432,10 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 
 						// New location
 						FVector	NewLocation		= Location + NewVelocity * (1.f - Hit.Time);
-						Particle.Location		= OwnerTM.InverseTransformPosition(NewLocation);
+						Particle.Location		= Owner->Component->ComponentToWorld.InverseTransformPosition(NewLocation);
 
 						if (bApplyPhysics)
 						{
-							check(IsInGameThread());
 							UPrimitiveComponent* PrimitiveComponent = Hit.Component.Get();
 							if(PrimitiveComponent && PrimitiveComponent->IsAnySimulatingPhysics())
 							{
@@ -454,7 +465,6 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 
 						if (bApplyPhysics)
 						{
-							check(IsInGameThread());
 							UPrimitiveComponent* PrimitiveComponent = Hit.Component.Get();
 							if(PrimitiveComponent && PrimitiveComponent->IsAnySimulatingPhysics())
 							{
@@ -474,14 +484,14 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 				{
 					if (LODLevel->RequiredModule->bUseLocalSpace == true)
 					{
-						Size = OwnerTM.TransformVector(Size);
+						Size = Owner->Component->ComponentToWorld.TransformVector(Size);
 					}
-					Particle.Location = Hit.Location;
+					Particle.Location = Hit.Location + (Size / 2.0f);
 					if (LODLevel->RequiredModule->bUseLocalSpace == true)
 					{
 						// We need to transform the location back relative to the PSys.
 						// NOTE: LocalSpace makes sense only for stationary emitters that use collision.
-						Particle.Location = OwnerTM.InverseTransformPosition(Particle.Location);
+						Particle.Location = Owner->Component->ComponentToWorld.InverseTransformPosition(Particle.Location);
 					}
 					switch (CollisionCompletionOption)
 					{
@@ -534,10 +544,6 @@ void UParticleModuleCollision::Update(FParticleEmitterInstance* Owner, int32 Off
 	END_UPDATE_LOOP;
 }
 
-bool UParticleModuleCollision::CanTickInAnyThread()
-{
-	return !bApplyPhysics;
-}
 
 void UParticleModuleCollision::SetToSensibleDefaults(UParticleEmitter* Owner)
 {
@@ -582,14 +588,14 @@ UParticleModuleCollisionGPU::UParticleModuleCollisionGPU(const FObjectInitialize
 
 void UParticleModuleCollisionGPU::InitializeDefaults()
 {
-	if (!Resilience.IsCreated())
+	if (!Resilience.Distribution)
 	{
 		UDistributionFloatConstant* ResilienceDistribution = NewObject<UDistributionFloatConstant>(this, TEXT("ResilienceDistribution"));
 		ResilienceDistribution->Constant = 0.5f;
 		Resilience.Distribution = ResilienceDistribution;
 	}
 
-	if (!ResilienceScaleOverLife.IsCreated())
+	if (!ResilienceScaleOverLife.Distribution)
 	{
 		UDistributionFloatConstant* ResilienceScaleOverLifeDistribution = NewObject<UDistributionFloatConstant>(this, TEXT("ResilienceScaleOverLifeDistribution"));
 		ResilienceScaleOverLifeDistribution->Constant = 1.0f;

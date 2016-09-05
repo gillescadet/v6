@@ -5,7 +5,6 @@
 #include "MovieSceneSection.h"
 #include "MovieScene3DConstraintSection.generated.h"
 
-
 /**
  * Base class for 3D constraint section
  */
@@ -22,16 +21,8 @@ public:
 
 	/** Gets the constraint id for this section */
 	virtual FGuid GetConstraintId() const;
-
-public:
-
-	//~ UMovieSceneSection interface
-
-	virtual TOptional<float> GetKeyTime(FKeyHandle KeyHandle) const override;
-	virtual void SetKeyTime(FKeyHandle KeyHandle, float Time) override;
 	
 protected:
-
 	/** The possessable guid that this constraint uses */
 	UPROPERTY()
 	FGuid ConstraintId;

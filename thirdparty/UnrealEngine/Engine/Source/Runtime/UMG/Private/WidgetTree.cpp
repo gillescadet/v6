@@ -86,21 +86,6 @@ bool UWidgetTree::RemoveWidget(UWidget* InRemovedWidget)
 	return bRemoved;
 }
 
-bool UWidgetTree::TryMoveWidgetToNewTree(UWidget* Widget, UWidgetTree* DestinationTree)
-{
-	bool bWidgetMoved = false;
-
-	// A Widget's Outer is always a WidgetTree
-	UWidgetTree* OriginalTree = Widget ? Cast<UWidgetTree>(Widget->GetOuter()) : nullptr;
-
-	if (DestinationTree && OriginalTree && OriginalTree != DestinationTree)
-	{
-		bWidgetMoved = Widget->Rename(*Widget->GetName(), DestinationTree, REN_ForceNoResetLoaders | REN_DontCreateRedirectors);
-	}
-
-	return bWidgetMoved;
-}
-
 void UWidgetTree::GetAllWidgets(TArray<UWidget*>& Widgets) const
 {
 	ForEachWidget([&] (UWidget* Widget) { Widgets.Add(Widget); });
@@ -111,13 +96,13 @@ void UWidgetTree::GetChildWidgets(UWidget* Parent, TArray<UWidget*>& Widgets)
 	ForWidgetAndChildren(Parent, [&] (UWidget* Widget) { Widgets.Add(Widget); });
 }
 
-void UWidgetTree::PreSave(const class ITargetPlatform* TargetPlatform)
+void UWidgetTree::PreSave()
 {
 	AllWidgets.Empty();
 
 	GetAllWidgets(AllWidgets);
 
-	Super::PreSave( TargetPlatform);
+	Super::PreSave();
 }
 
 void UWidgetTree::PostLoad()

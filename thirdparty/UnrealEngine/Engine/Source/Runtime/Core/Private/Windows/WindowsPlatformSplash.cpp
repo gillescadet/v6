@@ -235,7 +235,7 @@ HBITMAP LoadSplashBitmap()
 			}
 		}
 
-		Converter->Release();
+		DeleteObject(Converter);
 	}
 
 	// Create a DIB from the converted IWICBitmapSource
@@ -286,7 +286,7 @@ HBITMAP LoadSplashBitmap()
 			{
 				if (hDIBBitmap)
 				{
-					ensure(DeleteObject(hDIBBitmap));
+					DeleteObject(hDIBBitmap);
 				}
 
 				hDIBBitmap = CreateDIBSection(hdcScreen, &bminfo, DIB_RGB_COLORS, &ImageBits, NULL, 0);
@@ -324,34 +324,34 @@ HBITMAP LoadSplashBitmap()
 		// Image Extraction failed, clear allocated memory
 		if (FAILED(hr) && hDIBBitmap)
 		{
-			ensure(DeleteObject(hDIBBitmap));
+			DeleteObject(hDIBBitmap);
 			hDIBBitmap = NULL;
 		}
 	}
 
 	if ( OriginalBitmapSource )
 	{
-		OriginalBitmapSource->Release();
+		DeleteObject( OriginalBitmapSource );
 	}
 
 	if ( ToRenderBitmapSource )
 	{
-		ToRenderBitmapSource->Release();
+		DeleteObject( ToRenderBitmapSource );
 	}
 
 	if ( Decoder )
 	{
-		Decoder->Release();
+		DeleteObject( Decoder );
 	}
 
 	if ( Frame )
 	{
-		Frame->Release();
+		DeleteObject( Frame );
 	}
 
 	if ( Factory )
 	{
-		Factory->Release();
+		DeleteObject( Factory );
 	}
 
 	return hDIBBitmap;
@@ -563,7 +563,7 @@ uint32 WINAPI StartSplashScreenThread( LPVOID unused )
 			}
 		}
 
-		ensure(DeleteObject(GSplashScreenBitmap));
+		DeleteObject(GSplashScreenBitmap);
 		GSplashScreenBitmap = NULL;
 	}
 

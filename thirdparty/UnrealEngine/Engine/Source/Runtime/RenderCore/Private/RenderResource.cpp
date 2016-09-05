@@ -84,17 +84,17 @@ void FRenderResource::InitResourceFromPossiblyParallelRendering()
 			{
 			}
 
-			static FORCEINLINE TStatId GetStatId()
+			FORCEINLINE TStatId GetStatId() const
 			{
 				RETURN_QUICK_DECLARE_CYCLE_STAT(FInitResourceRenderThreadTask, STATGROUP_TaskGraphTasks);
 			}
 
-			static FORCEINLINE ENamedThreads::Type GetDesiredThread()
+			ENamedThreads::Type GetDesiredThread()
 			{
 				return ENamedThreads::RenderThread_Local;
 			}
 
-			static FORCEINLINE ESubsequentsMode::Type GetSubsequentsMode() { return ESubsequentsMode::FireAndForget; }
+			static ESubsequentsMode::Type GetSubsequentsMode() { return ESubsequentsMode::FireAndForget; }
 
 			void DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
 			{

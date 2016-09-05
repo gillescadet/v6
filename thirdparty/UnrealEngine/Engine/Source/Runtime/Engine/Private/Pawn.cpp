@@ -324,11 +324,10 @@ void APawn::TurnOff()
 	// do not block anything, just ignore
 	SetActorEnableCollision(false);
 
-	UPawnMovementComponent* MovementComponent = GetMovementComponent();
-	if (MovementComponent)
+	if (GetMovementComponent())
 	{
-		MovementComponent->StopMovementImmediately();
-		MovementComponent->SetComponentTickEnabled(false);
+		GetMovementComponent()->StopMovementImmediately();
+		GetMovementComponent()->SetComponentTickEnabled(false);
 	}
 
 	DisableComponentsSimulatePhysics();
@@ -563,7 +562,14 @@ void APawn::DestroyPlayerInputComponent()
 
 bool APawn::IsMoveInputIgnored() const
 {
-	return Controller != nullptr && Controller->IsMoveInputIgnored();
+	const APlayerController* PCOwner = Cast<const APlayerController>(Controller);
+	if (PCOwner && PCOwner->IsMoveInputIgnored())
+	{
+		return true;
+	}
+
+	// No player controller or not ignoring input. We allow non-PCs to receive input, so AI can use the movement input system.
+	return false;
 }
 
 
@@ -665,10 +671,9 @@ void APawn::AddControllerRollInput(float Val)
 
 void APawn::Restart()
 {
-	UPawnMovementComponent* MovementComponent = GetMovementComponent();
-	if (MovementComponent)
+	if (GetMovementComponent())
 	{
-		MovementComponent->StopMovementImmediately();
+		GetMovementComponent()->StopMovementImmediately();
 	}
 	ConsumeMovementInputVector();
 	RecalculateBaseEyeHeight();
@@ -944,17 +949,17 @@ void APawn::TeleportSucceeded(bool bIsATest)
 {
 	if (bIsATest == false)
 	{
-		UPawnMovementComponent* MovementComponent = GetMovementComponent();
-		if (MovementComponent)
+		UMovementComponent* const MoveComponent = GetMovementComponent();
+		if (MoveComponent)
 		{
-			MovementComponent->OnTeleported();
+			MoveComponent->OnTeleported();
 		}
 	}
 
 	Super::TeleportSucceeded(bIsATest);
 }
 
-void APawn::GetMoveGoalReachTest(const AActor* MovingActor, const FVector& MoveOffset, FVector& GoalOffset, float& GoalRadius, float& GoalHalfHeight) const 
+void APawn::GetMoveGoalReachTest(AActor* MovingActor, const FVector& MoveOffset, FVector& GoalOffset, float& GoalRadius, float& GoalHalfHeight) const 
 {
 	GoalOffset = FVector::ZeroVector;
 	GetSimpleCollisionCylinder(GoalRadius, GoalHalfHeight);
@@ -976,10 +981,9 @@ void APawn::PostNetReceiveVelocity(const FVector& NewVelocity)
 {
 	if (Role == ROLE_SimulatedProxy)
 	{
-		UMovementComponent* const MoveComponent = GetMovementComponent();
-		if ( MoveComponent )
+		if ( GetMovementComponent() )
 		{
-			MoveComponent->Velocity = NewVelocity;
+			GetMovementComponent()->Velocity = NewVelocity;
 		}
 	}
 }
@@ -1025,7 +1029,6 @@ bool APawn::IsBasedOnActor(const AActor* Other) const
 
 bool APawn::IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const
 {
-	CA_SUPPRESS(6011);
 	if (bAlwaysRelevant || RealViewer == Controller || IsOwnedBy(ViewTarget) || IsOwnedBy(RealViewer) || this == ViewTarget || ViewTarget == Instigator
 		|| IsBasedOnActor(ViewTarget) || (ViewTarget && ViewTarget->IsBasedOnActor(this)))
 	{
@@ -1097,6 +1100,5 @@ void APawn::PawnMakeNoise(float Loudness, FVector NoiseLocation, bool bUseNoiseM
 
 const FNavAgentProperties& APawn::GetNavAgentPropertiesRef() const
 {
-	UPawnMovementComponent* MovementComponent = GetMovementComponent();
-	return MovementComponent ? MovementComponent->GetNavAgentPropertiesRef() : FNavAgentProperties::DefaultProperties;
+	return GetMovementComponent() ? GetMovementComponent()->GetNavAgentPropertiesRef() : FNavAgentProperties::DefaultProperties;
 }

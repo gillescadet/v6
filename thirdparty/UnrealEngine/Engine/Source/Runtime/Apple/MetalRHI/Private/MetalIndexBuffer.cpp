@@ -6,7 +6,6 @@
 
 #include "MetalRHIPrivate.h"
 #include "MetalProfiler.h"
-#include "MetalCommandBuffer.h"
 
 /** Constructor */
 FMetalIndexBuffer::FMetalIndexBuffer(uint32 InStride, uint32 InSize, uint32 InUsage)
@@ -15,15 +14,14 @@ FMetalIndexBuffer::FMetalIndexBuffer(uint32 InStride, uint32 InSize, uint32 InUs
 	, LockSize(0)
 	, IndexType((InStride == 2) ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32)
 {
-	MTLStorageMode Mode = BUFFER_STORAGE_MODE;
+	MTLStorageMode Mode = (InUsage & BUF_Volatile) ? MTLStorageModeShared : BUFFER_STORAGE_MODE;
 	FMetalPooledBuffer Buf = GetMetalDeviceContext().CreatePooledBuffer(FMetalPooledBufferArgs(GetMetalDeviceContext().GetDevice(), InSize, Mode));
 	Buffer = [Buf.Buffer retain];
-	INC_MEMORY_STAT_BY(STAT_MetalWastedPooledBufferMem, Buffer.length - GetSize());
+	TRACK_OBJECT(Buffer);
 }
 
 FMetalIndexBuffer::~FMetalIndexBuffer()
 {
-	DEC_MEMORY_STAT_BY(STAT_MetalWastedPooledBufferMem, Buffer.length - GetSize());
 	SafeReleasePooledBuffer(Buffer);
 	[Buffer release];
 }
@@ -36,7 +34,7 @@ void* FMetalIndexBuffer::Lock(EResourceLockMode LockMode, uint32 Offset, uint32 
 	if ((GetUsage() & BUFFER_DYNAMIC_REALLOC) && LockMode == RLM_WriteOnly)
 	{
 		id<MTLBuffer> OldBuffer = Buffer;
-		MTLStorageMode Mode = BUFFER_STORAGE_MODE;
+		MTLStorageMode Mode = (GetUsage() & BUF_Volatile) ? MTLStorageModeShared : BUFFER_STORAGE_MODE;
 		FMetalPooledBuffer Buf = GetMetalDeviceContext().CreatePooledBuffer(FMetalPooledBufferArgs(GetMetalDeviceContext().GetDevice(), GetSize(), Mode));
 		Buffer = [Buf.Buffer retain];
 		GetMetalDeviceContext().ReleasePooledBuffer(OldBuffer);
@@ -55,7 +53,6 @@ void* FMetalIndexBuffer::Lock(EResourceLockMode LockMode, uint32 Offset, uint32 
 		
 		// Synchronise the buffer with the CPU
 		id<MTLBlitCommandEncoder> Blitter = GetMetalDeviceContext().GetBlitContext();
-		METAL_DEBUG_COMMAND_BUFFER_BLIT_LOG((&GetMetalDeviceContext()), @"SynchronizeResource(IndexBuffer %p)", this);
 		[Blitter synchronizeResource:Buffer];
 		
 		//kick the current command buffer.
@@ -115,9 +112,3 @@ void FMetalDynamicRHI::RHIUnlockIndexBuffer(FIndexBufferRHIParamRef IndexBufferR
 
 	IndexBuffer->Unlock();
 }
-
-FIndexBufferRHIRef FMetalDynamicRHI::CreateIndexBuffer_RenderThread(class FRHICommandListImmediate& RHICmdList, uint32 Stride, uint32 Size, uint32 InUsage, FRHIResourceCreateInfo& CreateInfo)
-{
-	return GDynamicRHI->RHICreateIndexBuffer(Stride, Size, InUsage, CreateInfo);
-}
-

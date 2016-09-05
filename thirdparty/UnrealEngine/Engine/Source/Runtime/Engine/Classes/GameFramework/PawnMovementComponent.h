@@ -72,18 +72,13 @@ public:
 	/** Notify of collision in case we want to react, such as waking up avoidance or pathing code. */
 	virtual void NotifyBumpedPawn(APawn* BumpedPawn) {}
 
-	// UNavMovementComponent override for input operations
-	virtual void RequestPathMove(const FVector& MoveInput) override;
-
 protected:
 
 	/** Pawn that owns this component. */
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY()
 	class APawn* PawnOwner;
 
 public:
-
-	virtual void Serialize(FArchive& Ar) override;
 
 	// DEPRECATED FUNCTIONS
 

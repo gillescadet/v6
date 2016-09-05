@@ -9,7 +9,7 @@ struct FSlateBrush;
 /**
  * Struct used to represent an icon in Slate
  */
-struct SLATECORE_API FSlateIcon
+struct SLATE_API FSlateIcon
 {
 	/**
 	 * Default constructor (empty icon).
@@ -34,24 +34,6 @@ struct SLATECORE_API FSlateIcon
 	FSlateIcon( const FName& InStyleSetName, const FName& InStyleName, const FName& InSmallStyleName );
 
 public:
-	
-	/**
-	 * Compare 2 slate icons for equality
-	 */
-	friend bool operator==(const FSlateIcon& A, const FSlateIcon& B)
-	{
-		return A.bIsSet == B.bIsSet && A.StyleSetName == B.StyleSetName && A.StyleName == B.StyleName && A.SmallStyleName == B.SmallStyleName;
-	}
-
-	/**
-	 * Compare 2 slate icons for inequality
-	 */
-	friend bool operator!=(const FSlateIcon& A, const FSlateIcon& B)
-	{
-		return !(A == B);
-	}
-
-public:
 
 	/**
 	 * Gets the resolved icon.
@@ -62,27 +44,12 @@ public:
 	const FSlateBrush* GetIcon( ) const;
 
 	/**
-	 * Optionally gets the resolved icon, returning nullptr if it's not defined
-	 *
-	 * @return Icon brush, or nullptr if the icon wasn't found.
-	 */
-	const FSlateBrush* GetOptionalIcon( ) const;
-
-	/**
 	 * Gets the resolved small icon.
 	 *
 	 * @return Icon brush, or FStyleDefaults::GetNoBrush() if the icon wasn't found.
 	 * @see GetIcon
 	 */
 	const FSlateBrush* GetSmallIcon( ) const;
-
-
-	/**
-	 * Optionally gets the resolved small icon, returning nullptr if it's not defined
-	 *
-	 * @return Icon brush, or nullptr if the icon wasn't found.
-	 */
-	const FSlateBrush* GetOptionalSmallIcon( ) const;
 
 	/**
 	 * Gets the name of the style for the icon.

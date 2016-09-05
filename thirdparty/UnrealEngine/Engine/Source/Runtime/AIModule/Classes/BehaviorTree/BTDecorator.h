@@ -32,6 +32,9 @@ class AIMODULE_API UBTDecorator : public UBTAuxiliaryNode
 {
 	GENERATED_UCLASS_BODY()
 
+	/** fill in data about tree structure */
+	void InitializeDecorator(uint8 InChildIndex);
+
 	/** wrapper for node instancing: CalculateRawConditionValue */
 	bool WrappedCanExecute(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) const;
 
@@ -43,6 +46,12 @@ class AIMODULE_API UBTDecorator : public UBTAuxiliaryNode
 
 	/** wrapper for node instancing: OnNodeProcessed */
 	void WrappedOnNodeProcessed(FBehaviorTreeSearchData& SearchData, EBTNodeResult::Type& NodeResult) const;
+
+	/** @return decorated child */
+	const UBTNode* GetMyNode() const;
+
+	/** @return index of child in parent's array */
+	uint8 GetChildIndex() const;
 
 	/** @return flow controller's abort mode */
 	EBTFlowAbortMode::Type GetFlowAbortMode() const;
@@ -91,6 +100,9 @@ protected:
 	UPROPERTY(Category=FlowControl, EditAnywhere)
 	TEnumAsByte<EBTFlowAbortMode::Type> FlowAbortMode;
 
+	/** child index in parent node */
+	uint8 ChildIndex;
+
 	void SetIsInversed(bool bShouldBeInversed);
 
 	/** called when underlying node is activated
@@ -115,8 +127,6 @@ protected:
 	//----------------------------------------------------------------------//
 	DEPRECATED(4.7, "This version is deprecated. Please use the one taking reference to UBehaviorTreeComponent rather than a pointer.")
 	virtual bool CalculateRawConditionValue(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory) const;
-	DEPRECATED(4.12, "This function is deprecated, please use InitializeParentLink instead.")
-	void InitializeDecorator(uint8 InChildIndex);
 };
 
 
@@ -131,4 +141,9 @@ FORCEINLINE EBTFlowAbortMode::Type UBTDecorator::GetFlowAbortMode() const
 FORCEINLINE bool UBTDecorator::IsInversed() const
 {
 	return bInverseCondition;
+}
+
+FORCEINLINE uint8 UBTDecorator::GetChildIndex() const
+{
+	return ChildIndex;
 }

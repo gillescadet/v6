@@ -193,7 +193,6 @@ public:
 		check( IsLocked() );
 		check( InputProcessParameterCount == 1 );
 		check( OutputProcessParameterCount == 1 );
-		check( pInputProcessParameters && pOutputProcessParameters );
 		check( pInputProcessParameters[0].pBuffer == pOutputProcessParameters[0].pBuffer );
 
 		// Check the global volume multiplier because this effect 
@@ -498,19 +497,14 @@ FXAudio2EffectsManager::FXAudio2EffectsManager(FXAudio2Device* InDevice)
 	ReverbEffectVoice = NULL;
 	RadioEffectVoice = NULL;
 
-	// Only initialize effects if we've successfully initialized hardware
-	if (InDevice->bIsAudioDeviceHardwareInitialized)
-	{
+	// Create premaster voices for EQ and dry passes
+	CreateEQPremasterVoices();
 
-		// Create premaster voices for EQ and dry passes
-		CreateEQPremasterVoices();
+	// Create reverb voice 
+	CreateReverbVoice();
 
-		// Create reverb voice 
-		CreateReverbVoice();
-
-		// Create radio voice
-		CreateRadioVoice();
-	}
+	// Create radio voice
+	CreateRadioVoice();
 }
 
 /**

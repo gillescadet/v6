@@ -42,17 +42,14 @@ private:
 	// The directory created in staging to construct install files to
 	FString InstallStagingDir;
 
-	// The base paths for the data clouds
-	TArray<FString> CloudDirectories;
+	// The base path for the data cloud
+	FString CloudDirectory;
 
 	// The backup directory
 	FString BackupDirectory;
 
 	// The filename used to mark a previous install that did not complete but moved staged files into the install directory
 	FString PreviousMoveMarker;
-
-	// The filename for the local machine config. This is used for per-machine values rather than per-user or shipped config.
-	const FString LocalMachineConfigFile;
 
 	// A critical section to protect variables
 	mutable FCriticalSection ThreadLock;
@@ -77,9 +74,6 @@ private:
 
 	// A flag marking that we initialized correctly
 	bool bIsInited;
-
-	// A flag specifying whether prerequisites install should be skipped
-	bool bForceSkipPrereqs;
 
 	// The download speed value
 	double DownloadSpeedValue;
@@ -126,18 +120,15 @@ private:
 public:
 	/**
 	 * Constructor takes the required arguments, CurrentManifest can be invalid for fresh install.
-	 * @param OnCompleteDelegate		Delegate for when the process has completed
-	 * @param CurrentManifest			The manifest for the currently installed build. Can be invalid if fresh install.
-	 * @param InstallManifest			The manifest for the build to be installed
-	 * @param InstallDirectory			The directory where the build will be installed
-	 * @param StagingDirectory			The directory for storing the intermediate files
-	 * @param InstallationInfoRef		Reference to the module's installation info that keeps record of locally installed apps for use as chunk sources
-	 * @param ShouldStageOnly			Whether the installer should only stage the required files, and skip moving them to the install directory
-	 * @param InLocalMachineConfigFile	Filename for the local machine's config. This is used for per-machine configuration rather than shipped or user config.
-	 * @param bIsRepair					Whether the operation is to repair an existing installation
-	 * @param bShouldForceSkipPrereqs	Whether the installer should skip prerequisites installs
+	 * @param OnCompleteDelegate	Delegate for when the process has completed
+	 * @param CurrentManifest		The manifest for the currently installed build. Can be invalid if fresh install.
+	 * @param InstallManifest		The manifest for the build to be installed
+	 * @param InstallDirectory		The directory where the build will be installed
+	 * @param StagingDirectory		The directory for storing the intermediate files
+	 * @param InstallationInfoRef	Reference to the module's installation info that keeps record of locally installed apps for use as chunk sources
+	 * @param ShouldStageOnly		Whether the installer should only stage the required files, and skip moving them to the install directory
 	 */
-	FBuildPatchInstaller(FBuildPatchBoolManifestDelegate OnCompleteDelegate, FBuildPatchAppManifestPtr CurrentManifest, FBuildPatchAppManifestRef InstallManifest, const FString& InstallDirectory, const FString& StagingDirectory, FBuildPatchInstallationInfo& InstallationInfoRef, bool ShouldStageOnly, const FString& InLocalMachineConfigFile, bool bIsRepair, bool bShouldForceSkipPrereqs);
+	FBuildPatchInstaller(FBuildPatchBoolManifestDelegate OnCompleteDelegate, FBuildPatchAppManifestPtr CurrentManifest, FBuildPatchAppManifestRef InstallManifest, const FString& InstallDirectory, const FString& StagingDirectory, FBuildPatchInstallationInfo& InstallationInfoRef, bool ShouldStageOnly);
 
 	/**
 	 * Default Destructor, will delete the allocated Thread
@@ -156,7 +147,6 @@ public:
 	virtual bool IsResumable() override;
 	virtual bool HasError() override;
 	virtual EBuildPatchInstallError GetErrorType() override;
-	virtual FString GetErrorCode() override;
 	//@todo this is deprecated and shouldn't be used anymore [6/4/2014 justin.sargent]
 	virtual FText GetPercentageText() override;
 	//@todo this is deprecated and shouldn't be used anymore [6/4/2014 justin.sargent]
@@ -164,7 +154,7 @@ public:
 	virtual double GetDownloadSpeed() const override;
 	virtual int64 GetInitialDownloadSize() const override;
 	virtual int64 GetTotalDownloaded() const override;
-	virtual FText GetStatusText() override;
+	virtual FText GetStatusText(bool ShortError = false) override;
 	virtual float GetUpdateProgress() override;
 	virtual FBuildInstallStats GetBuildStatistics() override;
 	virtual EBuildPatchDownloadHealth GetDownloadHealth() const override;
@@ -299,12 +289,12 @@ private:
 	void CleanupEmptyDirectories( const FString& RootDirectory );
 
 	/**
-	 * Loads the configuration values for this computer, call from main thread.
+	 * Loads configuration values, call from main thread.
 	 */
-	void LoadLocalMachineConfig();
+	void LoadConfig();
 
 	/**
-	 * Saves updated configuration values for this computer, call from main thread.
+	 * Saves updated configuration values, call from main thread.
 	 */
-	void SaveLocalMachineConfig();
+	void SaveConfig();
 };

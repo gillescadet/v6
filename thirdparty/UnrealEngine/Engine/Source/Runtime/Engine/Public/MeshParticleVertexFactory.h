@@ -13,23 +13,22 @@
 /**
  * Uniform buffer for mesh particle vertex factories.
  */
-BEGIN_UNIFORM_BUFFER_STRUCT( FMeshParticleUniformParameters, ENGINE_API)
+BEGIN_UNIFORM_BUFFER_STRUCT( FMeshParticleUniformParameters, )
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER( FVector4, SubImageSize )
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER( uint32, TexCoordWeightA )
 	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER( uint32, TexCoordWeightB )
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER( uint32, PrevTransformAvailable )
 END_UNIFORM_BUFFER_STRUCT( FMeshParticleUniformParameters )
 typedef TUniformBufferRef<FMeshParticleUniformParameters> FMeshParticleUniformBufferRef;
 
 /**
  * Vertex factory for rendering instanced mesh particles with out dynamic parameter support.
  */
-class ENGINE_API FMeshParticleVertexFactory : public FParticleVertexFactoryBase
+class FMeshParticleVertexFactory : public FParticleVertexFactoryBase
 {
 	DECLARE_VERTEX_FACTORY_TYPE(FMeshParticleVertexFactory);
 public:
 
-	struct FDataType
+	struct DataType : public FVertexFactory::DataType
 	{
 		/** The stream to read the vertex position from. */
 		FVertexStreamComponent PositionComponent;
@@ -61,9 +60,10 @@ public:
 		/** Flag to mark as initialized */
 		bool bInitialized;
 
-		FDataType()
+		DataType()
 		: bInitialized(false)
 		{
+
 		}
 	};
 
@@ -72,7 +72,6 @@ public:
 	public:
 		const struct FMeshParticleInstanceVertex* InstanceBuffer;
 		const struct FMeshParticleInstanceVertexDynamicParameter* DynamicParameterBuffer;
-		const struct FMeshParticleInstanceVertexPrevTransform* PrevTransformBuffer;
 	};
 
 	/** Default constructor. */
@@ -104,13 +103,13 @@ public:
 
 		// Set a define so we can tell in MaterialTemplate.usf when we are compiling a mesh particle vertex factory
 		OutEnvironment.SetDefine(TEXT("PARTICLE_MESH_FACTORY"),TEXT("1"));
-		OutEnvironment.SetDefine(TEXT("PARTICLE_MESH_INSTANCED"),TEXT("1"));
+		OutEnvironment.SetDefine(TEXT("PARTICLE_MESH_INSTANCED"),(uint32) 1);
 	}
-	
+
 	/**
 	 * An implementation of the interface used by TSynchronizedResource to update the resource with new data from the game thread.
 	 */
-	void SetData(const FDataType& InData);
+	ENGINE_API void SetData(const DataType& InData);
 
 	/**
 	 * Set the uniform buffer for this vertex factory.
@@ -127,7 +126,7 @@ public:
 	{
 		return MeshParticleUniformBuffer;
 	}
-	
+
 	/**
 	 * Update the data strides (MUST HAPPEN BEFORE InitRHI is called)
 	 */
@@ -147,10 +146,6 @@ public:
 	 */
 	void SetDynamicParameterBuffer(const FVertexBuffer* InDynamicParameterBuffer, uint32 StreamOffset, uint32 Stride);
 
-	uint8* LockPreviousTransformBuffer(uint32 ParticleCount);
-	void UnlockPreviousTransformBuffer();
-	FShaderResourceViewRHIParamRef GetPreviousTransformBufferSRV() const;
-
 	/**
 	* Copy the data from another vertex factory
 	* @param Other - factory to copy from
@@ -165,20 +160,19 @@ public:
 	static FVertexFactoryShaderParameters* ConstructShaderParameters(EShaderFrequency ShaderFrequency);
 
 protected:
-	FDataType Data;
+	DataType Data;
 	
 	/** Stride information for instanced mesh particles */
 	int32 DynamicVertexStride;
 	int32 DynamicParameterVertexStride;
 	
-	/** Uniform buffer with mesh particle parameters. */
-	FUniformBufferRHIParamRef MeshParticleUniformBuffer;
 
-	FDynamicReadBuffer PrevTransformBuffer;
+	/** Uniform buffer with mesh particle paramters. */
+	FUniformBufferRHIParamRef MeshParticleUniformBuffer;
 };
 
 
-class ENGINE_API FMeshParticleVertexFactoryEmulatedInstancing : public FMeshParticleVertexFactory
+class FMeshParticleVertexFactoryEmulatedInstancing : public FMeshParticleVertexFactory
 {
 	DECLARE_VERTEX_FACTORY_TYPE(FMeshParticleVertexFactoryEmulatedInstancing);
 
@@ -194,14 +188,14 @@ public:
 	static bool ShouldCache(EShaderPlatform Platform, const class FMaterial* Material, const class FShaderType* ShaderType)
 	{
 		return (Platform == SP_OPENGL_ES2_ANDROID || Platform == SP_OPENGL_ES2_WEBGL) // Those are only platforms that might not support hardware instancing
-			&& FMeshParticleVertexFactory::ShouldCache(Platform, Material, ShaderType);
+				&& FMeshParticleVertexFactory::ShouldCache(Platform, Material, ShaderType);
 	}
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, const FMaterial* Material, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FMeshParticleVertexFactory::ModifyCompilationEnvironment(Platform, Material, OutEnvironment);
 
-		OutEnvironment.SetDefine(TEXT("PARTICLE_MESH_INSTANCED"),TEXT("0"));
+		OutEnvironment.SetDefine(TEXT("PARTICLE_MESH_INSTANCED"), (uint32) 0);
 	}
 };
 

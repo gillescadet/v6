@@ -4,11 +4,6 @@
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystemComponent.h"
 
-#if WITH_GAMEPLAY_DEBUGGER
-#include "GameplayDebugger.h"
-#include "GameplayDebuggerCategory_Abilities.h"
-#endif // WITH_GAMEPLAY_DEBUGGER
-
 class FGameplayAbilitiesModule : public IGameplayAbilitiesModule
 {
 	// Begin IModuleInterface
@@ -44,6 +39,8 @@ class FGameplayAbilitiesModule : public IGameplayAbilitiesModule
 
 	UAbilitySystemGlobals *AbilitySystemGlobals;
 
+	void GetActiveAbilitiesDebugDataForActor(AActor* Actor, FString& AbilityString, bool& bIsUsingAbilities);
+
 private:
 	
 };
@@ -54,12 +51,6 @@ void FGameplayAbilitiesModule::StartupModule()
 {	
 	// This is loaded upon first request
 	AbilitySystemGlobals = NULL;
-
-#if WITH_GAMEPLAY_DEBUGGER
-	IGameplayDebugger& GameplayDebuggerModule = IGameplayDebugger::Get();
-	GameplayDebuggerModule.RegisterCategory("Abilities", IGameplayDebugger::FOnGetCategory::CreateStatic(&FGameplayDebuggerCategory_Abilities::MakeInstance));
-	GameplayDebuggerModule.NotifyCategoriesChanged();
-#endif // WITH_GAMEPLAY_DEBUGGER
 }
 
 void FGameplayAbilitiesModule::ShutdownModule()
@@ -68,13 +59,39 @@ void FGameplayAbilitiesModule::ShutdownModule()
 	// we call this function before unloading the module.
 
 	AbilitySystemGlobals = NULL;
+}
 
-#if WITH_GAMEPLAY_DEBUGGER
-	if (IGameplayDebugger::IsAvailable())
+void FGameplayAbilitiesModule::GetActiveAbilitiesDebugDataForActor(AActor* Actor, FString& AbilityString, bool& bIsUsingAbilities)
+{
+	UAbilitySystemComponent* AbilityComp = Actor->FindComponentByClass<UAbilitySystemComponent>();
+	bIsUsingAbilities = (AbilityComp != nullptr);
+	  
+	int32 NumActive = 0;
+	if (AbilityComp)
 	{
-		IGameplayDebugger& GameplayDebuggerModule = IGameplayDebugger::Get();
-		GameplayDebuggerModule.UnregisterCategory("Abilities");
-		GameplayDebuggerModule.NotifyCategoriesChanged();
+		AbilityString = TEXT("");
+	  
+		for (const FGameplayAbilitySpec& AbilitySpec : AbilityComp->GetActivatableAbilities())
+		{
+	  		if (AbilitySpec.Ability && AbilitySpec.IsActive())
+	  		{
+	  			if (NumActive)
+	  			{
+					AbilityString += TEXT(", ");
+	  			}
+	  
+	  			UClass* AbilityClass = AbilitySpec.Ability->GetClass();
+	  			FString AbClassName = GetNameSafe(AbilityClass);
+	  			AbClassName.RemoveFromEnd(TEXT("_c"));
+	  
+				AbilityString += AbClassName;
+	  			NumActive++;
+	  		}
+		}
 	}
-#endif // WITH_GAMEPLAY_DEBUGGER
+	  
+	if (NumActive == 0)
+	{
+		AbilityString = TEXT("None");
+	}
 }

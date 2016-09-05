@@ -56,16 +56,16 @@ void UNamedSlot::SynchronizeProperties()
 	Super::SynchronizeProperties();
 }
 
-void UNamedSlot::OnSlotAdded(UPanelSlot* InSlot)
+void UNamedSlot::OnSlotAdded(UPanelSlot* Slot)
 {
 	// Add the child to the live slot if it already exists
-	if ( MyBox.IsValid() && InSlot->Content )
+	if ( MyBox.IsValid() && Slot->Content )
 	{
-		MyBox->SetContent(InSlot->Content->TakeWidget());
+		MyBox->SetContent(Slot->Content->TakeWidget());
 	}
 }
 
-void UNamedSlot::OnSlotRemoved(UPanelSlot* InSlot)
+void UNamedSlot::OnSlotRemoved(UPanelSlot* Slot)
 {
 	// Remove the widget from the live slot if it exists.
 	if ( MyBox.IsValid() )
@@ -88,6 +88,11 @@ void UNamedSlot::OnSlotRemoved(UPanelSlot* InSlot)
 }
 
 #if WITH_EDITOR
+
+const FSlateBrush* UNamedSlot::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush("Widget.NamedSlot");
+}
 
 const FText UNamedSlot::GetPaletteCategory()
 {

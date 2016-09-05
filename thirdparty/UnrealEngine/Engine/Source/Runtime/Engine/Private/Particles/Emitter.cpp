@@ -50,7 +50,7 @@ AEmitter::AEmitter(const FObjectInitializer& ObjectInitializer)
 			SpriteComponent->bIsScreenSizeScaled = true;
 			SpriteComponent->SpriteInfo.Category = ConstructorStatics.ID_Effects;
 			SpriteComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Effects;
-			SpriteComponent->SetupAttachment(ParticleSystemComponent);
+			SpriteComponent->AttachParent = ParticleSystemComponent;
 			SpriteComponent->bReceivesDecals = false;
 		}
 
@@ -65,7 +65,7 @@ AEmitter::AEmitter(const FObjectInitializer& ObjectInitializer)
 			ArrowComponent->bIsScreenSizeScaled = true;
 			ArrowComponent->SpriteInfo.Category = ConstructorStatics.ID_Effects;
 			ArrowComponent->SpriteInfo.DisplayName = ConstructorStatics.NAME_Effects;
-			ArrowComponent->SetupAttachment(ParticleSystemComponent);
+			ArrowComponent->AttachParent = ParticleSystemComponent;
 			ArrowComponent->bAbsoluteScale = true;
 		}
 	}
@@ -168,7 +168,7 @@ void AEmitter::PostInitializeComponents()
 	Super::PostInitializeComponents();
 
 	// Let them die quickly on a dedicated server
-	if (IsNetMode(NM_DedicatedServer) && (GetRemoteRole() == ROLE_None || bNetTemporary))
+	if (GetNetMode() == NM_DedicatedServer && (GetRemoteRole() == ROLE_None || bNetTemporary))
 	{
 		SetLifeSpan(0.2f);
 	}

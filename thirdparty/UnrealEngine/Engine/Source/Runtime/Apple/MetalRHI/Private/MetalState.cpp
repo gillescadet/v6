@@ -5,7 +5,6 @@
 =============================================================================*/
 
 #include "MetalRHIPrivate.h"
-#include "MetalProfiler.h"
 
 int32 GMetalUseSamplerCompareFunc = 1;
 FAutoConsoleVariableRef CVarMetalUseSamplerCompareFunc(
@@ -178,12 +177,12 @@ FMetalSamplerState::FMetalSamplerState(id<MTLDevice> Device, const FSamplerState
 	
 	State = [Device newSamplerStateWithDescriptor:Desc];
 	[Desc release];
-	TRACK_OBJECT(STAT_MetalSamplerStateCount, State);
+	TRACK_OBJECT(State);
 }
 
 FMetalSamplerState::~FMetalSamplerState()
 {
-	UNTRACK_OBJECT(STAT_MetalSamplerStateCount, State);
+	UNTRACK_OBJECT(State);
 	[State release];
 }
 
@@ -249,7 +248,7 @@ FMetalDepthStencilState::FMetalDepthStencilState(id<MTLDevice> Device, const FDe
 		
 	// bake out the descriptor
 	State = [Device newDepthStencilStateWithDescriptor:Desc];
-	TRACK_OBJECT(STAT_MetalDepthStencilStateCount, State);
+	TRACK_OBJECT(State);
 	[Desc release];
 	
 	// cache some pipeline state info
@@ -259,7 +258,7 @@ FMetalDepthStencilState::FMetalDepthStencilState(id<MTLDevice> Device, const FDe
 
 FMetalDepthStencilState::~FMetalDepthStencilState()
 {
-	UNTRACK_OBJECT(STAT_MetalDepthStencilStateCount, State);
+	UNTRACK_OBJECT(State);
 	[State release];
 }
 
@@ -268,7 +267,7 @@ FMetalDepthStencilState::~FMetalDepthStencilState()
 // statics
 TMap<uint32, uint8> FMetalBlendState::BlendSettingsToUniqueKeyMap;
 uint8 FMetalBlendState::NextKey = 0;
-FCriticalSection FMetalBlendState::Mutex;
+
 
 FMetalBlendState::FMetalBlendState(const FBlendStateInitializerRHI& Initializer)
 {
@@ -282,7 +281,7 @@ FMetalBlendState::FMetalBlendState(const FBlendStateInitializerRHI& Initializer)
 
 		// make a new blend state
 		MTLRenderPipelineColorAttachmentDescriptor* BlendState = [[MTLRenderPipelineColorAttachmentDescriptor alloc] init];
-		TRACK_OBJECT(STAT_MetalRenderPipelineColorAttachmentDescriptor, BlendState);
+		TRACK_OBJECT(BlendState);
 
 		// set values
 		BlendState.blendingEnabled =
@@ -303,12 +302,6 @@ FMetalBlendState::FMetalBlendState(const FBlendStateInitializerRHI& Initializer)
 			(BlendState.sourceRGBBlendFactor << 0) | (BlendState.destinationRGBBlendFactor << 4) | (BlendState.rgbBlendOperation << 8) |
 			(BlendState.sourceAlphaBlendFactor << 11) | (BlendState.destinationAlphaBlendFactor << 15) | (BlendState.alphaBlendOperation << 19) |
 			(BlendState.writeMask << 22);
-		
-		
-		if(GUseRHIThread)
-		{
-			Mutex.Lock();
-		}
 		uint8* Key = BlendSettingsToUniqueKeyMap.Find(BlendBitMask);
 		if (Key == NULL)
 		{
@@ -319,10 +312,6 @@ FMetalBlendState::FMetalBlendState(const FBlendStateInitializerRHI& Initializer)
 		}
 		// set the key
 		RenderTargetStates[RenderTargetIndex].BlendStateKey = *Key;
-		if(GUseRHIThread)
-		{
-			Mutex.Unlock();
-		}
 	}
 }
 
@@ -330,7 +319,7 @@ FMetalBlendState::~FMetalBlendState()
 {
 	for(uint32 RenderTargetIndex = 0;RenderTargetIndex < MaxMetalRenderTargets; ++RenderTargetIndex)
 	{
-		UNTRACK_OBJECT(STAT_MetalRenderPipelineColorAttachmentDescriptor, RenderTargetStates[RenderTargetIndex].BlendState);
+		UNTRACK_OBJECT(RenderTargetStates[RenderTargetIndex]);
 		[RenderTargetStates[RenderTargetIndex].BlendState release];
 	}
 }

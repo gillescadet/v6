@@ -29,9 +29,6 @@ public:
 	 */
 	uint32 AddMesh(USlateVectorArtData& InMeshData);
 
-	/** Much like AddMesh, but also enables instancing support for this MeshId. */
-	uint32 AddMeshWithInstancing(USlateVectorArtData& InMeshData, int32 InitialBufferSize = 1);
-
 	/**
 	 * Switch from static material to material instance dynamic.
 	 * 
@@ -76,7 +73,8 @@ protected:
 
 protected:
 	static void PushUpdate(uint32 VectorArtId, const SMeshWidget& Widget, const FVector2D& Position, float Scale, uint32 BaseAddress);
-	static void PushUpdate(uint32 VectorArtId, const SMeshWidget& Widget, const FVector2D& Position, float Scale, float OptionalFloat = 0);
+
+private:
 
 	struct FRenderData
 	{
@@ -93,7 +91,6 @@ protected:
 	};
 	TArray<FRenderData, TInlineAllocator<3>> RenderData;
 
-private:
 	/** Which mesh to draw, starting with which instance offset and how many instances to draw in this run/batch. */
 	class FRenderRun
 	{

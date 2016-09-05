@@ -2,8 +2,6 @@
 
 #pragma once
 
-#define TRACK_CONSOLE_FIND_COUNT !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-
 
 /**
  * Console variable usage guide:
@@ -131,12 +129,6 @@ class IConsoleObject
 
 public:
 
-	IConsoleObject()
-#if TRACK_CONSOLE_FIND_COUNT
-		: FindCallCount(0)
-#endif
-	{}
-
 	virtual ~IConsoleObject() {}
 
 	/**
@@ -208,11 +200,6 @@ public:
 
 private: // -----------------------------------------
 
-#if TRACK_CONSOLE_FIND_COUNT
-	// no longer pure visual, if that causes problems we can change the interface
-	// to track down FindConsoleObject/FindConsoleVariable calls without static
-	uint32 FindCallCount;
-#endif
 
 	/**
 	 *  should only be called by the manager, needs to be implemented for each instance
@@ -285,7 +272,7 @@ struct IConsoleCommand : public IConsoleObject
 	 * @param	InWorld		World context for this command
 	 * @return	True if the delegate for this command was executed successfully
 	 */
-	virtual bool Execute( const TArray< FString >& Args, UWorld* InWorld, class FOutputDevice& OutputDevice ) = 0;
+	virtual bool Execute( const TArray< FString > Args, UWorld* InWorld, class FOutputDevice& OutputDevice ) = 0;
 };
 
 /**
@@ -295,7 +282,6 @@ struct IConsoleThreadPropagation
 {
 	virtual void OnCVarChange(int32& Dest, int32 NewValue) = 0;
 	virtual void OnCVarChange(float& Dest, float NewValue) = 0;
-	virtual void OnCVarChange(bool& Dest, bool NewValue) = 0;
 	virtual void OnCVarChange(FString& Dest, const FString& NewValue) = 0;
 };
 
@@ -381,13 +367,6 @@ struct CORE_API IConsoleManager
 	 * @param Flags bitmask combined from EConsoleVariableFlags
 	 */
 	virtual IConsoleVariable* RegisterConsoleVariableRef(const TCHAR* Name, float& RefValue, const TCHAR* Help, uint32 Flags = ECVF_Default) = 0;
-	/**
-	* Create a reference to a bool console variable
-	* @param Name must not be 0
-	* @param Help must not be 0
-	* @param Flags bitmask combined from EConsoleVariableFlags
-	*/
-	virtual IConsoleVariable* RegisterConsoleVariableRef(const TCHAR* Name, bool& RefValue, const TCHAR* Help, uint32 Flags = ECVF_Default) = 0;
 	/**
 	 * Create a reference to a show flag variable
 	 * @param CVarName must not be 0, e.g. "Show.PostProcessing"
@@ -537,15 +516,7 @@ struct CORE_API IConsoleManager
 	 *  @param Visitor must not be 0
 	 *  @param ThatStartsWith must not be 0 
 	 */
-	virtual void ForEachConsoleObjectThatStartsWith( const FConsoleObjectVisitor& Visitor, const TCHAR* ThatStartsWith = TEXT("")) const = 0;
-
-	/**
-	 *  Not case sensitive, does not guarantee that UnregisterConsoleObject() will work in the loop
-	 *  @param Visitor must not be 0
-	 *  @param ThatContains must not be 0 
-	 */
-	virtual void ForEachConsoleObjectThatContains(const FConsoleObjectVisitor& Visitor, const TCHAR* ThatContains) const = 0;
-
+	virtual void ForEachConsoleObject( const FConsoleObjectVisitor& Visitor, const TCHAR* ThatStartsWith = TEXT("")) const = 0;
 	/**
 	 * Process user input
 	 *  e.g.
@@ -786,7 +757,7 @@ public:
 	T GetValueOnGameThread() const
 	{
 		// compiled out in shipping for performance (we can change in development later), if this get triggered you need to call GetValueOnRenderThread() or GetValueOnAnyThread(), the last one is a bit slower
-		checkCode(ensure(GetShadowIndex() == 0));	// ensure to not block content creators, #if to optimize in shipping
+		ensure(GetShadowIndex() == 0);	// ensure to not block content creators, #if to optimize in shipping
 		return ShadowedValue[0];
 	}
 
@@ -795,7 +766,7 @@ public:
 	{
 #if !defined(__clang__) // @todo Mac: figure out how to make this compile
 		// compiled out in shipping for performance (we can change in development later), if this get triggered you need to call GetValueOnGameThread() or GetValueOnAnyThread(), the last one is a bit slower
-		checkCode(ensure(IsInParallelRenderingThread()));	// ensure to not block content creators, #if to optimize in shipping
+		ensure(IsInParallelRenderingThread());	// ensure to not block content creators, #if to optimize in shipping
 #endif
 		return ShadowedValue[1];
 	}
@@ -816,7 +787,7 @@ private: // ----------------------------------------------------
 	{	
 		if (bForceGameThread)
 		{
-			checkCode(ensure(!IsInActualRenderingThread()));
+			ensure(!IsInActualRenderingThread());
 			return 0;
 		}
 		return IsInGameThread() ? 0 : 1;

@@ -117,25 +117,21 @@ void appBitsCpy( uint8* Dest, int32 DestBit, uint8* Src, int32 SrcBit, int32 Bit
  * Constructor using known size the buffer needs to be
  */
 FBitWriter::FBitWriter( int64 InMaxBits, bool InAllowResize /*=false*/ )
-	: Num(0)
-	, Max(InMaxBits)
-	, bAllowOverflow(false)
+:   Num			( 0 )
+,	Max			( InMaxBits )
 {
 	Buffer.AddUninitialized( (InMaxBits+7)>>3 );
 
 	AllowResize = InAllowResize;
 	FMemory::Memzero(Buffer.GetData(), Buffer.Num());
 	ArIsPersistent = ArIsSaving = 1;
+	ArNetVer |= 0x80000000;
 }
 
 /**
  * Default constructor. Zeros everything.
  */
-FBitWriter::FBitWriter(void)
-	: Num(0)
-	, Max(0)
-	, AllowResize(false)
-	, bAllowOverflow(false)
+FBitWriter::FBitWriter(void) : Num(0), Max(0), AllowResize(false)
 {
 }
 
@@ -148,6 +144,7 @@ void FBitWriter::Reset(void)
 	Num = 0;
 	FMemory::Memzero(Buffer.GetData(), Buffer.Num());
 	ArIsPersistent = ArIsSaving = 1;
+	ArNetVer |= 0x80000000;
 }
 
 void FBitWriter::SerializeBits( void* Src, int64 LengthBits )
@@ -169,10 +166,7 @@ void FBitWriter::SerializeBits( void* Src, int64 LengthBits )
 			Num += LengthBits;
 		}
 	}
-	else
-	{
-		SetOverflowed(LengthBits);
-	}
+	else ArIsError = 1;
 }
 void FBitWriter::Serialize( void* Src, int64 LengthBytes )
 {
@@ -183,74 +177,51 @@ void FBitWriter::Serialize( void* Src, int64 LengthBytes )
 		appBitsCpy(Buffer.GetData(), Num, (uint8*)Src, 0, LengthBits);
 		Num += LengthBits;
 	}
-	else
-	{
-		SetOverflowed(LengthBits);
-	}
+	else ArIsError = 1;
 }
-
-void FBitWriter::SerializeInt(uint32& Value, uint32 ValueMax)
+void FBitWriter::SerializeInt( uint32& Value, uint32 ValueMax )
 {
-	check(ValueMax >= 2);
-
-	const int32 LengthBits = FMath::CeilLogTwo(ValueMax);
 	uint32 WriteValue = Value;
-
 	if (WriteValue >= ValueMax)
 	{
-		const TCHAR Msg[] = TEXT("FBitWriter::SerializeInt(): Value out of bounds (Value: %u, ValueMax: %u)");
-
-		UE_LOG(LogSerialization, Error, Msg, WriteValue, ValueMax);
-		ensureMsgf(false, Msg, WriteValue, ValueMax);
-
-		WriteValue = ValueMax - 1;
+		UE_LOG(LogSerialization, Error, TEXT("FBitWriter::SerializeInt(): Value out of bounds (Value: %u, ValueMax: %u)"), WriteValue, ValueMax);
+		ensureMsgf(false, TEXT("FBitWriter::SerializeInt(): Value out of bounds (Value: %u, ValueMax: %u)"), WriteValue, ValueMax);
+		WriteValue = ValueMax-1;
 	}
-
-	if (AllowAppend(LengthBits))
+	if (AllowAppend((int32)FMath::CeilLogTwo(ValueMax)))
 	{
-		uint32 NewValue = 0;
+		uint32 NewValue=0;
 		int64 LocalNum = Num;	// Use local var to avoid LHS
-
-		for (uint32 Mask=1; (NewValue + Mask) < ValueMax && Mask; Mask*=2, LocalNum++)
+		for( uint32 Mask=1; NewValue+Mask<ValueMax && Mask; Mask*=2,LocalNum++ )
 		{
-			if (WriteValue & Mask)
+			if( WriteValue&Mask )
 			{
-				Buffer[LocalNum >> 3] += GShift[LocalNum & 7];
+				Buffer[LocalNum>>3] += GShift[LocalNum&7];
 				NewValue += Mask;
 			}
 		}
-
 		Num = LocalNum;
-	}
-	else
-	{
-		SetOverflowed(LengthBits);
-	}
+	} else ArIsError = 1;
 }
-
+/** serializes the specified value, but does not bounds check against Max; instead, it will wrap around if the value exceeds Max
+ * (this differs from SerializeInt(), which clamps)
+ * @param Result - the value to serialize
+ * @param Max - maximum value to write; wrap Result if it exceeds this
+ */
 void FBitWriter::WriteIntWrapped(uint32 Value, uint32 ValueMax)
 {
-	check(ValueMax >= 2);
-
-	const int32 LengthBits = FMath::CeilLogTwo(ValueMax);
-
-	if (AllowAppend(LengthBits))
+	if( AllowAppend((int32)FMath::CeilLogTwo(ValueMax)) )
 	{
-		uint32 NewValue = 0;
-
-		for (uint32 Mask=1; NewValue+Mask < ValueMax && Mask; Mask*=2, Num++)
+		uint32 NewValue=0;
+		for( uint32 Mask=1; NewValue+Mask<ValueMax && Mask; Mask*=2,Num++ )
 		{
-			if (Value & Mask)
+			if( Value&Mask )
 			{
 				Buffer[Num>>3] += GShift[Num&7];
 				NewValue += Mask;
 			}
 		}
-	}
-	else
-	{
-		SetOverflowed(LengthBits);
-	}
+	} else ArIsError = 1;
 }
 void FBitWriter::WriteBit( uint8 In )
 {
@@ -260,21 +231,7 @@ void FBitWriter::WriteBit( uint8 In )
 			Buffer[Num>>3] |= GShift[Num&7];
 		Num++;
 	}
-	else
-	{
-		SetOverflowed(1);
-	}
-}
-
-void FBitWriter::SetOverflowed(int32 LengthBits)
-{
-	if (!bAllowOverflow)
-	{
-		UE_LOG(LogNetSerialization, Error, TEXT("FBitWriter overflowed! (WriteLen: %i, Remaining: %i, Max: %i)"),
-				LengthBits, (Max-Num), Max);
-	}
-
-	ArIsError = 1;
+	else ArIsError = 1;
 }
 
 /*-----------------------------------------------------------------------------
@@ -329,35 +286,23 @@ void FBitWriterMark::PopWithoutClear( FBitWriter& Writer )
 //
 // Reads bitstreams.
 //
-FBitReader::FBitReader(uint8* Src, int64 CountBits)
-	: Num(CountBits)
-	, Pos(0)
+FBitReader::FBitReader( uint8* Src, int64 CountBits )
+:   Num			( CountBits )
+,	Pos			( 0 )
 {
-	Buffer.AddUninitialized((CountBits + 7) >> 3);
-
+	Buffer.AddUninitialized( (CountBits+7)>>3 );
 	ArIsPersistent = ArIsLoading = 1;
-
-	if (Src != nullptr)
+	ArNetVer |= 0x80000000;
+	if( Src )
 	{
 		FMemory::Memcpy(Buffer.GetData(), Src, (CountBits + 7) >> 3);
-
-		if (Num & 7)
-		{
-			Buffer[Num >> 3] &= GMask[Num & 7];
-		}
 	}
 }
-
 void FBitReader::SetData( FBitReader& Src, int64 CountBits )
 {
-	Num			= CountBits;
-	Pos			= 0;
-	ArIsError	= 0;
-
-	// Setup network version
-	ArEngineNetVer	= Src.ArEngineNetVer;
-	ArGameNetVer	= Src.ArGameNetVer;
-
+	Num        = CountBits;
+	Pos        = 0;
+	ArIsError  = 0;
 	Buffer.Empty();
 	Buffer.AddUninitialized( (CountBits+7)>>3 );
 	Src.SerializeBits(Buffer.GetData(), CountBits);
@@ -374,18 +319,10 @@ void FBitReader::AppendDataFromChecked( FBitReader& Src )
 void FBitReader::AppendDataFromChecked( uint8* Src, uint32 NumBits )
 {
 	check(Num % 8 == 0);
-
 	uint32 NumBytes = (NumBits+7) >> 3;
-
 	Buffer.AddUninitialized(NumBytes);
 	FMemory::Memcpy( &Buffer[Num >> 3], Src, NumBytes );
-
 	Num += NumBits;
-
-	if (Num & 7)
-	{
-		Buffer[Num >> 3] &= GMask[Num & 7];
-	}
 }
 
 void FBitReader::AppendTo( TArray<uint8> &DestBuffer )
@@ -393,11 +330,9 @@ void FBitReader::AppendTo( TArray<uint8> &DestBuffer )
 	DestBuffer.Append(Buffer);
 }
 
-void FBitReader::SetOverflowed(int32 LengthBits)
+void FBitReader::SetOverflowed()
 {
-	UE_LOG(LogNetSerialization, Error, TEXT("FBitReader::SetOverflowed() called! (ReadLen: %i, Remaining: %i, Max: %i)"),
-				LengthBits, (Num-Pos), Num);
-
+	UE_LOG( LogNetSerialization, Error, TEXT( "FBitReader::SetOverflowed() called" ) );
 	ArIsError = 1;
 }
 

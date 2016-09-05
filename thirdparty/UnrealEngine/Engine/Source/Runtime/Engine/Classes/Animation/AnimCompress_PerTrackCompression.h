@@ -132,13 +132,9 @@ public:
 
 protected:
 	//~ Begin UAnimCompress Interface
-#if WITH_EDITOR
 	virtual void DoReduction(class UAnimSequence* AnimSeq, const TArray<class FBoneData>& BoneData) override;
-	virtual void PopulateDDCKey(FArchive& Ar) override;
-#endif // WITH_EDITOR
 	//~ Begin UAnimCompress Interface
 
-#if WITH_EDITOR
 	//~ Begin UAnimCompress_RemoveLinearKeys Interface
 	virtual void CompressUsingUnderlyingCompressor(
 		UAnimSequence* AnimSeq,
@@ -154,7 +150,6 @@ protected:
 		TArray<FRotationTrack>& RotationData,
 		TArray<FScaleTrack>& ScaleData) override;
 	//~ End UAnimCompress_RemoveLinearKeys Interface
-#endif // WITH_EDITOR
 };
 
 

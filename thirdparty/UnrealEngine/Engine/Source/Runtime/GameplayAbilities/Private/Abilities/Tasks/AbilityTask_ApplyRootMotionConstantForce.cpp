@@ -12,21 +12,19 @@ UAbilityTask_ApplyRootMotionConstantForce::UAbilityTask_ApplyRootMotionConstantF
 	bSimulatedTask = true;
 	bIsFinished = false;
 	RootMotionSourceID = (uint16)ERootMotionSourceID::Invalid;
-	StrengthOverTime = nullptr;
 	MovementComponent = nullptr;
 }
 
-UAbilityTask_ApplyRootMotionConstantForce* UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(UObject* WorldContextObject, FName TaskInstanceName, FVector WorldDirection, float Strength, float Duration, bool bIsAdditive, bool bDisableImpartingVelocityOnRemoval, UCurveFloat* StrengthOverTime)
+UAbilityTask_ApplyRootMotionConstantForce* UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(UObject* WorldContextObject, FName TaskInstanceName, FVector WorldDirection, float Strength, float Duration, bool bIsAdditive, bool bDisableImpartingVelocityOnRemoval)
 {
 	auto MyTask = NewAbilityTask<UAbilityTask_ApplyRootMotionConstantForce>(WorldContextObject, TaskInstanceName);
 
 	MyTask->ForceName = TaskInstanceName;
 	MyTask->WorldDirection = WorldDirection.GetSafeNormal();
 	MyTask->Strength = Strength;
-	MyTask->Duration = Duration;
+	MyTask->Duration = FMath::Max(Duration, 0.001f);		// Avoid negative or divide-by-zero cases
 	MyTask->bIsAdditive = bIsAdditive;
 	MyTask->bDisableImpartingVelocityOnRemoval = bDisableImpartingVelocityOnRemoval;
-	MyTask->StrengthOverTime = StrengthOverTime;
 	MyTask->SharedInitAndApply();
 
 	return MyTask;
@@ -64,7 +62,6 @@ void UAbilityTask_ApplyRootMotionConstantForce::SharedInitAndApply()
 			ConstantForce->Priority = 5;
 			ConstantForce->Force = WorldDirection * Strength;
 			ConstantForce->Duration = Duration;
-			ConstantForce->StrengthOverTime = StrengthOverTime;
 			RootMotionSourceID = MovementComponent->ApplyRootMotionSource(ConstantForce);
 
 			if (Ability)
@@ -94,8 +91,7 @@ void UAbilityTask_ApplyRootMotionConstantForce::TickTask(float DeltaTime)
 	if (MyActor)
 	{
 		float CurrentTime = GetWorld()->GetTimeSeconds();
-		const bool bIsInfiniteDuration = Duration < 0.f;
-		if (!bIsInfiniteDuration && CurrentTime >= EndTime)
+		if (CurrentTime >= EndTime)
 		{
 			// Task has finished
 			bIsFinished = true;
@@ -121,7 +117,6 @@ void UAbilityTask_ApplyRootMotionConstantForce::GetLifetimeReplicatedProps(TArra
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionConstantForce, Strength);
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionConstantForce, Duration);
 	DOREPLIFETIME(UAbilityTask_ApplyRootMotionConstantForce, bIsAdditive);
-	DOREPLIFETIME(UAbilityTask_ApplyRootMotionConstantForce, StrengthOverTime);
 }
 
 void UAbilityTask_ApplyRootMotionConstantForce::PreDestroyFromReplication()

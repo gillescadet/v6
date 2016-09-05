@@ -472,28 +472,7 @@ int32 FEQSParametrizedQueryExecutionRequest::Execute(AActor& QueryOwner, const U
 				}
 				else
 				{
-					switch (RuntimeParam.ParamType)
-					{
-					case EAIParamType::Float:
-					{
-						QueryRequest.SetFloatParam(RuntimeParam.ParamName, RuntimeParam.Value);
-					}
-					break;
-					case EAIParamType::Int:
-					{
-						QueryRequest.SetIntParam(RuntimeParam.ParamName, RuntimeParam.Value);
-					}
-					break;
-					case EAIParamType::Bool:
-					{
-						bool Result = RuntimeParam.Value > 0;
-						QueryRequest.SetBoolParam(RuntimeParam.ParamName, Result);
-					}
-					break;
-					default:
-						checkNoEntry();
-						break;
-					}
+					QueryRequest.SetFloatParam(RuntimeParam.ParamName, RuntimeParam.Value);
 				}
 			}
 		}

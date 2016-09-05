@@ -295,30 +295,27 @@ bool FHitProxyDrawingPolicyFactory::DrawDynamicMesh(
 	{
 		const FMaterialRenderProxy* MaterialRenderProxy = Mesh.MaterialRenderProxy;
 		const FMaterial* Material = MaterialRenderProxy->GetMaterial(View.GetFeatureLevel());
-		if( HitProxyId != FHitProxyId::InvisibleHitProxyId )
-		{
 #if WITH_EDITOR
-			const HHitProxy* HitProxy = GetHitProxyById( HitProxyId );
-			// Only draw translucent primitives to the hit proxy if the user wants those objects to be selectable
-			if( View.bAllowTranslucentPrimitivesInHitProxy || !IsTranslucentBlendMode( Material->GetBlendMode() ) || ( HitProxy && HitProxy->AlwaysAllowsTranslucentPrimitives() ) )
+		const HHitProxy* HitProxy = GetHitProxyById( HitProxyId );
+		// Only draw translucent primitives to the hit proxy if the user wants those objects to be selectable
+		if( View.bAllowTranslucentPrimitivesInHitProxy || !IsTranslucentBlendMode( Material->GetBlendMode() ) || ( HitProxy && HitProxy->AlwaysAllowsTranslucentPrimitives() ) )
 #endif
-		    {
-			    if (Material->WritesEveryPixel() && !Material->IsTwoSided() && !Material->MaterialModifiesMeshPosition_RenderThread())
-			    {
-				    // Default material doesn't handle masked, and doesn't have the correct bIsTwoSided setting.
-				    MaterialRenderProxy = UMaterial::GetDefaultMaterial(MD_Surface)->GetRenderProxy(false);
-			    }
-			    FHitProxyDrawingPolicy DrawingPolicy( Mesh.VertexFactory, MaterialRenderProxy, View.GetFeatureLevel() );
-			    RHICmdList.BuildAndSetLocalBoundShaderState(DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
-			    DrawingPolicy.SetSharedState(RHICmdList, &View, FHitProxyDrawingPolicy::ContextDataType());
-			    const FMeshDrawingRenderState DrawRenderState(Mesh.DitheredLODTransitionAlpha);
-			    for (int32 BatchElementIndex = 0; BatchElementIndex < Mesh.Elements.Num(); BatchElementIndex++)
-			    {
-				    DrawingPolicy.SetMeshRenderState(RHICmdList, View, PrimitiveSceneProxy, Mesh, BatchElementIndex, bBackFace, DrawRenderState, HitProxyId, FHitProxyDrawingPolicy::ContextDataType());
-				    DrawingPolicy.DrawMesh(RHICmdList, Mesh,BatchElementIndex);
-			    }
-			    return true;
+		{
+			if (Material->WritesEveryPixel() && !Material->IsTwoSided() && !Material->MaterialModifiesMeshPosition_RenderThread())
+			{
+				// Default material doesn't handle masked, and doesn't have the correct bIsTwoSided setting.
+				MaterialRenderProxy = UMaterial::GetDefaultMaterial(MD_Surface)->GetRenderProxy(false);
 			}
+			FHitProxyDrawingPolicy DrawingPolicy( Mesh.VertexFactory, MaterialRenderProxy, View.GetFeatureLevel() );
+			RHICmdList.BuildAndSetLocalBoundShaderState(DrawingPolicy.GetBoundShaderStateInput(View.GetFeatureLevel()));
+			DrawingPolicy.SetSharedState(RHICmdList, &View, FHitProxyDrawingPolicy::ContextDataType());
+			const FMeshDrawingRenderState DrawRenderState(Mesh.DitheredLODTransitionAlpha);
+			for (int32 BatchElementIndex = 0; BatchElementIndex < Mesh.Elements.Num(); BatchElementIndex++)
+			{
+				DrawingPolicy.SetMeshRenderState(RHICmdList, View, PrimitiveSceneProxy, Mesh, BatchElementIndex, bBackFace, DrawRenderState, HitProxyId, FHitProxyDrawingPolicy::ContextDataType());
+				DrawingPolicy.DrawMesh(RHICmdList, Mesh,BatchElementIndex);
+			}
+			return true;
 		}
 	}
 	return false;
@@ -533,7 +530,7 @@ void RenderHitProxies(FRHICommandListImmediate& RHICmdList, const FSceneRenderer
 }
 #endif
 
-void FMobileSceneRenderer::RenderHitProxies(FRHICommandListImmediate& RHICmdList)
+void FForwardShadingSceneRenderer::RenderHitProxies(FRHICommandListImmediate& RHICmdList)
 {
 #if WITH_EDITOR
 	TRefCountPtr<IPooledRenderTarget> HitProxyRT = ::InitHitProxyRender(RHICmdList, this);
@@ -555,13 +552,7 @@ void FDeferredShadingSceneRenderer::RenderHitProxies(FRHICommandListImmediate& R
 	if (HitProxyRT)
 	{
 		// Find the visible primitives.
-		FGraphEventArray SortEvents;
-		FILCUpdatePrimTaskData ILCTaskData;
-		bool bDoInitViewAftersPrepass = InitViews(RHICmdList, ILCTaskData, SortEvents);
-		if (bDoInitViewAftersPrepass)
-		{
-			InitViewsPossiblyAfterPrepass(RHICmdList, ILCTaskData, SortEvents);
-		}
+		InitViews(RHICmdList);
 		::RenderHitProxies(RHICmdList, this, HitProxyRT);
 		ClearPrimitiveSingleFramePrecomputedLightingBuffers();
 	}

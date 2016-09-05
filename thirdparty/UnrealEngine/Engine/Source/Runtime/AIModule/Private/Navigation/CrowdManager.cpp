@@ -141,7 +141,6 @@ UCrowdManager::UCrowdManager(const FObjectInitializer& ObjectInitializer) : Supe
 	bSingleAreaVisibilityOptimization = true;
 	bPruneStartedOffmeshConnections = false;
 	bEarlyReachTestOptimization = false;
-	bAllowPathReplan = true;
 	bResolveCollisions = false;
 	
 	FCrowdAvoidanceConfig AvoidanceConfig11;		// 11 samples, ECrowdAvoidanceQuality::Low
@@ -187,7 +186,6 @@ void UCrowdManager::BeginDestroy()
 	delete TickHelper;
 #endif
 
-	DestroyCrowdManager();
 	Super::BeginDestroy();
 }
 
@@ -221,7 +219,6 @@ void UCrowdManager::Tick(float DeltaTime)
 			}
 
 			// regular steps
-			if (bAllowPathReplan)
 			{
 				SCOPE_CYCLE_COUNTER(STAT_AI_Crowd_StepPathsTime);
 				DetourCrowd->updateStepPaths(DeltaTime, DetourAgentDebug);
@@ -695,11 +692,6 @@ void UCrowdManager::GetAgentParams(const ICrowdAgentInterface* Agent, dtCrowdAge
 
 	AgentParams.radius = CylRadius;
 	AgentParams.height = CylHalfHeight * 2.0f;
-	AgentParams.avoidanceQueryMultiplier = 1.0f;
-	AgentParams.avoidanceGroup = Agent->GetCrowdAgentAvoidanceGroup();
-	AgentParams.groupsToAvoid = Agent->GetCrowdAgentGroupsToAvoid();
-	AgentParams.groupsToIgnore = Agent->GetCrowdAgentGroupsToIgnore();
-
 	// skip maxSpeed, it will be constantly updated in every tick
 	// skip maxAcceleration, we don't use Detour's movement code
 
@@ -711,7 +703,7 @@ void UCrowdManager::GetAgentParams(const ICrowdAgentInterface* Agent, dtCrowdAge
 		AgentParams.separationWeight = CrowdComponent->GetCrowdSeparationWeight();
 		AgentParams.obstacleAvoidanceType = CrowdComponent->GetCrowdAvoidanceQuality();
 		AgentParams.avoidanceQueryMultiplier = CrowdComponent->GetCrowdAvoidanceRangeMultiplier();
-
+	
 		if (CrowdComponent->IsCrowdSimulationEnabled())
 		{
 			AgentParams.updateFlags =
@@ -723,6 +715,16 @@ void UCrowdManager::GetAgentParams(const ICrowdAgentInterface* Agent, dtCrowdAge
 				(CrowdComponent->IsCrowdPathOffsetEnabled() ? DT_CROWD_OFFSET_PATH : 0) |
 				(CrowdComponent->IsCrowdSlowdownAtGoalEnabled() ? DT_CROWD_SLOWDOWN_AT_GOAL : 0);
 		}
+
+		AgentParams.avoidanceGroup = CrowdComponent->GetAvoidanceGroup();
+		AgentParams.groupsToAvoid = CrowdComponent->GetGroupsToAvoid();
+		AgentParams.groupsToIgnore = CrowdComponent->GetGroupsToIgnore();
+	}
+	else
+	{
+		AgentParams.avoidanceQueryMultiplier = 1.0f;
+		AgentParams.avoidanceGroup = 1;
+		AgentParams.groupsToAvoid = MAX_uint32;
 	}
 }
 
@@ -762,7 +764,7 @@ void UCrowdManager::ApplyVelocity(UCrowdFollowingComponent* AgentComponent, int3
 		ag->ncorners ? &ag->cornerVerts[0] : &ag->npos[0];
 
 	const FVector DestPathCorner = Recast2UnrealPoint(RcDestCorner);
-	AgentComponent->ApplyCrowdAgentVelocity(NewVelocity, DestPathCorner, anims[AgentIndex].active != 0);
+	AgentComponent->ApplyCrowdAgentVelocity(NewVelocity, DestPathCorner, anims->active != 0);
 
 	if (bResolveCollisions)
 	{
@@ -911,7 +913,7 @@ void UCrowdManager::DrawDebugCorners(const dtCrowdAgent* CrowdAgent) const
 		}
 	}
 
-	if (CrowdAgent->ncorners > 0 && (CrowdAgent->cornerFlags[CrowdAgent->ncorners - 1] & DT_STRAIGHTPATH_OFFMESH_CONNECTION))
+	if (CrowdAgent->ncorners && (CrowdAgent->cornerFlags[CrowdAgent->ncorners - 1] & DT_STRAIGHTPATH_OFFMESH_CONNECTION))
 	{
 		FVector P0 = Recast2UnrealPoint(&CrowdAgent->cornerVerts[(CrowdAgent->ncorners - 1) * 3]);
 		DrawDebugLine(GetWorld(), P0, P0 + CrowdDebugDrawing::Offset * 2.0f, CrowdDebugDrawing::CornerLink, false, -1.0f, SDPG_World, 2.0f);
@@ -1280,16 +1282,14 @@ void UCrowdManager::PostMovePointUpdate()
 	{
 		UCrowdFollowingComponent* PathComp = Cast<UCrowdFollowingComponent>(It.Key);
 		const FCrowdAgentData& AgentData = It.Value;
-		FVector NewGoalPosition;
+		FVector UpdatedGoalPos;
 
-		const bool bUpdateTargetPos = PathComp ? PathComp->ShouldTrackMovingGoal(NewGoalPosition) : false;
-		if (bUpdateTargetPos && AgentFlags.IsValidIndex(AgentData.AgentIndex))
+		const bool bShouldUpdateGoalPos = PathComp ? PathComp->UpdateCachedGoal(UpdatedGoalPos) : false;
+		if (bShouldUpdateGoalPos && AgentFlags.IsValidIndex(AgentData.AgentIndex))
 		{
-			PathComp->UpdateDestinationForMovingGoal(NewGoalPosition);
-
 			const dtCrowdAgent* Agent = DetourCrowd->getAgent(AgentData.AgentIndex);
 			dtCrowdAgent* MutableAgent = (dtCrowdAgent*)Agent;
-			const FVector RcTargetPos = Unreal2RecastPoint(NewGoalPosition);
+			const FVector RcTargetPos = Unreal2RecastPoint(UpdatedGoalPos);
 		
 			dtVcopy(MutableAgent->targetPos, &RcTargetPos.X);
 			AgentFlags[AgentData.AgentIndex] |= UpdateDestinationFlag;

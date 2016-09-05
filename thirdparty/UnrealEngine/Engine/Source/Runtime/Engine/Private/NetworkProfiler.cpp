@@ -26,7 +26,7 @@ FNetworkProfiler GNetworkProfiler;
 /** Magic value, determining that file is a network profiler file.				*/
 #define NETWORK_PROFILER_MAGIC						0x1DBF348C
 /** Version of memory profiler. Incremented on serialization changes.			*/
-#define NETWORK_PROFILER_VERSION					10
+#define NETWORK_PROFILER_VERSION					9
 
 static const FString UnknownName("UnknownName");
 
@@ -50,9 +50,7 @@ enum ENetworkProfilingPayloadType
 	NPTYPE_BeginContentBlock,			// Content block headers
 	NPTYPE_EndContentBlock,				// Content block footers
 	NPTYPE_WritePropertyHandle,			// Property handles
-	NPTYPE_ConnectionChanged,			// Connection changed
-	NPTYPE_NameReference,				// New reference to name
-	NPTYPE_ConnectionReference			// New reference to connection
+	NPTYPE_ConnectionChanged			// Connection changed
 };
 
 /*=============================================================================
@@ -62,11 +60,21 @@ enum ENetworkProfilingPayloadType
 FNetworkProfilerHeader::FNetworkProfilerHeader()
 	: Magic(NETWORK_PROFILER_MAGIC)
 	, Version(NETWORK_PROFILER_VERSION)
+	, NameTableOffset(0)
+	, NameTableEntries(0)
+	, AddressTableOffset( 0 )
+	, AddressTableEntries( 0 )
 {
 }
 
 void FNetworkProfilerHeader::Reset(const FURL& InURL)
 {
+	NameTableOffset = 0;
+	NameTableEntries = 0;
+
+	AddressTableOffset = 0;
+	AddressTableEntries = 0;
+		
 	FParse::Value( FCommandLine::Get(), TEXT( "NETWORKPROFILER=" ), Tag );
 	GameName = FApp::GetGameName();
 	URL = InURL.ToString();
@@ -76,7 +84,11 @@ FArchive& operator << ( FArchive& Ar, FNetworkProfilerHeader& Header )
 {
 	check( Ar.IsSaving() );
 	Ar	<< Header.Magic
-		<< Header.Version;
+		<< Header.Version
+		<< Header.NameTableOffset
+		<< Header.NameTableEntries
+		<< Header.AddressTableOffset
+		<< Header.AddressTableEntries;
 	Header.Tag.SerializeAsANSICharArray( Ar );
 	Header.GameName.SerializeAsANSICharArray( Ar );
 	Header.URL.SerializeAsANSICharArray( Ar );
@@ -121,11 +133,6 @@ int32 FNetworkProfiler::GetNameTableIndex( const FString& Name )
 		Index = NameArray.Num();
 		new(NameArray)FString(Name);
 		NameToNameTableIndexMap.Add(*Name,Index);
-
-		// Write out the name reference token
-		uint8 Type = NPTYPE_NameReference;
-		( *FileWriter ) << Type;
-		Name.SerializeAsANSICharArray( *FileWriter );
 	}
 
 	check(Index!=INDEX_NONE);
@@ -155,11 +162,6 @@ int32 FNetworkProfiler::GetAddressTableIndex( uint64 Address )
 		Index = AddressArray.Num();
 		AddressArray.Add( Address );
 		AddressTableIndexMap.Add( Address, Index );
-
-		// Write out the name reference token
-		uint8 Type = NPTYPE_ConnectionReference;
-		( *FileWriter ) << Type;
-		( *FileWriter ) << Address;
 	}
 
 	check( Index != INDEX_NONE );
@@ -245,12 +247,11 @@ void FNetworkProfiler::TrackSendRPC( const AActor* Actor, const UFunction* Funct
 
 		SetCurrentConnection( Connection );
 
-		uint32 ActorNameTableIndex = GetNameTableIndex( Actor->GetName() );
-		uint32 FunctionNameTableIndex = GetNameTableIndex( Function->GetName() );
-
 		uint8 Type = NPTYPE_SendRPC;
 		(*FileWriter) << Type;
+		uint32 ActorNameTableIndex = GetNameTableIndex( Actor->GetName() );
 		( *FileWriter ).SerializeIntPacked( ActorNameTableIndex );
+		uint32 FunctionNameTableIndex = GetNameTableIndex( Function->GetName() );
 		( *FileWriter ).SerializeIntPacked( FunctionNameTableIndex );
 		( *FileWriter ) << NumHeaderBits;
 		(*FileWriter) << NumParameterBits;
@@ -265,12 +266,10 @@ void FNetworkProfiler::TrackQueuedRPC( UNetConnection* Connection, UObject* Targ
 		SCOPE_LOCK_REF(CriticalSection);
 		
 		FQueuedRPCInfo Info;
-
-		Info.ActorNameIndex = GetNameTableIndex( Actor->GetName() );
-		Info.FunctionNameIndex = GetNameTableIndex( Function->GetName() );
-
 		Info.Connection = Connection;
 		Info.TargetObject = TargetObject;
+		Info.ActorNameIndex = GetNameTableIndex( Actor->GetName() );
+		Info.FunctionNameIndex = GetNameTableIndex( Function->GetName() );
 		Info.NumHeaderBits = NumHeaderBits;
 		Info.NumParameterBits = NumParameterBits;
 		Info.NumFooterBits = NumFooterBits;
@@ -371,10 +370,9 @@ void FNetworkProfiler::TrackSocketSendToCore(
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( SocketDesc );
-
 		uint8 Type = NPTYPE_SocketSendTo;
 		(*FileWriter) << Type;
+		uint32 NameTableIndex = GetNameTableIndex( SocketDesc );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		(*FileWriter) << BytesSent;
 		(*FileWriter) << NumPacketIdBits;
@@ -477,12 +475,11 @@ void FNetworkProfiler::TrackReplicateActor( const AActor* Actor, FReplicationFla
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( Actor->GetName() );
-
 		uint8 Type = NPTYPE_ReplicateActor;
 		(*FileWriter) << Type;
 		uint8 NetFlags = (RepFlags.bNetInitial << 1) | (RepFlags.bNetOwner << 2);
 		(*FileWriter) << NetFlags;
+		uint32 NameTableIndex = GetNameTableIndex( Actor->GetName() );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		float TimeInMS = FPlatformTime::ToMilliseconds(Cycles);	// FIXME: We may want to just pass in cycles to profiler to we don't lose precision
 		(*FileWriter) << TimeInMS;
@@ -505,10 +502,9 @@ void FNetworkProfiler::TrackReplicateProperty( const UProperty* Property, uint16
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( Property->GetName() );
-
 		uint8 Type = NPTYPE_ReplicateProperty;
 		(*FileWriter) << Type;
+		uint32 NameTableIndex = GetNameTableIndex( Property->GetName() );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		(*FileWriter) << NumBits;
 	}
@@ -522,10 +518,9 @@ void FNetworkProfiler::TrackWritePropertyHeader( const UProperty* Property, uint
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( Property->GetName() );
-
 		uint8 Type = NPTYPE_WritePropertyHeader;
 		(*FileWriter) << Type;
+		uint32 NameTableIndex = GetNameTableIndex( Property->GetName() );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		(*FileWriter) << NumBits;
 	}
@@ -545,12 +540,11 @@ void FNetworkProfiler::TrackEvent( const FString& EventName, const FString& Even
 
 		SetCurrentConnection( Connection );
 
-		uint32 EventNameNameTableIndex = GetNameTableIndex( EventName );
-		uint32 EventDescriptionNameTableIndex = GetNameTableIndex( EventDescription );
-
 		uint8 Type = NPTYPE_Event;
 		(*FileWriter) << Type;
+		uint32 EventNameNameTableIndex = GetNameTableIndex( EventName );
 		(*FileWriter).SerializeIntPacked( EventNameNameTableIndex );
+		uint32 EventDescriptionNameTableIndex = GetNameTableIndex( EventDescription );
 		(*FileWriter).SerializeIntPacked( EventDescriptionNameTableIndex );
 	}
 }
@@ -576,19 +570,62 @@ void FNetworkProfiler::TrackSessionChange( bool bShouldContinueTracking, const F
 		// End existing tracking session.
 		if( FileWriter )
 		{	
-			UE_LOG( LogNet, Log, TEXT( "Network Profiler: Closing session file for '%s'" ), *CurrentHeader.GetURL() );
-
-			if ( !bHasNoticeableNetworkTrafficOccured )
+			if( bHasNoticeableNetworkTrafficOccured )
 			{
-				UE_LOG( LogNet, Warning, TEXT( "Network Profiler: Nothing important happened" ) );
+				UE_LOG(LogNet, Log, TEXT("Network Profiler: Writing out session file for '%s'"), *CurrentHeader.GetURL());
+
+				// Write end of stream marker.
+				uint8 Type = NPTYPE_EndOfStreamMarker;
+				(*FileWriter) << Type;
+
+				// Write out name table and update header with offset and count.
+				CurrentHeader.SetNameTableValues(FileWriter->Tell(), NameArray.Num());
+
+				for( int32 NameIndex=0; NameIndex<NameArray.Num(); NameIndex++ )
+				{
+					NameArray[NameIndex].SerializeAsANSICharArray( *FileWriter );
+				}
+
+				CurrentHeader.SetAddressTableValues( FileWriter->Tell(), AddressArray.Num() );
+
+				for ( int32 AddressIndex=0; AddressIndex < AddressArray.Num(); AddressIndex++ )
+				{
+					( *FileWriter ) << AddressArray[AddressIndex];
+				}
+
+				// Seek to the beginning of the file and write out proper header.
+				FileWriter->Seek( 0 );
+				(*FileWriter) << CurrentHeader;
+
+				// Close file writer so we can rename the file to its final destination.
+				FileWriter->Close();
+			
+				// Rename/ move file.
+				static int32 Salt = 0;
+				Salt++;		// Use a salt to solve the issue where this function is called so fast it produces the same time (seems to happen during seamless travel)
+				const FString FinalFileName = FPaths::ProfilingDir() + FApp::GetGameName() + TEXT("-") + FDateTime::Now().ToString() + FString::Printf(TEXT("[%i]"), Salt) + TEXT(".nprof");
+				bool bWasMovedSuccessfully = IFileManager::Get().Move( *FinalFileName, *TempFileName );
+
+				// Send data to UnrealConsole to upload to DB.
+				if( bWasMovedSuccessfully )
+				{
+					UE_LOG( LogNet, Log, TEXT( "Network Profiler: Saved SUCCESS: %s" ), *FinalFileName );
+
+					SendDataToPCViaUnrealConsole( TEXT( "UE_PROFILER!NETWORK:" ), *FinalFileName );
+				}
+				else
+				{
+					UE_LOG( LogNet, Error, TEXT( "Network Profiler: Saved FAILED: %s" ), *FinalFileName );
+				}
 			}
+			else
+			{
+				UE_LOG(LogNet, Warning, TEXT("Network Profiler: Nothing important happened"));
+				FileWriter->Close();
 
-			// Write end of stream marker.
-			uint8 Type = NPTYPE_EndOfStreamMarker;
-			( *FileWriter ) << Type;
-
-			// Close file writer so we can rename the file to its final destination.
-			FileWriter->Close();
+				// Delete the temporary file.
+				IFileManager::Get().Delete(*TempFileName);
+			}
 
 			// Clean up.
 			delete FileWriter;
@@ -598,23 +635,30 @@ void FNetworkProfiler::TrackSessionChange( bool bShouldContinueTracking, const F
 
 		if( bShouldContinueTracking )
 		{
+			// Delete any stale .tmp files.
+			TArray<FString> FoundTempFiles;
+			IFileManager::Get().FindFiles(FoundTempFiles, *(FPaths::ProfilingDir() / TEXT("*.tmp")), true, false);
+			
+			for ( const FString& FoundFile : FoundTempFiles)
+			{
+				const FString FullFilename = FPaths::ProfilingDir() + FoundFile;
+				if ( IFileManager::Get().GetFileAgeSeconds(*FullFilename) > MaxTempFileAgeSeconds)
+				{
+					IFileManager::Get().Delete(*FullFilename);
+				}
+			}
+
 			// Start a new tracking session.
 			check( FileWriter == NULL );
 
-			static int32 Salt = 0;
-			Salt++;		// Use a salt to solve the issue where this function is called so fast it produces the same time (seems to happen during seamless travel)
-			const FString FinalFileName = FPaths::ProfilingDir() + FApp::GetGameName() + TEXT( "-" ) + FDateTime::Now().ToString() + FString::Printf( TEXT( "[%i]" ), Salt ) + TEXT( ".nprof" );
+			// Use a dummy name for sessions in progress that is renamed at end.
+			TempFileName = FPaths::CreateTempFilename(*FPaths::ProfilingDir(), TEXT("NetworkProfiling-"));
 
-			IFileManager::Get().MakeDirectory( *FPaths::GetPath( FinalFileName ) );
-			FileWriter = IFileManager::Get().CreateFileWriter( *FinalFileName, FILEWRITE_EvenIfReadOnly );
+			// Create folder and file writer.
+			IFileManager::Get().MakeDirectory( *FPaths::GetPath(TempFileName) );
+			FileWriter = IFileManager::Get().CreateFileWriter( *TempFileName, FILEWRITE_EvenIfReadOnly );
 			check( FileWriter );
 			
-			// Reset the arrays and maps so that they will match up for the new profile.
-			NameToNameTableIndexMap.Reset();
-			NameArray.Reset();
-			AddressTableIndexMap.Reset();
-			AddressArray.Reset();
-
 			CurrentHeader.Reset(InURL);
 
 			// Serialize a header of the proper size, overwritten when session ends.
@@ -676,10 +720,9 @@ void FNetworkProfiler::TrackBeginContentBlock( UObject* Object, uint16 NumBits, 
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( Object != nullptr ? Object->GetName() : UnknownName );
-
 		uint8 Type = NPTYPE_BeginContentBlock;
 		(*FileWriter) << Type;
+		uint32 NameTableIndex = GetNameTableIndex( Object != nullptr ? Object->GetName() : UnknownName );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		(*FileWriter) << NumBits;
 	 }
@@ -693,10 +736,9 @@ void FNetworkProfiler::TrackEndContentBlock( UObject* Object, uint16 NumBits, UN
 
 		SetCurrentConnection( Connection );
 
-		uint32 NameTableIndex = GetNameTableIndex( Object != nullptr ? Object->GetName() : UnknownName );
-
 		uint8 Type = NPTYPE_EndContentBlock;
 		(*FileWriter) << Type;
+		uint32 NameTableIndex = GetNameTableIndex( Object != nullptr ? Object->GetName() : UnknownName );
 		(*FileWriter).SerializeIntPacked( NameTableIndex );
 		(*FileWriter) << NumBits;
 	}

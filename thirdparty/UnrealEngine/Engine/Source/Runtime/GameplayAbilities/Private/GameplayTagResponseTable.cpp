@@ -20,26 +20,6 @@ UGameplayTagReponseTable::UGameplayTagReponseTable(const FObjectInitializer& Obj
 	Query = FGameplayEffectQuery::MakeQuery_MatchAllOwningTags(Container);
 }
 
-void UGameplayTagReponseTable::PostLoad()
-{
-	Super::PostLoad();
-
-	// Fixup
-	for (FGameplayTagResponseTableEntry& Entry :  Entries)
-	{
-		if (*Entry.Positive.ResponseGameplayEffect)
-		{
-			Entry.Positive.ResponseGameplayEffects.Add(Entry.Positive.ResponseGameplayEffect);
-			Entry.Positive.ResponseGameplayEffect = nullptr;
-		}
-		if (*Entry.Negative.ResponseGameplayEffect)
-		{
-			Entry.Negative.ResponseGameplayEffects.Add(Entry.Negative.ResponseGameplayEffect);
-			Entry.Negative.ResponseGameplayEffect = nullptr;
-		}
-	}
-}
-
 void UGameplayTagReponseTable::RegisterResponseForEvents(UAbilitySystemComponent* ASC)
 {
 	if (RegisteredASCs.Contains(ASC))
@@ -90,18 +70,18 @@ void UGameplayTagReponseTable::TagResponseEvent(const FGameplayTag Tag, int32 Ne
 
 	if (TotalCount < 0)
 	{
-		Remove(ASC, Info.PositiveHandles);
-		AddOrUpdate(ASC, Entry.Negative.ResponseGameplayEffects, TotalCount, Info.NegativeHandles);
+		Remove(ASC, Info.PositiveHandle);
+		AddOrUpdate(ASC, Entry.Negative.ResponseGameplayEffect, TotalCount, Info.NegativeHandle);
 	}
 	else if (TotalCount > 0)
 	{
-		Remove(ASC, Info.NegativeHandles);
-		AddOrUpdate(ASC, Entry.Positive.ResponseGameplayEffects, TotalCount, Info.PositiveHandles);
+		Remove(ASC, Info.NegativeHandle);
+		AddOrUpdate(ASC, Entry.Positive.ResponseGameplayEffect, TotalCount, Info.PositiveHandle);
 	}
 	else if (TotalCount == 0)
 	{
-		Remove(ASC, Info.PositiveHandles);
-		Remove(ASC, Info.NegativeHandles);
+		Remove(ASC, Info.PositiveHandle);
+		Remove(ASC, Info.NegativeHandle);
 	}
 }
 
@@ -120,41 +100,26 @@ int32 UGameplayTagReponseTable::GetCount(const FGameplayTagReponsePair& Pair, UA
 	return Count;
 }
 
-void UGameplayTagReponseTable::Remove(UAbilitySystemComponent* ASC, TArray<FActiveGameplayEffectHandle>& Handles)
+void UGameplayTagReponseTable::Remove(UAbilitySystemComponent* ASC, FActiveGameplayEffectHandle& Handle)
 {
-	for (FActiveGameplayEffectHandle& Handle : Handles)
+	if (Handle.IsValid())
+	{
+		ASC->RemoveActiveGameplayEffect(Handle);
+		Handle.Invalidate();
+	}
+}
+
+void UGameplayTagReponseTable::AddOrUpdate(UAbilitySystemComponent* ASC, const TSubclassOf<UGameplayEffect>& ResponseGameplayEffect, int32 TotalCount, FActiveGameplayEffectHandle& Handle)
+{
+	if (ResponseGameplayEffect)
 	{
 		if (Handle.IsValid())
 		{
-			ASC->RemoveActiveGameplayEffect(Handle);
-			Handle.Invalidate();
-		}
-	}
-	Handles.Reset();
-}
-
-void UGameplayTagReponseTable::AddOrUpdate(UAbilitySystemComponent* ASC, const TArray<TSubclassOf<UGameplayEffect> >& ResponseGameplayEffects, int32 TotalCount, TArray<FActiveGameplayEffectHandle>& Handles)
-{
-	if (ResponseGameplayEffects.Num() > 0)
-	{
-		if (Handles.Num() > 0)
-		{
-			// Already been applied
-			for (FActiveGameplayEffectHandle& Handle : Handles)
-			{
-				ASC->SetActiveGameplayEffectLevel(Handle, TotalCount);
-			}
+			ASC->SetActiveGameplayEffectLevel(Handle, TotalCount);
 		}
 		else
 		{
-			for (const TSubclassOf<UGameplayEffect>& ResponseGameplayEffect : ResponseGameplayEffects)
-			{
-				FActiveGameplayEffectHandle NewHandle = ASC->ApplyGameplayEffectToSelf(Cast<UGameplayEffect>(ResponseGameplayEffect->ClassDefaultObject), TotalCount, ASC->MakeEffectContext());
-				if (NewHandle.IsValid())
-				{
-					Handles.Add(NewHandle);
-				}
-			}
+			Handle = ASC->ApplyGameplayEffectToSelf(Cast<UGameplayEffect>(ResponseGameplayEffect->ClassDefaultObject), TotalCount, ASC->GetEffectContext());
 		}
 	}
 }

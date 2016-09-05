@@ -467,12 +467,6 @@ public:
 		OpStat->Duration += FPlatformTime::Seconds() * 1000.0 - OpStat->LastOpTime;
 		return Result;
 	}
-#if USE_NEW_ASYNC_IO
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override
-	{
-		return LowerLevel->OpenAsyncRead(Filename);
-	}
-#endif // USE_NEW_ASYNC_IO
 
 	//static void CreateProfileVisualizer
 };
@@ -675,13 +669,6 @@ public:
 	{
 		return LowerLevel->CopyFile( To, From );
 	}
-#if USE_NEW_ASYNC_IO
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override
-	{
-		//@todo no wrapped async handles (yet)
-		return LowerLevel->OpenAsyncRead(Filename);
-	}
-#endif // USE_NEW_ASYNC_IO
 };
 
 

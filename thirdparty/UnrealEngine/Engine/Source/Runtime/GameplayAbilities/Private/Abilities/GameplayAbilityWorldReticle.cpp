@@ -49,6 +49,11 @@ bool AGameplayAbilityWorldReticle::IsNetRelevantFor(const AActor* RealViewer, co
 	return Super::IsNetRelevantFor(RealViewer, ViewTarget, SrcLocation);
 }
 
+bool AGameplayAbilityWorldReticle::GetReplicates() const
+{
+	return bReplicates;
+}
+
 void AGameplayAbilityWorldReticle::SetIsTargetValid(bool bNewValue)
 {
 	if (bIsTargetValid != bNewValue)

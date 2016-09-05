@@ -9,9 +9,9 @@ static FName ProceduralFoliageBlocking_NAME(TEXT("ProceduralFoliageBlockingVolum
 AProceduralFoliageBlockingVolume::AProceduralFoliageBlockingVolume(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	if (UBrushComponent* MyBrushComponent = GetBrushComponent())
+	if (UBrushComponent* BrushComponent = GetBrushComponent())
 	{
-		MyBrushComponent->SetCollisionObjectType(ECC_WorldStatic);
-		MyBrushComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+		BrushComponent->SetCollisionObjectType(ECC_WorldStatic);
+		BrushComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
 	}
 }

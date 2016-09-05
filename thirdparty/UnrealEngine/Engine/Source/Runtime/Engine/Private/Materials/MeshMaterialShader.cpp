@@ -7,20 +7,7 @@
 #include "EnginePrivate.h"
 #include "ShaderCompiler.h"
 #include "MeshMaterialShaderType.h"
-#include "CookStats.h"
 
-#if ENABLE_COOK_STATS
-namespace MaterialMeshCookStats
-{
-	static int32 ShadersCompiled = 0;
-	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
-	{
-		AddStat(TEXT("MeshMaterial.Misc"), FCookStatsManager::CreateKeyValueArray(
-			TEXT("ShadersCompiled"), ShadersCompiled
-			));
-	});
-}
-#endif
 
 static inline bool ShouldCacheMeshShader(const FMeshMaterialShaderType* ShaderType, EShaderPlatform Platform, const FMaterial* Material, FVertexFactoryType* InVertexFactoryType)
 {
@@ -58,8 +45,7 @@ FShaderCompileJob* FMeshMaterialShaderType::BeginCompileShader(
 	UpdateMaterialShaderCompilingStats(Material);
 
 	UE_LOG(LogShaders, Verbose, TEXT("			%s"), GetName());
-	COOK_STAT(MaterialMeshCookStats::ShadersCompiled++);
-
+	
 	// Allow the shader type to modify the compile environment.
 	SetupCompileEnvironment(Platform, Material, ShaderEnvironment);
 

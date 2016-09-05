@@ -58,21 +58,21 @@ UParticleModuleTypeDataBeam2::UParticleModuleTypeDataBeam2(const FObjectInitiali
 
 void UParticleModuleTypeDataBeam2::InitializeDefaults()
 {
-	if (!Distance.IsCreated())
+	if (!Distance.Distribution)
 	{
 		UDistributionFloatConstant* DistributionDistance = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionDistance"));
 		DistributionDistance->Constant = 25.0f;
 		Distance.Distribution = DistributionDistance;
 	}
 
-	if (!TaperFactor.IsCreated())
+	if (!TaperFactor.Distribution)
 	{
 		UDistributionFloatConstant* DistributionTaperFactor = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionTaperFactor"));
 		DistributionTaperFactor->Constant = 1.0f;
 		TaperFactor.Distribution = DistributionTaperFactor;
 	}
 
-	if (!TaperScale.IsCreated())
+	if (!TaperScale.Distribution)
 	{
 		UDistributionFloatConstant* DistributionTaperScale = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionTaperScale"));
 		DistributionTaperScale->Constant = 1.0f;
@@ -1017,21 +1017,21 @@ UParticleModuleBeamModifier::UParticleModuleBeamModifier(const FObjectInitialize
 
 void UParticleModuleBeamModifier::InitializeDefaults()
 {
-	if(!Position.IsCreated())
+	if(!Position.Distribution)
 	{
 		UDistributionVectorConstant* DistributionPosition = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionPosition"));
 		DistributionPosition->Constant = FVector(0.0f, 0.0f, 0.0f);
 		Position.Distribution = DistributionPosition;
 	}
 	
-	if(!Tangent.IsCreated())
+	if(!Tangent.Distribution)
 	{
 		UDistributionVectorConstant* DistributionTangent = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionTangent"));
 		DistributionTangent->Constant = FVector(0.0f, 0.0f, 0.0f);
 		Tangent.Distribution = DistributionTangent;
 	}
 
-	if(!Strength.IsCreated())
+	if(!Strength.Distribution)
 	{
 		UDistributionFloatConstant* DistributionStrength = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionStrength"));
 		DistributionStrength->Constant = 0.0f;
@@ -1283,35 +1283,35 @@ UParticleModuleBeamNoise::UParticleModuleBeamNoise(const FObjectInitializer& Obj
 
 void UParticleModuleBeamNoise::InitializeDefaults()
 {
-	if (!NoiseSpeed.IsCreated())
+	if (!NoiseSpeed.Distribution)
 	{
 		UDistributionVectorConstant* DistributionNoiseSpeed = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionNoiseSpeed"));
 		DistributionNoiseSpeed->Constant = FVector(50.0f, 50.0f, 50.0f);
 		NoiseSpeed.Distribution = DistributionNoiseSpeed;
 	}
 
-	if (!NoiseRange.IsCreated())
+	if (!NoiseRange.Distribution)
 	{
 		UDistributionVectorConstant* DistributionNoiseRange = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionNoiseRange"));
 		DistributionNoiseRange->Constant = FVector(50.0f, 50.0f, 50.0f);
 		NoiseRange.Distribution = DistributionNoiseRange;
 	}
 
-	if (!NoiseRangeScale.IsCreated())
+	if (!NoiseRangeScale.Distribution)
 	{
 		UDistributionFloatConstant* DistributionNoiseRangeScale = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionNoiseRangeScale"));
 		DistributionNoiseRangeScale->Constant = 1.0f;
 		NoiseRangeScale.Distribution = DistributionNoiseRangeScale; 
 	}
 
-	if (!NoiseTangentStrength.IsCreated())
+	if (!NoiseTangentStrength.Distribution)
 	{
 		UDistributionFloatConstant* DistributionNoiseTangentStrength = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionNoiseTangentStrength"));
 		DistributionNoiseTangentStrength->Constant = 250.0f;
 		NoiseTangentStrength.Distribution = DistributionNoiseTangentStrength; 
 	}
 
-	if (!NoiseScale.IsCreated())
+	if (!NoiseScale.Distribution)
 	{
 		NoiseScale.Distribution = NewObject<UDistributionFloatConstantCurve>(this, TEXT("DistributionNoiseScale"));
 	}
@@ -1575,13 +1575,6 @@ void UParticleModuleBeamNoise::PostEditChangeProperty(FPropertyChangedEvent& Pro
 	UProperty* PropertyThatChanged = PropertyChangedEvent.Property;
 	if (PartSys && PropertyThatChanged)
 	{
-		// Make sure that the interpolation count is > 0.
-		if (PropertyThatChanged->GetFName() == FName(TEXT("NoiseTessellation")))
-		{
-			// Clamp the tessellation
-			NoiseTessellation = FMath::Clamp<int32>(NoiseTessellation, 0, UParticleModuleBeamNoise::MaxNoiseTessellation);
-		}
-
 		PartSys->PostEditChangeProperty(PropertyChangedEvent);
 	}
 
@@ -1629,21 +1622,21 @@ UParticleModuleBeamSource::UParticleModuleBeamSource(const FObjectInitializer& O
 
 void UParticleModuleBeamSource::InitializeDefaults()
 {
-	if (!Source.IsCreated())
+	if (!Source.Distribution)
 	{
 		UDistributionVectorConstant* DistributionSource = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionSource"));
 		DistributionSource->Constant = FVector(50.0f, 50.0f, 50.0f);
 		Source.Distribution = DistributionSource; 
 	}
 
-	if (!SourceTangent.IsCreated())
+	if (!SourceTangent.Distribution)
 	{
 		UDistributionVectorConstant* DistributionSourceTangent = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionSourceTangent"));
 		DistributionSourceTangent->Constant = FVector(1.0f, 0.0f, 0.0f);
 		SourceTangent.Distribution = DistributionSourceTangent; 
 	}
 
-	if (!SourceStrength.IsCreated())
+	if (!SourceStrength.Distribution)
 	{
 		UDistributionFloatConstant* DistributionSourceStrength = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionSourceStrength"));
 		DistributionSourceStrength->Constant = 25.0f;
@@ -1878,8 +1871,7 @@ bool UParticleModuleBeamSource::ResolveSourceData(FParticleBeam2EmitterInstance*
 			break;
 		case PEB2STM_Particle:
 			{
-				if (BeamInst->BeamTypeData->BeamMethod == PEB2M_Branch
-					|| BeamInst->BeamTypeData->BeamMethod == PEB2M_Target)
+				if (BeamInst->BeamTypeData->BeamMethod == PEB2M_Branch)
 				{
 					// Branching beam - resolve the source emitter if needed
 					if (BeamInst->SourceEmitter == NULL)
@@ -1889,91 +1881,13 @@ bool UParticleModuleBeamSource::ResolveSourceData(FParticleBeam2EmitterInstance*
 
 					if (BeamInst->SourceEmitter)
 					{
-						FVector CalcSourcePosition;
-
-						int32 SourceIndex = LastSelectedParticleIndex;
-
-						if (BeamInst->SourceEmitter && BeamInst->SourceEmitter->ParticleIndices)
+						if (bSpawning)
 						{
-							if (SourceIndex != -1)
-							{
-								FBaseParticle* SourceParticle = BeamInst->SourceEmitter->GetParticleDirect(SourceIndex);
-								if (SourceParticle == NULL || SourceParticle->RelativeTime>1.0f)
-								{
-									// If the previous particle is not found, force the trail to pick a new one
-									SourceIndex = -1;
-								}
-							}
-
-							if (SourceIndex == -1)
-							{
-								int32 Index = 0;
-								// TODO: add selection method and random selection
-								/*
-								switch (SelectionMethod)
-								{
-								case EPSSM_Random:
-								{
-								Index = FMath::TruncToInt(FMath::FRand() * BeamInst->SourceEmitter->ActiveParticles);
-								}
-								break;
-
-								case EPSSM_Sequential:*/
-								{
-									if (++LastSelectedParticleIndex >= BeamInst->SourceEmitter->ActiveParticles)
-									{
-										LastSelectedParticleIndex = 0;
-									}
-									Index = LastSelectedParticleIndex;
-								}
-								/*
-								break;
-								}
-								*/
-
-								if (SourceIndex == BeamInst->SourceEmitter->ParticleIndices[Index])
-								{
-									Index = -1;
-								}
-
-								SourceIndex = (Index != -1) ? BeamInst->SourceEmitter->ParticleIndices[Index] : -1;
-							}
-
-							bool bEncounteredNaNError = false;
-
-							// Grab the particle
-
-							UParticleSystemComponent* Comp = BeamInst->SourceEmitter->Component;
-							FBaseParticle* SourceParticle = (SourceIndex >= 0) ? BeamInst->SourceEmitter->GetParticleDirect(SourceIndex) : nullptr;
-							if (SourceParticle != nullptr)
-							{
-								const FVector WorldOrigin = BeamInst->SourceEmitter->SimulationToWorld.GetOrigin();
-
-								if (!ensureMsgf(!SourceParticle->Location.ContainsNaN(), TEXT("NaN in SourceParticle Location. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp)) ||
-									!ensureMsgf(!SourceParticle->OldLocation.ContainsNaN(), TEXT("NaN in SourceParticle OldLocation. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp)) ||
-									!ensureMsgf(!WorldOrigin.ContainsNaN(), TEXT("NaN in WorldOrigin. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp))
-									)
-								{
-									// Contains NaN!
-									bEncounteredNaNError = true;
-								}
-								else
-								{
-									CalcSourcePosition = SourceParticle->Location + WorldOrigin;
-								}
-							}
-							else
-							{
-								// Fall back to the emitter location??
-								CalcSourcePosition = Comp->GetComponentLocation();
-								//@todo. How to handle this... can potentially cause a jump from the emitter to the
-								// particle...
-								SourceIndex = -1;//No valid particle source;
-							}
+							// Pick a particle index...
 						}
 
 						//@todo. fill this in correctly...
-						BeamData->SourcePoint = CalcSourcePosition; 
+						BeamData->SourcePoint	= BeamInst->SourceEmitter->Component->GetComponentLocation();
 						bSetSource = true;
 					}
 				}
@@ -2124,21 +2038,21 @@ UParticleModuleBeamTarget::UParticleModuleBeamTarget(const FObjectInitializer& O
 
 void UParticleModuleBeamTarget::InitializeDefaults()
 {
-	if (!Target.IsCreated())
+	if (!Target.Distribution)
 	{
 		UDistributionVectorConstant* DistributionTarget = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionTarget"));
 		DistributionTarget->Constant = FVector(50.0f, 50.0f, 50.0f);
 		Target.Distribution = DistributionTarget;
 	}
 
-	if (!TargetTangent.IsCreated())
+	if (!TargetTangent.Distribution)
 	{
 		UDistributionVectorConstant* DistributionTargetTangent = NewObject<UDistributionVectorConstant>(this, TEXT("DistributionTargetTangent"));
 		DistributionTargetTangent->Constant = FVector(1.0f, 0.0f, 0.0f);
 		TargetTangent.Distribution = DistributionTargetTangent; 
 	}
 
-	if (!TargetStrength.IsCreated())
+	if (!TargetStrength.Distribution)
 	{
 		UDistributionFloatConstant* DistributionTargetStrength = NewObject<UDistributionFloatConstant>(this, TEXT("DistributionTargetStrength"));
 		DistributionTargetStrength->Constant = 25.0;
@@ -2344,105 +2258,7 @@ bool UParticleModuleBeamTarget::ResolveTargetData(FParticleBeam2EmitterInstance*
 				//@todo. Fill in this case...
 				break;
 			case PEB2STM_Particle:
-				if (BeamInst->BeamTypeData->BeamMethod == PEB2M_Branch
-					|| BeamInst->BeamTypeData->BeamMethod == PEB2M_Target)
-				{
-					// Branching beam - resolve the source emitter if needed
-					if (BeamInst->TargetEmitter == NULL)
-					{
-						BeamInst->ResolveTarget();
-					}
-
-					if (BeamInst->TargetEmitter)
-					{
-						FVector LocalTargetPosition;
-
-						int32 TargetIndex = LastSelectedParticleIndex;
-
-						if (BeamInst->TargetEmitter && BeamInst->TargetEmitter->ParticleIndices)
-						{
-							if (TargetIndex != -1)
-							{
-								FBaseParticle* TargetParticle = BeamInst->TargetEmitter->GetParticleDirect(TargetIndex);
-								if (TargetParticle == NULL || TargetParticle->RelativeTime>1.0f)
-								{
-									// If the previous particle is not found, force the trail to pick a new one
-									TargetIndex = -1;
-								}
-							}
-
-							if (TargetIndex == -1)
-							{
-								int32 Index = 0;
-								// TODO: add selection method and random selection
-								/*
-								switch (TargetModule->SelectionMethod)
-								{
-								case EPSSM_Random:
-								{
-								Index = FMath::TruncToInt(FMath::FRand() * BeamInst->TargetEmitter->ActiveParticles);
-								}
-								break;
-
-								case EPSSM_Sequential:*/
-								{
-									if (++LastSelectedParticleIndex >= BeamInst->TargetEmitter->ActiveParticles)
-									{
-										LastSelectedParticleIndex = 0;
-									}
-									Index = LastSelectedParticleIndex;
-								}
-								/*
-								break;
-								}
-								*/
-
-								if (TargetIndex == BeamInst->TargetEmitter->ParticleIndices[Index])
-								{
-									Index = -1;
-								}
-
-								TargetIndex = (Index != -1) ? BeamInst->TargetEmitter->ParticleIndices[Index] : -1;
-							}
-
-							bool bEncounteredNaNError = false;
-
-							// Grab the particle
-
-							UParticleSystemComponent* Comp = BeamInst->TargetEmitter->Component;
-							FBaseParticle* TargetParticle = (TargetIndex >= 0) ? BeamInst->TargetEmitter->GetParticleDirect(TargetIndex) : nullptr;
-							if (TargetParticle != nullptr)
-							{
-								const FVector WorldOrigin = BeamInst->TargetEmitter->SimulationToWorld.GetOrigin();
-
-								if (!ensureMsgf(!TargetParticle->Location.ContainsNaN(), TEXT("NaN in TargetParticle Location. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp)) ||
-									!ensureMsgf(!TargetParticle->OldLocation.ContainsNaN(), TEXT("NaN in TargetParticle OldLocation. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp)) ||
-									!ensureMsgf(!WorldOrigin.ContainsNaN(), TEXT("NaN in WorldOrigin. Template: %s, Component: %s"), Comp ? *GetNameSafe(Comp->Template) : TEXT("UNKNOWN"), *GetPathNameSafe(Comp))
-									)
-								{
-									// Contains NaN!
-									bEncounteredNaNError = true;
-								}
-								else
-								{
-									LocalTargetPosition = TargetParticle->Location + WorldOrigin;
-								}
-							}
-							else
-							{
-								// Fall back to the emitter location??
-								LocalTargetPosition = BeamInst->TargetEmitter->Component->GetComponentLocation();
-								//@todo. How to handle this... can potentially cause a jump from the emitter to the
-								// particle...
-								TargetIndex = -1;//No valid particle Target;
-							}
-
-							//@todo. fill this in correctly...
-							BeamData->TargetPoint = LocalTargetPosition; //BeamInst->TargetEmitter->Component->GetComponentLocation();
-							bSetTarget = true;
-						}
-					}
-				}
+				//@todo. Fill in this case...
 				break;
 			case PEB2STM_Actor:
 				if (TargetName != NAME_None)

@@ -6,8 +6,6 @@
 #include "MovieSceneEventTrackInstance.h"
 
 
-#define LOCTEXT_NAMESPACE "MovieSceneEventTrack"
-
 /* UMovieSceneEventTrack interface
  *****************************************************************************/
 
@@ -37,17 +35,9 @@ bool UMovieSceneEventTrack::AddKeyToSection(float Time, FName EventName, FKeyPar
 }
 
 
-void UMovieSceneEventTrack::TriggerEvents(float Position, float LastPosition, IMovieScenePlayer& Player)
+void UMovieSceneEventTrack::TriggerEvents(float Position, float LastPosition)
 {
 	if ((Sections.Num() == 0) || (Position == LastPosition))
-	{
-		return;
-	}
-
-	// Don't allow events to fire when playback is in a stopped state. This can occur when stopping 
-	// playback and returning the current position to the start of playback. It's not desireable to have 
-	// all the events from the last playback position to the start of playback be fired.
-	if (Player.GetPlaybackStatus() == EMovieScenePlayerStatus::Stopped)
 	{
 		return;
 	}
@@ -60,10 +50,30 @@ void UMovieSceneEventTrack::TriggerEvents(float Position, float LastPosition, IM
 		return;
 	}
 
+	// get the level script actor
+	if ((GEngine == nullptr) || (GEngine->GameViewport == nullptr))
+	{
+		return;
+	}
+
+	UWorld* World = GEngine->GameViewport->GetWorld();
+
+	if (World == nullptr)
+	{
+		return;
+	}
+
+	ALevelScriptActor* LevelScriptActor = World->GetLevelScriptActor();
+
+	if (LevelScriptActor == nullptr)
+	{
+		return;
+	}
+
 	TArray<UMovieSceneSection*> TraversedSections = MovieSceneHelpers::GetTraversedSections(Sections, Position, LastPosition);
 	for (auto EventSection : TraversedSections)
 	{
-		CastChecked<UMovieSceneEventSection>(EventSection)->TriggerEvents(Position, LastPosition, Player);
+		CastChecked<UMovieSceneEventSection>(EventSection)->TriggerEvents(LevelScriptActor, Position, LastPosition);
 	}
 }
 
@@ -130,15 +140,3 @@ void UMovieSceneEventTrack::RemoveSection(UMovieSceneSection& Section)
 {
 	Sections.Remove(&Section);
 }
-
-#if WITH_EDITORONLY_DATA
-
-FText UMovieSceneEventTrack::GetDefaultDisplayName() const
-{ 
-	return LOCTEXT("TrackName", "Events"); 
-}
-
-#endif
-
-
-#undef LOCTEXT_NAMESPACE

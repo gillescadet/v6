@@ -5,7 +5,6 @@
 #include "MovieSceneBoolSection.h"
 #include "MovieSceneVisibilitySection.generated.h"
 
-
 /**
  * A single visibility section.
  *
@@ -14,8 +13,7 @@
  *
  */
 UCLASS( MinimalAPI )
-class UMovieSceneVisibilitySection
-	: public UMovieSceneBoolSection
+class UMovieSceneVisibilitySection : public UMovieSceneBoolSection
 {
 	GENERATED_UCLASS_BODY()
 };

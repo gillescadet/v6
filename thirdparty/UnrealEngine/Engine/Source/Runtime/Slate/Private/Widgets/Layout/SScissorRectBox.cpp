@@ -9,13 +9,12 @@ SScissorRectBox::SScissorRectBox()
 
 void SScissorRectBox::Construct(const FArguments& InArgs)
 {
-	bCanTick = false;
-
 	ChildSlot
 	[
 		InArgs._Content.Widget
 	];
 }
+
 
 FVector2D SScissorRectBox::ComputeDesiredSize( float ) const
 {
@@ -67,17 +66,9 @@ int32 SScissorRectBox::OnPaint(const FPaintArgs& Args, const FGeometry& Allotted
 		int32 Result = TheChild.Widget->Paint( Args.WithNewParent(this), TheChild.Geometry, FSlateRect(FVector2D(-FLT_MAX, -FLT_MAX), FVector2D(FLT_MAX, FLT_MAX)), OutDrawElements, LayerId, InWidgetStyle, ShouldBeEnabled( bParentEnabled ) );
 		// We've added all the draw elements, so put the scissor rect back
 		GSlateScissorRect = OldRect;
-		
 		return Result;
-	}
 
+	}
 	return LayerId;
 }
 
-void SScissorRectBox::SetContent(const TSharedRef< SWidget >& InContent)
-{
-	ChildSlot
-	[
-		InContent
-	];
-}

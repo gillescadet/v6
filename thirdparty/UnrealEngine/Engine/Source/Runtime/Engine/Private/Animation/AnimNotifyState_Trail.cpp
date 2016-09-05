@@ -9,8 +9,6 @@
 #include "MessageLog.h"
 #include "AssertionMacros.h"
 #include "Animation/AnimInstance.h"
-#include "Animation/AnimSequenceBase.h"
-#include "ParticleHelper.h"
 
 #define LOCTEXT_NAMESPACE "AnimNotifyState_Trail"
 
@@ -75,18 +73,6 @@ void UAnimNotifyState_Trail::NotifyBegin(class USkeletalMeshComponent * MeshComp
 		return;
 	}
 
-	UParticleSystem* ParticleSystemTemplate = GetOverridenPSTemplate(MeshComp, Animation);
-	if (ParticleSystemTemplate != nullptr)
-	{
-		PSTemplate = ParticleSystemTemplate;
-	}
-
-	if(PSTemplate == nullptr)
-	{
-		UE_LOG(LogParticles, Warning, TEXT("Trail Notify: Null PSTemplate for trail notify in anim: %s"), *GetNameSafe(Animation)); 
-		return;
-	}
-
 	ParticleSystemComponentArray Children;
 	GetCandidateSystems(*MeshComp, Children);
 
@@ -95,6 +81,12 @@ void UAnimNotifyState_Trail::NotifyBegin(class USkeletalMeshComponent * MeshComp
 	if (WidthScaleCurve != NAME_None && AnimInst)
 	{
 		Width = AnimInst->GetCurveValue(WidthScaleCurve);
+	}
+
+	UParticleSystem* ParticleSystemTemplate = GetOverridenPSTemplate(MeshComp, Animation);
+	if (ParticleSystemTemplate != nullptr)
+	{
+		PSTemplate = ParticleSystemTemplate;
 	}
 
 	UParticleSystemComponent* RecycleCandidates[3] = {nullptr, nullptr, nullptr}; // in order of priority
@@ -174,7 +166,7 @@ void UAnimNotifyState_Trail::NotifyBegin(class USkeletalMeshComponent * MeshComp
 			NewParticleComp->RegisterComponentWithWorld(MeshComp->GetWorld());
 		}
 
-		NewParticleComp->AttachToComponent(MeshComp, FAttachmentTransformRules::KeepRelativeTransform);
+		NewParticleComp->AttachTo(MeshComp, NAME_None);
 		NewParticleComp->ActivateSystem(true);
 
 		UParticleSystemComponent::TrailEmitterArray TrailEmitters;

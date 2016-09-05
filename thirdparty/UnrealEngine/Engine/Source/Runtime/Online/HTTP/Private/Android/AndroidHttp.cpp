@@ -21,6 +21,6 @@ void FAndroidPlatformHttp::Shutdown()
 
 IHttpRequest* FAndroidPlatformHttp::ConstructRequest()
 {
-	return new FCurlHttpRequest();
+	return new FCurlHttpRequest(FCurlHttpManager::GMultiHandle);
 }
 

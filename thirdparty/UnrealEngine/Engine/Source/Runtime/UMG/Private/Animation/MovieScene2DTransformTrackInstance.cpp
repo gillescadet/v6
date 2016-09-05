@@ -5,30 +5,26 @@
 #include "MovieScene2DTransformTrack.h"
 #include "MovieSceneCommonHelpers.h"
 
-
 FMovieScene2DTransformTrackInstance::FMovieScene2DTransformTrackInstance( UMovieScene2DTransformTrack& InTransformTrack )
 	: TransformTrack( &InTransformTrack )
 {
 	PropertyBindings = MakeShareable(new FTrackInstancePropertyBindings(TransformTrack->GetPropertyName(), TransformTrack->GetPropertyPath()));
 }
 
-
-void FMovieScene2DTransformTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieScene2DTransformTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
-	for (auto ObjectPtr : RuntimeObjects)
+	for(UObject* Object : RuntimeObjects)
 	{
-		UObject* Object = ObjectPtr.Get();
 		FWidgetTransform TransformValue = PropertyBindings->GetCurrentValue<FWidgetTransform>(Object);
-
-		if(TransformTrack->Eval(UpdateData.Position, UpdateData.LastPosition, TransformValue))
+		if(TransformTrack->Eval(Position, LastPosition, TransformValue))
 		{
 			PropertyBindings->CallFunction<FWidgetTransform>(Object, &TransformValue);
 		}
 	}
 }
 
-
-void FMovieScene2DTransformTrackInstance::RefreshInstance(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieScene2DTransformTrackInstance::RefreshInstance(const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
 	PropertyBindings->UpdateBindings(RuntimeObjects);
 }
+

@@ -10,127 +10,6 @@
 #include "ShaderParameterUtils.h"
 #include "SceneCore.h"
 
-
-/** Uniform buffer for rendering deferred lights. */
-BEGIN_UNIFORM_BUFFER_STRUCT(FDeferredLightUniformStruct,)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector,LightPosition)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,LightInvRadius)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector,LightColor)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,LightFalloffExponent)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector,NormalizedLightDirection)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector2D,SpotAngles)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,SourceRadius)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,SourceLength)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,MinRoughness)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(float,ContactShadowLength)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector2D,DistanceFadeMAD)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(FVector4,ShadowMapChannelMask)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(uint32,ShadowedBits)
-	DECLARE_UNIFORM_BUFFER_STRUCT_MEMBER(uint32,LightingChannelMask)
-END_UNIFORM_BUFFER_STRUCT(FDeferredLightUniformStruct)
-
-extern float GMinScreenRadiusForLights;
-extern uint32 GetShadowQuality();
-
-template<typename ShaderRHIParamRef>
-void SetDeferredLightParameters(
-	FRHICommandList& RHICmdList, 
-	const ShaderRHIParamRef ShaderRHI, 
-	const TShaderUniformBufferParameter<FDeferredLightUniformStruct>& DeferredLightUniformBufferParameter, 
-	const FLightSceneInfo* LightSceneInfo,
-	const FSceneView& View)
-{
-	FVector4 LightPositionAndInvRadius;
-	FVector4 LightColorAndFalloffExponent;
-		
-	FDeferredLightUniformStruct DeferredLightUniformsValue;
-
-	// Get the light parameters
-	LightSceneInfo->Proxy->GetParameters(
-		LightPositionAndInvRadius,
-		LightColorAndFalloffExponent,
-		DeferredLightUniformsValue.NormalizedLightDirection,
-		DeferredLightUniformsValue.SpotAngles,
-		DeferredLightUniformsValue.SourceRadius,
-		DeferredLightUniformsValue.SourceLength,
-		DeferredLightUniformsValue.MinRoughness);
-	
-	DeferredLightUniformsValue.LightPosition = LightPositionAndInvRadius;
-	DeferredLightUniformsValue.LightInvRadius = LightPositionAndInvRadius.W;
-	DeferredLightUniformsValue.LightColor = LightColorAndFalloffExponent;
-	DeferredLightUniformsValue.LightFalloffExponent = LightColorAndFalloffExponent.W;
-
-	const FVector2D FadeParams = LightSceneInfo->Proxy->GetDirectionalLightDistanceFadeParameters(View.GetFeatureLevel(), LightSceneInfo->IsPrecomputedLightingValid());
-
-	// use MAD for efficiency in the shader
-	DeferredLightUniformsValue.DistanceFadeMAD = FVector2D(FadeParams.Y, -FadeParams.X * FadeParams.Y);
-
-	int32 ShadowMapChannel = LightSceneInfo->Proxy->GetShadowMapChannel();
-
-	static const auto AllowStaticLightingVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.AllowStaticLighting"));
-	const bool bAllowStaticLighting = (!AllowStaticLightingVar || AllowStaticLightingVar->GetValueOnRenderThread() != 0);
-
-	if (!bAllowStaticLighting)
-	{
-		ShadowMapChannel = INDEX_NONE;
-	}
-
-	DeferredLightUniformsValue.ShadowMapChannelMask = FVector4(
-		ShadowMapChannel == 0 ? 1 : 0,
-		ShadowMapChannel == 1 ? 1 : 0,
-		ShadowMapChannel == 2 ? 1 : 0,
-		ShadowMapChannel == 3 ? 1 : 0);
-
-	const bool bDynamicShadows = View.Family->EngineShowFlags.DynamicShadows && GetShadowQuality() > 0;
-	const bool bHasLightFunction = LightSceneInfo->Proxy->GetLightFunctionMaterial() != NULL;
-	DeferredLightUniformsValue.ShadowedBits  = LightSceneInfo->Proxy->CastsStaticShadow() || bHasLightFunction ? 1 : 0;
-	DeferredLightUniformsValue.ShadowedBits |= LightSceneInfo->Proxy->CastsDynamicShadow() && View.Family->EngineShowFlags.DynamicShadows ? 3 : 0;
-
-	static auto* ContactShadowsCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.ContactShadows"));
-	DeferredLightUniformsValue.ContactShadowLength = 0;
-
-	if (ContactShadowsCVar && ContactShadowsCVar->GetValueOnRenderThread() != 0)
-	{
-		DeferredLightUniformsValue.ContactShadowLength = LightSceneInfo->Proxy->GetContactShadowLength();
-	}
-
-	if( LightSceneInfo->Proxy->IsInverseSquared() )
-	{
-		// Correction for lumen units
-		DeferredLightUniformsValue.LightColor *= 16.0f;
-	}
-
-	// When rendering reflection captures, the direct lighting of the light is actually the indirect specular from the main view
-	if (View.bIsReflectionCapture)
-	{
-		DeferredLightUniformsValue.LightColor *= LightSceneInfo->Proxy->GetIndirectLightingScale();
-	}
-
-	const ELightComponentType LightType = (ELightComponentType)LightSceneInfo->Proxy->GetLightType();
-
-
-	if ((LightType == LightType_Point || LightType == LightType_Spot) && View.IsPerspectiveProjection())
-	{
-		// Distance fade
-		FSphere Bounds = LightSceneInfo->Proxy->GetBoundingSphere();
-
-		const float DistanceSquared = (Bounds.Center - View.ViewMatrices.ViewOrigin).SizeSquared();
-		float SizeFade = FMath::Square(FMath::Min(0.0002f, GMinScreenRadiusForLights / Bounds.W) * View.LODDistanceFactor) * DistanceSquared;
-		SizeFade = FMath::Clamp(6.0f - 6.0f * SizeFade, 0.0f, 1.0f);
-
-		float MaxDist = LightSceneInfo->Proxy->GetMaxDrawDistance();
-		float Range = LightSceneInfo->Proxy->GetFadeRange();
-		float DistanceFade = MaxDist ? (MaxDist - FMath::Sqrt(DistanceSquared)) / Range : 1.0f;
-		DistanceFade = FMath::Clamp(DistanceFade, 0.0f, 1.0f);
-
-		DeferredLightUniformsValue.LightColor *= SizeFade * DistanceFade;
-	}
-
-	DeferredLightUniformsValue.LightingChannelMask = LightSceneInfo->Proxy->GetLightingChannelMask();
-
-	SetUniformBufferParameterImmediate(RHICmdList, ShaderRHI,DeferredLightUniformBufferParameter,DeferredLightUniformsValue);
-}
-
 // Forward declarations.
 class FProjectedShadowInfo;
 
@@ -401,6 +280,11 @@ namespace StencilingGeometry
 /** Renders a cone with a spherical cap, used for rendering spot lights in deferred passes. */
 extern void DrawStencilingCone(const FMatrix& ConeToWorld, float ConeAngle, float SphereRadius, const FVector& PreViewTranslation);
 
+/** Shadow border needs to be wide enough to prevent the shadow filtering from picking up content in other shadowmaps in the atlas. */
+const static uint32 SHADOW_BORDER = 4; 
+
+
+
 template <bool bRenderingReflectiveShadowMaps> class TShadowDepthBasePS;
 class FShadowStaticMeshElement;
 
@@ -462,22 +346,20 @@ public:
 	}
 
 	//~ Begin FMeshDrawingPolicy Interface.
-	FDrawingPolicyMatchResult Matches(const FShadowDepthDrawingPolicy& Other) const
+	bool Matches(const FShadowDepthDrawingPolicy& Other) const
 	{
-		DRAWING_POLICY_MATCH_BEGIN
-			DRAWING_POLICY_MATCH(FMeshDrawingPolicy::Matches(Other)) && 
-			DRAWING_POLICY_MATCH(VertexShader == Other.VertexShader) &&
-			DRAWING_POLICY_MATCH(GeometryShader == Other.GeometryShader) &&
-			DRAWING_POLICY_MATCH(HullShader == Other.HullShader) &&
-			DRAWING_POLICY_MATCH(DomainShader == Other.DomainShader) &&
-			DRAWING_POLICY_MATCH(PixelShader == Other.PixelShader) &&
-			DRAWING_POLICY_MATCH(bDirectionalLight == Other.bDirectionalLight) &&
-			DRAWING_POLICY_MATCH(bReverseCulling == Other.bReverseCulling) &&
-			DRAWING_POLICY_MATCH(bOnePassPointLightShadow == Other.bOnePassPointLightShadow) &&
-			DRAWING_POLICY_MATCH(bUsePositionOnlyVS == Other.bUsePositionOnlyVS) &&
-			DRAWING_POLICY_MATCH(bPreShadow == Other.bPreShadow) &&
-			DRAWING_POLICY_MATCH(FeatureLevel == Other.FeatureLevel);
-		DRAWING_POLICY_MATCH_END
+		return FMeshDrawingPolicy::Matches(Other) 
+			&& VertexShader == Other.VertexShader
+			&& GeometryShader == Other.GeometryShader
+			&& HullShader == Other.HullShader
+			&& DomainShader == Other.DomainShader
+			&& PixelShader == Other.PixelShader
+			&& bDirectionalLight == Other.bDirectionalLight
+			&& bReverseCulling == Other.bReverseCulling
+			&& bOnePassPointLightShadow == Other.bOnePassPointLightShadow
+			&& bUsePositionOnlyVS == Other.bUsePositionOnlyVS
+			&& bPreShadow == Other.bPreShadow
+			&& FeatureLevel == Other.FeatureLevel;
 	}
 	void SetSharedState(FRHICommandList& RHICmdList, const FSceneView* View, const ContextDataType PolicyContext) const;
 
@@ -516,7 +398,7 @@ public:
 private:
 
 	class FShadowDepthVS* VertexShader;
-	class FOnePassPointShadowDepthGS* GeometryShader;
+	class FOnePassPointShadowProjectionGS* GeometryShader;
 	TShadowDepthBasePS<bRenderingReflectiveShadowMaps>* PixelShader;
 	class FBaseHS* HullShader;
 	class FShadowDepthDS* DomainShader;
@@ -621,7 +503,7 @@ public:
 enum EShadowDepthRenderMode
 {
 	/** The render mode used by regular shadows */
-	ShadowDepthRenderMode_Normal,
+	ShadowDepthRenderMode_Dynamic,
 
 	/** The render mode used when injecting emissive-only objects into the RSM. */
 	ShadowDepthRenderMode_EmissiveOnly,
@@ -630,39 +512,6 @@ enum EShadowDepthRenderMode
 	ShadowDepthRenderMode_GIBlockingVolumes,
 };
 
-enum EShadowDepthCacheMode
-{
-	SDCM_MovablePrimitivesOnly,
-	SDCM_StaticPrimitivesOnly,
-	SDCM_Uncached
-};
-
-class FShadowMapRenderTargets
-{
-public:
-	TArray<IPooledRenderTarget*, SceneRenderingAllocator> ColorTargets;
-	IPooledRenderTarget* DepthTarget;
-
-	FShadowMapRenderTargets() :
-		DepthTarget(NULL)
-	{}
-
-	FIntPoint GetSize() const
-	{
-		if (DepthTarget)
-		{
-			return DepthTarget->GetDesc().Extent;
-		}
-		else 
-		{
-			check(ColorTargets.Num() > 0);
-			return ColorTargets[0]->GetDesc().Extent;
-		}
-	}
-};
-
-typedef TFunctionRef<void(FRHICommandList& RHICmdList, bool bFirst)> FSetShadowRenderTargetFunction;
-
 /**
  * Information about a projected shadow.
  */
@@ -670,14 +519,6 @@ class FProjectedShadowInfo : public FRefCountedObject
 {
 public:
 	typedef TArray<const FPrimitiveSceneInfo*,SceneRenderingAllocator> PrimitiveArrayType;
-
-	/** The view to be used when rendering this shadow's depths. */
-	const FViewInfo* ShadowDepthView;
-
-	/** The depth or color targets this shadow was rendered to. */
-	FShadowMapRenderTargets RenderTargets;
-
-	EShadowDepthCacheMode CacheMode;
 
 	/** The main view this shadow must be rendered in, or NULL for a view independent shadow. */
 	FViewInfo* DependentView;
@@ -719,22 +560,13 @@ public:
 
 	FShadowCascadeSettings CascadeSettings;
 
-	/** 
-	 * X and Y position of the shadow in the appropriate depth buffer.  These are only initialized after the shadow has been allocated. 
-	 * The actual contents of the shadowmap are at X + BorderSize, Y + BorderSize.
-	 */
+	/** X and Y position of the shadow in the appropriate depth buffer.  These are only initialized after the shadow has been allocated. */
 	uint32 X;
 	uint32 Y;
 
-	/** 
-	 * Resolution of the shadow, excluding the border. 
-	 * The full size of the region allocated to this shadow is therefore ResolutionX + 2 * BorderSize, ResolutionY + 2 * BorderSize.
-	 */
+	/** Resolution of the shadow. */
 	uint32 ResolutionX;
 	uint32 ResolutionY;
-
-	/** Size of the border, if any, used to allow filtering without clamping for shadows stored in an atlas. */
-	uint32 BorderSize;
 
 	/** The largest percent of either the width or height of any view. */
 	float MaxScreenPercent;
@@ -744,6 +576,12 @@ public:
 
 	/** Whether the shadow has been allocated in the shadow depth buffer, and its X and Y properties have been initialized. */
 	uint32 bAllocated : 1;
+
+	/** 
+	 * Whether the translucent shadow has been allocated in the per-frame translucent shadow layout, and therefore has a resident shadow map.
+	 * If true, the resident shadow map can be re-used during the translucency pass, otherwise it needs to be re-rendered.
+	 */
+	uint32 bAllocatedInTranslucentLayout : 1;
 
 	/** Whether the shadow's projection has been rendered. */
 	uint32 bRendered : 1;
@@ -757,9 +595,6 @@ public:
 	// redundant to LightSceneInfo->Proxy->GetLightType() == LightType_Directional, could be made ELightComponentType LightType
 	uint32 bDirectionalLight : 1;
 
-	/** Whether the shadow is a point light shadow that renders all faces of a cubemap in one pass. */
-	uint32 bOnePassPointLightShadow : 1;
-
 	/** Whether this shadow affects the whole scene or only a group of objects. */
 	uint32 bWholeSceneShadow : 1;
 
@@ -769,9 +604,6 @@ public:
 	/** Whether this shadow should support casting shadows from translucent surfaces. */
 	uint32 bTranslucentShadow : 1;
 
-	/** Whether the shadow will be computed by ray tracing the distance field. */
-	uint32 bRayTracedDistanceField : 1;
-
 	/** Whether this is a per-object shadow that should use capsule shapes to shadow instead of the mesh's triangles. */
 	uint32 bCapsuleShadow : 1;
 
@@ -780,9 +612,6 @@ public:
 
 	/** To not cast a shadow on the ground outside the object and having higher quality (useful for first person weapon). */
 	uint32 bSelfShadowOnly : 1;
-
-	/** Whether the shadow is a per object shadow or not. */
-	uint32 bPerObjectOpaqueShadow : 1;
 
 	TBitArray<SceneRenderingBitArrayAllocator> StaticMeshWholeSceneShadowDepthMap;
 	TArray<uint64,SceneRenderingAllocator> StaticMeshWholeSceneShadowBatchVisibility;
@@ -810,7 +639,6 @@ public:
 		bool bInPreShadow,
 		uint32 InResolutionX,
 		uint32 MaxShadowResolutionY,
-		uint32 InBorderSize,
 		float InMaxScreenPercent,
 		bool bInTranslucentShadow
 		);
@@ -822,7 +650,6 @@ public:
 		const FWholeSceneProjectedShadowInitializer& Initializer,
 		uint32 InResolutionX,
 		uint32 InResolutionY,
-		uint32 InBorderSize,
 		bool bInReflectiveShadowMap
 		);
 
@@ -831,36 +658,26 @@ public:
 	/**
 	 * Renders the shadow subject depth.
 	 */
-	void RenderDepth(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer, FSetShadowRenderTargetFunction SetShadowRenderTargets, EShadowDepthRenderMode RenderMode);
+	void RenderDepth(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer, TFunctionRef<void (FRHICommandList& RHICmdList)> SetShadowRenderTargets, EShadowDepthRenderMode RenderMode = ShadowDepthRenderMode_Dynamic);
 
 	/** Set state for depth rendering */
 	void SetStateForDepth(FRHICommandList& RHICmdList, EShadowDepthRenderMode RenderMode );
 
-	void ClearDepth(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer, bool bPerformClear);
+	void ClearDepth(FRHICommandList& RHICmdList, class FDeferredShadingSceneRenderer* SceneRenderer, bool bPerformClear);
 
 	/** Renders shadow maps for translucent primitives. */
-	void RenderTranslucencyDepths(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer);
-
-	static void SetBlendStateForProjection(
-		FRHICommandListImmediate& RHICmdList,
-		int32 ShadowMapChannel,
-		bool bIsWholeSceneDirectionalShadow,
-		bool bUseFadePlane,
-		bool bProjectingForForwardShading,
-		bool bMobileModulatedProjections);
-
-	void SetBlendStateForProjection(FRHICommandListImmediate& RHICmdList, bool bProjectingForForwardShading, bool bMobileModulatedProjections) const;
+	void RenderTranslucencyDepths(FRHICommandList& RHICmdList, class FDeferredShadingSceneRenderer* SceneRenderer);
 
 	/**
 	 * Projects the shadow onto the scene for a particular view.
 	 */
-	void RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const class FViewInfo* View, bool bProjectingForForwardShading, bool bMobile) const;
+	void RenderProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const class FViewInfo* View, bool bForwardShading) const;
 
 	/** Renders ray traced distance field shadows. */
-	void RenderRayTracedDistanceFieldProjection(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View, bool bProjectingForForwardShading) const;
+	void RenderRayTracedDistanceFieldProjection(FRHICommandListImmediate& RHICmdList, const class FViewInfo& View) const;
 
 	/** Render one pass point light shadow projections. */
-	void RenderOnePassPointLightProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const FViewInfo& View, bool bProjectingForForwardShading) const;
+	void RenderOnePassPointLightProjection(FRHICommandListImmediate& RHICmdList, int32 ViewIndex, const FViewInfo& View) const;
 
 	/**
 	 * Renders the projected shadow's frustum wireframe with the given FPrimitiveDrawInterface.
@@ -870,7 +687,7 @@ public:
 	/**
 	 * Adds a primitive to the shadow's subject list.
 	 */
-	void AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSceneInfo, TArray<FViewInfo>* ViewArray, bool bRecordShadowSubjectForMobileShading);
+	void AddSubjectPrimitive(FPrimitiveSceneInfo* PrimitiveSceneInfo, TArray<FViewInfo>* ViewArray);
 
 	/**
 	* @return TRUE if this shadow info has any casting subject prims to render
@@ -901,25 +718,13 @@ public:
 	}
 
 	/** Returns a matrix that transforms a screen space position into shadow space. */
-	FMatrix GetScreenToShadowMatrix(const FSceneView& View) const
-	{
-		return GetScreenToShadowMatrix(View, X, Y, ResolutionX, ResolutionY);
-	}
-
-	/** Returns a matrix that transforms a screen space position into shadow space. 
-		Additional parameters allow overriding of shadow's tile location.
-		Used with modulated shadows to reduce precision problems when calculating ScreenToShadow in pixel shader.
-	*/
-	FMatrix GetScreenToShadowMatrix(const FSceneView& View, uint32 TileOffsetX, uint32 TileOffsetY, uint32 TileResolutionX, uint32 TileResolutionY) const;
+	FMatrix GetScreenToShadowMatrix(const FSceneView& View) const;
 
 	/** Returns a matrix that transforms a world space position into shadow space. */
-	FMatrix GetWorldToShadowMatrix(FVector4& ShadowmapMinMax, const FIntPoint* ShadowBufferResolutionOverride = nullptr) const;
+	FMatrix GetWorldToShadowMatrix(FVector4& ShadowmapMinMax, const FIntPoint* ShadowBufferResolutionOverride = nullptr, bool bHasShadowBorder = true ) const;
 
 	/** Returns the resolution of the shadow buffer used for this shadow, based on the shadow's type. */
-	FIntPoint GetShadowBufferResolution() const
-	{
-		return RenderTargets.GetSize();
-	}
+	FIntPoint GetShadowBufferResolution() const;
 
 	/** Computes and updates ShaderDepthBias */
 	void UpdateShaderDepthBias();
@@ -940,16 +745,13 @@ public:
 	void SortSubjectMeshElements();
 
 	// 0 if Setup...() wasn't called yet
-	const FLightSceneInfo& GetLightSceneInfo() const { return *LightSceneInfo; }
+	const FLightSceneInfo & GetLightSceneInfo() const { return *LightSceneInfo; }
 	const FLightSceneInfoCompact& GetLightSceneInfoCompact() const { return LightSceneInfoCompact; }
 	/**
 	 * Parent primitive of the shadow group that created this shadow, if not a bWholeSceneShadow.
 	 * 0 if Setup...() wasn't called yet
 	 */	
 	const FPrimitiveSceneInfo* GetParentSceneInfo() const { return ParentSceneInfo; }
-
-	/** Creates a new view from the pool and caches it in ShadowDepthView for depth rendering. */
-	void SetupShadowDepthView(FRHICommandListImmediate& RHICmdList, FSceneRenderer* SceneRenderer);
 
 private:
 	// 0 if Setup...() wasn't called yet
@@ -995,22 +797,20 @@ private:
 	 */
 	float ShaderDepthBias;
 
-	void CopyCachedShadowMap(FRHICommandList& RHICmdList, FSceneRenderer* SceneRenderer, const FViewInfo& View, FSetShadowRenderTargetFunction SetShadowRenderTargets);
-
 	/**
 	* Renders the shadow subject depth, to a particular hacked view
 	*/
-	void RenderDepthInner(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer, const FViewInfo* FoundView, FSetShadowRenderTargetFunction SetShadowRenderTargets, EShadowDepthRenderMode RenderMode );
+	void RenderDepthInner(FRHICommandList& RHICmdList, class FSceneRenderer* SceneRenderer, const FViewInfo* FoundView, TFunctionRef<void (FRHICommandList& RHICmdList)> SetShadowRenderTargets, EShadowDepthRenderMode RenderMode );
 
 	/**
 	* Modifies the passed in view for this shadow
 	*/
-	void ModifyViewForShadow(FRHICommandList& RHICmdList, FViewInfo* FoundView) const;
+	void ModifyViewForShadow(FRHICommandList& RHICmdList, FViewInfo* FoundView);
 
 	/**
 	* Finds a relevant view for a shadow
 	*/
-	FViewInfo* FindViewForShadow(FSceneRenderer* SceneRenderer) const;
+	FViewInfo* FindViewForShadow(FSceneRenderer* SceneRenderer);
 
 	/**
 	* Renders the dynamic shadow subject depth, to a particular hacked view
@@ -1264,8 +1064,7 @@ public:
 };
 
 /** Shadow projection parameters used by multiple shaders. */
-template<bool bModulatedShadows>
-class TShadowProjectionShaderParameters
+class FShadowProjectionShaderParameters
 {
 public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
@@ -1283,7 +1082,6 @@ public:
 		ProjectionDepthBias.Bind(ParameterMap,TEXT("ProjectionDepthBiasParameters"));
 		FadePlaneOffset.Bind(ParameterMap,TEXT("FadePlaneOffset"));
 		InvFadePlaneLength.Bind(ParameterMap,TEXT("InvFadePlaneLength"));
-		ShadowTileOffsetAndSizeParam.Bind(ParameterMap, TEXT("ShadowTileOffsetAndSize"));
 	}
 
 	void Set(FRHICommandList& RHICmdList, FShader* Shader, const FSceneView& View, const FProjectedShadowInfo* ShadowInfo)
@@ -1292,29 +1090,11 @@ public:
 
 		DeferredParameters.Set(RHICmdList, ShaderRHI, View);
 
-		const FIntPoint ShadowBufferResolution = ShadowInfo->GetShadowBufferResolution();
-
 		// Set the transform from screen coordinates to shadow depth texture coordinates.
-		if (bModulatedShadows)
-		{
-			// UE-29083 : work around precision issues with ScreenToShadowMatrix on low end devices.
-			const FMatrix ScreenToShadow = ShadowInfo->GetScreenToShadowMatrix(View, 0, 0, ShadowBufferResolution.X, ShadowBufferResolution.Y);
-			SetShaderValue(RHICmdList, ShaderRHI, ScreenToShadowMatrix, ScreenToShadow);
+		const FMatrix ScreenToShadow = ShadowInfo->GetScreenToShadowMatrix(View);
+		SetShaderValue(RHICmdList, ShaderRHI, ScreenToShadowMatrix, ScreenToShadow);
 
-			FVector2D InverseShadowBufferResolution(1.0f/ShadowBufferResolution.X, 1.0f/ShadowBufferResolution.Y);	
-			FVector4 ShadowTileOffsetAndSize(
-				(ShadowInfo->BorderSize + ShadowInfo->X) * InverseShadowBufferResolution.X,
-				(ShadowInfo->BorderSize + ShadowInfo->Y) * InverseShadowBufferResolution.Y,
-				ShadowInfo->ResolutionX * InverseShadowBufferResolution.X,
-				ShadowInfo->ResolutionY * InverseShadowBufferResolution.Y);
-
-			SetShaderValue(RHICmdList, ShaderRHI, ShadowTileOffsetAndSizeParam, ShadowTileOffsetAndSize);
-		}
-		else
-		{
-			const FMatrix ScreenToShadow = ShadowInfo->GetScreenToShadowMatrix(View);
-			SetShaderValue(RHICmdList, ShaderRHI, ScreenToShadowMatrix, ScreenToShadow);
-		}
+		const FIntPoint ShadowBufferResolution = ShadowInfo->GetShadowBufferResolution();
 
 		if (SoftTransitionScale.IsBound())
 		{
@@ -1331,18 +1111,7 @@ public:
 				FVector4(ShadowBufferSizeValue.X, ShadowBufferSizeValue.Y, 1.0f / ShadowBufferSizeValue.X, 1.0f / ShadowBufferSizeValue.Y));
 		}
 
-		FTextureRHIParamRef ShadowDepthTextureValue;
-
-		// Translucency shadow projection has no depth target
-		if (ShadowInfo->RenderTargets.DepthTarget)
-		{
-			ShadowDepthTextureValue = ShadowInfo->RenderTargets.DepthTarget->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-		}
-		else
-		{
-			ShadowDepthTextureValue = GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-		}
-			
+		FTexture2DRHIRef ShadowDepthTextureValue = FSceneRenderTargets::Get(RHICmdList).GetShadowDepthZTexture(ShadowInfo->bAllocatedInPreshadowCache);
 		FSamplerStateRHIParamRef DepthSamplerState = TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
 
 		SetTextureParameter(RHICmdList, ShaderRHI, ShadowDepthTexture, ShadowDepthTextureSampler, DepthSamplerState, ShadowDepthTextureValue);		
@@ -1367,7 +1136,7 @@ public:
 	}
 
 	/** Serializer. */
-	friend FArchive& operator<<(FArchive& Ar, TShadowProjectionShaderParameters& P)
+	friend FArchive& operator<<(FArchive& Ar,FShadowProjectionShaderParameters& P)
 	{
 		Ar << P.DeferredParameters;
 		Ar << P.ScreenToShadowMatrix;
@@ -1378,7 +1147,6 @@ public:
 		Ar << P.ProjectionDepthBias;
 		Ar << P.FadePlaneOffset;
 		Ar << P.InvFadePlaneLength;
-		Ar << P.ShadowTileOffsetAndSizeParam;
 		return Ar;
 	}
 
@@ -1393,14 +1161,13 @@ private:
 	FShaderParameter ProjectionDepthBias;
 	FShaderParameter FadePlaneOffset;
 	FShaderParameter InvFadePlaneLength;
-	FShaderParameter ShadowTileOffsetAndSizeParam;
 };
 
 /**
  * TShadowProjectionPS
  * A pixel shader for projecting a shadow depth buffer onto the scene.  Used with any light type casting normal shadows.
  */
-template<uint32 Quality, bool bUseFadePlane = false, bool bModulatedShadows = false>
+template<uint32 Quality, bool bUseFadePlane = false> 
 class TShadowProjectionPS : public FShadowProjectionPixelShaderInterface
 {
 	DECLARE_SHADER_TYPE(TShadowProjectionPS,Global);
@@ -1435,7 +1202,7 @@ public:
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FShadowProjectionPixelShaderInterface::ModifyCompilationEnvironment(Platform,OutEnvironment);
-		TShadowProjectionShaderParameters<bModulatedShadows>::ModifyCompilationEnvironment(Platform,OutEnvironment);
+		FShadowProjectionShaderParameters::ModifyCompilationEnvironment(Platform,OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("SHADOW_QUALITY"), Quality);
 		OutEnvironment.SetDefine(TEXT("USE_FADE_PLANE"), (uint32)(bUseFadePlane ? 1 : 0));
 	}
@@ -1460,13 +1227,6 @@ public:
 
 		SetShaderValue(RHICmdList, ShaderRHI, ShadowFadeFraction, ShadowInfo->FadeAlphas[ViewIndex] );
 		SetShaderValue(RHICmdList, ShaderRHI, ShadowSharpen, ShadowInfo->GetLightSceneInfo().Proxy->GetShadowSharpen() * 7.0f + 1.0f );
-
-		auto DeferredLightParameter = GetUniformBufferParameter<FDeferredLightUniformStruct>();
-
-		if (DeferredLightParameter.IsBound())
-		{
-			SetDeferredLightParameters(RHICmdList, ShaderRHI, DeferredLightParameter, &ShadowInfo->GetLightSceneInfo(), View);
-		}
 	}
 
 	/**
@@ -1483,21 +1243,21 @@ public:
 	}
 
 protected:
-	TShadowProjectionShaderParameters<bModulatedShadows> ProjectionParameters;
+	FShadowProjectionShaderParameters ProjectionParameters;
 	FShaderParameter ShadowFadeFraction;
 	FShaderParameter ShadowSharpen;
 };
 
 /** Pixel shader to project modulated shadows onto the scene. */
 template<uint32 Quality>
-class TModulatedShadowProjection : public TShadowProjectionPS<Quality, false, true>
+class TModulatedShadowProjection : public TShadowProjectionPS<Quality>
 {
 	DECLARE_SHADER_TYPE(TModulatedShadowProjection, Global);
 public:
 
 	static void ModifyCompilationEnvironment(EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment)
 	{
-		TShadowProjectionPS<Quality, false, true>::ModifyCompilationEnvironment(Platform, OutEnvironment);
+		TShadowProjectionPS<Quality>::ModifyCompilationEnvironment(Platform, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("MODULATED_SHADOWS"), 1);
 	}
 
@@ -1509,7 +1269,7 @@ public:
 	TModulatedShadowProjection() {}
 
 	TModulatedShadowProjection(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
-		TShadowProjectionPS<Quality, false, true>(Initializer)
+		TShadowProjectionPS<Quality>(Initializer)
 	{
 		ModulatedShadowColorParameter.Bind(Initializer.ParameterMap, TEXT("ModulatedShadowColor"));
 	}
@@ -1520,7 +1280,7 @@ public:
 		const FSceneView& View,
 		const FProjectedShadowInfo* ShadowInfo) override
 	{
-		TShadowProjectionPS<Quality, false, true>::SetParameters(RHICmdList, ViewIndex, View, ShadowInfo);
+		TShadowProjectionPS<Quality>::SetParameters(RHICmdList, ViewIndex, View, ShadowInfo);
 		const FPixelShaderRHIParamRef ShaderRHI = this->GetPixelShader();
 		SetShaderValue(RHICmdList, ShaderRHI, ModulatedShadowColorParameter, ShadowInfo->GetLightSceneInfo().Proxy->GetModulatedShadowColor());
 	}
@@ -1531,7 +1291,7 @@ public:
 	*/
 	virtual bool Serialize(FArchive& Ar) override
 	{
-		bool bShaderHasOutdatedParameters = TShadowProjectionPS<Quality, false, true>::Serialize(Ar);
+		bool bShaderHasOutdatedParameters = TShadowProjectionPS<Quality>::Serialize(Ar);
 		Ar << ModulatedShadowColorParameter;
 		return bShaderHasOutdatedParameters;
 	}
@@ -1553,31 +1313,16 @@ public:
 		TranslucencyShadowTransmission1Sampler.Bind(ParameterMap,TEXT("TranslucencyShadowTransmission1Sampler"));
 	}
 
-	void Set(FRHICommandList& RHICmdList, FShader* Shader, const FProjectedShadowInfo* ShadowInfo) const
+	void Set(FRHICommandList& RHICmdList, FShader* Shader) const
 	{
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
-
-		FTextureRHIParamRef TranslucencyShadowTransmission0Value;
-		FTextureRHIParamRef TranslucencyShadowTransmission1Value;
-
-		if (ShadowInfo)
-		{
-			TranslucencyShadowTransmission0Value = ShadowInfo->RenderTargets.ColorTargets[0]->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-			TranslucencyShadowTransmission1Value = ShadowInfo->RenderTargets.ColorTargets[1]->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-		}
-		else
-		{
-			TranslucencyShadowTransmission0Value = GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-			TranslucencyShadowTransmission1Value = GSystemTextures.BlackDummy->GetRenderTargetItem().ShaderResourceTexture.GetReference();
-		}
-			
 		SetTextureParameter(
 			RHICmdList, 
 			Shader->GetPixelShader(),
 			TranslucencyShadowTransmission0,
 			TranslucencyShadowTransmission0Sampler,
 			TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI(),
-			TranslucencyShadowTransmission0Value
+			SceneContext.TranslucencyShadowTransmission[0]->GetRenderTargetItem().ShaderResourceTexture
 			);
 
 		SetTextureParameter(
@@ -1586,7 +1331,7 @@ public:
 			TranslucencyShadowTransmission1,
 			TranslucencyShadowTransmission1Sampler,
 			TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI(),
-			TranslucencyShadowTransmission1Value
+			SceneContext.TranslucencyShadowTransmission[1]->GetRenderTargetItem().ShaderResourceTexture
 			);
 	}
 
@@ -1642,7 +1387,7 @@ public:
 	{
 		TShadowProjectionPS<Quality>::SetParameters(RHICmdList, ViewIndex, View, ShadowInfo);
 
-		TranslucencyProjectionParameters.Set(RHICmdList, this, ShadowInfo);
+		TranslucencyProjectionParameters.Set(RHICmdList, this);
 	}
 
 	/**
@@ -1677,19 +1422,11 @@ public:
 	template<typename ShaderRHIParamRef>
 	void Set(FRHICommandList& RHICmdList, const ShaderRHIParamRef ShaderRHI, const FProjectedShadowInfo* ShadowInfo) const
 	{
-		FTextureRHIParamRef ShadowDepthTextureValue = ShadowInfo 
-			? ShadowInfo->RenderTargets.DepthTarget->GetRenderTargetItem().ShaderResourceTexture->GetTextureCube()
-			: GBlackTextureCube->TextureRHI.GetReference();
-        if (!ShadowDepthTextureValue)
-        {
-            ShadowDepthTextureValue = GBlackTextureCube->TextureRHI.GetReference();
-        }
-
 		SetTextureParameter(
 			RHICmdList, 
 			ShaderRHI, 
 			ShadowDepthTexture, 
-			ShadowDepthTextureValue
+			FSceneRenderTargets::Get(RHICmdList).GetCubeShadowDepthZTexture(ShadowInfo->ResolutionX)
 			);
 
 		if (ShadowDepthCubeComparisonSampler.IsBound())
@@ -1702,22 +1439,15 @@ public:
 				);
 		}
 
-		if (ShadowInfo)
-		{
-			SetShaderValueArray<ShaderRHIParamRef, FMatrix>(
-				RHICmdList, 
-				ShaderRHI,
-				ShadowViewProjectionMatrices,
-				ShadowInfo->OnePassShadowViewProjectionMatrices.GetData(),
-				ShadowInfo->OnePassShadowViewProjectionMatrices.Num()
-				);
+		SetShaderValueArray<ShaderRHIParamRef, FMatrix>(
+			RHICmdList, 
+			ShaderRHI,
+			ShadowViewProjectionMatrices,
+			ShadowInfo->OnePassShadowViewProjectionMatrices.GetData(),
+			ShadowInfo->OnePassShadowViewProjectionMatrices.Num()
+			);
 
-			SetShaderValue(RHICmdList, ShaderRHI,InvShadowmapResolution,1.0f / ShadowInfo->ResolutionX);
-		}
-		else
-		{
-			check(!ShadowViewProjectionMatrices.IsBound());
-		}
+		SetShaderValue(RHICmdList, ShaderRHI,InvShadowmapResolution,1.0f / ShadowInfo->ResolutionX);
 	}
 
 	/** Serializer. */ 
@@ -1755,7 +1485,6 @@ public:
 	{
 		DeferredParameters.Bind(Initializer.ParameterMap);
 		OnePassShadowParameters.Bind(Initializer.ParameterMap);
-		ShadowDepthTextureSampler.Bind(Initializer.ParameterMap,TEXT("ShadowDepthTextureSampler"));
 		LightPosition.Bind(Initializer.ParameterMap,TEXT("LightPositionAndInvRadius"));
 		ShadowFadeFraction.Bind(Initializer.ParameterMap,TEXT("ShadowFadeFraction"));
 		ShadowSharpen.Bind(Initializer.ParameterMap,TEXT("ShadowSharpen"));
@@ -1794,15 +1523,6 @@ public:
 		SetShaderValue(RHICmdList, ShaderRHI, ShadowFadeFraction, ShadowInfo->FadeAlphas[ViewIndex]);
 		SetShaderValue(RHICmdList, ShaderRHI, ShadowSharpen, LightProxy.GetShadowSharpen() * 7.0f + 1.0f);
 		SetShaderValue(RHICmdList, ShaderRHI, PointLightDepthBiasParameters, FVector2D(ShadowInfo->GetShaderDepthBias(), 0.0f));
-
-		SetSamplerParameter(RHICmdList, ShaderRHI, ShadowDepthTextureSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
-
-		auto DeferredLightParameter = GetUniformBufferParameter<FDeferredLightUniformStruct>();
-
-		if (DeferredLightParameter.IsBound())
-		{
-			SetDeferredLightParameters(RHICmdList, ShaderRHI, DeferredLightParameter, &ShadowInfo->GetLightSceneInfo(), View);
-		}
 	}
 
 	virtual bool Serialize(FArchive& Ar) override
@@ -1810,7 +1530,6 @@ public:
 		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
 		Ar << DeferredParameters;
 		Ar << OnePassShadowParameters;
-		Ar << ShadowDepthTextureSampler;
 		Ar << LightPosition;
 		Ar << ShadowFadeFraction;
 		Ar << ShadowSharpen;
@@ -1821,7 +1540,6 @@ public:
 private:
 	FDeferredPixelShaderParameters DeferredParameters;
 	FOnePassPointShadowProjectionShaderParameters OnePassShadowParameters;
-	FShaderResourceParameter ShadowDepthTextureSampler;
 	FShaderParameter LightPosition;
 	FShaderParameter ShadowFadeFraction;
 	FShaderParameter ShadowSharpen;
@@ -1840,51 +1558,6 @@ struct FShadowProjectionMatrix: FMatrix
 		FPlane(0,	0,	-MinZ * (WAxis.Z * MaxZ + WAxis.W) / (MaxZ - MinZ),	WAxis.W)
 		)
 	{}
-};
-
-// Sort by descending resolution
-struct FCompareFProjectedShadowInfoByResolution
-{
-	FORCEINLINE bool operator() (const FProjectedShadowInfo& A, const FProjectedShadowInfo& B) const
-	{
-		return (B.ResolutionX * B.ResolutionY < A.ResolutionX * A.ResolutionY);
-	}
-};
-
-// Sort by shadow type (CSMs first, then other types).
-// Then sort CSMs by descending split index, and other shadows by resolution.
-// Used to render shadow cascades in far to near order, whilst preserving the
-// descending resolution sort behavior for other shadow types.
-struct FCompareFProjectedShadowInfoBySplitIndex
-{
-	FORCEINLINE bool operator()( const FProjectedShadowInfo& A, const FProjectedShadowInfo& B ) const
-	{
-		if (A.IsWholeSceneDirectionalShadow())
-		{
-			if (B.IsWholeSceneDirectionalShadow())
-			{
-				// Both A and B are CSMs
-				// Compare Split Indexes, to order them far to near.
-				return (B.CascadeSettings.ShadowSplitIndex < A.CascadeSettings.ShadowSplitIndex);
-			}
-
-			// A is a CSM, B is per-object shadow etc.
-			// B should be rendered after A.
-			return true;
-		}
-		else
-		{
-			if (B.IsWholeSceneDirectionalShadow())
-			{
-				// B should be rendered after A.
-				return false;
-			}
-			
-			// Neither shadow is a CSM
-			// Sort by descending resolution.
-			return FCompareFProjectedShadowInfoByResolution()(A, B);
-		}
-	}
 };
 
 #endif

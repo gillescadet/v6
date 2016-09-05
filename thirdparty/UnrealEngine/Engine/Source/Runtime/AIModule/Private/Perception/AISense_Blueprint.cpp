@@ -74,9 +74,9 @@ void UAISense_Blueprint::OnNewPawn(APawn& NewPawn)
 
 float UAISense_Blueprint::Update()
 {
-	const float TimeUntilUpdate = OnUpdate(UnprocessedEvents);
+	const float TimeUntilNextUpdate = OnUpdate(UnprocessedEvents);
 	UnprocessedEvents.Reset();
-	return TimeUntilUpdate;
+	return TimeUntilNextUpdate;
 }
 
 FAISenseID UAISense_Blueprint::UpdateSenseID()

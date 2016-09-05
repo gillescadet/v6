@@ -101,10 +101,6 @@ class ENGINE_API USkyLightComponent : public ULightComponentBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Light, meta=(UIMin = "0", UIMax = "360"))
 	float SourceCubemapAngle;
 
-	/** Maximum resolution for the very top processed cubemap mip. Must be a power of 2. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Light)
-	int32 CubemapResolution;
-
 	/** 
 	 * Distance from the sky light at which any geometry should be treated as part of the sky. 
 	 * This is also used by reflection captures, so update reflection captures to see the impact.
@@ -113,15 +109,12 @@ class ENGINE_API USkyLightComponent : public ULightComponentBase
 	float SkyDistanceThreshold;
 
 	/** 
-	 * Whether all distant lighting from the lower hemisphere should be set to LowerHemisphereColor.  
-	 * Enabling this is accurate when lighting a scene on a planet where the ground blocks the sky, 
+	 * Whether all distant lighting from the lower hemisphere should be set to zero.  
+	 * Enabling this is accurate when lighting a scene on a planet, 
 	 * However disabling it can be useful to approximate skylight bounce lighting (eg Movable light).
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Light, AdvancedDisplay, meta=(DisplayName = "Lower Hemisphere Is Solid Color"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Light)
 	bool bLowerHemisphereIsBlack;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Light, AdvancedDisplay)
-	FLinearColor LowerHemisphereColor;
 
 	/** 
 	 * Max distance that the occlusion of one point will affect another.
@@ -205,7 +198,6 @@ class ENGINE_API USkyLightComponent : public ULightComponentBase
 	/** Indicates that the capture needs to recapture the scene, adds it to the recapture queue. */
 	void SetCaptureIsDirty();
 	void SetBlendDestinationCaptureIsDirty();
-	void SanatizeCubemapSize();
 
 	/** 
 	 * Recaptures the scene for the skylight. 

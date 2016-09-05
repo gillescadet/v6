@@ -517,31 +517,23 @@ bool SScrollBar::IsScrolling() const
 
 void SScrollBar::SetStyle(const FScrollBarStyle* InStyle)
 {
-	const FScrollBarStyle* Style = InStyle;
+	check(InStyle);
 
-	if (Style == nullptr)
-	{
-		FArguments Defaults;
-		Style = Defaults._Style;
-	}
-
-	check(Style);
-
-	NormalThumbImage = &Style->NormalThumbImage;
-	HoveredThumbImage = &Style->HoveredThumbImage;
-	DraggedThumbImage = &Style->DraggedThumbImage;
+	NormalThumbImage = &InStyle->NormalThumbImage;
+	HoveredThumbImage = &InStyle->HoveredThumbImage;
+	DraggedThumbImage = &InStyle->DraggedThumbImage;
 
 	if (Orientation == Orient_Vertical)
 	{
-		BackgroundBrush = &Style->VerticalBackgroundImage;
-		TopBrush = &Style->VerticalTopSlotImage;
-		BottomBrush = &Style->VerticalBottomSlotImage;
+		BackgroundBrush = &InStyle->VerticalBackgroundImage;
+		TopBrush = &InStyle->VerticalTopSlotImage;
+		BottomBrush = &InStyle->VerticalBottomSlotImage;
 	}
 	else
 	{
-		BackgroundBrush = &Style->HorizontalBackgroundImage;
-		TopBrush = &Style->HorizontalTopSlotImage;
-		BottomBrush = &Style->HorizontalBottomSlotImage;
+		BackgroundBrush = &InStyle->HorizontalBackgroundImage;
+		TopBrush = &InStyle->HorizontalTopSlotImage;
+		BottomBrush = &InStyle->HorizontalBottomSlotImage;
 	}
 }
 

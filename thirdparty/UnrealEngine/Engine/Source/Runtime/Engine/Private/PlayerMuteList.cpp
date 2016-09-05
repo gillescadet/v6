@@ -1,14 +1,14 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
-#include "Net/OnlineEngineInterface.h"
+#include "OnlineSubsystemUtils.h"
 #include "GameFramework/GameSession.h"
 #include "GameFramework/PlayerState.h"
 
 static inline void AddIdToMuteList(TArray< TSharedRef<const FUniqueNetId> >& MuteList, const TSharedPtr<const FUniqueNetId>& UniqueIdToAdd)
 {
-	auto UniqueIdToAddPred = [&UniqueIdToAdd](TSharedRef<const FUniqueNetId> Other) { return UniqueIdToAdd.IsValid() && *UniqueIdToAdd == *Other; };
-	if (MuteList.IndexOfByPredicate(UniqueIdToAddPred) == INDEX_NONE)
+	FUniqueNetIdMatcher UniqueIdToAddMatch(*UniqueIdToAdd);
+	if (MuteList.IndexOfByPredicate(UniqueIdToAddMatch) == INDEX_NONE)
 	{
 		MuteList.Add(UniqueIdToAdd.ToSharedRef());
 	}
@@ -16,8 +16,8 @@ static inline void AddIdToMuteList(TArray< TSharedRef<const FUniqueNetId> >& Mut
 
 static inline void RemoveIdFromMuteList(TArray< TSharedRef<const FUniqueNetId> >& MuteList, const TSharedPtr<const FUniqueNetId>& UniqueIdToRemove)
 {
-	auto UniqueIdToRemovePred = [&UniqueIdToRemove](TSharedRef<const FUniqueNetId> Other) { return UniqueIdToRemove.IsValid() && *UniqueIdToRemove == *Other; };
-	int32 RemoveIndex = MuteList.IndexOfByPredicate(UniqueIdToRemovePred);
+	FUniqueNetIdMatcher UniqueIdToRemoveMatch(*UniqueIdToRemove);
+	int32 RemoveIndex = MuteList.IndexOfByPredicate(UniqueIdToRemoveMatch);
 	if (RemoveIndex != INDEX_NONE)
 	{
 		MuteList.RemoveAtSwap(RemoveIndex);
@@ -64,30 +64,29 @@ void FPlayerMuteList::ServerUnmutePlayer(APlayerController* OwningPC, const FUni
 	APlayerController* OtherPC = GetPlayerControllerFromNetId(World, *PlayerIdToUnmute);
 	if (OtherPC != NULL)
 	{
-		FUniqueNetIdRepl& OwningPlayerId = OwningPC->PlayerState->UniqueId;
-		auto PlayerIdToUnmutePred = [&PlayerIdToUnmute](TSharedRef<const FUniqueNetId> Other) { return PlayerIdToUnmute.IsValid() && *PlayerIdToUnmute == *Other; };
-		auto OwningPlayerIdPred = [&OwningPlayerId](TSharedRef<const FUniqueNetId> Other) { return *OwningPlayerId == *Other; };
+		FUniqueNetIdMatcher PlayerIdToUnmuteMatch(*PlayerIdToUnmute);
+		FUniqueNetIdMatcher OwningPlayerIdMatch(*OwningPC->PlayerState->UniqueId);
 
 		// Make sure this player isn't muted for gameplay reasons
-		if (GameplayVoiceMuteList.IndexOfByPredicate(PlayerIdToUnmutePred) == INDEX_NONE &&
+		if (GameplayVoiceMuteList.IndexOfByPredicate(PlayerIdToUnmuteMatch) == INDEX_NONE &&
 			// And make sure they didn't mute us
-			OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdPred) == INDEX_NONE)
+			OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdMatch) == INDEX_NONE)
 		{
 			OwningPC->ClientUnmutePlayer(UnmuteId);
 		}
 
 		// If the other player doesn't have this player muted
-		if (OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdPred) == INDEX_NONE &&
-			OtherPC->MuteList.GameplayVoiceMuteList.IndexOfByPredicate(OwningPlayerIdPred) == INDEX_NONE)
+		if (OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdMatch) == INDEX_NONE &&
+			OtherPC->MuteList.GameplayVoiceMuteList.IndexOfByPredicate(OwningPlayerIdMatch) == INDEX_NONE)
 		{
 			// Remove them from the packet filter list
 			RemoveIdFromMuteList(VoicePacketFilter, PlayerIdToUnmute);
 
 			// If found, remove so packets flow to that client too
-			RemoveIdFromMuteList(OtherPC->MuteList.VoicePacketFilter, OwningPlayerId.GetUniqueNetId());
+			RemoveIdFromMuteList(OtherPC->MuteList.VoicePacketFilter, OwningPC->PlayerState->UniqueId.GetUniqueNetId());
 
 			// Tell the other PC to unmute this one
-			OtherPC->ClientUnmutePlayer(OwningPlayerId);
+			OtherPC->ClientUnmutePlayer(OwningPC->PlayerState->UniqueId);
 		}
 	}
 }
@@ -104,9 +103,12 @@ void FPlayerMuteList::ClientMutePlayer(APlayerController* OwningPC, const FUniqu
 	if (LP != NULL)
 	{
 		UWorld* World = OwningPC->GetWorld();
-	
-		// Have the voice subsystem mute this player
-		UOnlineEngineInterface::Get()->MuteRemoteTalker(World, LP->GetControllerId(), *PlayerIdToMute, false);
+		IOnlineVoicePtr VoiceInt = Online::GetVoiceInterface(World);
+		if (VoiceInt.IsValid())
+		{
+			// Have the voice subsystem mute this player
+			VoiceInt->MuteRemoteTalker(LP->GetControllerId(), *PlayerIdToMute, false);
+		}
 	}
 }
 
@@ -122,9 +124,12 @@ void FPlayerMuteList::ClientUnmutePlayer(APlayerController* OwningPC, const FUni
 	if (LP != NULL)
 	{
 		UWorld* World = OwningPC->GetWorld();
-
-		// Have the voice subsystem mute this player
-		UOnlineEngineInterface::Get()->UnmuteRemoteTalker(World, LP->GetControllerId(), *PlayerIdToUnmute, false);
+		IOnlineVoicePtr VoiceInt = Online::GetVoiceInterface(World);
+		if (VoiceInt.IsValid())
+		{
+			// Have the voice subsystem mute this player
+			VoiceInt->UnmuteRemoteTalker(LP->GetControllerId(), *PlayerIdToUnmute, false);
+		}
 	}
 }
 
@@ -155,14 +160,13 @@ void FPlayerMuteList::GameplayUnmutePlayer(APlayerController* OwningPC, const FU
 	APlayerController* OtherPC = GetPlayerControllerFromNetId(World, *PlayerIdToUnmute);
 	if (OtherPC != NULL)
 	{
-		FUniqueNetIdRepl& OwningPlayerId = OwningPC->PlayerState->UniqueId;
-		auto PlayerIdToUnmutePred = [&PlayerIdToUnmute](TSharedRef<const FUniqueNetId> Other) { return PlayerIdToUnmute.IsValid() && *PlayerIdToUnmute == *Other; };
-		auto OwningPlayerIdPred = [&OwningPlayerId](TSharedRef<const FUniqueNetId> Other) { return *OwningPlayerId == *Other; };
+		FUniqueNetIdMatcher PlayerIdToUnmuteMatch(*PlayerIdToUnmute);
+		FUniqueNetIdMatcher OwningPlayerIdMatch(*OwningPC->PlayerState->UniqueId);
 
 		// Make sure this player isn't explicitly muted
-		if (VoiceMuteList.IndexOfByPredicate(PlayerIdToUnmutePred) == INDEX_NONE &&
+		if (VoiceMuteList.IndexOfByPredicate(PlayerIdToUnmuteMatch) == INDEX_NONE &&
 			// And make sure they didn't mute us
-			OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdPred) == INDEX_NONE)
+			OtherPC->MuteList.VoiceMuteList.IndexOfByPredicate(OwningPlayerIdMatch) == INDEX_NONE)
 		{
 			RemoveIdFromMuteList(VoicePacketFilter, PlayerIdToUnmute);
 
@@ -174,8 +178,8 @@ void FPlayerMuteList::GameplayUnmutePlayer(APlayerController* OwningPC, const FU
 
 bool FPlayerMuteList::IsPlayerMuted(const FUniqueNetId& PlayerId)
 {
-	auto PlayerIdToUnmutePred = [&PlayerId](TSharedRef<const FUniqueNetId> Other) { return PlayerId == *Other; };
-	return VoicePacketFilter.IndexOfByPredicate(PlayerIdToUnmutePred) != INDEX_NONE;
+	FUniqueNetIdMatcher PlayerIdMatch(PlayerId);
+	return VoicePacketFilter.IndexOfByPredicate(PlayerIdMatch) != INDEX_NONE;
 }
 
 FString DumpMutelistState(UWorld* World)

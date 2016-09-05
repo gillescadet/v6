@@ -3,7 +3,7 @@
 #pragma once
 
 #include "UniquePtr.h"
-#include "OutputDeviceHelper.h"
+
 
 struct FSlowTask;
 
@@ -67,9 +67,6 @@ protected:
 	 */
 	virtual void ProgressReported( const float TotalProgressInterp, FText DisplayMessage ) {}
 
-	/** Called to check whether we are playing in editor when starting a slow task */
-	virtual bool IsPlayingInEditor() const;
-
 public:
 	virtual FContextSupplier* GetContext() const { return NULL; }
 	virtual void SetContext( FContextSupplier* InSupplier ) {}
@@ -77,6 +74,9 @@ public:
 	/** Shows/Closes Special Build Progress dialogs */
 	virtual TWeakPtr<class SBuildProgressWidget> ShowBuildProgressWindow() {return TWeakPtr<class SBuildProgressWidget>();}
 	virtual void CloseBuildProgressWindow() {}
+
+	TArray<FString> Warnings;
+	TArray<FString> Errors;
 
 	bool	TreatWarningsAsErrors;
 
@@ -87,53 +87,9 @@ public:
 
 	virtual ~FFeedbackContext();
 
-	/** Gets warnings history */
-	void GetWarnings(TArray<FString>& OutWarnings) const
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		OutWarnings = Warnings;
-	}
-	int32 GetNumWarnings() const
-	{
-		return Warnings.Num();
-	}
-
-	/** Gets errors history */
-	void GetErrors(TArray<FString>& OutErrors) const
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		OutErrors = Errors;
-	}
-	int32 GetNumErrors() const
-	{
-		return Errors.Num();
-	}
-
-	/** Gets all errors and warnings and clears the history */
-	void GetErrorsAndWarningsAndEmpty(TArray<FString>& OutWarningsAndErrors)
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		OutWarningsAndErrors = MoveTemp(Errors);
-		OutWarningsAndErrors += MoveTemp(Warnings);
-	}
-	/** Clears all history */
-	void ClearWarningsAndErrors()
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		Errors.Empty();
-		Warnings.Empty();
-	}
-
 private:
 	FFeedbackContext(const FFeedbackContext&);
 	FFeedbackContext& operator=(const FFeedbackContext&);
-
-	/** Warnings history */
-	TArray<FString> Warnings;
-	/** Errors history */
-	TArray<FString> Errors;
-	/** Guard for the errors and warnings history */
-	mutable FCriticalSection WarningsAndErrorsCritical;
 
 protected:
 	
@@ -149,25 +105,6 @@ protected:
 	/** Update the UI as a result of the scope stack changing */
 	void UpdateUI();
 
-	/**
-	 * Adds a new warning message to warnings history.
-	 * @param InWarning Warning message
-	 */
-	void AddWarning(const FString& InWarning)
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		Warnings.Add(InWarning);
-	}
-
-	/**
-	* Adds a new error message to errors history.
-	* @param InWarning Error message
-	*/
-	void AddError(const FString& InError)
-	{
-		FScopeLock WarningsAndErrorsLock(&WarningsAndErrorsCritical);
-		Errors.Add(InError);
-	}
 };
 
 /** Enum to specify a particular slow task section should be shown */
@@ -332,8 +269,7 @@ public:
 		CompletedWork += CurrentFrameScope;
 
 		const float WorkRemaining = TotalAmountOfWork - CompletedWork;
-		// Add a small threshold here because when there are a lot of tasks, numerical imprecision can add up and trigger this.
-		ensureMsgf(ExpectedWorkThisFrame <= 1.01f * TotalAmountOfWork - CompletedWork, TEXT("Work overflow in slow task. Please revise call-site to account for entire progress range."));
+		ensureMsgf(ExpectedWorkThisFrame <= WorkRemaining, TEXT("Work overflow in slow task. Please revise call-site to account for entire progress range."));
 		CurrentFrameScope = FMath::Min(WorkRemaining, ExpectedWorkThisFrame);
 
 		if (!bCreatedDialog && OpenDialogThreshold.IsSet() && static_cast<float>(FPlatformTime::Seconds() - StartTime) > OpenDialogThreshold.GetValue())

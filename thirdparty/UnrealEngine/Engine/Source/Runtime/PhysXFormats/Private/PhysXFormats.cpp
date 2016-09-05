@@ -84,10 +84,8 @@ public:
 		OutFormats.Add(NAME_PhysXPS4);
 	}
 
-	virtual EPhysXCookingResult CookConvex(FName Format, int32 RuntimeCookFlags, const TArray<FVector>& SrcBuffer, TArray<uint8>& OutBuffer, bool bDeformableMesh = false) const override
+	virtual bool CookConvex(FName Format, const TArray<FVector>& SrcBuffer, TArray<uint8>& OutBuffer, bool bDeformableMesh = false) const override
 	{
-		EPhysXCookingResult CookResult = EPhysXCookingResult::Failed;
-
 #if WITH_PHYSX
 		PxPlatform::Enum PhysXFormat = PxPlatform::ePC;
 		bool bIsPhysXFormatValid = GetPhysXFormat(Format, PhysXFormat);
@@ -97,18 +95,19 @@ public:
 		PConvexMeshDesc.points.data = SrcBuffer.GetData();
 		PConvexMeshDesc.points.count = SrcBuffer.Num();
 		PConvexMeshDesc.points.stride = sizeof(FVector);
-		PConvexMeshDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+		if (bDeformableMesh)
+		{
+			PConvexMeshDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX | PxConvexFlag::eINFLATE_CONVEX;
+		}
+		else
+		{
+			PConvexMeshDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+		}
 
 		// Set up cooking
 		const PxCookingParams Params = PhysXCooking->getParams();
 		PxCookingParams NewParams = Params;
 		NewParams.targetPlatform = PhysXFormat;
-
-		if(RuntimeCookFlags & ERuntimePhysxCookOptimizationFlags::SuppressFaceRemapTable)
-		{
-			NewParams.suppressTriangleMeshRemapTable = true;
-		}
-
 		if (bDeformableMesh)
 		{
 			// Meshes which can be deformed need different cooking parameters to inhibit vertex welding and add an extra skin around the collision mesh for safety.
@@ -127,46 +126,25 @@ public:
 		// Cook the convex mesh to a temp buffer
 		TArray<uint8> CookedMeshBuffer;
 		FPhysXOutputStream Buffer(&CookedMeshBuffer);
-		if (PhysXCooking->cookConvexMesh(PConvexMeshDesc, Buffer))
-		{
-			CookResult = EPhysXCookingResult::Succeeded;
-		}
-		else
-		{
-			if (!(PConvexMeshDesc.flags & PxConvexFlag::eINFLATE_CONVEX))
-			{
-				// We failed to cook without inflating convex. Let's try again with inflation
-				//This is not ideal since it makes the collision less accurate. It's needed if given verts are extremely close.
-				PConvexMeshDesc.flags |= PxConvexFlag::eINFLATE_CONVEX;
-				if (PhysXCooking->cookConvexMesh(PConvexMeshDesc, Buffer))
-				{
-					CookResult = EPhysXCookingResult::SucceededWithInflation;
-				}
-			}
-		}
-
+		bool Result = PhysXCooking->cookConvexMesh(PConvexMeshDesc, Buffer);
+		
 		// Return default cooking params to normal
 		if (bDeformableMesh)
 		{
 			PhysXCooking->setParams(Params);
 		}
 
-		if (CookedMeshBuffer.Num() == 0)
-		{
-			CookResult = EPhysXCookingResult::Failed;
-		}
-
-		if (CookResult != EPhysXCookingResult::Failed)
+		if( Result && CookedMeshBuffer.Num() > 0 )
 		{
 			// Append the cooked data into cooked buffer
 			OutBuffer.Append( CookedMeshBuffer );
+			return true;
 		}
 #endif		// WITH_PHYSX
-	
-		return CookResult;
+		return false;
 	}
 
-	virtual bool CookTriMesh(FName Format, int32 RuntimeCookFlags, const TArray<FVector>& SrcVertices, const TArray<FTriIndices>& SrcIndices, const TArray<uint16>& SrcMaterialIndices, const bool FlipNormals, TArray<uint8>& OutBuffer, bool bDeformableMesh = false) const override
+	virtual bool CookTriMesh(FName Format, const TArray<FVector>& SrcVertices, const TArray<FTriIndices>& SrcIndices, const TArray<uint16>& SrcMaterialIndices, const bool FlipNormals, TArray<uint8>& OutBuffer, bool bDeformableMesh = false) const override
 	{
 #if WITH_PHYSX
 		PxPlatform::Enum PhysXFormat = PxPlatform::ePC;
@@ -189,11 +167,6 @@ public:
 		PxCookingParams NewParams = Params;
 		NewParams.targetPlatform = PhysXFormat;
 		PxMeshPreprocessingFlags OldCookingFlags = NewParams.meshPreprocessParams;
-
-		if (RuntimeCookFlags & ERuntimePhysxCookOptimizationFlags::SuppressFaceRemapTable)
-		{
-			NewParams.suppressTriangleMeshRemapTable = true;
-		}
 
 		if (bDeformableMesh)
 		{

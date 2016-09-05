@@ -110,7 +110,7 @@ void ComputeTriangleCDFsCS(
 	{
 		float Integral = 0;
 
-		for (uint i = 0; i <= TriangleIndex; i++)
+		for (int i = 0; i <= TriangleIndex; i++)
 		{
 			Integral += TriangleAreas[i];
 		}
@@ -160,16 +160,22 @@ Buffer<float> TriangleCDFs;
 float SampleTrianglesProportionalToArea(float RandomFraction, float TotalArea)
 {
 	float Sample = .999f;
+	int ElementIndex = -1;
 
 	// Find the index of where the step function becomes greater or equal to the generated number
 	//@todo - CDFArray is monotonically increasing so we can do better than a linear time search
-	for (uint i = 0; i < NumTriangles; i++)
+	for (int i = 0; i < NumTriangles; i++)
 	{
 		if (RandomFraction * TotalArea <= TriangleCDFs[i])
 		{
-			Sample = (float)i / (float)NumTriangles;
+			ElementIndex = i;
 			break;
 		}
+	}
+
+	if (ElementIndex >= 0)
+	{
+		Sample = ElementIndex / (float)NumTriangles;
 	}
 
 	return Sample;

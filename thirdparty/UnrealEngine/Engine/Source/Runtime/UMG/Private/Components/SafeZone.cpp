@@ -11,10 +11,14 @@
 USafeZone::USafeZone()
 {
 	bCanHaveMultipleChildren = false;
-	Visibility = ESlateVisibility::SelfHitTestInvisible;
+	Visibility = ESlateVisibility::SelfHitTestInvisible;	
 }
 
 #if WITH_EDITOR
+const FSlateBrush* USafeZone::GetEditorIcon()
+{
+	return FUMGStyle::Get().GetBrush( "Widget.SafeZone" );
+}
 
 const FText USafeZone::GetPaletteCategory()
 {
@@ -22,16 +26,16 @@ const FText USafeZone::GetPaletteCategory()
 }
 #endif
 
-void USafeZone::OnSlotAdded( UPanelSlot* InSlot )
+void USafeZone::OnSlotAdded( UPanelSlot* Slot )
 {
-	Super::OnSlotAdded( InSlot );
+	Super::OnSlotAdded( Slot );
 
 	UpdateWidgetProperties();
 }
 
-void USafeZone::OnSlotRemoved( UPanelSlot* InSlot )
+void USafeZone::OnSlotRemoved( UPanelSlot* Slot )
 {
-	Super::OnSlotRemoved( InSlot );
+	Super::OnSlotRemoved( Slot );
 
 	if ( MySafeZone.IsValid() )
 	{
@@ -50,7 +54,6 @@ void USafeZone::UpdateWidgetProperties()
 	{
 		USafeZoneSlot* SafeSlot = CastChecked< USafeZoneSlot >( Slots[ 0 ] );
 
-		MySafeZone->SetSafeAreaScale( SafeSlot->SafeAreaScale );
 		MySafeZone->SetTitleSafe( SafeSlot->bIsTitleSafe );
 		MySafeZone->SetHAlign( SafeSlot->HAlign.GetValue() );
 		MySafeZone->SetVAlign( SafeSlot->VAlign.GetValue() );
@@ -64,7 +67,6 @@ TSharedRef<SWidget> USafeZone::RebuildWidget()
 
 	MySafeZone = SNew( SSafeZone )
 		.IsTitleSafe( SafeSlot ? SafeSlot->bIsTitleSafe : false )
-		.SafeAreaScale( SafeSlot ? SafeSlot->SafeAreaScale : FMargin(1,1,1,1))
 		.HAlign( SafeSlot ? SafeSlot->HAlign.GetValue() : HAlign_Fill )
 		.VAlign( SafeSlot ? SafeSlot->VAlign.GetValue() : VAlign_Fill )
 		.Padding( SafeSlot ? SafeSlot->Padding : FMargin() )

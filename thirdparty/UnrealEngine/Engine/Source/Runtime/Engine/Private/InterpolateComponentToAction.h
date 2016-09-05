@@ -42,10 +42,7 @@ public:
 	/** Should we east out (ie end slowly) during interpolation */
 	bool bEaseOut;
 
-	/** Force use of shortest Path for rotation **/
-	bool bForceShortestRotationPath;
-
-	FInterpolateComponentToAction(float Duration, const FLatentActionInfo& LatentInfo, USceneComponent* Component, bool bInEaseOut, bool bInEaseIn, bool bInForceShortestRotationPath)
+	FInterpolateComponentToAction(float Duration, const FLatentActionInfo& LatentInfo, USceneComponent* Component, bool bInEaseOut, bool bInEaseIn)
 		: TotalTime(Duration)
 		, TimeElapsed(0.f)
 		, bInterpolating(true)
@@ -61,7 +58,6 @@ public:
 		, TargetLocation(FVector::ZeroVector)
 		, bEaseIn(bInEaseIn)
 		, bEaseOut(bInEaseOut)
-		, bForceShortestRotationPath(bInForceShortestRotationPath)
 	{
 	}
 
@@ -115,27 +111,7 @@ public:
 
 			if(bInterpRotation && TargetComponent.IsValid())
 			{
-				FRotator NewRotation;
-				// If we are done just set the final rotation
-				if (bComplete)
-				{
-					NewRotation = TargetRotation;
-				}
-				else if (bForceShortestRotationPath)
-				{
-					// We want the shortest path 
-					FQuat AQuat(InitialRotation);
-					FQuat BQuat(TargetRotation);
-
-					FQuat Result = FQuat::Slerp(AQuat, BQuat, BlendPct);
-					Result.Normalize();
-					NewRotation = Result.Rotator();
-				}
-				else
-				{
-					// dont care about it being the shortest path - just lerp
-					NewRotation = FMath::Lerp(InitialRotation, TargetRotation, BlendPct);
-				}
+				FRotator NewRotation = bComplete ? TargetRotation : FMath::Lerp(InitialRotation, TargetRotation, BlendPct);
 				TargetComponent->SetRelativeRotation(NewRotation, false);
 			}
 		}

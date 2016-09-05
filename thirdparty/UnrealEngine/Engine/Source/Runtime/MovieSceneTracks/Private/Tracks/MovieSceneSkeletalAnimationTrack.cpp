@@ -5,7 +5,6 @@
 #include "MovieSceneSkeletalAnimationTrack.h"
 #include "IMovieScenePlayer.h"
 #include "MovieSceneSkeletalAnimationTrackInstance.h"
-#include "Animation/AnimSequenceBase.h"
 
 
 #define LOCTEXT_NAMESPACE "MovieSceneSkeletalAnimationTrack"
@@ -14,19 +13,15 @@
 /* UMovieSceneSkeletalAnimationTrack structors
  *****************************************************************************/
 
-UMovieSceneSkeletalAnimationTrack::UMovieSceneSkeletalAnimationTrack(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-#if WITH_EDITORONLY_DATA
-	TrackTint = FColor(124, 15, 124, 65);
-#endif
-}
+UMovieSceneSkeletalAnimationTrack::UMovieSceneSkeletalAnimationTrack( const FObjectInitializer& ObjectInitializer )
+	: Super( ObjectInitializer )
+{ }
 
 
 /* UMovieSceneSkeletalAnimationTrack interface
  *****************************************************************************/
 
-void UMovieSceneSkeletalAnimationTrack::AddNewAnimation(float KeyTime, UAnimSequenceBase* AnimSequence)
+void UMovieSceneSkeletalAnimationTrack::AddNewAnimation(float KeyTime, UAnimSequence* AnimSequence)
 {
 	UMovieSceneSkeletalAnimationSection* NewSection = Cast<UMovieSceneSkeletalAnimationSection>(CreateNewSection());
 	{
@@ -38,18 +33,17 @@ void UMovieSceneSkeletalAnimationTrack::AddNewAnimation(float KeyTime, UAnimSequ
 }
 
 
-TArray<UMovieSceneSection*> UMovieSceneSkeletalAnimationTrack::GetAnimSectionsAtTime(float Time)
+UMovieSceneSection* UMovieSceneSkeletalAnimationTrack::GetAnimSectionAtTime(float Time)
 {
-	TArray<UMovieSceneSection*> Sections;
 	for (auto Section : AnimationSections)
 	{
 		if (Section->IsTimeWithinSection(Time))
 		{
-			Sections.Add(Section);
+			return Section;
 		}
 	}
 
-	return Sections;
+	return nullptr;
 }
 
 
@@ -58,7 +52,7 @@ TArray<UMovieSceneSection*> UMovieSceneSkeletalAnimationTrack::GetAnimSectionsAt
 
 TSharedPtr<IMovieSceneTrackInstance> UMovieSceneSkeletalAnimationTrack::CreateInstance()
 {
-	return MakeShareable(new FMovieSceneSkeletalAnimationTrackInstance(*this)); 
+	return MakeShareable( new FMovieSceneSkeletalAnimationTrackInstance( *this ) ); 
 }
 
 
@@ -70,7 +64,7 @@ const TArray<UMovieSceneSection*>& UMovieSceneSkeletalAnimationTrack::GetAllSect
 
 UMovieSceneSection* UMovieSceneSkeletalAnimationTrack::CreateNewSection()
 {
-	return NewObject<UMovieSceneSkeletalAnimationSection>(this);
+	return NewObject<UMovieSceneSkeletalAnimationSection>( this );
 }
 
 
@@ -80,7 +74,7 @@ void UMovieSceneSkeletalAnimationTrack::RemoveAllAnimationData()
 }
 
 
-bool UMovieSceneSkeletalAnimationTrack::HasSection(const UMovieSceneSection& Section) const
+bool UMovieSceneSkeletalAnimationTrack::HasSection(const UMovieSceneSection& Section ) const
 {
 	return AnimationSections.Contains(&Section);
 }
@@ -119,7 +113,7 @@ TRange<float> UMovieSceneSkeletalAnimationTrack::GetSectionBoundaries() const
 
 #if WITH_EDITORONLY_DATA
 
-FText UMovieSceneSkeletalAnimationTrack::GetDefaultDisplayName() const
+FText UMovieSceneSkeletalAnimationTrack::GetDisplayName() const
 {
 	return LOCTEXT("TrackName", "Animation");
 }

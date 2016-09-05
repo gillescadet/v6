@@ -14,8 +14,8 @@ UAbilityTask_SpawnActor::UAbilityTask_SpawnActor(const FObjectInitializer& Objec
 
 UAbilityTask_SpawnActor* UAbilityTask_SpawnActor::SpawnActor(UObject* WorldContextObject, FGameplayAbilityTargetDataHandle TargetData, TSubclassOf<AActor> InClass)
 {
-	UAbilityTask_SpawnActor* MyObj = NewAbilityTask<UAbilityTask_SpawnActor>(WorldContextObject);
-	MyObj->CachedTargetDataHandle = MoveTemp(TargetData);
+	auto MyObj = NewAbilityTask<UAbilityTask_SpawnActor>(WorldContextObject);
+	MyObj->CachedTargetDataHandle = TargetData;
 	return MyObj;
 }
 
@@ -45,25 +45,19 @@ void UAbilityTask_SpawnActor::FinishSpawningActor(UObject* WorldContextObject, F
 {
 	if (SpawnedActor)
 	{
-		bool bTransformSet = false;
-		FTransform SpawnTransform;
+		FTransform SpawnTransform = AbilitySystemComponent->GetOwner()->GetTransform();
+
 		if (FGameplayAbilityTargetData* LocationData = CachedTargetDataHandle.Get(0))		//Hardcode to use data 0. It's OK if data isn't useful/valid.
 		{
 			//Set location. Rotation is unaffected.
 			if (LocationData->HasHitResult())
 			{
 				SpawnTransform.SetLocation(LocationData->GetHitResult()->Location);
-				bTransformSet = true;
 			}
 			else if (LocationData->HasEndPoint())
 			{
 				SpawnTransform = LocationData->GetEndPointTransform();
-				bTransformSet = true;
 			}
-			}
-		if (!bTransformSet)
-		{
-			SpawnTransform = AbilitySystemComponent->GetOwner()->GetTransform();
 		}
 
 		SpawnedActor->FinishSpawning(SpawnTransform);

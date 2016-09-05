@@ -2,10 +2,14 @@
 
 #pragma once
 
-class IMediaControls;
-class IMediaOptions;
-class IMediaOutput;
-class IMediaTracks;
+#include "IMediaInfo.h"
+#include "IMediaStream.h"
+
+
+class IMediaStream;
+class IMediaAudioTrack;
+class IMediaCaptionTrack;
+class IMediaVideoTrack;
 
 
 /**
@@ -13,6 +17,9 @@ class IMediaTracks;
  */
 enum class EMediaEvent
 {
+	/** Unknown event. */
+	Unknown,
+
 	/** The current media source has been closed. */
 	MediaClosed,
 
@@ -37,6 +44,25 @@ enum class EMediaEvent
 
 
 /**
+ * Enumerates directions for seeking in media.
+ */
+enum class EMediaSeekDirection
+{
+	/** Seek backwards from current position. */
+	Backward,
+
+	/** Seek from the beginning of the media. */
+	Beginning,
+
+	/** Seek from the end of the media. */
+	End,
+
+	/** Seek forward from current position. */
+	Forward
+};
+
+
+/**
  * Interface for media players.
  *
  * @see IMediaStream
@@ -46,114 +72,241 @@ class IMediaPlayer
 public:
 
 	/**
-	 * Close a previously opened media.
+	 * Closes a previously opened media.
 	 *
-	 * Call this method to free up all resources associated with an opened
-	 * media source. If no media is open, this function has no effect.
-	 *
-	 * The media may not necessarily be closed after this function succeeds,
-	 * because closing may happen asynchronously. Subscribe to the MediaClosed
-	 * event to detect when the media finished closing. This events is only
-	 * triggered if Close returns true.
+	 * If no media has been opened, this function has no effect.
 	 *
 	 * @see IsReady, Open
 	 */
 	virtual void Close() = 0;
 
 	/**
-	 * Get the media playback controls for this player.
+	 * Get the media's audio tracks.
 	 *
-	 * @return Playback controls.
-	 * @see GetOutput, GetTracks
+	 * @return Collection of audio tracks.
+	 * @see GetCaptionTracks, GetVideoTracks
 	 */
-	virtual IMediaControls& GetControls() = 0;
+	virtual const TArray<TSharedRef<IMediaAudioTrack, ESPMode::ThreadSafe>>& GetAudioTracks() const = 0;
 
 	/**
-	 * Get debug information about the player and currently opened media.
+	 * Get the media's caption tracks.
 	 *
-	 * @return Information string.
-	 * @see GetStats
+	 * @return Collection of caption tracks.
+	 * @see GetAudioTracks, GetVideoTracks
 	 */
-	virtual FString GetInfo() const = 0;
+	virtual const TArray<TSharedRef<IMediaCaptionTrack, ESPMode::ThreadSafe>>& GetCaptionTracks() const = 0;
 
 	/**
-	 * Get access to the media player's output.
+	 * Gets the last error that occurred during media loading or playback.
 	 *
-	 * @return Media tracks interface.
-	 * @see GetControls, GetTracks
+	 * @return The error string, or an empty string if no error occurred.
 	 */
-	virtual IMediaOutput& GetOutput() = 0;
+//	virtual FString GetLastError() const = 0;
 
 	/**
-	 * Get playback statistics information.
+	 * Gets information about the currently loaded media.
 	 *
-	 * @return Information string.
-	 * @see GetInfo
+	 * @return Interface to media information.
 	 */
-	virtual FString GetStats() const = 0;
+	virtual const IMediaInfo& GetMediaInfo() const = 0;
 
 	/**
-	 * Get access to the media player's tracks.
+	 * Gets the nominal playback rate, i.e. 1.0 for real time.
 	 *
-	 * @return Media tracks interface.
-	 * @see GetControls, GetOutput
+	 * @return Playback rate.
+	 * @see Pause, Play, SetRate
 	 */
-	virtual IMediaTracks& GetTracks() = 0;
+	virtual float GetRate() const = 0;
 
 	/**
-	 * Get the URL of the currently loaded media.
+	 * Gets the player's current playback time.
 	 *
-	 * @return Media URL.
+	 * @return Playback time.
+	 * @see Seek
 	 */
-	virtual FString GetUrl() const = 0;
+	virtual FTimespan GetTime() const = 0;
 
 	/**
-	 * Open a media source from a URL with optional parameters.
+	 * Get the media's video tracks.
+	 *
+	 * @return Collection of video tracks.
+	 * @see GetAudioTracks, GetCaptionTracks
+	 */
+	virtual const TArray<TSharedRef<IMediaVideoTrack, ESPMode::ThreadSafe>>& GetVideoTracks() const = 0;
+
+	/**
+	 * Checks whether playback is currently looping.
+	 *
+	 * @return true if playback is looping, false otherwise.
+	 * @see SetLooping
+	 */
+	virtual bool IsLooping() const = 0;
+
+	/**
+	 * Checks whether media playback is currently paused.
+	 *
+	 * @return true if playback is paused, false otherwise.
+	 * @see IsPlaying, IsStopped, Pause, Play, Stop
+	 */
+	virtual bool IsPaused() const = 0;
+
+	/**
+	 * Checks whether media playback has currently in progress.
+	 *
+	 * @return true if playback is in progress, false otherwise.
+	 * @see IsPaused, IsStopped, Pause, Play, Stop
+	 */
+	virtual bool IsPlaying() const = 0;
+
+	/**
+	 * Checks whether this player is ready for playback.
+	 *
+	 * A media player is considered ready if some media has been opened
+	 * successfully using the Open method and no error occurred during
+	 * loading or playback.
+	 *
+	 * @return true if ready, false otherwise.
+	 * @see Close, Open
+	 */
+	virtual bool IsReady() const = 0;
+
+	/**
+	 * Opens a media from a URL, possibly asynchronously.
 	 *
 	 * The media may not necessarily be opened after this function succeeds,
-	 * because opening may happen asynchronously. Subscribe to the MediaOpened
-	 * and MediaOpenFailed events to detect when the media finished or failed
-	 * to open. These events are only triggered if Open returns true.
-	 *
-	 * The optional parameters can be used to configure aspects of media playback
-	 * and are specific to the type of media source and the underlying player.
-	 * Check their documentation for available keys and values.
+	 * because opening may happen asynchronously. Subscribe to the OnOpened
+	 * OnOpenFailed events to detect when the media finished or failed to
+	 * open. These events are only triggered if Open returns true.
 	 *
 	 * @param Url The URL of the media to open (file name or web address).
-	 * @param Options Optional media parameters.
 	 * @return true if the media is being opened, false otherwise.
 	 * @see Close, IsReady, OnOpen, OnOpenFailed
 	 */
-	virtual bool Open(const FString& Url, const IMediaOptions& Options) = 0;
+	virtual bool Open(const FString& Url) = 0;
 
 	/**
-	 * Open a media source from a file or memory archive with optional parameters.
+	 * Opens a media from a file or memory archive, possibly asynchronously.
 	 *
 	 * The media may not necessarily be opened after this function succeeds,
-	 * because opening may happen asynchronously. Subscribe to the MediaOpened
-	 * and MediaOpenFailed events to detect when the media finished or failed
-	 * to open. These events are only triggered if Open returns true.
-	 *
-	 * The optional parameters can be used to configure aspects of media playback
-	 * and are specific to the type of media source and the underlying player.
-	 * Check their documentation for available keys and values.
+	 * because opening may happen asynchronously. Subscribe to the OnOpened
+	 * OnOpenFailed events to detect when the media finished or failed to
+	 * open. These events are only triggered if Open returns true.
 	 *
 	 * @param Archive The archive holding the media data.
 	 * @param OriginalUrl The original URL of the media that was loaded into the buffer.
-	 * @param Options Optional media parameters.
 	 * @return true if the media is being opened, false otherwise.
 	 * @see Close, IsReady, OnOpen, OnOpenFailed
 	 */
-	virtual bool Open(const TSharedRef<FArchive, ESPMode::ThreadSafe>& Archive, const FString& OriginalUrl, const IMediaOptions& Options) = 0;
+	virtual bool Open(const TSharedRef<FArchive, ESPMode::ThreadSafe>& Archive, const FString& OriginalUrl) = 0;
+
+	/**
+	 * Changes the media's playback time.
+	 *
+	 * @param Time The playback time to set.
+	 * @return true on success, false otherwise.
+	 * @see GetTime
+	 */
+	virtual bool Seek(const FTimespan& Time) = 0;
+
+	/**
+	 * Sets whether playback should be looping.
+	 *
+	 * @param Looping Enables or disables looping.
+	 * @see IsLooping
+	 */
+	virtual bool SetLooping(bool Looping) = 0;
+
+	/**
+	 * Sets the current playback rate.
+	 *
+	 * A playback rate of 1.0 will play the media normally at real-time.
+	 * A rate of 0.0 corresponds to pausing playback. A negative rate, if
+	 * supported, plays the media in reverse, and a rate larger than 1.0
+	 * fast forwards playback.
+	 *
+	 * @param Rate The playback rate to set.
+	 * @return true on success, false otherwise.
+	 * @see GetRate, Pause, Play
+	 */
+	virtual bool SetRate( float Rate ) = 0;
 
 public:
 
-	/** Get an event delegate that is invoked when an event occurred. */
+	/** Gets an event delegate that is invoked when some interesting event occurred. */
 	DECLARE_EVENT_OneParam(IMediaPlayer, FOnMediaEvent, EMediaEvent /*Event*/)
 	virtual FOnMediaEvent& OnMediaEvent() = 0;
+
+public:
+
+	/**
+	 * Pauses media playback.
+	 *
+	 * This is the same as setting the playback rate to 0.0.
+	 *
+	 * @return true if the media is being paused, false otherwise.
+	 * @see Play, Stop
+	 */
+	FORCEINLINE bool Pause()
+	{
+		return SetRate(0.0f);
+	}
+
+	/**
+	 * Starts media playback at the default rate of 1.0.
+	 *
+	 * This is the same as setting the playback rate to 1.0.
+	 *
+	 * @return true if playback is starting, false otherwise.
+	 * @see Pause, Stop
+	 */
+	FORCEINLINE bool Play()
+	{
+		return SetRate(1.0f);
+	}
+
+	/**
+	 * Changes the playback time of the media by a relative offset in the given direction.
+	 *
+	 * @param TimeOffset The offset to apply to the time.
+	 * @param Direction The direction to seek in.
+	 * @return true on success, false otherwise.
+	 * @see GetDuration, GetTime
+	 */
+	bool Seek(const FTimespan& TimeOffset, EMediaSeekDirection Direction)
+	{
+		FTimespan SeekTime;
+
+		switch (Direction)
+		{
+		case EMediaSeekDirection::Backward:
+			SeekTime = GetTime() - TimeOffset;
+			break;
+
+		case EMediaSeekDirection::Beginning:
+			SeekTime = TimeOffset;
+			break;
+
+		case EMediaSeekDirection::End:
+			SeekTime = GetMediaInfo().GetDuration() - TimeOffset;
+			break;
+
+		case EMediaSeekDirection::Forward:
+			SeekTime = GetTime() + TimeOffset;
+			break;
+		}
+
+		return Seek(SeekTime);
+	}
 
 public:
 
 	/** Virtual destructor. */
 	virtual ~IMediaPlayer() { }
 };
+
+
+/** Type definition for shared pointers to instances of IMediaPlayer. */
+typedef TSharedPtr<IMediaPlayer> IMediaPlayerPtr;
+
+/** Type definition for shared references to instances of IMediaPlayer. */
+typedef TSharedRef<IMediaPlayer> IMediaPlayerRef;

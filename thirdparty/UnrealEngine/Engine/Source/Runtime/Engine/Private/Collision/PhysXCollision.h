@@ -76,10 +76,7 @@ PxGeometry * GetGeometryFromShape(GeometryFromShapeStorage & LocalStorage, const
 // FILTER
 
 /** TArray typedef of components to ignore. */
-typedef FCollisionQueryParams::IgnoreComponentsArrayType FilterIgnoreComponentsArrayType;
-
-/** TArray typedef of actors to ignore. */
-typedef FCollisionQueryParams::IgnoreActorsArrayType FilterIgnoreActorsArrayType;
+typedef TArray<uint32, TInlineAllocator<NumInlinedActorComponents>> FilterIgnoreComponentsArrayType;
 
 
 /** Unreal PhysX scene query filter callback object */
@@ -87,11 +84,8 @@ class FPxQueryFilterCallback : public PxSceneQueryFilterCallback
 {
 public:
 
-	/** List of ComponentIds for this query to ignore */
-	const FilterIgnoreComponentsArrayType& IgnoreComponents;
-
 	/** List of ActorIds for this query to ignore */
-	const FilterIgnoreActorsArrayType& IgnoreActors;
+	FilterIgnoreComponentsArrayType IgnoreComponents;
 	
 	/** Result of PreFilter callback. */
 	PxSceneQueryHitType::Enum PrefilterReturnValue;
@@ -102,11 +96,19 @@ public:
 	/** Whether to ignore blocks (convert an eBLOCK result to eNONE). */
 	bool bIgnoreBlocks;
 
-	FPxQueryFilterCallback(const FCollisionQueryParams& InQueryParams)
-		: IgnoreComponents(InQueryParams.GetIgnoredComponents())
-		, IgnoreActors(InQueryParams.GetIgnoredActors())
+
+	FPxQueryFilterCallback()
 	{
-		PrefilterReturnValue = PxSceneQueryHitType::eNONE;		
+		PrefilterReturnValue = PxSceneQueryHitType::eNONE;
+		bIgnoreTouches = false;
+		bIgnoreBlocks = false;
+	}
+
+	FPxQueryFilterCallback(const FCollisionQueryParams& InQueryParams)
+	{
+		PrefilterReturnValue = PxSceneQueryHitType::eNONE;
+		
+		IgnoreComponents = InQueryParams.GetIgnoredComponents();
 		bIgnoreTouches = false;
 		bIgnoreBlocks = InQueryParams.bIgnoreBlocks;
 	}

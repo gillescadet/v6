@@ -7,7 +7,6 @@
 #pragma once
 
 #include "StaticLighting.h"
-#include "RenderUtils.h"
 
 class ULandscapeComponent;
 

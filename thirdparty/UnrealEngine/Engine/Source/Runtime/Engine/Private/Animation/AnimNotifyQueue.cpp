@@ -2,7 +2,6 @@
 
 #include "EnginePrivate.h"
 #include "Animation/AnimNotifyQueue.h"
-#include "AnimInstanceProxy.h"
 
 bool FAnimNotifyQueue::PassesFiltering(const FAnimNotifyEvent* Notify) const
 {
@@ -29,7 +28,7 @@ bool FAnimNotifyQueue::PassesChanceOfTriggering(const FAnimNotifyEvent* Event) c
 	return Event->NotifyStateClass ? true : RandomStream.FRandRange(0.f, 1.f) < Event->NotifyTriggerChance;
 }
 
-void FAnimNotifyQueue::AddAnimNotifiesToDest(const TArray<const FAnimNotifyEvent*>& NewNotifies, TArray<const FAnimNotifyEvent*>& DestArray, const float InstanceWeight)
+void FAnimNotifyQueue::AddAnimNotifies(const TArray<const FAnimNotifyEvent*>& NewNotifies, const float InstanceWeight)
 {
 	// for now there is no filter whatsoever, it just adds everything requested
 	for (const FAnimNotifyEvent* Notify : NewNotifies)
@@ -40,29 +39,14 @@ void FAnimNotifyQueue::AddAnimNotifiesToDest(const TArray<const FAnimNotifyEvent
 		{
 			// Only add unique AnimNotifyState instances just once. We can get multiple triggers if looping over an animation.
 			// It is the same state, so just report it once.
-			Notify->NotifyStateClass ? DestArray.AddUnique(Notify) : DestArray.Add(Notify);
+			Notify->NotifyStateClass ? AnimNotifies.AddUnique(Notify) : AnimNotifies.Add(Notify);
 		}
-	}
-}
-
-void FAnimNotifyQueue::AddAnimNotifies(const TArray<const FAnimNotifyEvent*>& NewNotifies, const float InstanceWeight)
-{
-	AddAnimNotifiesToDest(NewNotifies, AnimNotifies, InstanceWeight);
-}
-
-void FAnimNotifyQueue::AddAnimNotifies(const TMap<FName, TArray<const FAnimNotifyEvent*>>& NewNotifies, const float InstanceWeight)
-{
-	for (const TPair<FName, TArray<const FAnimNotifyEvent*>>& Pair : NewNotifies)
-	{
-		TArray<const FAnimNotifyEvent*>& Notifies = UnfilteredMontageAnimNotifies.FindOrAdd(Pair.Key);
-		AddAnimNotifiesToDest(Pair.Value, Notifies, InstanceWeight);
 	}
 }
 
 void FAnimNotifyQueue::Reset(USkeletalMeshComponent* Component)
 {
 	AnimNotifies.Reset();
-	UnfilteredMontageAnimNotifies.Reset();
 	PredictedLODLevel = Component ? Component->PredictedLODLevel : -1;
 }
 
@@ -73,27 +57,4 @@ void FAnimNotifyQueue::Append(const FAnimNotifyQueue& Queue)
 	{
 		Notify->NotifyStateClass ? AnimNotifies.AddUnique(Notify) : AnimNotifies.Add(Notify);
 	}
-	for (const TPair<FName, TArray<const FAnimNotifyEvent*>>& Pair : Queue.UnfilteredMontageAnimNotifies)
-	{
-		TArray<const FAnimNotifyEvent*>& Notifies = UnfilteredMontageAnimNotifies.FindOrAdd(Pair.Key);
-		for (const FAnimNotifyEvent* Notify : Pair.Value)
-		{
-			Notify->NotifyStateClass ? Notifies.AddUnique(Notify) : Notifies.Add(Notify);
-		}
-	}
-}
-
-void FAnimNotifyQueue::ApplyMontageNotifies(const FAnimInstanceProxy& Proxy)
-{
-	for (const TPair<FName, TArray<const FAnimNotifyEvent*>>& Pair : UnfilteredMontageAnimNotifies)
-	{
-		if (Proxy.IsSlotNodeRelevantForNotifies(Pair.Key))
-		{
-			for (const FAnimNotifyEvent* Notify : Pair.Value)
-			{
-				Notify->NotifyStateClass ? AnimNotifies.AddUnique(Notify) : AnimNotifies.Add(Notify);
-			}
-		}
-	}
-	UnfilteredMontageAnimNotifies.Reset();
 }

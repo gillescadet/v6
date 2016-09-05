@@ -12,7 +12,6 @@
 #include "Net/UnrealNetwork.h"
 #include "Collision.h"
 #include "PhysicsPublic.h"
-#include "Tickable.h"
 #include "IHeadMountedDisplay.h"
 
 #include "ParticleDefinitions.h"
@@ -29,9 +28,6 @@
 #include "ParallelFor.h"
 #include "Engine/CoreSettings.h"
 
-#include "InGamePerformanceTracker.h"
-#include "Streaming/TextureStreamingHelpers.h"
-
 // this will log out all of the objects that were ticked in the FDetailedTickStats struct so you can isolate what is expensive
 #define LOG_DETAILED_DUMPSTATS 0
 
@@ -40,6 +36,7 @@
 bool GLogDetailedDumpStats = true; 
 
 /** Game stats */
+
 
 // DECLARE_CYCLE_STAT is the reverse of what will be displayed in the game's stat game
 
@@ -106,7 +103,6 @@ extern bool GShouldLogOutAFrameOfSetBodyTransform;
 
 /** Static array of tickable objects */
 TArray<FTickableGameObject*> FTickableGameObject::TickableObjects;
-bool FTickableGameObject::bIsTickingObjects = false;
 
 /*-----------------------------------------------------------------------------
 	Detailed tick stats helper classes.
@@ -394,10 +390,10 @@ void UWorld::TickNetClient( float DeltaSeconds )
 -----------------------------------------------------------------------------*/
 
 
-bool UWorld::IsPaused() const
+bool UWorld::IsPaused()
 {
 	// pause if specifically set or if we're waiting for the end of the tick to perform streaming level loads (so actors don't fall through the world in the meantime, etc)
-	const AWorldSettings* Info = GetWorldSettings();
+	AWorldSettings* Info = GetWorldSettings();
 	return ( (Info && Info->Pauser != NULL && TimeSeconds >= PauseDelay) ||
 				(bRequestedBlockOnAsyncLoading && GetNetMode() == NM_Client) ||
 				(GEngine->ShouldCommitPendingMapChange(this)) ||
@@ -713,7 +709,7 @@ static TAutoConsoleVariable<int32> CVarAllowAsyncRenderThreadUpdates(
 
 static TAutoConsoleVariable<int32> CVarAllowAsyncRenderThreadUpdatesDuringGamethreadUpdates(
 	TEXT("AllowAsyncRenderThreadUpdatesDuringGamethreadUpdates"),
-	1,
+	0,
 	TEXT("If > 0 then we do the gamethread updates _while_ doing parallel updates."));
 
 static TAutoConsoleVariable<int32> CVarAllowAsyncRenderThreadUpdatesEditor(
@@ -1048,80 +1044,6 @@ static FAutoConsoleVariableRef CVarTimeBetweenPurgingPendingKillObjects(
 
 #include "GameFramework/SpawnActorTimer.h"
 
-TDrawEvent<FRHICommandList>* BeginTickDrawEvent()
-{
-	TDrawEvent<FRHICommandList>* TickDrawEvent = new TDrawEvent<FRHICommandList>();
-
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		BeginDrawEventCommand,
-		TDrawEvent<FRHICommandList>*,TickDrawEvent,TickDrawEvent,
-	{
-		BEGIN_DRAW_EVENTF(
-			RHICmdList, 
-			WorldTick, 
-			(*TickDrawEvent),
-			TEXT("WorldTick"));
-	});
-
-	return TickDrawEvent;
-}
-
-void EndTickDrawEvent(TDrawEvent<FRHICommandList>* TickDrawEvent)
-{
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		EndDrawEventCommand,
-		TDrawEvent<FRHICommandList>*,TickDrawEvent,TickDrawEvent,
-	{
-		STOP_DRAW_EVENT((*TickDrawEvent));
-		delete TickDrawEvent;
-	});
-}
-
-
-void FTickableGameObject::TickObjects(UWorld* World, int32 InTickType, bool bIsPaused, float DeltaSeconds)
-{
-	check(!bIsTickingObjects);
-	bIsTickingObjects = true;
-
-	bool bNeedsCleanup = false;
-	ELevelTick TickType = (ELevelTick)InTickType;
-
-	for( int32 i=0; i < TickableObjects.Num(); ++i )
-	{
-		if (FTickableGameObject* TickableObject = TickableObjects[i])
-		{
-			const bool bTickIt = TickableObject->IsTickable() && (TickableObject->GetTickableGameObjectWorld() == World) &&
-				(
-					(TickType != LEVELTICK_TimeOnly && !bIsPaused) ||
-					(bIsPaused && TickableObject->IsTickableWhenPaused()) ||
-					(GIsEditor && (World == nullptr || !World->IsPlayInEditor()) && TickableObject->IsTickableInEditor())
-					);
-
-			if (bTickIt)
-			{
-				STAT(FScopeCycleCounter Context(TickableObject->GetStatId());)
-				TickableObject->Tick(DeltaSeconds);
-
-				if (TickableObjects[i] == nullptr)
-				{
-					bNeedsCleanup = true;
-				}
-			}
-		}
-		else
-		{
-			bNeedsCleanup = true;
-		}
-	}
-
-	if (bNeedsCleanup)
-	{
-		TickableObjects.RemoveAll([](FTickableGameObject* Object) { return Object == nullptr; });
-	}
-
-	bIsTickingObjects = false;
-}
-
 /**
  * Update the level after a variable amount of time, DeltaSeconds, has passed.
  * All child actors are ticked after their owners have been ticked.
@@ -1133,16 +1055,7 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 		return;
 	}
 
-	TDrawEvent<FRHICommandList>* TickDrawEvent = BeginTickDrawEvent();
-
 	FWorldDelegates::OnWorldTickStart.Broadcast(TickType, DeltaSeconds);
-
-	//Tick game and other thread trackers.
-	for (int32 Tracker = 0; Tracker < (int32)EInGamePerfTrackers::Num; ++Tracker)
-	{
-		PerfTrackers->GetInGamePerformanceTracker((EInGamePerfTrackers)Tracker, EInGamePerfTrackerThreads::GameThread).Tick();
-		PerfTrackers->GetInGamePerformanceTracker((EInGamePerfTrackers)Tracker, EInGamePerfTrackerThreads::OtherThread).Tick();
-	}
 
 #if LOG_DETAILED_PATHFINDING_STATS
 	GDetailedPathFindingStats.Reset();
@@ -1150,7 +1063,6 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 
 	SCOPE_CYCLE_COUNTER(STAT_WorldTickTime);
 
-	// @todo vreditor: In the VREditor, this isn't actually wrapping the whole frame.  That would have to happen in EditorEngine.cpp's Tick.  However, it didn't seem to affect anything when I tried that.
 	if (GEngine->HMDDevice.IsValid())
 	{
 		GEngine->HMDDevice->OnStartGameFrame( GEngine->GetWorldContextFromWorldChecked( this ) );
@@ -1324,7 +1236,21 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 			GetTimerManager().Tick(DeltaSeconds);
 		}
 
-		FTickableGameObject::TickObjects(this, TickType, bIsPaused, DeltaSeconds);
+		for( int32 i=0; i<FTickableGameObject::TickableObjects.Num(); i++ )
+		{
+			FTickableGameObject* TickableObject = FTickableGameObject::TickableObjects[i];
+			bool bTickIt = TickableObject->IsTickable() && 
+				(
+					(TickType != LEVELTICK_TimeOnly && !bIsPaused) ||
+					(bIsPaused && TickableObject->IsTickableWhenPaused()) ||
+					(GIsEditor && !IsPlayInEditor() && TickableObject->IsTickableInEditor())
+				);
+			if (bTickIt)
+			{
+				STAT(FScopeCycleCounter Context(TickableObject->GetStatId());)
+				TickableObject->Tick(DeltaSeconds);
+			}
+		}
 	}
 	
 	// Update cameras and streaming volumes
@@ -1401,6 +1327,9 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 	{
 		// Update SpeedTree wind objects.
 		Scene->UpdateSpeedTreeWind(TimeSeconds);
+
+		USceneCaptureComponent2D::UpdateDeferredCaptures( Scene );
+		USceneCaptureComponentCube::UpdateDeferredCaptures( Scene );
 	}
 
 	// Tick the FX system.
@@ -1530,20 +1459,6 @@ void UWorld::Tick( ELevelTick TickType, float DeltaSeconds )
 	{
 		GEngine->HMDDevice->OnEndGameFrame( GEngine->GetWorldContextFromWorldChecked( this ) );
 	}
-
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		TickInGamePerfTrackersRT,
-		UWorld*, WorldParam, this,
-		{
-		//Tick game and other thread trackers.
-		for (int32 Tracker = 0; Tracker < (int32)EInGamePerfTrackers::Num; ++Tracker)
-		{
-			WorldParam->PerfTrackers->GetInGamePerformanceTracker((EInGamePerfTrackers)Tracker, EInGamePerfTrackerThreads::RenderThread).Tick();
-		}
-	}
-	);
-
-	EndTickDrawEvent(TickDrawEvent);
 }
 
 /**

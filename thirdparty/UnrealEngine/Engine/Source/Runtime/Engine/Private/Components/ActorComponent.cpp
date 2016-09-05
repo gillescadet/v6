@@ -43,7 +43,7 @@ FGlobalComponentReregisterContext::FGlobalComponentReregisterContext()
 	FlushRenderingCommands();
 
 	// Detach all actor components.
-	for(UActorComponent* Component : TObjectRange<UActorComponent>())
+	for(auto* Component : TObjectRange<UActorComponent>())
 	{
 		new(ComponentContexts) FComponentReregisterContext(Component);
 	}
@@ -57,7 +57,7 @@ FGlobalComponentReregisterContext::FGlobalComponentReregisterContext(const TArra
 	FlushRenderingCommands();
 
 	// Detach only actor components that are not in the excluded list
-	for (UActorComponent* Component : TObjectRange<UActorComponent>())
+	for (auto* Component : TObjectRange<UActorComponent>())
 	{
 		bool bShouldReregister=true;
 		for (UClass* ExcludeClass : ExcludeComponents)
@@ -76,6 +76,14 @@ FGlobalComponentReregisterContext::FGlobalComponentReregisterContext(const TArra
 	}
 }
 
+FGlobalComponentReregisterContext::FGlobalComponentReregisterContext(const TArray<AActor*>& InParentActors)
+{
+	ActiveGlobalReregisterContextCount++;
+
+	// wait until resources are released
+	FlushRenderingCommands();
+}
+
 FGlobalComponentReregisterContext::~FGlobalComponentReregisterContext()
 {
 	check(ActiveGlobalReregisterContextCount > 0);
@@ -90,7 +98,7 @@ FGlobalComponentRecreateRenderStateContext::FGlobalComponentRecreateRenderStateC
 	FlushRenderingCommands();
 
 	// recreate render state for all components.
-	for (UActorComponent* Component : TObjectRange<UActorComponent>())
+	for (auto* Component : TObjectRange<UActorComponent>())
 	{
 		new(ComponentContexts) FComponentRecreateRenderStateContext(Component);
 	}
@@ -101,15 +109,11 @@ FGlobalComponentRecreateRenderStateContext::~FGlobalComponentRecreateRenderState
 	ComponentContexts.Empty();
 }
 
-// Create Physics global delegate
-FActorComponentCreatePhysicsSignature UActorComponent::CreatePhysicsDelegate;
-// Destroy Physics global delegate
-FActorComponentDestroyPhysicsSignature UActorComponent::DestroyPhysicsDelegate;
 
 UActorComponent::UActorComponent(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
 	: Super(ObjectInitializer)
 {
-	OwnerPrivate = GetTypedOuter<AActor>();
+	Owner = GetTypedOuter<AActor>();
 
 	PrimaryComponentTick.TickGroup = TG_DuringPhysics;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
@@ -118,7 +122,6 @@ UActorComponent::UActorComponent(const FObjectInitializer& ObjectInitializer /*=
 
 	CreationMethod = EComponentCreationMethod::Native;
 
-	bAllowReregistration = true;
 	bAutoRegister = true;
 	bNetAddressable = false;
 	bEditableWhenInherited = true;
@@ -134,10 +137,9 @@ void UActorComponent::PostInitProperties()
 {
 	Super::PostInitProperties();
 
-	// Instance components will be added during the owner's initialization
-	if (OwnerPrivate && CreationMethod != EComponentCreationMethod::Instance)
+	if (Owner)
 	{
-		OwnerPrivate->AddOwnedComponent(this);
+		Owner->AddOwnedComponent(this);
 	}
 }
 
@@ -220,18 +222,18 @@ void UActorComponent::PostRename(UObject* OldOuter, const FName OldName)
 
 	if (OldOuter != GetOuter())
 	{
-		OwnerPrivate = GetTypedOuter<AActor>();
+		Owner = GetTypedOuter<AActor>();
 		AActor* OldOwner = (OldOuter->IsA<AActor>() ? CastChecked<AActor>(OldOuter) : OldOuter->GetTypedOuter<AActor>());
 
-		if (OwnerPrivate != OldOwner)
+		if (Owner != OldOwner)
 		{
 			if (OldOwner)
 			{
 				OldOwner->RemoveOwnedComponent(this);
 			}
-			if (OwnerPrivate)
+			if (Owner)
 			{
-				OwnerPrivate->AddOwnedComponent(this);
+				Owner->AddOwnedComponent(this);
 			}
 
 			TArray<UObject*> Children;
@@ -241,14 +243,14 @@ void UActorComponent::PostRename(UObject* OldOuter, const FName OldName)
 			{
 				if (UActorComponent* ChildComponent = Cast<UActorComponent>(Child))
 				{
-					ChildComponent->OwnerPrivate = OwnerPrivate;
+					ChildComponent->Owner = Owner;
 					if (OldOwner)
 					{
 						OldOwner->RemoveOwnedComponent(ChildComponent);
 					}
-					if (OwnerPrivate)
+					if (Owner)
 					{
-						OwnerPrivate->AddOwnedComponent(ChildComponent);
+						Owner->AddOwnedComponent(ChildComponent);
 					}
 				}
 			}
@@ -299,23 +301,24 @@ bool UActorComponent::IsOwnerSelected() const
 	return MyOwner && MyOwner->IsSelected();
 }
 
-UWorld* UActorComponent::GetWorld_Uncached() const
+UWorld* UActorComponent::GetWorld() const
 {
-	UWorld* ComponentWorld = nullptr;
-
-	AActor* MyOwner = GetOwner();
-	// If we don't have a world yet, it may be because we haven't gotten registered yet, but we can try to look at our owner
-	if (MyOwner && !MyOwner->HasAnyFlags(RF_ClassDefaultObject))
+	UWorld* ComponentWorld = World;
+	if (ComponentWorld == nullptr)
 	{
-		ComponentWorld = MyOwner->GetWorld();
-	}
+		AActor* MyOwner = GetOwner();
+		// If we don't have a world yet, it may be because we haven't gotten registered yet, but we can try to look at our owner
+		if (MyOwner && !MyOwner->HasAnyFlags(RF_ClassDefaultObject))
+		{
+			ComponentWorld = MyOwner->GetWorld();
+		}
 
-	if( ComponentWorld == nullptr )
-	{
-		// As a fallback check the outer of this component for a world. In some cases components are spawned directly in the world
-		ComponentWorld = Cast<UWorld>(GetOuter());
+		if( ComponentWorld == nullptr )
+		{
+			// As a fallback check the outer of this component for a world. In some cases components are spawned directly in the world
+			ComponentWorld = Cast<UWorld>(GetOuter());
+		}
 	}
-
 	return ComponentWorld;
 }
 
@@ -325,7 +328,7 @@ bool UActorComponent::ComponentHasTag(FName Tag) const
 }
 
 
-ENetMode UActorComponent::InternalGetNetMode() const
+ENetMode UActorComponent::GetNetMode() const
 {
 	AActor* MyOwner = GetOwner();
 	return MyOwner ? MyOwner->GetNetMode() : NM_Standalone;
@@ -333,7 +336,7 @@ ENetMode UActorComponent::InternalGetNetMode() const
 
 FSceneInterface* UActorComponent::GetScene() const
 {
-	return (WorldPrivate ? WorldPrivate->Scene : NULL);
+	return (World ? World->Scene : NULL);
 }
 
 ULevel* UActorComponent::GetComponentLevel() const
@@ -396,7 +399,7 @@ void UActorComponent::BeginDestroy()
 		OnComponentDestroyed(GExitPurge);
 	}
 
-	WorldPrivate = nullptr;
+	World = NULL;
 
 	// Remove from the parent's OwnedComponents list
 	if (AActor* MyOwner = GetOwner())
@@ -476,7 +479,7 @@ void UActorComponent::PreEditChange(UProperty* PropertyThatWillChange)
 		else
 		{
 			ExecuteUnregisterEvents();
-			WorldPrivate = nullptr;
+			World = nullptr;
 		}
 	}
 
@@ -488,7 +491,7 @@ void UActorComponent::PreEditUndo()
 {
 	Super::PreEditUndo();
 
-	OwnerPrivate = nullptr;
+	Owner = nullptr;
 	bCanUseCachedOwner = false;
 }
 
@@ -526,13 +529,13 @@ void UActorComponent::PostEditUndo()
 	{
 		bIsBeingDestroyed = false;
 
-		OwnerPrivate = GetTypedOuter<AActor>();
+		Owner = GetTypedOuter<AActor>();
 		bCanUseCachedOwner = true;
 
 		// Let the component be properly registered, after it was restored.
-		if (OwnerPrivate)
+		if (Owner)
 		{
-			OwnerPrivate->AddOwnedComponent(this);
+			Owner->AddOwnedComponent(this);
 		}
 
 		TArray<UObject*> Children;
@@ -542,21 +545,21 @@ void UActorComponent::PostEditUndo()
 		{
 			if (UActorComponent* ChildComponent = Cast<UActorComponent>(Child))
 			{
-				if (ChildComponent->OwnerPrivate)
+				if (ChildComponent->Owner)
 				{
-					ChildComponent->OwnerPrivate->RemoveOwnedComponent(ChildComponent);
+					ChildComponent->Owner->RemoveOwnedComponent(ChildComponent);
 				}
-				ChildComponent->OwnerPrivate = OwnerPrivate;
-				if (OwnerPrivate)
+				ChildComponent->Owner = Owner;
+				if (Owner)
 				{
-					OwnerPrivate->AddOwnedComponent(ChildComponent);
+					Owner->AddOwnedComponent(ChildComponent);
 				}
 			}
 		}
 
-		if (UWorld* MyWorld = GetWorld())
+		if (GetWorld())
 		{
-			MyWorld->UpdateActorComponentEndOfFrameUpdateState(this);
+			GetWorld()->UpdateActorComponentEndOfFrameUpdateState(this);
 		}
 	}
 	Super::PostEditUndo();
@@ -600,7 +603,7 @@ void UActorComponent::ConsolidatedPostEditChange(const FPropertyChangedEvent& Pr
 	{
 		// @todo UE4 james should this call UnregisterComponent instead to remove itself from the RegisteredComponents array on the owner?
 		ExecuteUnregisterEvents();
-		WorldPrivate = nullptr;
+		World = NULL;
 	}
 }
 
@@ -626,7 +629,7 @@ void UActorComponent::OnRegister()
 	checkf(!IsUnreachable(), TEXT("%s"), *GetDetailedInfo());
 	checkf(!GetOuter()->IsTemplate(), TEXT("'%s' (%s)"), *GetOuter()->GetFullName(), *GetDetailedInfo());
 	checkf(!IsTemplate(), TEXT("'%s' (%s)"), *GetOuter()->GetFullName(), *GetDetailedInfo() );
-	checkf(WorldPrivate, TEXT("OnRegister: %s to %s"), *GetDetailedInfo(), GetOwner() ? *GetOwner()->GetFullName() : TEXT("*** No Owner ***") );
+	checkf(World, TEXT("OnRegister: %s to %s"), *GetDetailedInfo(), GetOwner() ? *GetOwner()->GetFullName() : TEXT("*** No Owner ***") );
 	checkf(!bRegistered, TEXT("OnRegister: %s to %s"), *GetDetailedInfo(), GetOwner() ? *GetOwner()->GetFullName() : TEXT("*** No Owner ***") );
 	checkf(!IsPendingKill(), TEXT("OnRegister: %s to %s"), *GetDetailedInfo(), GetOwner() ? *GetOwner()->GetFullName() : TEXT("*** No Owner ***") );
 
@@ -676,8 +679,8 @@ void UActorComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	check(bHasBegunPlay);
 
-	// If we're in the process of being garbage collected it is unsafe to call out to blueprints
-	if (!HasAnyFlags(RF_BeginDestroyed) && !IsUnreachable())
+	// If we're already pending kill blueprints don't get to be notified
+	if (!HasAnyFlags(RF_BeginDestroyed))
 	{
 		ReceiveEndPlay(EndPlayReason);
 	}
@@ -755,16 +758,6 @@ bool UActorComponent::IsComponentTickEnabled() const
 	return PrimaryComponentTick.IsTickFunctionEnabled();
 }
 
-void UActorComponent::SetComponentTickInterval(float TickInterval)
-{
-	PrimaryComponentTick.TickInterval = TickInterval;
-}
-
-float UActorComponent::GetComponentTickInterval() const
-{
-	return PrimaryComponentTick.TickInterval;
-}
-
 static UActorComponent* GTestRegisterComponentTickFunctions = NULL;
 
 void UActorComponent::RegisterComponentTickFunctions(bool bRegister)
@@ -831,14 +824,14 @@ void UActorComponent::RegisterComponentWithWorld(UWorld* InWorld)
 		return;
 	}
 
-	if(InWorld == nullptr)
+	if(InWorld == NULL)
 	{
 		//UE_LOG(LogActorComponent, Log, TEXT("RegisterComponentWithWorld: (%s) NULL InWorld specified. Aborting."), *GetPathName());
 		return;
 	}
 
 	// If not registered, should not have a scene
-	checkf(WorldPrivate == nullptr, TEXT("%s"), *GetFullName());
+	checkf(World == NULL, TEXT("%s"), *GetFullName());
 
 	AActor* MyOwner = GetOwner();
 	checkSlow(MyOwner == nullptr || MyOwner->OwnsComponent(this));
@@ -870,38 +863,30 @@ void UActorComponent::RegisterComponentWithWorld(UWorld* InWorld)
 		OnComponentCreated();
 	}
 
-	WorldPrivate = InWorld;
+	World = InWorld;
 
 	ExecuteRegisterEvents();
 
 	// If not in a game world register ticks now, otherwise defer until BeginPlay. If no owner we won't trigger BeginPlay either so register now in that case as well.
-	if (!InWorld->IsGameWorld())
+	if (MyOwner == nullptr || !InWorld->IsGameWorld())
 	{
 		RegisterAllComponentTickFunctions(true);
 	}
-	else if (MyOwner == nullptr)
+
+	if (MyOwner == nullptr || MyOwner->IsActorInitialized())
 	{
 		if (!bHasBeenInitialized && bWantsInitializeComponent)
 		{
 			InitializeComponent();
 		}
-
-		RegisterAllComponentTickFunctions(true);
 	}
-	else
-	{
-		if (!bHasBeenInitialized && bWantsInitializeComponent && MyOwner->IsActorInitialized())
-		{
-			InitializeComponent();
-		}
 
-		if (MyOwner->HasActorBegunPlay() || MyOwner->IsActorBeginningPlay())
+	if (MyOwner && (MyOwner->HasActorBegunPlay() || MyOwner->IsActorBeginningPlay()))
+	{
+		RegisterAllComponentTickFunctions(true);
+		if (bWantsBeginPlay && !bHasBegunPlay)
 		{
-			RegisterAllComponentTickFunctions(true);
-			if (bWantsBeginPlay && !bHasBegunPlay)
-			{
-				BeginPlay();
-			}
+			BeginPlay();
 		}
 	}
 
@@ -926,10 +911,9 @@ void UActorComponent::RegisterComponentWithWorld(UWorld* InWorld)
 void UActorComponent::RegisterComponent()
 {
 	AActor* MyOwner = GetOwner();
-	UWorld* MyOwnerWorld = (MyOwner ? MyOwner->GetWorld() : nullptr);
-	if (ensure(MyOwnerWorld))
+	if (ensure(MyOwner && MyOwner->GetWorld()))
 	{
-		RegisterComponentWithWorld(MyOwnerWorld);
+		RegisterComponentWithWorld(MyOwner->GetWorld());
 	}
 }
 
@@ -946,7 +930,7 @@ void UActorComponent::UnregisterComponent()
 	}
 
 	// If registered, should have a world
-	checkf(WorldPrivate != nullptr, TEXT("%s"), *GetFullName());
+	checkf(World != NULL, TEXT("%s"), *GetFullName());
 
 	// Notify the texture streaming system
 	const UPrimitiveComponent* Primitive = Cast<const UPrimitiveComponent>(this);
@@ -958,7 +942,7 @@ void UActorComponent::UnregisterComponent()
 	RegisterAllComponentTickFunctions(false);
 	ExecuteUnregisterEvents();
 
-	WorldPrivate = nullptr;
+	World = NULL;
 }
 
 void UActorComponent::DestroyComponent(bool bPromoteChildren/*= false*/)
@@ -1042,7 +1026,7 @@ void UActorComponent::K2_DestroyComponent(UObject* Object)
 void UActorComponent::CreateRenderState_Concurrent()
 {
 	check(IsRegistered());
-	check(WorldPrivate->Scene);
+	check(World->Scene);
 	check(!bRenderStateCreated);
 	bRenderStateCreated = true;
 
@@ -1085,56 +1069,21 @@ void UActorComponent::DestroyRenderState_Concurrent()
 #endif
 }
 
-void UActorComponent::OnCreatePhysicsState()
+void UActorComponent::CreatePhysicsState()
 {
 	check(IsRegistered());
 	check(ShouldCreatePhysicsState());
-	check(WorldPrivate->GetPhysicsScene());
+	check(World->GetPhysicsScene());
 	check(!bPhysicsStateCreated);
 	bPhysicsStateCreated = true;
 }
 
-void UActorComponent::OnDestroyPhysicsState()
+void UActorComponent::DestroyPhysicsState()
 {
 	ensure(bPhysicsStateCreated);
 	bPhysicsStateCreated = false;
 }
 
-
-void UActorComponent::CreatePhysicsState()
-{
-	SCOPE_CYCLE_COUNTER(STAT_ComponentCreatePhysicsState);
-
-	if (!bPhysicsStateCreated && WorldPrivate->GetPhysicsScene() && ShouldCreatePhysicsState())
-	{
-		// Call virtual
-		OnCreatePhysicsState();
-
-		checkf(bPhysicsStateCreated, TEXT("Failed to route OnCreatePhysicsState (%s)"), *GetFullName());
-
-		// Broadcast delegate
-		CreatePhysicsDelegate.Broadcast(this);
-	}
-}
-
-void UActorComponent::DestroyPhysicsState()
-{
-	SCOPE_CYCLE_COUNTER(STAT_ComponentDestroyPhysicsState);
-
-	if (bPhysicsStateCreated)
-	{
-		// Broadcast delegate
-		DestroyPhysicsDelegate.Broadcast(this);
-
-		ensureMsgf(bRegistered, TEXT("Component has physics state when not registered (%s)"), *GetFullName()); // should not have physics state unless we are registered
-
-		// Call virtual
-		OnDestroyPhysicsState();
-
-		checkf(!bPhysicsStateCreated, TEXT("Failed to route OnDestroyPhysicsState (%s)"), *GetFullName());
-		checkf(!HasValidPhysicsState(), TEXT("Failed to destroy physics state (%s)"), *GetFullName());
-	}
-}
 
 void UActorComponent::ExecuteRegisterEvents()
 {
@@ -1145,25 +1094,37 @@ void UActorComponent::ExecuteRegisterEvents()
 		checkf(bRegistered, TEXT("Failed to route OnRegister (%s)"), *GetFullName());
 	}
 
-	if(FApp::CanEverRender() && !bRenderStateCreated && WorldPrivate->Scene && ShouldCreateRenderState())
+	if(FApp::CanEverRender() && !bRenderStateCreated && World->Scene && ShouldCreateRenderState())
 	{
 		SCOPE_CYCLE_COUNTER(STAT_ComponentCreateRenderState);
 		CreateRenderState_Concurrent();
 		checkf(bRenderStateCreated, TEXT("Failed to route CreateRenderState_Concurrent (%s)"), *GetFullName());
 	}
 
-	CreatePhysicsState();
+	if(!bPhysicsStateCreated && World->GetPhysicsScene() && ShouldCreatePhysicsState())
+	{
+		SCOPE_CYCLE_COUNTER(STAT_ComponentCreatePhysicsState);
+		CreatePhysicsState();
+		checkf(bPhysicsStateCreated, TEXT("Failed to route CreatePhysicsState (%s)"), *GetFullName());
+	}
 }
 
 
 void UActorComponent::ExecuteUnregisterEvents()
 {
-	DestroyPhysicsState();
+	if(bPhysicsStateCreated)
+	{
+		SCOPE_CYCLE_COUNTER(STAT_ComponentDestroyPhysicsState);
+		check(bRegistered); // should not have physics state unless we are registered
+		DestroyPhysicsState();
+		checkf(!bPhysicsStateCreated, TEXT("Failed to route DestroyPhysicsState (%s)"), *GetFullName());
+		checkf(!HasValidPhysicsState(), TEXT("Failed to destroy physics state (%s)"), *GetFullName());
+	}
 
 	if(bRenderStateCreated)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_ComponentDestroyRenderState);
-		checkf(bRegistered, TEXT("Component has render state when not registered (%s)"), *GetFullName());
+		check(bRegistered);
 		DestroyRenderState_Concurrent();
 		checkf(!bRenderStateCreated, TEXT("Failed to route DestroyRenderState_Concurrent (%s)"), *GetFullName());
 	}
@@ -1196,7 +1157,7 @@ void UActorComponent::RecreateRenderState_Concurrent()
 		checkf(!bRenderStateCreated, TEXT("Failed to route DestroyRenderState_Concurrent (%s)"), *GetFullName());
 	}
 
-	if(IsRegistered() && WorldPrivate->Scene)
+	if(IsRegistered() && World->Scene)
 	{
 		CreateRenderState_Concurrent();
 		checkf(bRenderStateCreated, TEXT("Failed to route CreateRenderState_Concurrent (%s)"), *GetFullName());
@@ -1205,11 +1166,18 @@ void UActorComponent::RecreateRenderState_Concurrent()
 
 void UActorComponent::RecreatePhysicsState()
 {
-	DestroyPhysicsState();
+	if(bPhysicsStateCreated)
+	{
+		check(IsRegistered()); // Should never have physics state unless registered
+		DestroyPhysicsState();
+		checkf(!bPhysicsStateCreated, TEXT("Failed to route DestroyPhysicsState (%s)"), *GetFullName());
+		checkf(!HasValidPhysicsState(), TEXT("Failed to destroy physics state (%s)"), *GetFullName());
+	}
 
-	if (IsRegistered())
+	if (IsRegistered() && World->GetPhysicsScene() && ShouldCreatePhysicsState())
 	{
 		CreatePhysicsState();
+		checkf(bPhysicsStateCreated, TEXT("Failed to route CreatePhysicsState (%s)"), *GetFullName());
 	}
 }
 
@@ -1291,7 +1259,7 @@ void UActorComponent::DoDeferredRenderUpdates_Concurrent()
 void UActorComponent::MarkRenderStateDirty()
 {
 	// If registered and has a render state to make as dirty
-	if(IsRegistered() && bRenderStateCreated && (!bRenderStateDirty || !GetWorld()))
+	if((!bRenderStateDirty || !GetWorld()) && IsRegistered() && bRenderStateCreated)
 	{
 		// Flag as dirty
 		bRenderStateDirty = true;
@@ -1376,8 +1344,6 @@ void UActorComponent::Activate(bool bReset)
 	{
 		SetComponentTickEnabled(true);
 		bIsActive = true;
-
-		OnComponentActivated.Broadcast(bReset);
 	}
 }
 
@@ -1387,8 +1353,6 @@ void UActorComponent::Deactivate()
 	{
 		SetComponentTickEnabled(false);
 		bIsActive = false;
-
-		OnComponentDeactivated.Broadcast();
 	}
 }
 
@@ -1499,21 +1463,12 @@ bool UActorComponent::IsSupportedForNetworking() const
 
 void UActorComponent::SetIsReplicated(bool ShouldReplicate)
 {
-	if (bReplicates != ShouldReplicate)
-	{
-		if (GetComponentClassCanReplicate())
-		{
-			bReplicates = ShouldReplicate;
+	check(GetComponentClassCanReplicate()); // Only certain component classes can replicate!
+	bReplicates = ShouldReplicate;
 
-			if (AActor* MyOwner = GetOwner())
-			{
-				MyOwner->UpdateReplicatedComponent( this );
-			}
-		}
-		else
-		{
-			UE_LOG(LogActorComponent, Error, TEXT("Calling SetIsReplicated on component of Class '%s' which cannot replicate."), *GetClass()->GetName());
-		}
+	if (AActor* MyOwner = GetOwner())
+	{
+		MyOwner->UpdateReplicatedComponent( this );
 	}
 }
 
@@ -1540,6 +1495,11 @@ ENetRole UActorComponent::GetOwnerRole() const
 {
 	AActor* MyOwner = GetOwner();
 	return (MyOwner ? MyOwner->Role.GetValue() : ROLE_None);
+}
+
+bool UActorComponent::IsNetSimulating() const
+{
+	return GetIsReplicated() && GetOwnerRole() != ROLE_Authority;
 }
 
 void UActorComponent::GetLifetimeReplicatedProps( TArray< FLifetimeProperty > & OutLifetimeProps ) const
@@ -1633,16 +1593,6 @@ void UActorComponent::GetUCSModifiedProperties(TSet<const UProperty*>& ModifiedP
 	}
 }
 
-void UActorComponent::RemoveUCSModifiedProperties(const TArray<UProperty*>& Properties)
-{
-	for (UProperty* Property : Properties)
-	{
-		FSimpleMemberReference MemberReference;
-		FMemberReference::FillSimpleMemberReference<UProperty>(Property, MemberReference);
-		UCSModifiedProperties.RemoveSwap(MemberReference);
-	}
-}
-
 void UActorComponent::SetCanEverAffectNavigation(bool bRelevant)
 {
 	if (bCanEverAffectNavigation != bRelevant)
@@ -1674,7 +1624,7 @@ void UActorComponent::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
 
-	if (Ar.IsLoading() && (Ar.HasAnyPortFlags(PPF_DuplicateForPIE)||!Ar.HasAnyPortFlags(PPF_Duplicate)) && !IsTemplate())
+	if (Ar.IsLoading() && (Ar.HasAnyPortFlags(PPF_DuplicateForPIE)||!Ar.HasAnyPortFlags(PPF_Duplicate)))
 	{
 		bHasBeenCreated = true;
 	}

@@ -183,6 +183,9 @@ public:
 	bool HandleViewModeCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld );
 	bool HandleNextViewModeCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld );
 	bool HandlePrevViewModeCommand( const TCHAR* Cmd, FOutputDevice& Ar, UWorld* InWorld );
+#if WITH_EDITOR
+	bool HandleShowMouseCursorCommand( const TCHAR* Cmd, FOutputDevice& Ar );
+#endif // WITH_EDITOR
 	bool HandlePreCacheCommand( const TCHAR* Cmd, FOutputDevice& Ar );
 	bool HandleToggleFullscreenCommand();
 	bool HandleSetResCommand( const TCHAR* Cmd, FOutputDevice& Ar );
@@ -585,7 +588,10 @@ public:
 	 *
 	 * @param InEnabledStats	Stats to enable
 	 */
-	virtual void SetEnabledStats(const TArray<FString>& InEnabledStats) override;
+	virtual void SetEnabledStats(const TArray<FString>& InEnabledStats) override
+	{
+		EnabledStats = InEnabledStats;
+	}
 
 	/**
 	 * Check whether a specific stat is enabled for this viewport
@@ -646,47 +652,6 @@ public:
 	}
 
 	/**
-	 * Gets whether or not the viewport captures the Mouse on launch of the application
-	 * Technically this controls capture on the first window activate, so in situations 
-	 * where the application is launched but isn't activated the effect is delayed until
-	 * activation.
-	 */
-	virtual bool CaptureMouseOnLaunch() override;
-
-	/**
-	 * Sets whether or not the cursor is locked to the viewport when the viewport captures the mouse
-	 */
-	DEPRECATED(4.13, "Mouse locking is now controlled by an enum value. Please call UGameViewportClient::SetMouseLockMode(EMouseLockMode) instead.")
-	void SetLockDuringCapture(bool InLockDuringCapture)
-	{
-		SetMouseLockMode( InLockDuringCapture ? EMouseLockMode::LockOnCapture : EMouseLockMode::DoNotLock );
-	}
-
-	/**
-	 * Gets whether or not the cursor is locked to the viewport when the viewport captures the mouse
-	 */
-	virtual bool LockDuringCapture() override
-	{
-		return MouseLockMode != EMouseLockMode::DoNotLock;
-	}
-
-	/**
-	 * Gets whether or not the cursor should always be locked to the viewport
-	 */
-	virtual bool ShouldAlwaysLockMouse() override
-	{
-		return MouseLockMode == EMouseLockMode::LockAlways;
-	}
-
-	/**
-	* Sets the current mouse cursor lock mode when the viewport is clicked
-	*/
-	void SetMouseLockMode(EMouseLockMode InMouseLockMode)
-	{
-		MouseLockMode = InMouseLockMode;
-	}
-
-	/**
 	 * Sets whether or not the cursor is hidden when the viewport captures the mouse
 	 */
 	void SetHideCursorDuringCapture(bool InHideCursorDuringCapture)
@@ -703,14 +668,6 @@ public:
 	}
 
 	virtual FPopupMethodReply OnQueryPopupMethod() const override;
-
-#if WITH_EDITOR
-	/** Accessor for delegate called when a game viewport received input key */
-	FOnGameViewportInputKey& OnGameViewportInputKey()
-	{
-		return GameViewportInputKeyDelegate;
-	}
-#endif
 
 private:
 	/**
@@ -754,7 +711,10 @@ private:
 
 	/** Delegate handler for when all stats are disabled in a viewport */
 	void HandleViewportStatDisableAll(const bool bInAnyViewport);
-	
+
+	/** Delegate handler for when an actor is spawned */
+	void ShowCollisionOnSpawnedActors(AActor* Actor);
+
 	/** Adds a cursor to the set based on the enum and the class reference to it. */
 	void AddCursor(EMouseCursor::Type Cursor, const FStringClassReference& CursorClass);
 
@@ -786,11 +746,6 @@ private:
 	 * @param WindowMode What window mode do we want to st the display to.
 	 */
 	bool SetDisplayConfiguration( const FIntPoint* Dimensions, EWindowMode::Type WindowMode);
-
-#if WITH_EDITOR
-	/** Delegate called when game viewport client received input key */
-	FOnGameViewportInputKey GameViewportInputKeyDelegate;
-#endif
 
 	/** Delegate called at the end of the frame when a screenshot is captured */
 	static FOnScreenshotCaptured ScreenshotCapturedDelegate;
@@ -831,6 +786,9 @@ private:
 	/** Those sound stat flags which are enabled on this viewport */
 	static ESoundShowFlags::Type SoundShowFlags;
 
+	/** Number of viewports which have enabled 'show collision' */
+	static int32 NumViewportsShowingCollision;
+
 	/** Disables splitscreen, useful when game code is in menus, and doesn't want splitscreen on */
 	bool bDisableSplitScreenOverride;
 
@@ -843,8 +801,8 @@ private:
 	/** Whether or not the cursor is hidden when the viewport captures the mouse */
 	bool bHideCursorDuringCapture;
 
-	/** Mouse cursor locking behavior when the viewport is clicked */
-	EMouseLockMode MouseLockMode;
+	/** Handle to the registered ShowCollisionOnSpawnedActors delegate */
+	FDelegateHandle ShowCollisionOnSpawnedActorsDelegateHandle;
 
 	/** Handle to the audio device created for this viewport. Each viewport (for multiple PIE) will have its own audio device. */
 	uint32 AudioDeviceHandle;

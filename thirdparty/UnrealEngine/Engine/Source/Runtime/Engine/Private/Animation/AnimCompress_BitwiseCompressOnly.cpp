@@ -16,7 +16,6 @@ UAnimCompress_BitwiseCompressOnly::UAnimCompress_BitwiseCompressOnly(const FObje
 	Description = TEXT("Bitwise Compress Only");
 }
 
-#if WITH_EDITOR
 void UAnimCompress_BitwiseCompressOnly::DoReduction(UAnimSequence* AnimSeq, const TArray<FBoneData>& BoneData)
 {
 #if WITH_EDITORONLY_DATA
@@ -48,5 +47,3 @@ void UAnimCompress_BitwiseCompressOnly::DoReduction(UAnimSequence* AnimSeq, cons
 	AnimSeq->CompressionScheme = static_cast<UAnimCompress*>( StaticDuplicateObject( this, AnimSeq ) );
 #endif // WITH_EDITORONLY_DATA
 }
-
-#endif // WITH_EDITOR

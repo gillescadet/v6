@@ -69,41 +69,6 @@ public:
 	FString Platform;
 	/** string that will be parsed for further displayed presence info */
 	FString StatusStr;
-	/** full jid for user that sent this presence update */
-	FXmppUserJid UserJid;
-
-	inline bool operator==(const FXmppUserPresence& Presence) const
-	{
-		// SentTime is explicitly not checked
-		return Status == Presence.Status &&
-			bIsAvailable == Presence.bIsAvailable &&
-			AppId == Presence.AppId &&
-			Platform == Presence.Platform &&
-			StatusStr == Presence.StatusStr &&
-			UserJid == Presence.UserJid;
-	}
-	inline bool operator!=(const FXmppUserPresence& Presence) const
-	{
-		return !(*this == Presence);
-	}
-};
-
-/**
- * Muc room presence from an Xmpp muc room member
- */
-class FXmppMucPresence : public FXmppUserPresence
-{
-public:
-	/** constructor */
-	FXmppMucPresence()
-		: FXmppUserPresence()
-	{}
-
-	FString Role;
-	FString Affiliation;
-
-	const FString& GetRoomId() const { return UserJid.Id; }
-	const FString& GetNickName() const { return UserJid.Resource; }
 };
 
 /**
@@ -144,7 +109,7 @@ public:
 	 *
 	 * @param OutMembers [out] members to update
 	 */
-	virtual void GetRosterMembers(TArray<FXmppUserJid>& OutMembers) = 0;
+	virtual void GetRosterMembers(TArray<FString>& OutMembers) = 0;
 
 	/**
 	 * Obtain presence info for a given roster member id

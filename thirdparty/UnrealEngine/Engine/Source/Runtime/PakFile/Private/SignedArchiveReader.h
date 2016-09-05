@@ -98,10 +98,6 @@ class FChunkCacheWorker : public FRunnable
 		MaxCachedChunks = 8		
 	};
 
-	/** Encrypted signatures */
-	TArray<FEncryptedSignature> EncryptedSignatures;
-	/** Decrypted signatures */
-	TArray<FDecryptedSignature> DecryptedSignatures;
 	/** Thread to run the worker FRunnable on */
 	FRunnableThread* Thread;
 	/** Archive reader */
@@ -119,17 +115,9 @@ class FChunkCacheWorker : public FRunnable
 	/** Stops this thread */
 	FThreadSafeCounter StopTaskCounter;
 	/** Available chunk requests */
-	TLockFreePointerListUnordered<FChunkRequest, PLATFORM_CACHE_LINE_SIZE> FreeChunkRequests;
+	TLockFreePointerListUnordered<FChunkRequest> FreeChunkRequests;
 	/** Public decryption key */
 	FEncryptionKey DecryptionKey;
-	/** The time at which the chunk cache worker started, for debugging purposes */
-	double StartTime;
-	/** Track the index of the last signature decrypted in the background, for debugging purposes */
-	int32 LastDecryptedSignatureIndex;
-	/** Stored CRC for the encrypted signature data after loading */
-	uint32 EncryptedSignaturesCRC;
-	/** Stored CRC for the fully dencrypted signature data after loading. Only computed when all signatures were decrypted */
-	uint32 DecryptedSignaturesCRC;
 
 	/** 
 	 * Process requested chunks 
@@ -138,13 +126,13 @@ class FChunkCacheWorker : public FRunnable
 	 */
 	int32 ProcessQueue();
 	/** 
-	 * Verifies chunk signature [*]
+	 * Verifies chunk signature 
 	 */
 	bool CheckSignature(const FChunkRequest& ChunkInfo);
 	/** 
-	* Decrypts multiple signature [*]
-	*/
-	void DecryptSignatures(int32 NextIndexToDecrypt);
+	 * Decrypts a signature 
+	 */
+	void Decrypt(uint8* DecryptedData, const int256* Data, const int64 DataLength);
 	/** 
 	 * Tries to get a pre-cached chunk buffer 
 	 */
@@ -157,14 +145,10 @@ class FChunkCacheWorker : public FRunnable
 	 * Decrements a ref count on a buffer for the specified chunk 
 	 */
 	void ReleaseBuffer(int32 ChunkIndex);
-	/**
-	* Initializes the public key
-	*/
-	void SetupDecryptionKey();
 
 public:
 
-	FChunkCacheWorker(FArchive* InReader, const TCHAR* Filename);
+	FChunkCacheWorker(FArchive* InReader);
 	virtual ~FChunkCacheWorker();
 
 	//~ Begin FRunnable Interface.
@@ -210,6 +194,8 @@ class FSignedArchiveReader : public FArchive
 		int64 Size;
 	};
 
+	/** Size of the signature */
+	const int64 SignatureSize;
 	/** Number of chunks in the archive */
 	int32 ChunkCount;	
 	/** Reader archive */
@@ -238,7 +224,7 @@ class FSignedArchiveReader : public FArchive
 	 */
 	FORCEINLINE int64 CalculateChunkOffsetFromIndex(int64 BufferIndex) const
 	{
-		return BufferIndex * FPakInfo::MaxChunkDataSize;
+		return BufferIndex * FPakInfo::MaxChunkDataSize + BufferIndex * SignatureSize;
 	}
 
 	/** 
@@ -251,7 +237,7 @@ class FSignedArchiveReader : public FArchive
 	FORCEINLINE int64 CalculateChunkOffset(int64 ReadOffset, int64& OutDataOffset) const
 	{
 		const int32 ChunkIndex = CalculateChunkIndex(ReadOffset);
-		OutDataOffset = ReadOffset;
+		OutDataOffset = ChunkIndex * SignatureSize + ReadOffset;
 		return CalculateChunkOffsetFromIndex(ChunkIndex);
 	}
 	
@@ -262,9 +248,8 @@ class FSignedArchiveReader : public FArchive
 
 	/** 
 	 * Queues chunks on the worker thread 
-	 * @return Number of chunks in the output array which are actually required for the requested length. The rest are precache chunks 
 	 */
-	int64 PrecacheChunks(TArray<FReadInfo>& Chunks, int64 Length);
+	void PrecacheChunks(TArray<FReadInfo>& Chunks, int64 Length);
 
 public:
 

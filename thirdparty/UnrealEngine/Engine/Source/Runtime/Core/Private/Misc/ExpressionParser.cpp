@@ -269,10 +269,10 @@ TArray<FExpressionToken> FExpressionTokenConsumer::Extract()
 	return Swapped;
 }
 
-void FExpressionTokenConsumer::Add(const FStringToken& SourceToken, FExpressionNode&& Node)
+void FExpressionTokenConsumer::Add(const FStringToken& SourceToken, FExpressionNode Node)
 {
 	Stream.SetReadPos(SourceToken);
-	Tokens.Emplace(SourceToken, MoveTemp(Node));
+	Tokens.Add(FExpressionToken(SourceToken, MoveTemp(Node)));
 }
 
 void FTokenDefinitions::DefineToken(TFunction<FExpressionDefinition>&& Definition)
@@ -613,8 +613,10 @@ namespace ExpressionParser
 		{
 			return MakeError(Error.GetValue());
 		}
-
-		return MakeValue(TokenConsumer.Extract());
+		else
+		{
+			return MakeValue(TokenConsumer.Extract());
+		}
 	}
 
 	CompileResultType Compile(const TCHAR* InExpression, const FTokenDefinitions& InTokenDefinitions, const FExpressionGrammar& InGrammar)
@@ -660,8 +662,10 @@ namespace ExpressionParser
 			{
 				return CompiledTokens[Index];
 			}
-
-			return RuntimeGeneratedTokens[Index - CompiledTokens.Num()];
+			else
+			{
+				return RuntimeGeneratedTokens[Index - CompiledTokens.Num()];
+			}
 		};
 
 		/** Add a new token to the runtime generated array */
@@ -746,8 +750,10 @@ namespace ExpressionParser
 		{
 			return MakeValue(GetToken(OperandStack[0]).Node.Copy());
 		}
-
-		return MakeError(LOCTEXT("SyntaxError_InvalidExpression", "Could not evaluate expression"));
+		else
+		{
+			return MakeError(LOCTEXT("SyntaxError_InvalidExpression", "Could not evaluate expression"));
+		}
 	}
 }
 

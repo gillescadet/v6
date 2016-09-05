@@ -15,6 +15,8 @@
 #include "IOS/IOSPlatformMemory.h"
 #elif PLATFORM_ANDROID
 #include "Android/AndroidMemory.h"
+#elif PLATFORM_WINRT
+#include "WinRT/WinRTMemory.h"
 #elif PLATFORM_HTML5
 #include "HTML5/HTML5PlatformMemory.h"
 #elif PLATFORM_LINUX

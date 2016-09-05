@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "Input/NavigationReply.h"
 
 class SWindow;
 struct FPointerEvent;
@@ -72,9 +71,6 @@ public:
 	/** A valid path has at least one widget in it */
 	bool IsValid() const;
 	
-	/**
-	 * Builds a string representation of the widget path.
-	 */
 	FString ToString() const;
 
 	/**
@@ -142,16 +138,11 @@ public:
 	 */
 	bool MoveFocus(int32 PathLevel, EUINavigation NavigationType);
 
-public:
 
-	/** The widgets that make up the widget path, the first item is the root widget, the end is the widget this path was built for. */
 	FArrangedChildren Widgets;
-
-	/** The top level window of this widget path. */
 	TSharedPtr< SWindow > TopLevelWindow;
-
-	/** The virtual representation of the mouse at each level in the widget path.  Due to 3D widgets, the space you transition to can be completely arbitrary as you traverse the tree. */
 	TArray< TSharedPtr<FVirtualPointerPosition> > VirtualPointerPositions;
+
 
 private:
 
@@ -226,13 +217,6 @@ public:
 	 * @return The new focus path.
 	 */
 	FWidgetPath ToNextFocusedPath(EUINavigation NavigationType);
-
-	/**
-	 * @param MoveDirection      Direction in which to move the focus.
-	 * 
-	 * @return The new focus path.
-	 */
-	FWidgetPath ToNextFocusedPath(EUINavigation NavigationType, const FNavigationReply& NavigationReply, const FArrangedWidget& RuleWidget);
 	
 	/** Get the last (leaf-most) widget in this path; assumes path is valid */
 	TWeakPtr< SWidget > GetLastWidget() const

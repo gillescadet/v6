@@ -41,7 +41,7 @@ namespace FActorEditorUtils
 	{
 		TInlineComponentArray<UActorComponent*> InstanceComponents;
 		InActor->GetComponents(InstanceComponents);
-		for (UActorComponent* Component : InstanceComponents)
+		for (auto Component : InstanceComponents)
 		{
 #if WITH_EDITOR
 			if (Component->CreationMethod == EComponentCreationMethod::Native)
@@ -76,7 +76,7 @@ namespace FActorEditorUtils
 
 		if( InActor->GetRootComponent() )
 		{
-			for(USceneComponent* ChildComponent : InActor->GetRootComponent()->GetAttachChildren())
+			for(auto* ChildComponent : InActor->GetRootComponent()->AttachChildren)
 			{
 				AActor* ChildActor = ChildComponent ? ChildComponent->GetOwner() : nullptr;
 				if(ChildActor && ChildActor != InActor && !TraverseActorTree_ParentFirst(ChildActor, InPredicate))
@@ -96,7 +96,7 @@ namespace FActorEditorUtils
 			return true;
 		}
 
-		for (USceneComponent* ChildComponent : InActor->GetRootComponent()->GetAttachChildren())
+		for (auto* ChildComponent : InActor->GetRootComponent()->AttachChildren)
 		{
 			AActor* ChildActor = ChildComponent ? ChildComponent->GetOwner() : nullptr;
 			if (ChildActor && ChildActor != InActor && !TraverseActorTree_ChildFirst(ChildActor, InPredicate))

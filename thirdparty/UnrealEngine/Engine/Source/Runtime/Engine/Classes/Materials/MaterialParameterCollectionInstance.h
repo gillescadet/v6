@@ -11,14 +11,14 @@
  * Class that stores per-world instance parameter data for a given UMaterialParameterCollection resource. 
  * Instances of this class are always transient.
  */
-UCLASS(hidecategories=object)
-class ENGINE_API UMaterialParameterCollectionInstance : public UObject
+UCLASS(hidecategories=object, MinimalAPI)
+class UMaterialParameterCollectionInstance : public UObject
 {
 	GENERATED_UCLASS_BODY()
 
 	//~ Begin UObject Interface.
-	virtual void PostInitProperties() override;
-	virtual void FinishDestroy() override;
+	ENGINE_API virtual void PostInitProperties() override;
+	ENGINE_API virtual void FinishDestroy() override;
 	//~ End UObject Interface.
 
 	/** Initializes the instance with the collection it is based off of and the world it is owned by. */

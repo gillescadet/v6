@@ -1,6 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "SlatePrivatePCH.h"
+
+#if WITH_FANCY_TEXT
+
 #include "SlateTextHighlightRunRenderer.h"
 
 FSlateTextHighlightRunRenderer::FSlateTextHighlightRunRenderer()
@@ -40,3 +43,7 @@ TSharedRef< FSlateTextHighlightRunRenderer > FSlateTextHighlightRunRenderer::Cre
 {
 	return MakeShareable( new FSlateTextHighlightRunRenderer() );
 }
+
+
+
+#endif //WITH_FANCY_TEXT

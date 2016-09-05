@@ -104,9 +104,6 @@ void FDisplayMetrics::GetDisplayMetrics( FDisplayMetrics& OutDisplayMetrics )
 	// Total screen size of the primary monitor
 	OutDisplayMetrics.PrimaryDisplayWidth = OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Right - OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Left;
 	OutDisplayMetrics.PrimaryDisplayHeight = OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Bottom - OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top;
-
-	// Apply the debug safe zones
-	OutDisplayMetrics.ApplyDefaultSafeZones();
 }
 
 TSharedRef< FGenericWindow > FAndroidApplication::MakeWindow()

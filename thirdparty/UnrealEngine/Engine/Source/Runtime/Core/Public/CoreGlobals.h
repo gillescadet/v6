@@ -22,7 +22,7 @@ extern CORE_API FOutputDeviceConsole* GLogConsole;
 
 extern CORE_API TCHAR GErrorHist[16384];
 
-// #crashReport: 2014-08-19 Combine into one, refactor.
+// @TODO yrx 2014-08-19 Combine into one.
 extern CORE_API TCHAR GErrorExceptionDescription[4096];
 extern CORE_API TCHAR GErrorMessage[4096];
 
@@ -82,14 +82,6 @@ thread work can be done until the UI pumping loop returns naturally. */
 extern CORE_API bool			GIntraFrameDebuggingGameThread;
 /** True if this is the first time through the UI message pumping loop. */
 extern CORE_API bool			GFirstFrameIntraFrameDebugging;
-
-#elif USING_CODE_ANALYSIS
-
-// Defined as variables during code analysis to prevent lots of '<constant> && <expr>' warnings
-extern CORE_API bool GIsEditor;
-extern CORE_API bool GIsUCCMakeStandaloneHeaderGenerator;
-extern CORE_API bool GIntraFrameDebuggingGameThread;
-extern CORE_API bool GFirstFrameIntraFrameDebugging;
 
 #else
 
@@ -184,7 +176,6 @@ extern CORE_API FString GEditorPerProjectIni;
 extern CORE_API FString GCompatIni;
 extern CORE_API FString GLightmassIni;
 extern CORE_API FString GScalabilityIni;
-extern CORE_API FString GHardwareIni;
 extern CORE_API FString GInputIni;
 extern CORE_API FString GGameIni;
 extern CORE_API FString GGameUserSettingsIni;
@@ -207,9 +198,6 @@ extern CORE_API void (*SuspendAsyncLoading)();
 /** Resumes async package loading. */
 extern CORE_API void (*ResumeAsyncLoading)();
 
-/** Returns true if async loading is using the async loading thread */
-extern CORE_API bool(*IsAsyncLoadingMultithreaded)();
-
 /** Whether the editor is currently loading a package or not */
 extern CORE_API bool GIsEditorLoadingPackage;
 
@@ -220,6 +208,9 @@ extern CORE_API int32 GPlayInEditorID;
 
 /** Whether or not PIE was attempting to play from PlayerStart */
 extern CORE_API bool GIsPIEUsingPlayerStart;
+
+/** Proxy class that allows verification on FApp::IsGame() accesses. */
+extern CORE_API bool IsInGameThread();
 
 /** true if the runtime needs textures to be powers of two */
 extern CORE_API bool GPlatformNeedsPowerOfTwoTextures;
@@ -279,9 +270,6 @@ extern CORE_API uint32 GRenderThreadId;
 /** Thread ID of the slate thread, if any */
 extern CORE_API uint32 GSlateLoadingThreadId;
 
-/** Thread ID of the audio thread, if any */
-extern CORE_API uint32 GAudioThreadId;
-
 /** Has GGameThreadId been set yet? */
 extern CORE_API bool GIsGameThreadIdInitialized;
 
@@ -324,8 +312,8 @@ extern CORE_API float GAsyncIOBandwidthLimit;
 /** Whether or not messages are being pumped outside of main loop */
 extern CORE_API bool GPumpingMessagesOutsideOfMainLoop;
 
-/** Enables various editor and HMD hacks that allow the experimental VR editor feature to work, perhaps at the expense of other systems */
-extern CORE_API bool GEnableVREditorHacks;
+/** Total blueprint compile time. */
+extern CORE_API double GBlueprintCompileTime;
 
 #if WITH_HOT_RELOAD_CTORS
 /**

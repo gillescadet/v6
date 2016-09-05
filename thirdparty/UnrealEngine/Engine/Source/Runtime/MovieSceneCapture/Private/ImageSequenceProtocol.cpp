@@ -4,52 +4,6 @@
 
 #include "ImageSequenceProtocol.h"
 
-void UBmpImageCaptureSettings::OnReleaseConfig(FMovieSceneCaptureSettings& InSettings)
-{
-	// Remove .{frame} if it exists. The "." before the {frame} is intentional because some media players denote frame numbers separated by "."
-	InSettings.OutputFormat = InSettings.OutputFormat.Replace(TEXT(".{frame}"), TEXT(""));
-
-	Super::OnReleaseConfig(InSettings);
-}
-
-void UBmpImageCaptureSettings::OnLoadConfig(FMovieSceneCaptureSettings& InSettings)
-{
-	// Add .{frame} if it doesn't already exist
-	FString OutputFormat = InSettings.OutputFormat;
-
-	if (!OutputFormat.Contains(TEXT("{frame}")))
-	{
-		OutputFormat.Append(TEXT(".{frame}"));
-
-		InSettings.OutputFormat = OutputFormat;
-	}
-
-	Super::OnLoadConfig(InSettings);
-}
-
-void UImageCaptureSettings::OnReleaseConfig(FMovieSceneCaptureSettings& InSettings)
-{
-	// Remove .{frame} if it exists. The "." before the {frame} is intentional because some media players denote frame numbers separated by "."
-	InSettings.OutputFormat = InSettings.OutputFormat.Replace(TEXT(".{frame}"), TEXT(""));
-
-	Super::OnReleaseConfig(InSettings);
-}
-
-void UImageCaptureSettings::OnLoadConfig(FMovieSceneCaptureSettings& InSettings)
-{
-	// Add .{frame} if it doesn't already exist
-	FString OutputFormat = InSettings.OutputFormat;
-
-	if (!OutputFormat.Contains(TEXT("{frame}")))
-	{
-		OutputFormat.Append(TEXT(".{frame}"));
-
-		InSettings.OutputFormat = OutputFormat;
-	}
-
-	Super::OnLoadConfig(InSettings);
-}
-
 #if WITH_EDITOR
 #include "IImageWrapperModule.h"
 
@@ -104,7 +58,7 @@ void FImageSequenceProtocol::Finalize()
 	FFrameGrabberProtocol::Finalize();
 }
 
-FFramePayloadPtr FImageSequenceProtocol::GetFramePayload(const FFrameMetrics& FrameMetrics, const ICaptureProtocolHost& Host)
+FFramePayloadPtr FImageSequenceProtocol::GetFramePayload(const FFrameMetrics& FrameMetrics, const ICaptureProtocolHost& Host) const
 {
 	TSharedRef<FImageFrameData, ESPMode::ThreadSafe> FrameData = MakeShareable(new FImageFrameData);
 
@@ -117,7 +71,6 @@ FFramePayloadPtr FImageSequenceProtocol::GetFramePayload(const FFrameMetrics& Fr
 	}
 
 	FrameData->Filename = Host.GenerateFilename(FrameMetrics, Extension);
-	Host.EnsureFileWritable(FrameData->Filename);
 
 	// Add our custom formatting rules as well
 	// @todo: document these on the tooltip?

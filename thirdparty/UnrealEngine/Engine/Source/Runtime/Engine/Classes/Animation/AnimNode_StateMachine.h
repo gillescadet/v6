@@ -2,7 +2,6 @@
 
 #pragma once
 #include "AnimNodeBase.h"
-#include "Animation/AnimInstance.h"
 #include "AnimStateMachineTypes.h"
 #include "AnimNode_StateMachine.generated.h"
 
@@ -55,7 +54,9 @@ struct FAnimationActiveTransitionEntry
 	// Blend data used for per-bone animation evaluation
 	TArray<FBlendSampleData> StateBlendData;
 
+#if WITH_EDITORONLY_DATA
 	TArray<int32, TInlineAllocator<3>> SourceTransitionIndices;
+#endif
 
 	// Blend profile to use for this transition. Specifying this will make the transition evaluate per-bone
 	UPROPERTY()
@@ -91,7 +92,9 @@ struct FAnimationPotentialTransition
 
 	const FBakedStateExitTransition* TransitionRule;
 
+#if WITH_EDITORONLY_DATA
 	TArray<int32, TInlineAllocator<3>> SourceTransitionIndices;
+#endif
 
 public:
 	FAnimationPotentialTransition();
@@ -115,12 +118,6 @@ public:
 	// The maximum number of transitions that can be taken by this machine 'simultaneously' in a single frame
 	UPROPERTY(EditAnywhere, Category=Settings)
 	int32 MaxTransitionsPerFrame;
-
-	// Skip transition from entry state on first update?
-	// default is true, we throw away transition data on first update
-	UPROPERTY(EditAnywhere, Category = Settings)
-	bool bSkipFirstUpdateTransition;
-
 public:
 
 	int32 GetCurrentState() const
@@ -135,7 +132,9 @@ public:
 
 	FName GetCurrentStateName() const;
 
+#if WITH_EDITORONLY_DATA
 	bool IsTransitionActive(int32 TransIndex) const;
+#endif
 
 protected:
 	// The state machine description this is an instance of
@@ -173,14 +172,11 @@ private:
 
 	TArray<FPoseContext*> StateCachedPoses;
 
-	FGraphTraversalCounter UpdateCounter;
-
 	TArray<FGraphTraversalCounter> StateCacheBoneCounters;
 
 public:
 	FAnimNode_StateMachine()
 		: MaxTransitionsPerFrame(3)
-		, bSkipFirstUpdateTransition(true)
 		, PRIVATE_MachineDescription(NULL)
 		, CurrentState(INDEX_NONE)
 		, bFirstUpdate(true)

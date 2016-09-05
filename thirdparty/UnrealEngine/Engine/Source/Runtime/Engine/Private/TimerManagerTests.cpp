@@ -59,7 +59,7 @@ bool TimerManagerTest_MissingTimers(UWorld* World, FAutomationTestBase* Test)
 	FTimerManager& TimerManager = World->GetTimerManager();
 	FTimerHandle Handle;
 
-	TimerManager.ValidateHandle(Handle);
+	Handle.MakeValid();
 
 	Test->TestFalse(TIMER_TEST_TEXT("TimerExists called with an invalid handle"), TimerManager.TimerExists(Handle));
 	Test->TestFalse(TIMER_TEST_TEXT("IsTimerActive called with an invalid handle"), TimerManager.IsTimerActive(Handle));

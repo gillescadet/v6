@@ -112,19 +112,6 @@ enum ECompilerFlags
 	/** Shader should use on chip memory instead of main memory ring buffer memory. */
 	CFLAG_OnChip,
 	CFLAG_KeepDebugInfo,
-	CFLAG_NoFastMath,
-	/** Explicitly enforce zero initialisation on shader platforms that may omit it. */
-	CFLAG_ZeroInitialise,
-	/** Explicitly enforce bounds checking on shader platforms that may omit it. */
-	CFLAG_BoundsChecking,
-	// Compile ES2 with ES3.1 features
-	CFLAG_FeatureLevelES31,
-	// Force removing unused interpolators for platforms that can opt out
-	CFLAG_ForceRemoveUnusedInterpolators,
-	// Set default precision to highp in a pixel shader (default is mediump on ES2 platforms)
-	CFLAG_UseFullPrecisionInPS,
-	// Hint that its a vertex to geometry shader
-	CFLAG_VertexToGeometryShader
 };
 
 /**
@@ -331,7 +318,7 @@ inline FArchive& operator<<(FArchive& Ar, FResourceTableEntry& Entry)
 /** The environment used to compile a shader. */
 struct FShaderCompilerEnvironment : public FRefCountedObject
 {
-	TMap<FString,TArray<ANSICHAR>> IncludeFileNameToContentsMap;
+	TMap<FString,FString> IncludeFileNameToContentsMap;
 	TArray<uint32> CompilerFlags;
 	TMap<uint32,uint8> RenderTargetOutputFormatsMap;
 	TMap<FString,FResourceTableEntry> ResourceTableMap;
@@ -352,15 +339,30 @@ struct FShaderCompilerEnvironment : public FRefCountedObject
 	
 	/**
 	 * Works for TCHAR
-	 * e.g. SetDefine(TEXT("NAME"), TEXT("Test"));
-	 * e.g. SetDefine(TEXT("NUM_SAMPLES"), 1);
-	 * e.g. SetDefine(TEXT("DOIT"), true);
+	 * e.g. SetDefine(TEXT("NUM_SAMPLES"), TEXT("1"));
 	 */
-	void SetDefine(const TCHAR* Name, const TCHAR* Value)	{ Definitions.SetDefine(Name, Value); }
-	void SetDefine(const TCHAR* Name, uint32 Value)			{ Definitions.SetDefine(Name, Value); }
-	void SetDefine(const TCHAR* Name, int32 Value)			{ Definitions.SetDefine(Name, (uint32)Value); }
-	void SetDefine(const TCHAR* Name, bool Value)			{ Definitions.SetDefine(Name, (uint32)Value); }
-	void SetDefine(const TCHAR* Name, float Value)			{ Definitions.SetFloatDefine(Name, Value); }
+	void SetDefine(const TCHAR* Name, const TCHAR* Value)
+	{
+		Definitions.SetDefine(Name, Value);
+	}
+
+	/**
+	 * Works for uint32 and bool
+	 * e.g. OutEnvironment.SetDefine(TEXT("REALLY"), bReally);
+	 * e.g. OutEnvironment.SetDefine(TEXT("NUM_SAMPLES"), NumSamples);
+	 */
+	void SetDefine(const TCHAR* Name, uint32 Value)
+	{
+		Definitions.SetDefine(Name, Value);
+	}
+
+	/**
+	 * Works for float
+	 */
+	void SetFloatDefine(const TCHAR* Name, float Value)
+	{
+		Definitions.SetFloatDefine(Name, Value);
+	}
 
 	const TMap<FString,FString>& GetDefinitions() const
 	{
@@ -382,17 +384,13 @@ struct FShaderCompilerEnvironment : public FRefCountedObject
 	{
 		// Merge the include maps
 		// Merge the values of any existing keys
-		for (TMap<FString,TArray<ANSICHAR>>::TConstIterator It(Other.IncludeFileNameToContentsMap); It; ++It )
+		for (TMap<FString,FString>::TConstIterator It(Other.IncludeFileNameToContentsMap); It; ++It )
 		{
-			TArray<ANSICHAR>* ExistingContents = IncludeFileNameToContentsMap.Find(It.Key());
+			FString* ExistingContents = IncludeFileNameToContentsMap.Find(It.Key());
 
 			if (ExistingContents)
 			{
-				if (ExistingContents->Num() > 0)
-				{
-					ExistingContents->RemoveAt(ExistingContents->Num() - 1);
-				}
-				ExistingContents->Append(It.Value());
+				(*ExistingContents) += It.Value();
 			}
 			else
 			{
@@ -425,8 +423,6 @@ struct FShaderCompilerInput
 	// Skips the preprocessor and instead loads the usf file directly
 	bool bSkipPreprocessedCache;
 
-	bool bGenerateDirectCompileFile;
-
 	// Shader pipeline information
 	bool bCompilingForShaderPipeline;
 	bool bIncludeUsedOutputs;
@@ -445,7 +441,6 @@ struct FShaderCompilerInput
 
 	FShaderCompilerInput() :
 		bSkipPreprocessedCache(false),
-		bGenerateDirectCompileFile(false),
 		bCompilingForShaderPipeline(false),
 		bIncludeUsedOutputs(false)
 	{
@@ -483,7 +478,6 @@ struct FShaderCompilerInput
 		Ar << Input.EntryPointName;
 		Ar << Input.bSkipPreprocessedCache;
 		Ar << Input.bCompilingForShaderPipeline;
-		Ar << Input.bGenerateDirectCompileFile;
 		Ar << Input.bIncludeUsedOutputs;
 		Ar << Input.UsedOutputs;
 		Ar << Input.DumpDebugInfoRootPath;

@@ -68,6 +68,7 @@ public:
 	static FORCEINLINE bool SupportsTextureRange()						{ return !bUsingApitrace; }
 	static FORCEINLINE bool SupportsDepthBoundsTest()					{ return true; }
 	static FORCEINLINE bool SupportsDrawIndirect()						{ return bSupportsDrawIndirect; }
+	static FORCEINLINE bool SupportsSRGBFramebuffer()					{ return bUseSRGBFramebuffer; }
 	
 	static FORCEINLINE bool SupportsCoreAnimation()						{ return !bUsingApitrace; }
 	

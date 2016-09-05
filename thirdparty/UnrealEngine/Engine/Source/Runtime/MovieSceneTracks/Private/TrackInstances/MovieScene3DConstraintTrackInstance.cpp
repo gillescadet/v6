@@ -15,39 +15,35 @@ FMovieScene3DConstraintTrackInstance::FMovieScene3DConstraintTrackInstance( UMov
 }
 
 
-void FMovieScene3DConstraintTrackInstance::SaveState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieScene3DConstraintTrackInstance::SaveState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
 	for (int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex)
 	{
-		UObject* Object = RuntimeObjects[ObjIndex].Get();
-		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
-
+		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 		if (SceneComponent != nullptr)
 		{
-			if (InitTransformMap.Find(Object) == nullptr)
+			if (InitTransformMap.Find(RuntimeObjects[ObjIndex]) == nullptr)
 			{
-				InitTransformMap.Add(Object, SceneComponent->GetRelativeTransform());
+				InitTransformMap.Add(RuntimeObjects[ObjIndex], SceneComponent->GetRelativeTransform());
 			}
 		}
 	}
 }
 
 
-void FMovieScene3DConstraintTrackInstance::RestoreState(const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
+void FMovieScene3DConstraintTrackInstance::RestoreState(const TArray<UObject*>& RuntimeObjects, IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance)
 {
 	for (int32 ObjIndex = 0; ObjIndex < RuntimeObjects.Num(); ++ObjIndex)
 	{
-		UObject* Object = RuntimeObjects[ObjIndex].Get();
-
-		if (!IsValid(Object))
+		if (!IsValid(RuntimeObjects[ObjIndex]))
 		{
 			continue;
 		}
 
-		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(Object);
+		USceneComponent* SceneComponent = MovieSceneHelpers::SceneComponentFromRuntimeObject(RuntimeObjects[ObjIndex]);
 		if (SceneComponent != nullptr)
 		{
-			FTransform *Transform = InitTransformMap.Find(Object);
+			FTransform *Transform = InitTransformMap.Find(RuntimeObjects[ObjIndex]);
 			if (Transform != nullptr)
 			{
 				SceneComponent->SetRelativeTransform(*Transform);
@@ -57,7 +53,7 @@ void FMovieScene3DConstraintTrackInstance::RestoreState(const TArray<TWeakObject
 }
 
 
-void FMovieScene3DConstraintTrackInstance::Update(EMovieSceneUpdateData& UpdateData, const TArray<TWeakObjectPtr<UObject>>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance) 
+void FMovieScene3DConstraintTrackInstance::Update( float Position, float LastPosition, const TArray<UObject*>& RuntimeObjects, class IMovieScenePlayer& Player, FMovieSceneSequenceInstance& SequenceInstance, EMovieSceneUpdatePass UpdatePass ) 
 {
 	UMovieScene3DConstraintSection* FirstConstraintSection = nullptr;
 
@@ -67,29 +63,22 @@ void FMovieScene3DConstraintTrackInstance::Update(EMovieSceneUpdateData& UpdateD
 	{
 		UMovieScene3DConstraintSection* ConstraintSection = CastChecked<UMovieScene3DConstraintSection>(ConstraintSections[ConstraintIndex]);
 
-		if (ConstraintSection->IsTimeWithinSection(UpdateData.Position) &&
+		if (ConstraintSection->IsTimeWithinSection(Position) &&
 			(FirstConstraintSection == nullptr || FirstConstraintSection->GetRowIndex() > ConstraintSection->GetRowIndex()))
 		{
-			TArray<TWeakObjectPtr<UObject>> ConstraintObjects;
+			TArray<UObject*> ConstraintObjects;
 			FGuid ConstraintId = ConstraintSection->GetConstraintId();
 
 			if (ConstraintId.IsValid())
 			{
 				Player.GetRuntimeObjects( Player.GetRootMovieSceneSequenceInstance(), ConstraintId, ConstraintObjects);
 
-				// Also look in this current sequence instance for the constrained object
-				UObject* FoundObject = SequenceInstance.FindObject(ConstraintId, Player);
-				if (FoundObject && ConstraintObjects.Find(FoundObject) == INDEX_NONE)
-				{
-					ConstraintObjects.Add(FoundObject);
-				}
-
 				for (int32 ConstraintObjectIndex = 0; ConstraintObjectIndex < ConstraintObjects.Num(); ++ConstraintObjectIndex)
 				{
-					AActor* Actor = Cast<AActor>(ConstraintObjects[ConstraintObjectIndex].Get());
+					AActor* Actor = Cast<AActor>(ConstraintObjects[ConstraintObjectIndex]);
 					if (Actor)
 					{
-						UpdateConstraint(UpdateData.Position, RuntimeObjects, Actor, ConstraintSection);
+						UpdateConstraint(Position, RuntimeObjects, Actor, ConstraintSection);
 					}	
 				}
 			}

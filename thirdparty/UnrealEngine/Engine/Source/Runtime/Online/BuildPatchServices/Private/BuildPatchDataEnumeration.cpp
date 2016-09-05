@@ -2,26 +2,25 @@
 
 #include "BuildPatchServicesPrivatePCH.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogDataEnumeration, Log, All);
-DEFINE_LOG_CATEGORY(LogDataEnumeration);
+#if WITH_BUILDPATCHGENERATION
 
-bool FBuildDataEnumeration::EnumerateManifestData(const FString& ManifestFilePath, const FString& OutputFile, bool bIncludeSizes)
+bool FBuildDataEnumeration::EnumerateManifestData(FString ManifestFilePath, FString OutputFile, const bool bIncludeSizes)
 {
 	bool bSuccess = false;
 	TArray<FGuid> DataList;
 	FBuildPatchAppManifestRef AppManifest = MakeShareable(new FBuildPatchAppManifest());
-	UE_LOG(LogDataEnumeration, Log, TEXT("Load manifest %s"), *ManifestFilePath);
+	GLog->Logf(ELogVerbosity::Log, TEXT("Load manifest %s"), *ManifestFilePath);
 	const double StartLoadManifest = FPlatformTime::Seconds();
 	if (AppManifest->LoadFromFile(ManifestFilePath))
 	{
 		const double LoadManifestTime = FPlatformTime::Seconds() - StartLoadManifest;
-		UE_LOG(LogDataEnumeration, Log, TEXT("Loaded manifest in %.1f seconds"), LoadManifestTime);
+		GLog->Logf(ELogVerbosity::Log, TEXT("Loaded manifest in %.1f seconds"), LoadManifestTime);
 
 		// Enumerate
 		AppManifest->GetDataList(DataList);
 
 		// Output text file
-		UE_LOG(LogDataEnumeration, Verbose, TEXT("Data file list:-"));
+		GLog->Log(ELogVerbosity::Log, TEXT("Data file list:-"));
 		FString FullList;
 		for (FGuid& DataGuid : DataList)
 		{
@@ -31,22 +30,24 @@ bool FBuildDataEnumeration::EnumerateManifestData(const FString& ManifestFilePat
 				uint64 FileSize = AppManifest->GetDataSize(DataGuid);
 				OutputLine += FString::Printf(TEXT("\t%u"), FileSize);
 			}
-			UE_LOG(LogDataEnumeration, Verbose, TEXT("%s"), *OutputLine);
+			GLog->Log(ELogVerbosity::Log, OutputLine);
 			FullList += OutputLine + TEXT("\r\n");
 		}
 		if (FFileHelper::SaveStringToFile(FullList, *OutputFile))
 		{
-			UE_LOG(LogDataEnumeration, Log, TEXT("Saved out to %s"), *OutputFile);
+			GLog->Logf(ELogVerbosity::Log, TEXT("Saved out to %s"), *OutputFile);
 			bSuccess = true;
 		}
 		else
 		{
-			UE_LOG(LogDataEnumeration, Error, TEXT("Failed to save output %s"), *OutputFile);
+			GLog->Logf(ELogVerbosity::Error, TEXT("Failed to save output %s"), *OutputFile);
 		}
 	}
 	else
 	{
-		UE_LOG(LogDataEnumeration, Error, TEXT("Failed to load manifest %s"), *ManifestFilePath);
+		GLog->Logf(ELogVerbosity::Error, TEXT("Failed to load manifest %s"), *ManifestFilePath);
 	}
 	return bSuccess;
 }
+
+#endif //WITH_BUILDPATCHGENERATION

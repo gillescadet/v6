@@ -46,7 +46,7 @@ int32 FVisualLogger::bIsRecording = false;
 
 bool FVisualLogger::CheckVisualLogInputInternal(const UObject* Object, const FLogCategoryBase& Category, ELogVerbosity::Type Verbosity, UWorld **World, FVisualLogEntry **CurrentEntry)
 {
-	if (FVisualLogger::IsRecording() == false || !Object || !GEngine || GEngine->bDisableAILogging || Object->HasAnyFlags(RF_ClassDefaultObject))
+	if (FVisualLogger::IsRecording() == false || !Object || (GEngine && GEngine->bDisableAILogging) || Object->HasAnyFlags(RF_ClassDefaultObject))
 	{
 		return false;
 	}
@@ -73,64 +73,9 @@ bool FVisualLogger::CheckVisualLogInputInternal(const UObject* Object, const FLo
 	return true;
 }
 
-void FVisualLogger::AddWhitelistedClass(UClass& InClass)
-{
-	ClassWhitelist.AddUnique(&InClass);
-}
-
-bool FVisualLogger::IsClassWhitelisted(const UClass& InClass) const
-{
-	for (const UClass* WhitelistedClass : ClassWhitelist)
-	{
-		if (InClass.IsChildOf(WhitelistedClass))
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-void FVisualLogger::AddWhitelistedObject(const UObject& InObject)
-{
-	const int32 PrevNum = ObjectWhitelist.Num();
-	ObjectWhitelist.Add(&InObject);
-
-	const bool bChanged = (PrevNum != ObjectWhitelist.Num());
-	if (bChanged)
-	{
-		FVisualLogEntry* CurrentEntry = CurrentEntryPerObject.Find(&InObject);
-		if (CurrentEntry)
-		{
-			CurrentEntry->bIsObjectWhitelisted = true;
-			CurrentEntry->UpdateAllowedToLog();
-		}
-	}
-}
-
-void FVisualLogger::ClearObjectWhitelist()
-{
-	for (const UObject* It : ObjectWhitelist)
-	{
-		FVisualLogEntry* CurrentEntry = CurrentEntryPerObject.Find(It);
-		if (CurrentEntry)
-		{
-			CurrentEntry->bIsObjectWhitelisted = false;
-			CurrentEntry->UpdateAllowedToLog();
-		}
-	}
-
-	ObjectWhitelist.Empty();
-}
-
-bool FVisualLogger::IsObjectWhitelisted(const UObject* InObject) const
-{
-	return ObjectWhitelist.Contains(InObject);
-}
-
 FVisualLogEntry* FVisualLogger::GetLastEntryForObject(const UObject* Object)
 {
-	UObject* LogOwner = FVisualLogger::FindRedirection(Object);
+	UObject * LogOwner = FVisualLogger::FindRedirection(Object);
 	return CurrentEntryPerObject.Contains(LogOwner) ? &CurrentEntryPerObject[LogOwner] : nullptr;
 }
 
@@ -138,40 +83,38 @@ FVisualLogEntry* FVisualLogger::GetEntryToWrite(const UObject* Object, float Tim
 {
 	FVisualLogEntry* CurrentEntry = nullptr;
 	UObject * LogOwner = FVisualLogger::FindRedirection(Object);
-	if (LogOwner == nullptr)
+	if (LogOwner == nullptr || (LogOwner != Object && CurrentEntryPerObject.Contains(LogOwner) == false))
 	{
 		return nullptr;
 	}
 
-	bool bInitializeNewEntry = false;
+	bool InitializeNewEntry = false;
 
-	const UWorld* World = GetWorldForVisualLogger(LogOwner);
+	const UWorld* World = GetWorldForVisualLogger(Object);
+
 	if (CurrentEntryPerObject.Contains(LogOwner))
 	{
 		CurrentEntry = &CurrentEntryPerObject[LogOwner];
-		if (CurrentEntry->bIsAllowedToLog)
+		InitializeNewEntry = TimeStamp > CurrentEntry->TimeStamp && ShouldCreate == ECreateIfNeeded::Create;
+		if (World && IsInGameThread())
 		{
-			bInitializeNewEntry = (TimeStamp > CurrentEntry->TimeStamp) && (ShouldCreate == ECreateIfNeeded::Create);
-			if (World && IsInGameThread())
+			World->GetTimerManager().ClearTimer(VisualLoggerCleanupTimerHandle);
+			for (auto& CurrentPair : CurrentEntryPerObject)
 			{
-				World->GetTimerManager().ClearTimer(VisualLoggerCleanupTimerHandle);
-				for (auto& CurrentPair : CurrentEntryPerObject)
+				FVisualLogEntry* Entry = &CurrentPair.Value;
+				if (Entry->TimeStamp >= 0 && Entry->TimeStamp < TimeStamp)
 				{
-					FVisualLogEntry* Entry = &CurrentPair.Value;
-					if (Entry->TimeStamp >= 0 && Entry->TimeStamp < TimeStamp)
+					for (FVisualLogDevice* Device : OutputDevices)
 					{
-						for (FVisualLogDevice* Device : OutputDevices)
-						{
-							Device->Serialize(CurrentPair.Key, ObjectToNameMap[CurrentPair.Key], ObjectToClassNameMap[CurrentPair.Key], *Entry);
-						}
-						Entry->Reset();
+						Device->Serialize(CurrentPair.Key, ObjectToNameMap[CurrentPair.Key], ObjectToClassNameMap[CurrentPair.Key], *Entry);
 					}
+					Entry->Reset();
 				}
 			}
 		}
 	}
 
-	if (CurrentEntry == nullptr)
+	if (!CurrentEntry)
 	{
 		// It's first and only one usage of LogOwner as regular object to get names. We assume once that LogOwner is correct here and only here.
 		CurrentEntry = &CurrentEntryPerObject.Add(LogOwner);
@@ -179,17 +122,10 @@ FVisualLogEntry* FVisualLogger::GetEntryToWrite(const UObject* Object, float Tim
 		ObjectToClassNameMap.Add(LogOwner, *(LogOwner->GetClass()->GetName()));
 		ObjectToPointerMap.Add(LogOwner, LogOwner);
 		ObjectToWorldMap.Add(LogOwner, World);
-		
-		// IsClassWhitelisted isn't super fast, but this gets calculated only once for every 
-		// object trying to log something
-		CurrentEntry->bIsClassWhitelisted = (ClassWhitelist.Num() == 0) || IsClassWhitelisted(*LogOwner->GetClass()) || IsClassWhitelisted(*Object->GetClass());
-		CurrentEntry->bIsObjectWhitelisted = IsObjectWhitelisted(LogOwner);
-		CurrentEntry->UpdateAllowedToLog();
-
-		bInitializeNewEntry = CurrentEntry->bIsAllowedToLog;
+		InitializeNewEntry = true;
 	}
 
-	if (bInitializeNewEntry)
+	if (InitializeNewEntry)
 	{
 		CurrentEntry->Reset();
 		CurrentEntry->TimeStamp = TimeStamp;
@@ -219,20 +155,41 @@ FVisualLogEntry* FVisualLogger::GetEntryToWrite(const UObject* Object, float Tim
 		}
 		else
 		{
-			const AActor* ObjectAsActor = Cast<AActor>(LogOwner);
+			const AActor* ObjectAsActor = Cast<AActor>(Object);
 			if (ObjectAsActor)
 			{
 				CurrentEntry->Location = ObjectAsActor->GetActorLocation();
-			}
-			const IVisualLoggerDebugSnapshotInterface* DebugSnapshotInterface = Cast<const IVisualLoggerDebugSnapshotInterface>(LogOwner);
-			if (DebugSnapshotInterface)
-			{
-				DebugSnapshotInterface->GrabDebugSnapshot(CurrentEntry);
+				const IVisualLoggerDebugSnapshotInterface* DebugSnapshotInterface = Cast<const IVisualLoggerDebugSnapshotInterface>(Object);
+				if (DebugSnapshotInterface)
+				{
+					DebugSnapshotInterface->GrabDebugSnapshot(CurrentEntry);
+				}
 			}
 		}
 	}
 
-	return CurrentEntry && CurrentEntry->bIsAllowedToLog ? CurrentEntry : nullptr;
+	if (World && IsInGameThread())
+	{
+		//set next tick timer to flush obsolete/old entries
+		World->GetTimerManager().SetTimer(VisualLoggerCleanupTimerHandle, FTimerDelegate::CreateLambda(
+			[this, World](){
+			for (auto& CurrentPair : CurrentEntryPerObject)
+			{
+				FVisualLogEntry* Entry = &CurrentPair.Value;
+				if (Entry->TimeStamp >= 0 && (!World || Entry->TimeStamp < World->GetTimeSeconds())) // CurrentEntry->TimeStamp == -1 means it's not initialized entry information
+				{
+					for (FVisualLogDevice* Device : OutputDevices)
+					{
+						Device->Serialize(CurrentPair.Key, ObjectToNameMap[CurrentPair.Key], ObjectToClassNameMap[CurrentPair.Key], *Entry);
+					}
+					Entry->Reset();
+				}
+			}
+		}
+		), 0.1, false);
+	}
+
+	return CurrentEntry;
 }
 
 
@@ -323,12 +280,12 @@ void FVisualLogger::EventLog(const UObject* Object, const FName EventTag1, const
 	CurrentEntry->Events[Index].EventTags.Remove(NAME_None);
 }
 
-void FVisualLogger::NavigationDataDump(const UObject* Object, const FLogCategoryBase& Category, const ELogVerbosity::Type Verbosity, const FBox& Box)
+void FVisualLogger::NavigationDataDump(const UObject* Object, const FLogCategoryBase& Category, ELogVerbosity::Type Verbosity, int32 UniqueLogId, const FBox& Box)
 {
 	SCOPE_CYCLE_COUNTER(STAT_VisualLog);
-	UWorld* World = nullptr;
-	FVisualLogEntry* CurrentEntry = nullptr;
-	if (CheckVisualLogInputInternal(Object, Category, Verbosity, &World, &CurrentEntry) == false || CurrentEntry == nullptr)
+	UWorld *World = nullptr;
+	FVisualLogEntry *CurrentEntry = nullptr;
+	if (CheckVisualLogInputInternal(Object, Category, Verbosity, &World, &CurrentEntry) == false)
 	{
 		return;
 	}
@@ -375,7 +332,6 @@ void FVisualLogger::Cleanup(UWorld* OldWorld, bool bReleaseMemory)
 		SetIsRecordingToFile(false);
 	}
 
-	Flush();
 	for (FVisualLogDevice* Device : FVisualLogger::Get().OutputDevices)
 	{
 		Device->Cleanup(bReleaseMemory);
@@ -385,28 +341,16 @@ void FVisualLogger::Cleanup(UWorld* OldWorld, bool bReleaseMemory)
 	{
 		WorldToRedirectionMap.Remove(OldWorld);
 
-		if (WorldToRedirectionMap.Num() == 0)
+		for (auto It = ObjectToWorldMap.CreateIterator(); It; ++It)
 		{
-			WorldToRedirectionMap.Reset();
-			ObjectToWorldMap.Reset();
-			CurrentEntryPerObject.Reset();
-			ObjectToNameMap.Reset();
-			ObjectToClassNameMap.Reset();
-			ObjectToPointerMap.Reset();
-		}
-		else
-		{
-			for (auto It = ObjectToWorldMap.CreateIterator(); It; ++It)
+			if (It.Value() == OldWorld)
 			{
-				if (It.Value() == OldWorld)
-				{
-					const UObject* Obj = It.Key();
-					ObjectToWorldMap.Remove(Obj);
-					CurrentEntryPerObject.Remove(Obj);
-					ObjectToNameMap.Remove(Obj);
-					ObjectToClassNameMap.Remove(Obj);
-					ObjectToPointerMap.Remove(Obj);
-				}
+				const UObject* Obj = It.Key();
+				ObjectToWorldMap.Remove(Obj);
+				CurrentEntryPerObject.Remove(Obj);
+				ObjectToNameMap.Remove(Obj);
+				ObjectToClassNameMap.Remove(Obj);
+				ObjectToPointerMap.Remove(Obj);
 			}
 		}
 	}
@@ -479,26 +423,11 @@ UObject* FVisualLogger::FindRedirection(const UObject* Object)
 	auto& RedirectionMap = GetRedirectionMap(Object);
 	if (RedirectionMap.Contains(Object) == false)
 	{
-		for (RedirectionMapType::TIterator It(RedirectionMap); It; ++It)
+		for (auto& Redirection : RedirectionMap)
 		{
-			if (It.Value().Find(Object) != INDEX_NONE)
+			if (Redirection.Value.Find(Object) != INDEX_NONE)
 			{
-				// TODO: it really shouldn't keep raw pointers here
-				// TArray<FWeakObjectPtr>::Contains/Find(UObject*) requires converting UObject to weak pointer first,
-				// but that operation is checked against data in GObjectArray and can result in a crash
-				// patch it for now, fix with vlog refactor later
-				//
-				// GUObjectArray.IsValid prints warning in log, try silent check with object index first
-				
-				const UObject* RedirectionKey = It.Key();
-				const bool bIsValid = RedirectionKey && (GUObjectArray.ObjectToIndex(RedirectionKey) >= 0) && GUObjectArray.IsValid(RedirectionKey);
-				if (!bIsValid)
-				{
-					It.RemoveCurrent();
-					break;
-				}
-
-				return FindRedirection(RedirectionKey);
+				return FindRedirection(Redirection.Key);
 			}
 		}
 	}
@@ -510,7 +439,7 @@ void FVisualLogger::SetIsRecording(bool InIsRecording)
 { 
 	if (InIsRecording == false && InIsRecording != !!bIsRecording && FParse::Param(FCommandLine::Get(), TEXT("LogNavOctree")))
 	{
-		FVisualLogger::NavigationDataDump(GetWorldForVisualLogger(nullptr), LogNavigation, ELogVerbosity::Log, FBox());
+		FVisualLogger::NavigationDataDump(GetWorldForVisualLogger(nullptr), LogNavigation, ELogVerbosity::Log, INDEX_NONE, FBox());
 	}
 	if (IsRecordingToFile())
 	{
@@ -611,7 +540,7 @@ public:
 				{
 					FString Category = FParse::Token(Cmd, 1);
 					FVisualLogger::Get().BlockAllCategories(true);
-					FVisualLogger::Get().AddCategoryToWhitelist(*Category);
+					FVisualLogger::Get().AddCategortyToWhiteList(*Category);
 					return true;
 				}
 #if WITH_EDITOR
@@ -629,7 +558,7 @@ public:
 #if ENABLE_VISUAL_LOG
 		else if (FParse::Command(&Cmd, TEXT("LogNavOctree")))
 		{
-			FVisualLogger::NavigationDataDump(GetWorldForVisualLogger(nullptr), LogNavigation, ELogVerbosity::Log, FBox());
+			FVisualLogger::NavigationDataDump(GetWorldForVisualLogger(nullptr), LogNavigation, ELogVerbosity::Log, INDEX_NONE, FBox());
 		}
 #endif
 		return false;

@@ -176,7 +176,7 @@ int32 SOverlay::GetNumWidgets() const
 	return Children.Num();
 }
 
-bool SOverlay::RemoveSlot( TSharedRef< SWidget > Widget )
+void SOverlay::RemoveSlot( TSharedRef< SWidget > Widget )
 {
 	// Search and remove
 	for( int32 CurSlotIndex = 0; CurSlotIndex < Children.Num(); ++CurSlotIndex )
@@ -185,9 +185,7 @@ bool SOverlay::RemoveSlot( TSharedRef< SWidget > Widget )
 		if( CurSlot.GetWidget() == Widget )
 		{
 			Children.RemoveAt( CurSlotIndex );
-			return true;
+			break;
 		}
 	}
-
-	return false;
 }

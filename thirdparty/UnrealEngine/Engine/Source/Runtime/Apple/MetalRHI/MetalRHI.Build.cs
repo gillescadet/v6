@@ -23,9 +23,7 @@ public class MetalRHI : ModuleRules
 		{
 			PublicFrameworks.Add("QuartzCore");
 
-			string UseMetalStats = System.Environment.GetEnvironmentVariable("ENABLE_METAL_STATISTICS");
-			var StatsModule = System.IO.Path.Combine("Runtime", "NotForLicensees", "Mac", "MetalStatistics", "MetalStatistics.Build.cs");
-			bool bMetalStats = (UseMetalStats == "1") && System.IO.File.Exists(StatsModule);
+			bool bMetalStats = false;
 
 			if ( bMetalStats )
 			{
