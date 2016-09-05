@@ -4,12 +4,15 @@
 #include "SlateBasics.h"
 #include "AutomationCommon.h"
 #include "ImageUtils.h"
+#include "ShaderCompiler.h"		// GShaderCompilingManager
 
 #if WITH_EDITOR
 #include "FileHelpers.h"
 #endif
 
 #include "Matinee/MatineeActor.h"
+
+#if (WITH_DEV_AUTOMATION_TESTS || WITH_PERF_AUTOMATION_TESTS)
 
 DEFINE_LOG_CATEGORY_STATIC(LogEngineAutomationLatentCommand, Log, All);
 DEFINE_LOG_CATEGORY(LogEditorAutomationTests);
@@ -30,30 +33,31 @@ namespace AutomationCommon
 
 		TArray<FColor> OutImageData;
 		FIntVector OutImageSize;
-		FSlateApplication::Get().TakeScreenshot(WindowRef,OutImageData,OutImageSize);
-
-		FAutomationTestFramework::GetInstance().OnScreenshotCaptured().ExecuteIfBound(OutImageSize.X, OutImageSize.Y, OutImageData, FileName);
+		if (FSlateApplication::Get().TakeScreenshot(WindowRef, OutImageData, OutImageSize))
+		{
+			FAutomationTestFramework::GetInstance().OnScreenshotCaptured().ExecuteIfBound(OutImageSize.X, OutImageSize.Y, OutImageData, FileName);
+		}
 	}
 }
-
 
 bool AutomationOpenMap(const FString& MapName)
 {
 	bool bCanProceed = true;
-
+	FString OutString = TEXT("");
 #if WITH_EDITOR
 	if (GIsEditor && AutomationCommon::OnEditorAutomationMapLoad.IsBound())
 	{
-		AutomationCommon::OnEditorAutomationMapLoad.Broadcast(MapName);
+		AutomationCommon::OnEditorAutomationMapLoad.Broadcast(MapName, &OutString);
 	}
 	else
 #endif
 	{
 		//will happen on a subsequent frame
 		check(GEngine->GetWorldContexts().Num() == 1);
-		check(GEngine->GetWorldContexts()[0].WorldType == EWorldType::Game);
-		//Don't reload the map if it's already loaded
-		if (GEngine->GetWorldContexts()[0].World()->GetName() != MapName)
+		check(GEngine->GetWorldContexts()[0].WorldType == EWorldType::Game);	
+		//Don't reload the map if it's already loaded. Check if the two are equal or one contains the other,
+		// since sometime one is a path and the other is the asset name, depending on whether we're in PIE.
+		if (!GEngine->GetWorldContexts()[0].World()->GetName().Contains(MapName) && !MapName.Contains(GEngine->GetWorldContexts()[0].World()->GetName()))
 		{
 			GEngine->Exec(GEngine->GetWorldContexts()[0].World(), *FString::Printf(TEXT("Open %s"), *MapName));
 		}
@@ -62,7 +66,7 @@ bool AutomationOpenMap(const FString& MapName)
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitForMapToLoadCommand());
 	}
 
-	return bCanProceed;
+	return (OutString.IsEmpty());
 }
 
 
@@ -192,6 +196,26 @@ bool FEngineWaitLatentCommand::Update()
 	return false;
 }
 
+ENGINE_API uint32 GStreamAllResourcesStillInFlight = -1;
+bool FStreamAllResourcesLatentCommand::Update()
+{
+	float LocalStartTime = FPlatformTime::Seconds();
+
+	GStreamAllResourcesStillInFlight = IStreamingManager::Get().StreamAllResources(Duration);
+
+	float Time = FPlatformTime::Seconds();
+
+	if(GStreamAllResourcesStillInFlight)
+	{
+		UE_LOG(LogEngineAutomationLatentCommand, Warning, TEXT("StreamAllResources() waited for %.2fs but %d resources are still in flight."), Time - LocalStartTime, GStreamAllResourcesStillInFlight);
+	}
+	else
+	{
+		UE_LOG(LogEngineAutomationLatentCommand, Log, TEXT("StreamAllResources() waited for %.2fs (max duration: %.2f)."), Time - LocalStartTime, Duration);
+	}
+
+	return true;
+}
 
 bool FEnqueuePerformanceCaptureCommands::Update()
 {
@@ -256,3 +280,19 @@ bool FExecWorldStringLatentCommand::Update()
 	GEngine->Exec(GEngine->GetWorldContexts()[0].World(), *ExecCommand);
 	return true;
 }
+
+
+/**
+* This will cause the test to wait for the shaders to finish compiling before moving on.
+*/
+bool FWaitForShadersToFinishCompilingInGame::Update()
+{
+	if (GShaderCompilingManager)
+	{
+		UE_LOG(LogEditorAutomationTests, Log, TEXT("Waiting for %i shaders to finish."), GShaderCompilingManager->GetNumRemainingJobs());
+		GShaderCompilingManager->FinishAllCompilation();
+		UE_LOG(LogEditorAutomationTests, Log, TEXT("Done waiting for shaders to finish."));
+	}
+	return true;
+}
+#endif //WITH_DEV_AUTOMATION_TESTS

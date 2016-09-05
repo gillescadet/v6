@@ -23,6 +23,7 @@ FIOSApplication::FIOSApplication()
 	, InputInterface( FIOSInputInterface::Create( MessageHandler ) )
 	, bHasLoadedInputPlugins(false)
 {
+	[IOSAppDelegate GetDelegate].IOSApplication = this;
 }
 
 void FIOSApplication::InitializeWindow( const TSharedRef< FGenericWindow >& InWindow, const TSharedRef< FGenericWindowDefinition >& InDefinition, const TSharedPtr< FGenericWindow >& InParent, const bool bShowImmediately )
@@ -109,6 +110,9 @@ void FDisplayMetrics::GetDisplayMetrics(FDisplayMetrics& OutDisplayMetrics)
 	// Total screen size of the primary monitor
 	OutDisplayMetrics.PrimaryDisplayWidth = OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Right - OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Left;
 	OutDisplayMetrics.PrimaryDisplayHeight = OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Bottom - OutDisplayMetrics.PrimaryDisplayWorkAreaRect.Top;
+
+	// Apply the debug safe zones
+	OutDisplayMetrics.ApplyDefaultSafeZones();
 }
 
 TSharedRef< FGenericWindow > FIOSApplication::MakeWindow()

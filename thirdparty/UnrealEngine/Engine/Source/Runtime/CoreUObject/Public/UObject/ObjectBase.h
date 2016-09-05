@@ -44,8 +44,8 @@ enum ELoadFlags
 	LOAD_None						= 0x00000000,	// No flags.
 	LOAD_SeekFree					= 0x00000001,	// Loads the package via the seek free loading path/ reader
 	LOAD_NoWarn						= 0x00000002,	// Don't display warning if load fails.
-	LOAD_ResolvingDeferredExports	= 0x00000004,	// Denotes that we should not defer export loading (as we're resolving them)
-//	LOAD_Unused						= 0x00000008,
+	LOAD_EditorOnly					= 0x00000004, // Load for editor-only purposes and by editor-only code
+	LOAD_ResolvingDeferredExports	= 0x00000008,	// Denotes that we should not defer export loading (as we're resolving them)
 	LOAD_Verify						= 0x00000010,	// Only verify existance; don't actually load.
 	LOAD_AllowDll					= 0x00000020,	// Allow plain DLLs.
 //	LOAD_Unused						= 0x00000040
@@ -60,7 +60,6 @@ enum ELoadFlags
 	LOAD_MemoryReader				= 0x00008000,	// Loads the file into memory and serializes from there.
 	LOAD_NoRedirects				= 0x00010000,	// Never follow redirects when loading objects; redirected loads will fail
 	LOAD_ForDiff					= 0x00020000,	// Loading for diffing.
-	LOAD_NoSeekFreeLinkerDetatch	= 0x00040000,	// Do not detach linkers for this package when seek-free loading
 	LOAD_PackageForPIE				= 0x00080000,   // This package is being loaded for PIE, it must be flagged as such immediately
 	LOAD_DeferDependencyLoads       = 0x00100000,   // Do not load external (blueprint) dependencies (instead, track them for deferred loading)
 	LOAD_ForFileDiff				= 0x00200000,	// Load the package (not for diffing in the editor), instead verify at the two packages serialized output are the same, if they are not then debug break so that you can get the callstack and object information
@@ -336,6 +335,7 @@ typedef uint64 EClassCastFlags;
 #define CASTCLASS_UDelegateFunction				DECLARE_UINT64(0x0000100000000000)
 #define CASTCLASS_UStaticMeshComponent			DECLARE_UINT64(0x0000200000000000)
 #define CASTCLASS_UMapProperty					DECLARE_UINT64(0x0000400000000000)
+#define CASTCLASS_USetProperty					DECLARE_UINT64(0x0000800000000000)
 
 #define CASTCLASS_AllFlags						DECLARE_UINT64(0xFFFFFFFFFFFFFFFF)
 
@@ -401,6 +401,7 @@ typedef uint64 EClassCastFlags;
 #define CPF_NativeAccessSpecifierPublic		DECLARE_UINT64(0x0010000000000000)		// Public native access specifier
 #define CPF_NativeAccessSpecifierProtected	DECLARE_UINT64(0x0020000000000000)		// Protected native access specifier
 #define CPF_NativeAccessSpecifierPrivate	DECLARE_UINT64(0x0040000000000000)		// Private native access specifier
+#define CPF_SkipSerialization				DECLARE_UINT64(0x0080000000000000)		// Property shouldn't be serialized, can still be exported to text
 
 #define CPF_NonPIETransient \
 	EMIT_DEPRECATED_WARNING_MESSAGE("CPF_NonPIETransient is deprecated. Please use CPF_NonPIEDuplicateTransient instead.") \
@@ -414,6 +415,7 @@ typedef uint64 EClassCastFlags;
 #define CPF_PropagateToArrayInner	(CPF_ExportObject | CPF_PersistentInstance | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_Config | CPF_EditConst | CPF_Deprecated | CPF_EditorOnly | CPF_AutoWeak | CPF_UObjectWrapper )
 #define CPF_PropagateToMapValue		(CPF_ExportObject | CPF_PersistentInstance | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_Config | CPF_EditConst | CPF_Deprecated | CPF_EditorOnly | CPF_AutoWeak | CPF_UObjectWrapper | CPF_Edit )
 #define CPF_PropagateToMapKey		(CPF_ExportObject | CPF_PersistentInstance | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_Config | CPF_EditConst | CPF_Deprecated | CPF_EditorOnly | CPF_AutoWeak | CPF_UObjectWrapper | CPF_Edit )
+#define CPF_PropagateToSetElement	(CPF_ExportObject | CPF_PersistentInstance | CPF_InstancedReference | CPF_ContainsInstancedReference | CPF_Config | CPF_EditConst | CPF_Deprecated | CPF_EditorOnly | CPF_AutoWeak | CPF_UObjectWrapper | CPF_Edit )
 
 /** the flags that should never be set on interface properties */
 #define CPF_InterfaceClearMask		(CPF_ExportObject|CPF_InstancedReference|CPF_ContainsInstancedReference)
@@ -454,7 +456,7 @@ enum EObjectFlags
 
 	// The group of flags tracks the stages of the lifetime of a uobject
 	RF_NeedLoad					=0x00000400,	///< During load, indicates object needs loading.
-	//RF_Unused				=0x00000800,	///
+	RF_KeepForCooker			=0x00000800,	///< Keep this object during garbage collection because it's still being used by the cooker
 	RF_NeedPostLoad				=0x00001000,	///< Object needs to be postloaded.
 	RF_NeedPostLoadSubobjects	=0x00002000,	///< During load, indicates that the object still needs to instance subobjects and fixup serialized component references
 	//RF_Unused				=0x00004000,	///
@@ -475,7 +477,7 @@ enum EObjectFlags
 };
 
 	// Special all and none masks
-#define RF_AllFlags				(EObjectFlags)0x03ffffff	///< All flags, used mainly for error checking
+#define RF_AllFlags				(EObjectFlags)0x07ffffff	///< All flags, used mainly for error checking
 
 	// Predefined groups of the above
 #define RF_Load						((EObjectFlags)(RF_Public | RF_Standalone | RF_Transactional | RF_ClassDefaultObject | RF_ArchetypeObject | RF_DefaultSubObject | RF_TextExportTransient | RF_InheritableComponentTemplate)) // Flags to load from Unrealfiles.
@@ -933,6 +935,9 @@ namespace UP
 
 		/// Property shouldn't be exported to text format (e.g. copy/paste)
 		TextExportTransient,
+
+		/// Property shouldn't be serialized, can still be exported to text
+		SkipSerialization,
 	};
 }
 
@@ -1073,6 +1078,9 @@ namespace UM
 		/// [PropertyMetadata] Used for FColor and FLinearColor properties. Indicates that the Alpha property should be hidden when displaying the property widget in the details.
 		HideAlphaChannel,
 
+		/// [PropertyMetadata] Signifies that the bool property is only displayed inline as an edit condition toggle in other properties, and should not be shown on its own row.
+		InlineEditConditionToggle,
+
 		/// [PropertyMetadata] Used for FStringClassReference properties.  Indicates whether only blueprint classes should be shown in the class picker.
 		IsBlueprintBaseOnly,
 
@@ -1112,6 +1120,9 @@ namespace UM
 		/// [PropertyMetadta] Used by FDirectoryPath properties. Indicates that the directory dialog will output a path relative to the game content directory when setting the property.
 		RelativeToGameContentDir,
 
+		/// [PropertyMetadta] Used by FDirectoryPath properties. Indicates that the path will be picked using the Slate-style directory picker inside the game Content dir.
+		ContentDir,
+
 		// [PropertyMetadata] Used by struct properties. Indicates that the inner properties will not be shown inside an expandable struct, but promoted up a level.
 		ShowOnlyInnerProperties,
 
@@ -1129,6 +1140,9 @@ namespace UM
 
 		/// [PropertyMetadata] Property defaults are generated by the Blueprint compiler and will not be copied when CopyPropertiesForUnrelatedObjects is called post-compile.
 		BlueprintCompilerGeneratedDefaults,
+
+		/// [PropertyMetadata] Used by FDirectoryPath properties.  Converts the path to a long package name
+		LongPackageName,
 	};
 
 	// Metadata usable in UPROPERTY for customizing the behavior of Persona and UMG
@@ -1276,7 +1290,8 @@ Class declaration macros.
 
 #define DECLARE_CLASS( TClass, TSuperClass, TStaticFlags, TStaticCastFlags, TPackage, TRequiredAPI  ) \
 private: \
-    TClass & operator=(TClass const &);   \
+    TClass& operator=(TClass&&);   \
+    TClass& operator=(const TClass&);   \
 	TRequiredAPI static UClass* GetPrivateStaticClass(const TCHAR* Package); \
 public: \
 	/** Bitwise union of #EClassFlags pertaining to this class.*/ \

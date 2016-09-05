@@ -13,14 +13,24 @@
 const ANSICHAR* FGenericCrashContext::CrashContextRuntimeXMLNameA = "CrashContext.runtime-xml";
 const TCHAR* FGenericCrashContext::CrashContextRuntimeXMLNameW = TEXT( "CrashContext.runtime-xml" );
 
-const FString FGenericCrashContext::CrashContextExtension = TEXT( ".runtime-xml" );
+const ANSICHAR* FGenericCrashContext::CrashConfigFileNameA = "CrashReportClient.ini";
+const TCHAR* FGenericCrashContext::CrashConfigFileNameW = TEXT("CrashReportClient.ini");
+const FString FGenericCrashContext::CrashConfigExtension = TEXT(".ini");
+const FString FGenericCrashContext::ConfigSectionName = TEXT("CrashReportClient");
+
+const FString FGenericCrashContext::CrashContextExtension = TEXT(".runtime-xml");
 const FString FGenericCrashContext::RuntimePropertiesTag = TEXT( "RuntimeProperties" );
 const FString FGenericCrashContext::PlatformPropertiesTag = TEXT( "PlatformProperties" );
 const FString FGenericCrashContext::UE4MinidumpName = TEXT( "UE4Minidump.dmp" );
 const FString FGenericCrashContext::NewLineTag = TEXT( "&nl;" );
 
+const FString FGenericCrashContext::CrashTypeCrash = TEXT("Crash");
+const FString FGenericCrashContext::CrashTypeAssert = TEXT("Assert");
+const FString FGenericCrashContext::CrashTypeEnsure = TEXT("Ensure");
+
 bool FGenericCrashContext::bIsInitialized = false;
 FPlatformMemoryStats FGenericCrashContext::CrashMemoryStats = FPlatformMemoryStats();
+int32 FGenericCrashContext::StaticCrashContextIndex = 0;
 
 namespace NCachedCrashContextProperties
 {
@@ -47,7 +57,11 @@ namespace NCachedCrashContextProperties
 	static FString DefaultLocale;
 	static int32 CrashDumpMode;
 	static int32 SecondsSinceStart;
-	static FString CrashGUID;
+	static FString CrashGUIDRoot;
+	static FString UserActivityHint;
+	static FString GameSessionID;
+	static FString CommandLine;
+	static FString CrashReportClientRichText;
 }
 
 void FGenericCrashContext::Initialize()
@@ -74,6 +88,7 @@ void FGenericCrashContext::Initialize()
 	NCachedCrashContextProperties::PrimaryGPUBrand = FPlatformMisc::GetPrimaryGPUBrand();
 	NCachedCrashContextProperties::UserName = FPlatformProcess::UserName();
 	NCachedCrashContextProperties::DefaultLocale = FPlatformMisc::GetDefaultLocale();
+	NCachedCrashContextProperties::CommandLine = FCommandLine::IsInitialized() ? FCommandLine::GetOriginalForLogging() : TEXT(""); 
 
 	// Using the -fullcrashdump parameter will cause full memory minidumps to be created for crashes
 	NCachedCrashContextProperties::CrashDumpMode = (int32)ECrashDumpMode::Default;
@@ -91,7 +106,7 @@ void FGenericCrashContext::Initialize()
 	}
 
 	const FGuid Guid = FGuid::NewGuid();
-	NCachedCrashContextProperties::CrashGUID = FString::Printf(TEXT("UE4CC-%s-%s"), *NCachedCrashContextProperties::PlatformNameIni, *Guid.ToString(EGuidFormats::Digits));
+	NCachedCrashContextProperties::CrashGUIDRoot = FString::Printf(TEXT("UE4CC-%s-%s"), *NCachedCrashContextProperties::PlatformNameIni, *Guid.ToString(EGuidFormats::Digits));
 
 	// Initialize delegate for updating SecondsSinceStart, because FPlatformTime::Seconds() is not POSIX safe.
 	const float PollingInterval = 1.0f;
@@ -101,27 +116,74 @@ void FGenericCrashContext::Initialize()
 		return true;
 	} ), PollingInterval );
 
+	FCoreDelegates::UserActivityStringChanged.AddLambda([](const FString& InUserActivity)
+	{
+		NCachedCrashContextProperties::UserActivityHint = InUserActivity;
+	});
+
+	FCoreDelegates::GameSessionIDChanged.AddLambda([](const FString& InGameSessionID)
+	{
+		NCachedCrashContextProperties::GameSessionID = InGameSessionID;
+	});
+
+	FCoreDelegates::CrashOverrideParamsChanged.AddLambda([](const FCrashOverrideParameters& InParams)
+	{
+		NCachedCrashContextProperties::CrashReportClientRichText = InParams.CrashReportClientMessageText;
+	});
+
+	FCoreDelegates::ConfigReadyForUse.AddStatic(FGenericCrashContext::InitializeFromConfig);
+
 	bIsInitialized = true;
 }
 
+void FGenericCrashContext::InitializeFromConfig()
+{
+#if !NO_LOGGING
+	const bool bForceGetSection = false;
+	const bool bConstSection = true;
+	FConfigSection* CRCConfigSection = GConfig->GetSectionPrivate(*ConfigSectionName, bForceGetSection, bConstSection, GEngineIni);
+
+	if (CRCConfigSection != nullptr)
+	{
+		// Create a config file and save to a temp location. This file will be copied to
+		// the crash folder for all crash reports create by this session.
+		FConfigFile CrashConfigFile;
+
+		FConfigSection CRCConfigSectionCopy(*CRCConfigSection);
+		CrashConfigFile.Add(ConfigSectionName, CRCConfigSectionCopy);
+
+		CrashConfigFile.Dirty = true;
+		CrashConfigFile.Write(GetCrashConfigFilePath());
+	}
+#endif
+}
+
 FGenericCrashContext::FGenericCrashContext()
+	: bIsEnsure(false)
 {
 	CommonBuffer.Reserve( 32768 );
+	CrashContextIndex = StaticCrashContextIndex++;
 }
 
 void FGenericCrashContext::SerializeContentToBuffer()
 {
+	TCHAR CrashGUID[CrashGUIDLength];
+	GetUniqueCrashName(CrashGUID, CrashGUIDLength);
+
 	// Must conform against:
 	// https://www.securecoding.cert.org/confluence/display/seccode/SIG30-C.+Call+only+asynchronous-safe+functions+within+signal+handlers
 	AddHeader();
 
 	BeginSection( *RuntimePropertiesTag );
 	AddCrashProperty( TEXT( "CrashVersion" ), (int32)ECrashDescVersions::VER_3_CrashContext );
-	AddCrashProperty( TEXT( "CrashGUID" ), *NCachedCrashContextProperties::CrashGUID );
+	AddCrashProperty( TEXT( "CrashGUID" ), (const TCHAR*)CrashGUID);
 	AddCrashProperty( TEXT( "ProcessId" ), FPlatformProcess::GetCurrentProcessId() );
 	AddCrashProperty( TEXT( "IsInternalBuild" ), NCachedCrashContextProperties::bIsInternalBuild );
 	AddCrashProperty( TEXT( "IsPerforceBuild" ), NCachedCrashContextProperties::bIsPerforceBuild );
 	AddCrashProperty( TEXT( "IsSourceDistribution" ), NCachedCrashContextProperties::bIsSourceDistribution );
+	AddCrashProperty( TEXT( "IsEnsure" ), bIsEnsure );
+	AddCrashProperty( TEXT( "IsAssert" ), FDebug::bHasAsserted );
+	AddCrashProperty( TEXT( "CrashType" ), GetCrashTypeString(bIsEnsure, FDebug::bHasAsserted) );
 
 	AddCrashProperty( TEXT( "SecondsSinceStart" ), NCachedCrashContextProperties::SecondsSinceStart );
 
@@ -129,13 +191,31 @@ void FGenericCrashContext::SerializeContentToBuffer()
 	AddCrashProperty( TEXT( "GameName" ), *NCachedCrashContextProperties::GameName );
 	AddCrashProperty( TEXT( "ExecutableName" ), *NCachedCrashContextProperties::ExecutableName );
 	AddCrashProperty( TEXT( "BuildConfiguration" ), EBuildConfigurations::ToString( FApp::GetBuildConfiguration() ) );
+	AddCrashProperty( TEXT( "GameSessionID" ), *NCachedCrashContextProperties::GameSessionID );
 
 	AddCrashProperty( TEXT( "PlatformName" ), *NCachedCrashContextProperties::PlatformName );
 	AddCrashProperty( TEXT( "PlatformNameIni" ), *NCachedCrashContextProperties::PlatformNameIni );
 	AddCrashProperty( TEXT( "EngineMode" ), FPlatformMisc::GetEngineMode() );
+	AddCrashProperty( TEXT( "DeploymentName"), FApp::GetDeploymentName() );
 	AddCrashProperty( TEXT( "EngineVersion" ), *FEngineVersion::Current().ToString() );
-	AddCrashProperty( TEXT( "CommandLine" ), FCommandLine::IsInitialized() ? FCommandLine::GetOriginalForLogging() : TEXT( "" ) );
-	AddCrashProperty( TEXT( "LanguageLCID" ), FInternationalization::Get().GetCurrentCulture()->GetLCID() );
+	AddCrashProperty( TEXT("CommandLine"), *NCachedCrashContextProperties::CommandLine );
+	if (FInternationalization::IsAvailable())
+	{
+		AddCrashProperty(TEXT("LanguageLCID"), FInternationalization::Get().GetCurrentCulture()->GetLCID());
+	}
+	else
+	{
+		FCulturePtr DefaultCulture = FInternationalization::Get().GetCulture(TEXT("en"));
+		if (DefaultCulture.IsValid())
+		{
+			AddCrashProperty(TEXT("LanguageLCID"), DefaultCulture->GetLCID());
+		}
+		else
+		{
+			const int DefaultCultureLCID = 1033;
+			AddCrashProperty(TEXT("LanguageLCID"), DefaultCultureLCID);
+		}
+	}
 	AddCrashProperty( TEXT( "AppDefaultLocale" ), *NCachedCrashContextProperties::DefaultLocale );
 
 	AddCrashProperty( TEXT( "IsUE4Release" ), NCachedCrashContextProperties::bIsUE4Release );
@@ -153,8 +233,10 @@ void FGenericCrashContext::SerializeContentToBuffer()
 	AddCrashProperty( TEXT( "CallStack" ), TEXT( "" ) );
 	AddCrashProperty( TEXT( "SourceContext" ), TEXT( "" ) );
 	AddCrashProperty( TEXT( "UserDescription" ), TEXT( "" ) );
+	AddCrashProperty( TEXT( "UserActivityHint" ), *NCachedCrashContextProperties::UserActivityHint );
 	AddCrashProperty( TEXT( "ErrorMessage" ), (const TCHAR*)GErrorMessage ); // GErrorMessage may be broken.
 	AddCrashProperty( TEXT( "CrashDumpMode" ), NCachedCrashContextProperties::CrashDumpMode );
+	AddCrashProperty( TEXT( "CrashReporterMessage" ), *NCachedCrashContextProperties::CrashReportClientRichText );
 
 	// Add misc stats.
 	AddCrashProperty( TEXT( "Misc.NumberOfCores" ), NCachedCrashContextProperties::NumberOfCores );
@@ -168,7 +250,7 @@ void FGenericCrashContext::SerializeContentToBuffer()
 	AddCrashProperty( TEXT( "Misc.OSVersionMinor" ), *NCachedCrashContextProperties::OsSubVersion );
 
 
-	// #YRX_Crash: 2015-07-21 Move to the crash report client.
+	// #CrashReport: 2015-07-21 Move to the crash report client.
 	/*{
 		uint64 AppDiskTotalNumberOfBytes = 0;
 		uint64 AppDiskNumberOfFreeBytes = 0;
@@ -211,18 +293,18 @@ void FGenericCrashContext::SerializeContentToBuffer()
 	AddFooter();
 }
 
-const FString& FGenericCrashContext::GetUniqueCrashName()
+void FGenericCrashContext::GetUniqueCrashName(TCHAR* GUIDBuffer, int32 BufferSize) const
 {
-	return NCachedCrashContextProperties::CrashGUID;
+	FCString::Snprintf(GUIDBuffer, BufferSize, TEXT("%s_%04i"), *NCachedCrashContextProperties::CrashGUIDRoot, CrashContextIndex);
 }
 
-const bool FGenericCrashContext::IsFullCrashDump()
+const bool FGenericCrashContext::IsFullCrashDump() const
 {
 	return (NCachedCrashContextProperties::CrashDumpMode == (int32)ECrashDumpMode::FullDump) ||
 		(NCachedCrashContextProperties::CrashDumpMode == (int32)ECrashDumpMode::FullDumpAlways);
 }
 
-const bool FGenericCrashContext::IsFullCrashDumpOnEnsure()
+const bool FGenericCrashContext::IsFullCrashDumpOnEnsure() const
 {
 	return (NCachedCrashContextProperties::CrashDumpMode == (int32)ECrashDumpMode::FullDumpAlways);
 }
@@ -282,7 +364,6 @@ void FGenericCrashContext::EndSection( const TCHAR* SectionName )
 	CommonBuffer += LINE_TERMINATOR;
 }
 
-
 FString FGenericCrashContext::EscapeXMLString( const FString& Text )
 {
 	return Text
@@ -306,6 +387,30 @@ FString FGenericCrashContext::UnescapeXMLString( const FString& Text )
 		.Replace( TEXT( "&lt;" ), TEXT( "<" ) )
 		.Replace( TEXT( "&gt;" ), TEXT( ">" ) )
 		.Replace( *NewLineTag, TEXT( "\n" ) );
+}
+
+const TCHAR* FGenericCrashContext::GetCrashTypeString(bool InIsEnsure, bool InIsAssert)
+{
+	if (InIsEnsure)
+	{
+		return *CrashTypeEnsure;
+	}
+	else if (InIsAssert)
+	{
+		return *CrashTypeAssert;
+	}
+
+	return *CrashTypeCrash;
+}
+
+const TCHAR* FGenericCrashContext::GetCrashConfigFilePath()
+{
+	static FString CrashConfigFilePath;
+	if (CrashConfigFilePath.IsEmpty())
+	{
+		CrashConfigFilePath = FPaths::Combine(*FPaths::GameLogDir(), *NCachedCrashContextProperties::CrashGUIDRoot, FGenericCrashContext::CrashConfigFileNameW);
+	}
+	return *CrashConfigFilePath;
 }
 
 FProgramCounterSymbolInfoEx::FProgramCounterSymbolInfoEx( FString InModuleName, FString InFunctionName, FString InFilename, uint32 InLineNumber, uint64 InSymbolDisplacement, uint64 InOffsetInModule, uint64 InProgramCounter ) :

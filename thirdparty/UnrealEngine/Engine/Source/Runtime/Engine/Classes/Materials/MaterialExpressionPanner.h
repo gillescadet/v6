@@ -16,6 +16,9 @@ class UMaterialExpressionPanner : public UMaterialExpression
 	UPROPERTY(meta = (RequiredInput = "false", ToolTip = "Defaults to Game Time if not specified"))
 	FExpressionInput Time;
 
+	UPROPERTY(meta = (RequiredInput = "false", ToolTip = "Vector2 speed scale, if specified"))
+	FExpressionInput Speed;
+
 	UPROPERTY(EditAnywhere, Category=MaterialExpressionPanner)
 	float SpeedX;
 
@@ -32,9 +35,11 @@ class UMaterialExpressionPanner : public UMaterialExpression
 	bool bFractionalPart;
 
 	//~ Begin UMaterialExpression Interface
+#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
 	virtual bool NeedsRealtimePreview() override { return Time.Expression==NULL && (SpeedX != 0.f || SpeedY != 0.f); }
+#endif
 	//~ End UMaterialExpression Interface
 
 };

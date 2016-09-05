@@ -3,7 +3,6 @@
 #pragma once
 #include "AI/Navigation/NavigationAvoidanceTypes.h"
 #include "AI/RVOAvoidanceInterface.h"
-#include "Animation/AnimationAsset.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Engine/EngineTypes.h"
 #include "GameFramework/PawnMovementComponent.h"
@@ -22,7 +21,10 @@ struct ENGINE_API FFindFloorResult
 {
 	GENERATED_USTRUCT_BODY()
 
-	/** True if there was a blocking hit in the floor test. */
+	/**
+	* True if there was a blocking hit in the floor test that was NOT in initial penetration.
+	* The HitResult can give more info about other circumstances.
+	*/
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category=CharacterFloor)
 	uint32 bBlockingHit:1;
 
@@ -134,7 +136,7 @@ public:
 protected:
 
 	/** Character movement component belongs to */
-	UPROPERTY()
+	UPROPERTY(Transient, DuplicateTransient)
 	ACharacter* CharacterOwner;
 
 public:
@@ -452,6 +454,10 @@ public:
 	UPROPERTY(Category="Character Movement: Physics Interaction", EditAnywhere, BlueprintReadWrite, meta=(editcondition = "bEnablePhysicsInteraction"))
 	bool bPushForceScaledToMass;
 
+	/** If enabled, the PushForce location is moved using PushForcePointZOffsetFactor. Otherwise simply use the impact point. */
+	UPROPERTY(Category = "Character Movement: Physics Interaction", EditAnywhere, BlueprintReadWrite, meta = (editcondition = "bEnablePhysicsInteraction"))
+	bool bPushForceUsingZOffset;
+
 	/** If enabled, the applied push force will try to get the physics object to the same velocity than the player, not faster. This will only
 		scale the force down, it will never apply more force than defined by PushForceFactor. */
 	UPROPERTY(Category="Character Movement: Physics Interaction", EditAnywhere, BlueprintReadWrite, meta=(editcondition = "bEnablePhysicsInteraction"))
@@ -513,16 +519,26 @@ protected:
 	FVector Acceleration;
 
 	/**
-	 * Location after last PerformMovement update. Used internally to detect changes in position from outside character movement to try to validate the current floor.
+	 * Location after last PerformMovement or SimulateMovement update. Used internally to detect changes in position from outside character movement to try to validate the current floor.
 	 */
 	UPROPERTY()
 	FVector LastUpdateLocation;
 
 	/**
-	 * Velocity after last PerformMovement update. Used internally to detect changes in velocity from external sources.
+	 * Rotation after last PerformMovement or SimulateMovement update.
+	 */
+	UPROPERTY()
+	FQuat LastUpdateRotation;
+
+	/**
+	 * Velocity after last PerformMovement or SimulateMovement update. Used internally to detect changes in velocity from external sources.
 	 */
 	UPROPERTY()
 	FVector LastUpdateVelocity;
+
+	/** Timestamp when location or rotation last changed during an update. Only valid on the server. */
+	UPROPERTY(Transient)
+	float ServerLastTransformUpdateTimeStamp;
 
 	/** Accumulated impulse to be added next tick. */
 	UPROPERTY()
@@ -541,7 +557,16 @@ protected:
 	/** Computes the analog input modifier based on current input vector and/or acceleration. */
 	virtual float ComputeAnalogInputModifier() const;
 
+	/** Used for throttling "stuck in geometry" logging. */
+	float LastStuckWarningTime;
+
+	/** Used when throttling "stuck in geometry" logging, to output the number of events we skipped if throttling. */
+	uint32 StuckWarningCountSinceNotify;
+
 public:
+
+	/** Get the value of ServerLastTransformUpdateTimeStamp. */
+	FORCEINLINE float GetServerLastTransformUpdateTimeStamp() const { return ServerLastTransformUpdateTimeStamp;  }
 
 	/**
 	 * Compute remaining time step given remaining time and current iterations.
@@ -577,6 +602,37 @@ public:
 	int32 MaxSimulationIterations;
 
 	/**
+	* Max distance we allow simulated proxies to depenetrate when moving out of anything but Pawns.
+	* This is generally more tolerant than with Pawns, because other geometry is either not moving, or is moving predictably with a bit of delay compared to on the server.
+	* @see MaxDepenetrationWithGeometryAsProxy, MaxDepenetrationWithPawn, MaxDepenetrationWithPawnAsProxy
+	*/
+	UPROPERTY(Category="Character Movement (General Settings)", EditAnywhere, BlueprintReadWrite, AdvancedDisplay, meta=(ClampMin="0", UIMin="0"))
+	float MaxDepenetrationWithGeometry;
+
+	/**
+	* Max distance we allow simulated proxies to depenetrate when moving out of anything but Pawns.
+	* This is generally more tolerant than with Pawns, because other geometry is either not moving, or is moving predictably with a bit of delay compared to on the server.
+	* @see MaxDepenetrationWithGeometry, MaxDepenetrationWithPawn, MaxDepenetrationWithPawnAsProxy
+	*/
+	UPROPERTY(Category="Character Movement (General Settings)", EditAnywhere, BlueprintReadWrite, AdvancedDisplay, meta=(ClampMin="0", UIMin="0"))
+	float MaxDepenetrationWithGeometryAsProxy;
+
+	/**
+	* Max distance we are allowed to depenetrate when moving out of other Pawns.
+	* @see MaxDepenetrationWithGeometry, MaxDepenetrationWithGeometryAsProxy, MaxDepenetrationWithPawnAsProxy
+	*/
+	UPROPERTY(Category="Character Movement (General Settings)", EditAnywhere, BlueprintReadWrite, AdvancedDisplay, meta=(ClampMin="0", UIMin="0"))
+	float MaxDepenetrationWithPawn;
+
+	/**
+	 * Max distance we allow simulated proxies to depenetrate when moving out of other Pawns.
+	 * Typically we don't want a large value, because we receive a server authoritative position that we should not then ignore by pushing them out of the local player.
+	 * @see MaxDepenetrationWithGeometry, MaxDepenetrationWithGeometryAsProxy, MaxDepenetrationWithPawn
+	 */
+	UPROPERTY(Category="Character Movement (General Settings)", EditAnywhere, BlueprintReadWrite, AdvancedDisplay, meta=(ClampMin="0", UIMin="0"))
+	float MaxDepenetrationWithPawnAsProxy;
+
+	/**
 	 * How long to take to smoothly interpolate from the old pawn position on the client to the corrected one sent by the server. Not used by Linear smoothing.
 	 */
 	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, AdvancedDisplay, meta=(ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
@@ -587,6 +643,18 @@ public:
 	 */
 	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, AdvancedDisplay, meta=(ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
 	float NetworkSimulatedSmoothRotationTime;
+
+	/**
+	* Similar setting as NetworkSimulatedSmoothLocationTime but only used on Listen servers.
+	*/
+	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, AdvancedDisplay, meta=(ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
+	float ListenServerNetworkSimulatedSmoothLocationTime;
+
+	/**
+	* Similar setting as NetworkSimulatedSmoothRotationTime but only used on Listen servers.
+	*/
+	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, AdvancedDisplay, meta=(ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
+	float ListenServerNetworkSimulatedSmoothRotationTime;
 
 	/** Maximum distance character is allowed to lag behind server location when interpolating between updates. */
 	UPROPERTY(Category="Character Movement (Networking)", EditDefaultsOnly, meta=(ClampMin="0.0", UIMin="0.0"))
@@ -688,8 +756,11 @@ public:
 	UPROPERTY(Transient, Category="Character Movement", EditAnywhere, BlueprintReadWrite)
 	uint32 bIgnoreClientMovementErrorChecksAndCorrection:1;
 
-	/** if true, event NotifyJumpApex() to CharacterOwner's controller when at apex of jump.  Is cleared when event is triggered. */
-	UPROPERTY(Category="Character Movement: Jumping / Falling", EditAnywhere, BlueprintReadWrite)
+	/**
+	 * If true, event NotifyJumpApex() to CharacterOwner's controller when at apex of jump. Is cleared when event is triggered.
+	 * By default this is off, and if you want the event to fire you typically set it to true when movement mode changes to "Falling" from another mode (see OnMovementModeChanged).
+	 */
+	UPROPERTY(Category="Character Movement: Jumping / Falling", VisibleAnywhere, BlueprintReadWrite)
 	uint32 bNotifyApex:1;
 
 	/** Instantly stop when in flying mode and no acceleration is being applied. */
@@ -947,6 +1018,7 @@ public:
 	virtual void RequestDirectMove(const FVector& MoveVelocity, bool bForceMaxSpeed) override;
 	virtual bool CanStartPathFollowing() const override;
 	virtual bool CanStopPathFollowing() const override;
+	virtual float GetPathFollowingBrakingDistance(float MaxSpeed) const override;
 	//END UNaVMovementComponent Interface
 
 	//Begin UPawnMovementComponent Interface
@@ -1288,6 +1360,9 @@ protected:
 	 */
 	virtual FVector ProjectLocationFromNavMesh(float DeltaSeconds, const FVector& CurrentFeetLocation, const FVector& TargetNavLocation, float UpOffset, float DownOffset);
 
+	/** Performs trace for ProjectLocationFromNavMesh */
+	virtual void FindBestNavMeshLocation(const FVector& TraceStart, const FVector& TraceEnd, const FVector& CurrentFeetLocation, const FVector& TargetNavLocation, FHitResult& OutHitResult) const;
+
 public:
 
 	/** Called by owning Character upon successful teleport from AActor::TeleportTo(). */
@@ -1481,13 +1556,16 @@ protected:
 	virtual void MoveAlongFloor(const FVector& InVelocity, float DeltaSeconds, FStepDownResult* OutStepDownResult = NULL);
 
 	/** Notification that the character is stuck in geometry.  Only called during walking movement. */
-	virtual void OnCharacterStuckInGeometry();
+	virtual void OnCharacterStuckInGeometry(const FHitResult* Hit);
 
 	/**
 	 * Adjusts velocity when walking so that Z velocity is zero.
 	 * When bMaintainHorizontalGroundVelocity is false, also rescales the velocity vector to maintain the original magnitude, but in the horizontal direction.
 	 */
 	virtual void MaintainHorizontalGroundVelocity();
+
+	/** Overridden to enforce max distances based on hit geometry. */
+	virtual FVector GetPenetrationAdjustment(const FHitResult& Hit) const override;
 
 	/** Overridden to set bJustTeleported to true, so we don't make incorrect velocity calculations based on adjusted movement. */
 	virtual bool ResolvePenetrationImpl(const FVector& Adjustment, const FHitResult& Hit, const FQuat& NewRotation) override;
@@ -1629,7 +1707,7 @@ protected:
 
 	/** Called when the collision capsule touches another primitive component */
 	UFUNCTION()
-	virtual void CapsuleTouched(AActor* Other, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	virtual void CapsuleTouched(UPrimitiveComponent* OverlappedComp, AActor* Other, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	// Enum used to control GetPawnCapsuleExtent behavior
 	enum EShrinkCapsuleExtent
@@ -1838,6 +1916,9 @@ protected:
 	/** Ticks the characters pose and accumulates root motion */
 	void TickCharacterPose(float DeltaTime);
 
+	/** On the server if we know we are having our replication rate throttled, this method checks if important replicated properties have changed that should cause us to return to the normal replication rate. */
+	virtual bool ShouldCancelAdaptiveReplication() const;
+
 public:
 
 	/** React to instantaneous change in position. Invalidates cached floor recomputes it if possible if there is a current movement base. */
@@ -1855,11 +1936,41 @@ public:
 		It will also handle TimeStamp resets if it detects a gap larger than MinTimeBetweenTimeStampResets / 2.f
 		!! ServerData.CurrentClientTimeStamp can be reset !!
 		@returns true if TimeStamp is valid, or false if it has expired. */
-	bool VerifyClientTimeStamp(float TimeStamp, FNetworkPredictionData_Server_Character & ServerData);
+	virtual bool VerifyClientTimeStamp(float TimeStamp, FNetworkPredictionData_Server_Character & ServerData);
 protected:
 	/** Internal const check for client timestamp validity without side-effects. 
 	  * @see VerifyClientTimeStamp */
 	bool IsClientTimeStampValid(float TimeStamp, const FNetworkPredictionData_Server_Character& ServerData, bool& bTimeStampResetDetected) const;
+
+	/** Called by UCharacterMovementComponent::VerifyClientTimeStamp() when a client timestamp reset has been detected and is valid. */
+	virtual void OnClientTimeStampResetDetected();
+
+	/** 
+	 * Processes client timestamps from ServerMoves, detects and protects against time discrepancy between client-reported times and server time
+	 * Called by UCharacterMovementComponent::VerifyClientTimeStamp() for valid timestamps.
+	 */
+	virtual void ProcessClientTimeStampForTimeDiscrepancy(float ClientTimeStamp, FNetworkPredictionData_Server_Character& ServerData);
+
+	/** 
+	 * Called by UCharacterMovementComponent::ProcessClientTimeStampForTimeDiscrepancy() (on server) when the time from client moves 
+	 * significantly differs from the server time, indicating potential time manipulation by clients (speed hacks, significant network 
+	 * issues, client performance problems) 
+	 * @param CurrentTimeDiscrepancy		Accumulated time difference between client ServerMove and server time - this is bounded
+	 *										by MovementTimeDiscrepancy config variables in AGameNetworkManager, and is the value with which
+	 *										we test against to trigger this function. This is reset when MovementTimeDiscrepancy resolution
+	 *										is enabled
+	 * @param LifetimeRawTimeDiscrepancy	Accumulated time difference between client ServerMove and server time - this is unbounded
+	 *										and does NOT get affected by MovementTimeDiscrepancy resolution, and is useful as a longer-term
+	 *										view of how the given client is performing. High magnitude unbounded error points to
+	 *										intentional tampering by a client vs. occasional "naturally caused" spikes in error due to
+	 *										burst packet loss/performance hitches
+	 * @param Lifetime						Game time over which LifetimeRawTimeDiscrepancy has accrued (useful for determining severity
+	 *										of LifetimeUnboundedError)
+	 * @param CurrentMoveError				Time difference between client ServerMove and how much time has passed on the server for the
+	 *										current move that has caused TimeDiscrepancy to accumulate enough to trigger detection.
+	 */
+	virtual void OnTimeDiscrepancyDetected(float CurrentTimeDiscrepancy, float LifetimeRawTimeDiscrepancy, float Lifetime, float CurrentMoveError);
+
 
 public:
 
@@ -1929,6 +2040,9 @@ public:
 	 *  @return LocalID for this Root Motion Source */
 	uint16 ApplyRootMotionSource(FRootMotionSource* SourcePtr);
 
+	/** Called during ApplyRootMotionSource call, useful for project-specific alerts for "something is about to be altering our movement" */
+	virtual void OnRootMotionSourceBeingApplied(const FRootMotionSource* Source);
+
 	/** Get a RootMotionSource from current root motion by name */
 	TSharedPtr<FRootMotionSource> GetRootMotionSource(FName InstanceName);
 
@@ -1966,6 +2080,10 @@ public:
 	UPROPERTY(Transient)
 	FRootMotionMovementParams RootMotionParams;
 
+	/** Velocity extracted from RootMotionParams when there is anim root motion active. Invalid to use when HasAnimRootMotion() returns false. */
+	UPROPERTY(Transient)
+	FVector AnimRootMotionVelocity;
+
 	/** True when SimulatedProxies are simulating RootMotion */
 	UPROPERTY(Transient)
 	bool bWasSimulatingRootMotion;
@@ -1981,12 +2099,21 @@ public:
 	void SimulateRootMotion(float DeltaSeconds, const FTransform& LocalRootMotionTransform);
 
 	/**
-	 * Calculate velocity from root motion. Under some movement conditions, only portions of root motion may be used (e.g. when falling Z may be ignored).
+	 * Calculate velocity from anim root motion.
 	 * @param RootMotionDeltaMove	Change in location from root motion.
 	 * @param DeltaSeconds			Elapsed time
 	 * @param CurrentVelocity		Non-root motion velocity at current time, used for components of result that may ignore root motion.
+	 * @see ConstrainAnimRootMotionVelocity
 	 */
+	virtual FVector CalcAnimRootMotionVelocity(const FVector& RootMotionDeltaMove, float DeltaSeconds, const FVector& CurrentVelocity) const;
+
+	DEPRECATED(4.13, "CalcRootMotionVelocity() has been replaced by CalcAnimRootMotionVelocity() instead, and ConstrainAnimRootMotionVelocity() now handles restricting root motion velocity under different conditions.")
 	virtual FVector CalcRootMotionVelocity(const FVector& RootMotionDeltaMove, float DeltaSeconds, const FVector& CurrentVelocity) const;
+
+	/**
+	 * Constrain components of root motion velocity that may not be appropriate given the current movement mode (e.g. when falling Z may be ignored).
+	 */
+	virtual FVector ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity, const FVector& CurrentVelocity) const;
 
 	// RVO Avoidance
 
@@ -2001,6 +2128,7 @@ protected:
 	/** called in Tick to update data in RVO avoidance manager */
 	void UpdateDefaultAvoidance();
 
+public:
 	/** lock avoidance velocity */
 	void SetAvoidanceVelocityLock(class UAvoidanceManager* Avoidance, float Duration);
 
@@ -2078,6 +2206,8 @@ public:
 	float DeltaTime;    // amount of time for this move
 	float CustomTimeDilation;
 	float JumpKeyHoldTime;
+	int32 JumpMaxCount;
+	int32 JumpCurrentCount;
 	uint8 MovementMode;	// packed movement mode
 
 	// Information at the start of the move
@@ -2200,6 +2330,23 @@ public:
 	uint8 MovementMode;
 };
 
+class FCharacterReplaySample
+{
+public:
+	FCharacterReplaySample() : RemoteViewPitch( 0 ), Time( 0.0f )
+	{
+	}
+
+	friend ENGINE_API FArchive& operator<<( FArchive& Ar, FCharacterReplaySample& V );
+
+	FVector			Location;
+	FRotator		Rotation;
+	FVector			Velocity;
+	FVector			Acceleration;
+	uint8			RemoteViewPitch;
+	float			Time;					// This represents time since replay started
+};
+
 class ENGINE_API FNetworkPredictionData_Client_Character : public FNetworkPredictionData_Client, protected FNoncopyable
 {
 public:
@@ -2253,8 +2400,14 @@ public:
 	/** Used to track time of last correction */
 	float LastCorrectionTime;
 
+	/** Used to track the timestamp of the last server move. */
+	double SmoothingServerTimeStamp;
+
+	/** Used to track the client time as we try to match the server.*/
+	double SmoothingClientTimeStamp;
+
 	/** Used to track how much time has elapsed since last correction. It can be computed as World->TimeSince(LastCorrectionTime). */
-	DEPRECATED(4.11, "bUseLinearSmoothing will be removed, use LastCorrectionTime instead.")
+	DEPRECATED(4.11, "CurrentSmoothTime will be removed, use LastCorrectionTime instead.")
 	float CurrentSmoothTime;
 
 	/** Used to signify that linear smoothing is desired */
@@ -2278,14 +2431,29 @@ public:
 
 	/** How long to take to smoothly interpolate from the old pawn rotation on the client to the corrected one sent by the server.  Must be >= 0. Not used for linear smoothing. */
 	float SmoothNetUpdateRotationTime;
-	
-	/** How long server will wait for client move update before setting position */
+
+	/** (DEPRECATED) How long server will wait for client move update before setting position */
+	DEPRECATED(4.12, "MaxResponseTime has been renamed to MaxMoveDeltaTime for clarity in what it does and will be removed, use MaxMoveDeltaTime instead.")
 	float MaxResponseTime;
+	
+	/** 
+	 * Max delta time for a given move, in real seconds
+	 * Based off of AGameNetworkManager::MaxMoveDeltaTime config setting, but can be modified per actor
+	 * if needed.
+	 * This value is mirrored in FNetworkPredictionData_Server, which is what server logic runs off of.
+	 * Client needs to know this in order to not send move deltas that are going to get clamped anyway (meaning
+	 * they'll be rejected/corrected).
+	 * Note: This was previously named MaxResponseTime, but has been renamed to reflect what it does more accurately
+	 */
+	float MaxMoveDeltaTime;
 
 	/** Values used for visualization and debugging of simulated net corrections */
 	FVector LastSmoothLocation;
 	FVector LastServerLocation;
 	float	SimulatedDebugDrawTime;
+
+	/** Array of replay samples that we use to interpolate between to get smooth location/rotation/velocity/ect */
+	TArray< FCharacterReplaySample > ReplaySamples;
 
 	/** Finds SavedMove index for given TimeStamp. Returns INDEX_NONE if not found (move has been already Acked or cleared). */
 	int32 GetSavedMoveIndex(float TimeStamp) const;
@@ -2314,21 +2482,75 @@ class ENGINE_API FNetworkPredictionData_Server_Character : public FNetworkPredic
 {
 public:
 
-	FNetworkPredictionData_Server_Character();
+	FNetworkPredictionData_Server_Character(const UCharacterMovementComponent& ServerMovement);
 	virtual ~FNetworkPredictionData_Server_Character();
 
 	FClientAdjustment PendingAdjustment;
 
-	float CurrentClientTimeStamp;	// Timestamp from the Client of most recent ServerMove() processed for this player
-	float LastUpdateTime;			// Last time server updated client with a move correction or confirmation
+	/** Timestamp from the Client of most recent ServerMove() processed for this player */
+	float CurrentClientTimeStamp;
 
-	// how long server will wait for client move update before setting position
-	// @TODO: don't duplicate between server and client data (though it's used by both)
+	/** Last time server updated client with a move correction */
+	float LastUpdateTime;
+
+	/** Server clock time when last server move was received from client (does NOT include forced moves on server) */
+	float ServerTimeStampLastServerMove;
+
+	/** (DEPRECATED) How long server will wait for client move update before setting position */
+	DEPRECATED(4.12, "MaxResponseTime has been renamed to MaxMoveDeltaTime for clarity in what it does and will be removed, use MaxMoveDeltaTime instead.")
 	float MaxResponseTime;
+	
+	/** 
+	 * Max delta time for a given move, in real seconds
+	 * Based off of AGameNetworkManager::MaxMoveDeltaTime config setting, but can be modified per actor
+	 * if needed.
+	 * Note: This was previously named MaxResponseTime, but has been renamed to reflect what it does more accurately
+	 */
+	float MaxMoveDeltaTime;
 
-	uint32 bForceClientUpdate:1;	// Force client update on the next ServerMoveHandleClientError() call.
+	/** Force client update on the next ServerMoveHandleClientError() call. */
+	uint32 bForceClientUpdate:1;
 
-	/** @return time delta to use for the current ServerMove() */
-	float GetServerMoveDeltaTime(float TimeStamp) const;
+	/** Accumulated timestamp difference between autonomous client and server for tracking long-term trends */
+	float LifetimeRawTimeDiscrepancy;
+
+	/** 
+	 * Current time discrepancy between client-reported moves and time passed
+	 * on the server. Time discrepancy resolution's goal is to keep this near zero.
+	 */
+	float TimeDiscrepancy;
+
+	/** True if currently in the process of resolving time discrepancy */
+	bool bResolvingTimeDiscrepancy;
+
+	/** 
+	 * When bResolvingTimeDiscrepancy is true, we are in time discrepancy resolution mode whose output is
+	 * this value (to be used as the DeltaTime for current ServerMove)
+	 */
+	float TimeDiscrepancyResolutionMoveDeltaOverride;
+
+	/** 
+	 * When bResolvingTimeDiscrepancy is true, we are in time discrepancy resolution mode where we bound
+	 * move deltas by Server Deltas. In cases where there are multiple ServerMove RPCs handled within one
+	 * server frame tick, we need to accumulate the client deltas of the "no tick" Moves so that the next
+	 * Move processed that the server server has ticked for takes into account those previous deltas. 
+	 * If we did not use this, the higher the framerate of a client vs the server results in more 
+	 * punishment/payback time.
+	 */
+	float TimeDiscrepancyAccumulatedClientDeltasSinceLastServerTick;
+
+	/** Creation time of this prediction data, used to contextualize LifetimeRawTimeDiscrepancy */
+	float WorldCreationTime;
+
+	/** 
+	 * @return Time delta to use for the current ServerMove(). Takes into account time discrepancy resolution if active.
+	 */
+	float GetServerMoveDeltaTime(float ClientTimeStamp, float ActorTimeDilation) const;
+
+	/** 
+	 * @return Base time delta to use for a ServerMove, default calculation (no time discrepancy resolution)
+	 */
+	float GetBaseServerMoveDeltaTime(float ClientTimeStamp, float ActorTimeDilation) const;
+
 };
 

@@ -33,7 +33,7 @@ FRenderQueryRHIRef FD3D11DynamicRHI::RHICreateRenderQuery(ERenderQueryType Query
 	}
 
 	Desc.MiscFlags = 0;
-	VERIFYD3D11RESULT(Direct3DDevice->CreateQuery(&Desc,Query.GetInitReference()));
+	VERIFYD3D11RESULT_EX(Direct3DDevice->CreateQuery(&Desc,Query.GetInitReference()), Direct3DDevice);
 	return new FD3D11RenderQuery(Query, QueryType);
 }
 
@@ -129,14 +129,9 @@ bool FD3D11DynamicRHI::GetQueryData(ID3D11Query* Query,void* Data,SIZE_T DataSiz
 		// Return failure if the query isn't complete, and waiting wasn't requested.
 		return false;
 	}
-	else if( Result == DXGI_ERROR_DEVICE_REMOVED || Result == DXGI_ERROR_DEVICE_RESET || Result == DXGI_ERROR_DRIVER_INTERNAL_ERROR )
-	{
-		bDeviceRemoved = true;
-		return false;
-	}
 	else
 	{
-		VERIFYD3D11RESULT(Result);
+		VERIFYD3D11RESULT_EX(Result, Direct3DDevice);
 		return false;
 	}
 }
@@ -161,7 +156,7 @@ void FD3D11EventQuery::InitDynamicRHI()
 	D3D11_QUERY_DESC QueryDesc;
 	QueryDesc.Query = D3D11_QUERY_EVENT;
 	QueryDesc.MiscFlags = 0;
-	VERIFYD3D11RESULT(D3DRHI->GetDevice()->CreateQuery(&QueryDesc,Query.GetInitReference()));
+	VERIFYD3D11RESULT_EX(D3DRHI->GetDevice()->CreateQuery(&QueryDesc,Query.GetInitReference()), D3DRHI->GetDevice());
 
 	// Initialize the query by issuing an initial event.
 	IssueEvent();
@@ -211,27 +206,43 @@ void FD3D11BufferedGPUTiming::PlatformStaticInitialize(void* UserData)
 	QueryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
 	QueryDesc.MiscFlags = 0;
 
-	D3DResult = D3DRHI->GetDevice()->CreateQuery(&QueryDesc, FreqQuery.GetInitReference() );
-	if ( D3DResult == S_OK )
 	{
-		D3D11DeviceContext->Begin(FreqQuery);
-		D3D11DeviceContext->End(FreqQuery);
+		// to track down some rare event where GTimingFrequency is 0 or <1000*1000
+		uint32 DebugState = 0;
+		uint32 DebugCounter = 0;
 
-		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT FreqQueryData;
-
-		D3DResult = D3D11DeviceContext->GetData(FreqQuery,&FreqQueryData,sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT),0);
-		double StartTime = FPlatformTime::Seconds();
-		while ( D3DResult == S_FALSE && (FPlatformTime::Seconds() - StartTime) < 0.1 )
+		D3DResult = D3DRHI->GetDevice()->CreateQuery(&QueryDesc, FreqQuery.GetInitReference());
+		if (D3DResult == S_OK)
 		{
-			FPlatformProcess::Sleep( 0.005f );
-			D3DResult = D3D11DeviceContext->GetData(FreqQuery,&FreqQueryData,sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT),0);
+			DebugState = 1;
+			D3D11DeviceContext->Begin(FreqQuery);
+			D3D11DeviceContext->End(FreqQuery);
+
+			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT FreqQueryData;
+
+			D3DResult = D3D11DeviceContext->GetData(FreqQuery, &FreqQueryData, sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT), 0);
+			double StartTime = FPlatformTime::Seconds();
+			while (D3DResult == S_FALSE && (FPlatformTime::Seconds() - StartTime) < 0.5f)
+			{
+				++DebugCounter;
+				FPlatformProcess::Sleep(0.005f);
+				D3DResult = D3D11DeviceContext->GetData(FreqQuery, &FreqQueryData, sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT), 0);
+			}
+
+			if (D3DResult == S_OK)
+			{
+				DebugState = 2;
+				GTimingFrequency = FreqQueryData.Frequency;
+				checkSlow(!FreqQueryData.Disjoint);
+
+				if (FreqQueryData.Disjoint)
+				{
+					DebugState = 3;
+				}
+			}
 		}
 
-		if(D3DResult == S_OK)
-		{
-			GTimingFrequency = FreqQueryData.Frequency;
-			checkSlow(!FreqQueryData.Disjoint);
-		}
+		UE_LOG(LogD3D11RHI, Log, TEXT("GPU Timing Frequency: %f (Debug: %d %d)"), GTimingFrequency / (double)(1000 * 1000), DebugState, DebugCounter);
 	}
 
 	FreqQuery = NULL;
@@ -449,7 +460,7 @@ void FD3D11DisjointTimeStampQuery::InitDynamicRHI()
 	QueryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
 	QueryDesc.MiscFlags = 0;
 
-	VERIFYD3D11RESULT(D3DRHI->GetDevice()->CreateQuery(&QueryDesc, DisjointQuery.GetInitReference()));
+	VERIFYD3D11RESULT_EX(D3DRHI->GetDevice()->CreateQuery(&QueryDesc, DisjointQuery.GetInitReference()), D3DRHI->GetDevice());
 }
 
 void FD3D11DisjointTimeStampQuery::ReleaseDynamicRHI()

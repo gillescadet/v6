@@ -3,6 +3,8 @@
 #include "JsonPrivatePCH.h"
 #include "Json.h"
 
+#if WITH_DEV_AUTOMATION_TESTS
+
 /**
  * FJsonAutomationTest
  * Simple unit test that runs Json's in-built test cases
@@ -77,11 +79,11 @@ bool FJsonAutomationTest::RunTest(const FString& Parameters)
 		bool bSuccessful = FJsonSerializer::Deserialize(Reader, Array);
 		check(bSuccessful);
 		check( Array.Num() == 1 );
-		check( Array[0].IsValid() )
+		check( Array[0].IsValid() );
 
 		TSharedPtr< FJsonObject > Object = Array[0]->AsObject();
 		check( Object.IsValid() );
-		check( Object->GetStringField( TEXT("Value") ) == TEXT("Some String") )
+		check( Object->GetStringField( TEXT("Value") ) == TEXT("Some String") );
 
 		FString OutputString;
 		TSharedRef< FCondensedJsonStringWriter > Writer = FCondensedJsonStringWriterFactory::Create( &OutputString );
@@ -683,3 +685,5 @@ bool FJsonAutomationTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+#endif //WITH_DEV_AUTOMATION_TESTS

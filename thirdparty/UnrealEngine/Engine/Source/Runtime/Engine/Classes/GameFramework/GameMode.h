@@ -8,6 +8,7 @@
 
 class FDebugDisplayInfo;
 class FUniqueNetId;
+struct FUniqueNetIdRepl;
 
 //~=============================================================================
 //  GameMode defines the rules and mechanics of the game.  It is only 
@@ -120,10 +121,14 @@ class ENGINE_API AGameMode : public AInfo
 protected:
 
 	/** What match state we are currently in */
+	UPROPERTY(Transient)
 	FName MatchState;
 
 	/** Updates the match state and calls the appropriate transition functions */
 	virtual void SetMatchState(FName NewState);
+
+	/** Overridable virtual function to dispatch the appropriate transition functions before GameState and Blueprints get SetMatchState calls. */
+	virtual void OnMatchStateSet();
 
 	/** Implementable event to respond to match state changes */
 	UFUNCTION(BlueprintImplementableEvent, Category="Game", meta=(DisplayName="OnSetMatchState"))
@@ -442,6 +447,7 @@ public:
 	 * @param	ErrorMessage			When set to a non-empty value, the player will be rejected using the error message set
 	 */
 	virtual void PreLogin(const FString& Options, const FString& Address, const TSharedPtr<const FUniqueNetId>& UniqueId, FString& ErrorMessage);
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage);
 
 	/** 
 	 * Called to login new players by creating a player controller, overridable by the game
@@ -462,6 +468,7 @@ public:
 	 * @return a new player controller for the logged in player, NULL if login failed for any reason
 	 */
 	virtual APlayerController* Login(class UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const TSharedPtr<const FUniqueNetId>& UniqueId, FString& ErrorMessage);
+	virtual APlayerController* Login(class UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage);
 
 	/** Called after a successful login.  This is the first place it is safe to call replicated functions on the PlayerAController. */
 	virtual void PostLogin( APlayerController* NewPlayer );
@@ -634,10 +641,10 @@ public:
 	 * only dynamic actors in the PersistentLevel may be moved (this includes all actors spawned during gameplay)
 	 * this is called for both parts of the transition because actors might change while in the middle (e.g. players might join or leave the game)
 	 * @see also PlayerController::GetSeamlessTravelActorList() (the function that's called on clients)
-	 * @param bToEntry true if we are going from old level -> entry, false if we are going from entry -> new level
+	 * @param bToTransition true if we are going from old level to transition map, false if we are going from transition map to new level
 	 * @param ActorList (out) list of actors to maintain
 	 */
-	virtual void GetSeamlessTravelActorList(bool bToEntry, TArray<AActor*>& ActorList);
+	virtual void GetSeamlessTravelActorList(bool bToTransition, TArray<AActor*>& ActorList);
 
 	/** Allow the game to specify a place for clients to download MapName */
 	DEPRECATED(4.11, "Override GameWelcomePlayer() instead")
@@ -697,12 +704,29 @@ protected:
 	 *
 	 */
 	virtual FString InitNewPlayer(class APlayerController* NewPlayerController, const TSharedPtr<const FUniqueNetId>& UniqueId, const FString& Options, const FString& Portal = TEXT(""));
-
+	virtual FString InitNewPlayer(class APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal = TEXT(""));
 
 private:
 	// Hidden functions that don't make sense to use on this class.
 	HIDE_ACTOR_TRANSFORM_FUNCTIONS();
 };
 
+/** GameMode events, particularly for use by plugins */
+class ENGINE_API FGameModeEvents
+{
+public:
+	// Post login event, triggered when a player joins the game as well as after non-seamless ServerTravel
+	DECLARE_EVENT_TwoParams(AGameMode, FGameModePostLoginEvent, AGameMode* /*GameMode*/, APlayerController* /*NewPlayer*/);
 
+	/**
+	* Logout event, triggered when a player leaves the game as well as during non-seamless ServerTravel
+	*
+	* Note that this is called before performing any cleanup of the specified AController
+	*/
+	DECLARE_EVENT_TwoParams(AGameMode, FGameModeLogoutEvent, AGameMode* /*GameMode*/, AController* /*Exiting*/);
+	
+
+	static FGameModePostLoginEvent GameModePostLoginEvent;
+	static FGameModeLogoutEvent GameModeLogoutEvent;
+};
 

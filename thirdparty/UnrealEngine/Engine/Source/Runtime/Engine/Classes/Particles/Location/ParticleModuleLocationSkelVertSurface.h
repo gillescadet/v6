@@ -14,7 +14,7 @@ enum ELocationSkelVertSurfaceSource
 };
 
 UCLASS(editinlinenew, hidecategories=Object, meta=(DisplayName = "Skel Vert/Surf Location"))
-class UParticleModuleLocationSkelVertSurface : public UParticleModuleLocationBase
+class ENGINE_API UParticleModuleLocationSkelVertSurface : public UParticleModuleLocationBase
 {
 	GENERATED_UCLASS_BODY()
 
@@ -160,5 +160,5 @@ class UParticleModuleLocationSkelVertSurface : public UParticleModuleLocationBas
 private:
 	/** Helper function for concrete types. */
 	template<bool bExtraBoneInfluencesT>
-	bool VertInfluencedByActiveBoneTyped(bool bSoftVertex, FStaticLODModel& Model, const FSkelMeshChunk& Chunk, int32 VertIndex, USkeletalMeshComponent* InSkelMeshComponent, FModuleLocationVertSurfaceInstancePayload* InstancePayload, int32* OutBoneIndex);
+	bool VertInfluencedByActiveBoneTyped(FStaticLODModel& Model, const FSkelMeshSection& Section, int32 VertIndex, USkeletalMeshComponent* InSkelMeshComponent, FModuleLocationVertSurfaceInstancePayload* InstancePayload, int32* OutBoneIndex);
 };

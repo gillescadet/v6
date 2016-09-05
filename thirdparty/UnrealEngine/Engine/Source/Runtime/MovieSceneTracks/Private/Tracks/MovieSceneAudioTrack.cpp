@@ -17,7 +17,11 @@
 
 UMovieSceneAudioTrack::UMovieSceneAudioTrack( const FObjectInitializer& ObjectInitializer )
 	: Super( ObjectInitializer )
-{ }
+{
+#if WITH_EDITORONLY_DATA
+	TrackTint = FColor(93, 95, 136);
+#endif
+}
 
 
 TSharedPtr<IMovieSceneTrackInstance> UMovieSceneAudioTrack::CreateInstance()

@@ -40,6 +40,17 @@ public:
 	}
 
 	/**  
+	 * Construct from a unique object identifier
+	 * @param InObjectID a unique object identifier
+	 */
+	explicit FORCEINLINE TPersistentObjectPtr(const TObjectID& InObjectID)
+		: WeakPtr()
+		, TagAtLastTest(0)
+		, ObjectID(InObjectID)
+	{
+	}
+
+	/**  
 	 * Copy from a unique object identifier
 	 * @param ObjectID object identifier to create a weak pointer to
 	 */
@@ -108,11 +119,11 @@ public:
 		return ObjectID;
 	}
 
-	/**  
+	/**
 	 * Dereference the lazy pointer, which may cause it to become valid again. Will not try to load pending outside of game thread
 	 * @return NULL if this object is gone or the lazy pointer was NULL, otherwise a valid UObject pointer
 	 */
-	FORCEINLINE class UObject* Get() const
+	FORCEINLINE UObject* Get() const
 	{
 		UObject *Object = WeakPtr.Get();
 		if (!Object && TObjectID::GetCurrentTag() != TagAtLastTest && ObjectID.IsValid())
@@ -123,6 +134,26 @@ public:
 
 			// If this object is pending kill or otherwise invalid, this will return NULL as expected
 			Object = WeakPtr.Get();
+		}
+		return Object;
+	}
+
+	/**
+	 * Dereference the lazy pointer, which may cause it to become valid again. Will not try to load pending outside of game thread
+	 * @param bEvenIfPendingKill, if this is true, pendingkill objects are considered valid
+	 * @return NULL if this object is gone or the lazy pointer was NULL, otherwise a valid UObject pointer
+	 */
+	FORCEINLINE UObject* Get(bool bEvenIfPendingKill) const
+	{
+		UObject *Object = WeakPtr.Get(bEvenIfPendingKill);
+		if (!Object && TObjectID::GetCurrentTag() != TagAtLastTest && ObjectID.IsValid())
+		{
+			Object = ObjectID.ResolveObject();
+			WeakPtr = Object;
+			TagAtLastTest = TObjectID::GetCurrentTag();
+
+			// If this object is pending kill or otherwise invalid, this will return NULL as expected
+			Object = WeakPtr.Get(bEvenIfPendingKill);
 		}
 		return Object;
 	}

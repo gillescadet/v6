@@ -11,7 +11,6 @@ enum ELandscapeLayerBlendType
 	LB_WeightBlend,
 	LB_AlphaBlend,
 	LB_HeightBlend,
-	LB_MAX,
 };
 
 USTRUCT()
@@ -52,7 +51,7 @@ struct FLayerBlendInput
 };
 
 UCLASS(collapsecategories, hidecategories=Object)
-class UMaterialExpressionLandscapeLayerBlend : public UMaterialExpression
+class LANDSCAPE_API UMaterialExpressionLandscapeLayerBlend : public UMaterialExpression
 {
 	GENERATED_UCLASS_BODY()
 
@@ -65,25 +64,26 @@ class UMaterialExpressionLandscapeLayerBlend : public UMaterialExpression
 
 
 	//~ Begin UObject Interface
-	void Serialize(FArchive& Ar) override;
+	virtual void Serialize(FArchive& Ar) override;
+	virtual bool NeedsLoadForClient() const override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	//~ End UObject Interface
 
 	//~ Begin UMaterialExpression Interface
-	virtual uint32 GetInputType(int32 InputIndex) override { return MCT_Unknown; }
+	virtual uint32 GetInputType(int32 InputIndex) override;
 	virtual uint32 GetOutputType(int32 InputIndex) override { return MCT_Unknown; }
-#endif
 	virtual bool IsResultMaterialAttributes(int32 OutputIndex) override;
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#endif
 	virtual const TArray<FExpressionInput*> GetInputs() override;
 	virtual FExpressionInput* GetInput(int32 InputIndex) override;
 	virtual FString GetInputName(int32 InputIndex) const override;
 	virtual UTexture* GetReferencedTexture() override;
 	//~ End UMaterialExpression Interface
 
-	LANDSCAPE_API virtual FGuid& GetParameterExpressionId() override;
+	virtual FGuid& GetParameterExpressionId() override;
 
 	/**
 	 * Get list of parameter names for static parameter sets

@@ -1,76 +1,69 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "EnginePrivate.h"
+#include "AITypes.h"
 #include "AI/NavDataGenerator.h"
 #include "AI/Navigation/NavAreas/NavAreaMeta.h"
 #include "AI/Navigation/NavigationData.h"
+#include "AI/Navigation/RecastNavMesh.h"
+#include "VisualLogger.h"
 
 //----------------------------------------------------------------------//
 // FPathFindingQuery
 //----------------------------------------------------------------------//
-FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const ANavigationData& InNavData, const FVector& Start, const FVector& End, FSharedConstNavQueryFilter SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill)
-	: NavData(&InNavData)
-	, Owner(InOwner)
-	, StartLocation(Start)
-	, EndLocation(End)
-	, QueryFilter(SourceQueryFilter)
-	, PathInstanceToFill(InPathInstanceToFill)
-	, NavAgentProperties(FNavAgentProperties::DefaultProperties)
-	, NavDataFlags(0)
-	, bAllowPartialPaths(true)
+FPathFindingQuery::FPathFindingQuery(const UObject* InOwner, const ANavigationData& InNavData, const FVector& Start, const FVector& End, FSharedConstNavQueryFilter SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill) :
+	FPathFindingQueryData(InOwner, Start, End, SourceQueryFilter), 
+	NavData(&InNavData), PathInstanceToFill(InPathInstanceToFill), NavAgentProperties(FNavAgentProperties::DefaultProperties)
 {
-	if (SourceQueryFilter.IsValid() == false && NavData.IsValid() == true)
+	if (!QueryFilter.IsValid() && NavData.IsValid())
 	{
 		QueryFilter = NavData->GetDefaultQueryFilter();
 	}
 }
 
-FPathFindingQuery::FPathFindingQuery(const INavAgentInterface& InNavAgent, const ANavigationData& InNavData, const FVector& Start, const FVector& End, FSharedConstNavQueryFilter SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill)
-	: NavData(&InNavData)
-	, Owner(Cast<UObject>(&InNavAgent))
-	, StartLocation(Start)
-	, EndLocation(End)
-	, QueryFilter(SourceQueryFilter)
-	, PathInstanceToFill(InPathInstanceToFill)
-	, NavAgentProperties(InNavAgent.GetNavAgentPropertiesRef())
-	, NavDataFlags(0)
-	, bAllowPartialPaths(true)
+FPathFindingQuery::FPathFindingQuery(const INavAgentInterface& InNavAgent, const ANavigationData& InNavData, const FVector& Start, const FVector& End, FSharedConstNavQueryFilter SourceQueryFilter, FNavPathSharedPtr InPathInstanceToFill) :
+	FPathFindingQueryData(Cast<UObject>(&InNavAgent), Start, End, SourceQueryFilter),
+	NavData(&InNavData), PathInstanceToFill(InPathInstanceToFill), NavAgentProperties(InNavAgent.GetNavAgentPropertiesRef())
 {
-	if (SourceQueryFilter.IsValid() == false && NavData.IsValid() == true)
+	if (!QueryFilter.IsValid() && NavData.IsValid())
 	{
 		QueryFilter = NavData->GetDefaultQueryFilter();
 	}
 }
 
-FPathFindingQuery::FPathFindingQuery(const FPathFindingQuery& Source)
-	: NavData(Source.NavData)
-	, Owner(Source.Owner)
-	, StartLocation(Source.StartLocation)
-	, EndLocation(Source.EndLocation)
-	, QueryFilter(Source.QueryFilter)
-	, PathInstanceToFill(Source.PathInstanceToFill)
-	, NavAgentProperties(Source.NavAgentProperties)
-	, NavDataFlags(Source.NavDataFlags)
-	, bAllowPartialPaths(Source.bAllowPartialPaths)
+FPathFindingQuery::FPathFindingQuery(const FPathFindingQuery& Source) :
+	FPathFindingQueryData(Source.Owner.Get(), Source.StartLocation, Source.EndLocation, Source.QueryFilter, Source.NavDataFlags, Source.bAllowPartialPaths),
+	NavData(Source.NavData), PathInstanceToFill(Source.PathInstanceToFill), NavAgentProperties(Source.NavAgentProperties)
 {
-	if (Source.QueryFilter.IsValid() == false && NavData.IsValid() == true)
+	if (!QueryFilter.IsValid() && NavData.IsValid())
 	{
 		QueryFilter = NavData->GetDefaultQueryFilter();
 	}
 }
 
-FPathFindingQuery::FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const ANavigationData* NavDataOverride)
-	: NavData(NavDataOverride != NULL ? NavDataOverride : PathToRecalculate->GetNavigationDataUsed())
-	, Owner(PathToRecalculate->GetQuerier())
-	, StartLocation(PathToRecalculate->GetPathFindingStartLocation())
-	, EndLocation(PathToRecalculate->GetGoalLocation())
-	, QueryFilter(PathToRecalculate->GetFilter())
-	, PathInstanceToFill(PathToRecalculate)
-	, NavAgentProperties(FNavAgentProperties::DefaultProperties)
-	, NavDataFlags(0)
-	, bAllowPartialPaths(true)
+FPathFindingQuery::FPathFindingQuery(FNavPathSharedRef PathToRecalculate, const ANavigationData* NavDataOverride) :
+	FPathFindingQueryData(PathToRecalculate->GetQueryData()),
+	NavData(NavDataOverride ? NavDataOverride : PathToRecalculate->GetNavigationDataUsed()), PathInstanceToFill(PathToRecalculate), NavAgentProperties(FNavAgentProperties::DefaultProperties)
 {
-	if (QueryFilter.IsValid() == false && NavData.IsValid() == true)
+	if (PathToRecalculate->ShouldUpdateStartPointOnRepath() && (PathToRecalculate->GetSourceActor() != nullptr))
+	{
+		const FVector NewStartLocation = PathToRecalculate->GetPathFindingStartLocation();
+		if (FAISystem::IsValidLocation(NewStartLocation))
+		{
+			StartLocation = NewStartLocation;
+		}
+	}
+
+	if (PathToRecalculate->ShouldUpdateEndPointOnRepath() && (PathToRecalculate->GetGoalActor() != nullptr))
+	{
+		const FVector NewEndLocation = PathToRecalculate->GetGoalLocation();
+		if (FAISystem::IsValidLocation(NewEndLocation))
+		{
+			EndLocation = NewEndLocation;
+		}
+	}
+
+	if (!QueryFilter.IsValid() && NavData.IsValid())
 	{
 		QueryFilter = NavData->GetDefaultQueryFilter();
 	}
@@ -138,7 +131,6 @@ ANavigationData::ANavigationData(const FObjectInitializer& ObjectInitializer)
 	, FindPathImplementation(NULL)
 	, FindHierarchicalPathImplementation(NULL)
 	, bRegistered(false)
-	, bWantsUpdate(true)
 	, NavDataUniqueID(GetNextUniqueID())
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -191,18 +183,15 @@ void ANavigationData::PostInitializeComponents()
 	Super::PostInitializeComponents();
 	
 	UWorld* MyWorld = GetWorld();
+	UNavigationSystem* NavSys = UNavigationSystem::GetCurrent(MyWorld);
 
 	if (MyWorld == nullptr ||
 		(MyWorld->GetNetMode() != NM_Client && MyWorld->GetNavigationSystem() == nullptr) ||
 		(MyWorld->GetNetMode() == NM_Client && !bNetLoadOnClient))
 	{
+		UE_LOG(LogNavigation, Log, TEXT("Marking %s as PendingKill due to %s"), *GetName()
+			, !MyWorld ? TEXT("No World") : (MyWorld->GetNetMode() == NM_Client ? TEXT("not creating navigation on clients") : TEXT("missing navigation system")));
 		CleanUpAndMarkPendingKill();
-	}
-	else
-	{
-		// note: this is not a final fix for world composition's issues with navmesh generation
-		// but it's good for now, and navmesh creation is going to get a face-lift soon anyway
-		bWantsUpdate |= MyWorld->GetWorldSettings()->bEnableWorldComposition;
 	}
 }
 
@@ -278,12 +267,32 @@ void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActo
 	if (RepathRequests.Num() > 0)
 	{
 		float TimeStamp = GetWorldTimeStamp();
-		TArray<FNavPathRecalculationRequest> PostponedRequests;
 		const UWorld* World = GetWorld();
 
 		// @todo batch-process it!
-		for (auto RecalcRequest : RepathRequests)
+
+		const int32 MaxProcessedRequests = 1000;
+
+		// make a copy of path requests and reset (remove up to MaxProcessedRequests) from navdata's array
+		// this allows storing new requests in the middle of loop (e.g. used by meta path corrections)
+
+		TArray<FNavPathRecalculationRequest> WorkQueue(RepathRequests);
+		if (WorkQueue.Num() > MaxProcessedRequests)
 		{
+			UE_VLOG(this, LogNavigation, Error, TEXT("Too many repath requests! (%d/%d)"), WorkQueue.Num(), MaxProcessedRequests);
+
+			WorkQueue.RemoveAt(MaxProcessedRequests, WorkQueue.Num() - MaxProcessedRequests);
+			RepathRequests.RemoveAt(0, MaxProcessedRequests);
+		}
+		else
+		{
+			RepathRequests.Reset();
+		}
+
+		for (int32 Idx = 0; Idx < WorkQueue.Num(); Idx++)
+		{
+			FNavPathRecalculationRequest& RecalcRequest = WorkQueue[Idx];
+
 			// check if it can be updated right now
 			FNavPathSharedPtr PinnedPath = RecalcRequest.Path.Pin();
 			if (PinnedPath.IsValid() == false)
@@ -295,7 +304,7 @@ void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActo
 			const INavAgentInterface* PathNavAgent = Cast<const INavAgentInterface>(PathQuerier);
 			if (PathNavAgent && PathNavAgent->ShouldPostponePathUpdates())
 			{
-				PostponedRequests.Add(RecalcRequest);
+				RepathRequests.Add(RecalcRequest);
 				continue;
 			}
 
@@ -321,9 +330,6 @@ void ANavigationData::TickActor(float DeltaTime, enum ELevelTick TickType, FActo
 				PinnedPath->RePathFailed();
 			}
 		}
-
-		RepathRequests.Reset();
-		RepathRequests.Append(PostponedRequests);
 	}
 }
 
@@ -356,11 +362,13 @@ void ANavigationData::InstantiateAndRegisterRenderingComponent()
 		if (RenderingComp)
 		{
 			// rename the old rendering component out of the way
-			RenderingComp->Rename(NULL, NULL, REN_DontCreateRedirectors | REN_ForceGlobalUnique | REN_DoNotDirty | REN_NonTransactional);
+			RenderingComp->Rename(NULL, NULL, REN_DontCreateRedirectors | REN_ForceGlobalUnique | REN_DoNotDirty | REN_NonTransactional | REN_ForceNoResetLoaders);
 		}
 
 		RenderingComp = ConstructRenderingComponent();
-		if (RenderingComp != NULL)
+
+		UWorld* World = GetWorld();
+		if (World && World->bIsWorldInitialized && RenderingComp)
 		{
 			RenderingComp->RegisterComponent();
 		}
@@ -454,6 +462,7 @@ void ANavigationData::CleanUpAndMarkPendingKill()
 	SetActorHiddenInGame(true);
 
 	// do NOT destroy here! it can be called from PostLoad and will crash in DestroyActor()
+	GetWorld()->RemoveNetworkActor(this);
 	MarkPendingKill();
 	MarkComponentsAsPendingKill();
 }
@@ -522,14 +531,10 @@ void ANavigationData::TickAsyncBuild(float DeltaSeconds)
 
 void ANavigationData::RebuildDirtyAreas(const TArray<FNavigationDirtyArea>& DirtyAreas)
 {
-	// the 'bWantsUpdate' mechanics allows us to skip first requested update after data is loaded
-	// Can be also used to manually control navigation rebuilding, by for example forcing bWantsUpdate 
-	//	to false in Tick function effectively suppressing rebuilding
-	if (bWantsUpdate == true && NavDataGenerator.IsValid())
+	if (NavDataGenerator.IsValid())
 	{
 		NavDataGenerator->RebuildDirtyAreas(DirtyAreas);
 	}
-	bWantsUpdate = true;
 }
 
 TArray<FBox> ANavigationData::GetNavigableBounds() const
@@ -592,7 +597,7 @@ void ANavigationData::OnNavAreaAdded(const UClass* NavAreaClass, int32 AgentInde
 			*GetName(), *GetNameSafe(NavAreaClass),
 			DefArea ? TEXT("yes") : TEXT("NO"),
 			bIsMetaArea ? TEXT("YES") : TEXT("no"),
-			AgentIndex, DefArea->IsSupportingAgent(AgentIndex) ? TEXT("yes") : TEXT("NO"));
+			AgentIndex, (DefArea && DefArea->IsSupportingAgent(AgentIndex)) ? TEXT("yes") : TEXT("NO"));
 		return;
 	}
 

@@ -6,7 +6,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogInternationalizationManifestObject, Log, All);
 
-FContext::FContext( const FContext& Other ) 
+FManifestContext::FManifestContext( const FManifestContext& Other ) 
 	: Key( Other.Key )
 	, SourceLocation( Other.SourceLocation )
 	, bIsOptional( Other.bIsOptional )
@@ -22,7 +22,7 @@ FContext::FContext( const FContext& Other )
 	}
 }
 
-FContext& FContext::operator=( const FContext& Other )
+FManifestContext& FManifestContext::operator=( const FManifestContext& Other )
 {
 	if( this != &Other )
 	{
@@ -44,7 +44,7 @@ FContext& FContext::operator=( const FContext& Other )
 	return *this;
 }
 
-bool FContext::operator==( const FContext& Other ) const
+bool FManifestContext::operator==( const FManifestContext& Other ) const
 {
 	if( Key.Equals( Other.Key, ESearchCase::CaseSensitive ) )
 	{
@@ -71,7 +71,7 @@ bool FContext::operator==( const FContext& Other ) const
 	return false;
 }
 
-bool FContext::operator<( const FContext& Other ) const
+bool FManifestContext::operator<( const FManifestContext& Other ) const
 {
 	int32 Result = Key.Compare( Other.Key, ESearchCase::CaseSensitive );
 
@@ -197,7 +197,7 @@ bool FLocItem::IsExactMatch( const FLocItem& Other ) const
 	return false;
 }
 
-bool FInternationalizationManifest::AddSource( const FString& Namespace, const FLocItem& Source, const FContext& Context )
+bool FInternationalizationManifest::AddSource( const FString& Namespace, const FLocItem& Source, const FManifestContext& Context )
 {
 	TSharedPtr< FManifestEntry > ExistingEntry = FindEntryByContext( Namespace, Context );
 
@@ -226,7 +226,7 @@ bool FInternationalizationManifest::AddSource( const FString& Namespace, const F
 	return true;	
 }
 
-TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( const FString& Namespace, const FLocItem& Source )
+TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( const FString& Namespace, const FLocItem& Source ) const
 {	
 	TArray< TSharedRef< FManifestEntry > > MatchingEntries;
 	EntriesBySourceText.MultiFind( Source.Text, /*OUT*/MatchingEntries );
@@ -242,7 +242,7 @@ TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryBySource( c
 	return NULL;
 }
 
-TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( const FString& Namespace, const FContext& Context )
+TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( const FString& Namespace, const FManifestContext& Context ) const
 {
 	TArray< TSharedRef< FManifestEntry > > MatchingEntries;
 	EntriesByContextId.MultiFind( Context.Key, MatchingEntries );
@@ -263,13 +263,29 @@ TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByContext( 
 	return NULL;
 }
 
+TSharedPtr< FManifestEntry > FInternationalizationManifest::FindEntryByKey(const FString& Namespace, const FString& Key, const FString* SourceText) const
+{
+	TArray<TSharedRef<FManifestEntry>> MatchingEntries;
+	EntriesByContextId.MultiFind(Key, MatchingEntries);
+
+	for (const TSharedRef<FManifestEntry>& MatchingEntry : MatchingEntries)
+	{
+		if (MatchingEntry->Namespace.Equals(Namespace, ESearchCase::CaseSensitive) && (!SourceText || MatchingEntry->Source.Text.Equals(*SourceText, ESearchCase::CaseSensitive)))
+		{
+			return MatchingEntry;
+		}
+	}
+
+	return nullptr;
+}
+
 void FInternationalizationManifest::UpdateEntry(const TSharedRef<FManifestEntry>& OldEntry, TSharedRef<FManifestEntry>& NewEntry)
 {
-	for (const FContext& Context : OldEntry->Contexts)
+	for (const FManifestContext& Context : OldEntry->Contexts)
 	{
 		EntriesByContextId.RemoveSingle(Context.Key, OldEntry);
 	}
-	for (const FContext& Context : NewEntry->Contexts)
+	for (const FManifestContext& Context : NewEntry->Contexts)
 	{
 		EntriesByContextId.Add(Context.Key, NewEntry);
 	}
@@ -278,24 +294,55 @@ void FInternationalizationManifest::UpdateEntry(const TSharedRef<FManifestEntry>
 	EntriesBySourceText.Add(NewEntry->Source.Text, NewEntry);
 }
 
-FContext* FManifestEntry::FindContext( const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata /*= NULL */ )
+FManifestContext* FManifestEntry::FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata)
 {
-	for( auto ContextIter = Contexts.CreateIterator(); ContextIter; ++ContextIter )
-	{
-		FContext& Context = *ContextIter;
+	return const_cast<FManifestContext*>(FindContextImpl(ContextKey, KeyMetadata));
+}
 
-		if( Context.Key.Equals( ContextKey, ESearchCase::CaseSensitive ) )
+const FManifestContext* FManifestEntry::FindContext(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata) const
+{
+	return FindContextImpl(ContextKey, KeyMetadata);
+}
+
+FManifestContext* FManifestEntry::FindContextByKey(const FString& ContextKey)
+{
+	return const_cast<FManifestContext*>(FindContextByKeyImpl(ContextKey));
+}
+
+const FManifestContext* FManifestEntry::FindContextByKey(const FString& ContextKey) const
+{
+	return FindContextByKeyImpl(ContextKey);
+}
+
+const FManifestContext* FManifestEntry::FindContextImpl(const FString& ContextKey, const TSharedPtr<FLocMetadataObject>& KeyMetadata) const
+{
+	for (const FManifestContext& Context : Contexts)
+	{
+		if (Context.Key.Equals(ContextKey, ESearchCase::CaseSensitive))
 		{
-			if( Context.KeyMetadataObj.IsValid() != KeyMetadata.IsValid() )
+			if (Context.KeyMetadataObj.IsValid() != KeyMetadata.IsValid())
 			{
 				continue;
 			}
-			else if( (!Context.KeyMetadataObj.IsValid() && !KeyMetadata.IsValid()) ||
-				(*(Context.KeyMetadataObj) == *(KeyMetadata)) )
+			else if ((!Context.KeyMetadataObj.IsValid() && !KeyMetadata.IsValid()) || (*Context.KeyMetadataObj == *KeyMetadata))
 			{
 				return &Context;
 			}
 		}
 	}
-	return NULL;
+
+	return nullptr;
+}
+
+const FManifestContext* FManifestEntry::FindContextByKeyImpl(const FString& ContextKey) const
+{
+	for (const FManifestContext& Context : Contexts)
+	{
+		if (Context.Key.Equals(ContextKey, ESearchCase::CaseSensitive))
+		{
+			return &Context;
+		}
+	}
+
+	return nullptr;
 }

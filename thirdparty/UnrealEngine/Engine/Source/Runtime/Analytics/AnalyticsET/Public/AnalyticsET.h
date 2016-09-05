@@ -7,10 +7,11 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogAnalytics, Display, All);
 
-class IAnalyticsProvider;
+
+class IAnalyticsProviderET;
 
 /**
- * The public interface to this module
+ *  Public implementation of EpicGames.MCP.AnalyticsProvider
  */
 class FAnalyticsET : public IAnalyticsProviderModule
 {
@@ -38,7 +39,7 @@ public:
 	{
 		/** ET APIKey - Get from your account manager */
 		FString APIKeyET;
-		/** ET API Server - Defaults if empty to GetDefaultAPIServer. */
+		/** ET API Server - Base URL to send events. */
 		FString APIServerET;
 		/** 
 		 * AppVersion - defines the app version passed to the provider. By default this will be FEngineVersion::Current(), but you can supply your own. 
@@ -47,10 +48,23 @@ public:
 		 */
 		FString AppVersionET;
 		/** When true, sends events using the legacy ET protocol that passes all attributes as URL parameters. Defaults to false. */
-		bool UseLegacyProtocol;
+		bool UseLegacyProtocol = false;
+		/** The AppEnvironment that the data router should use. Defaults to GetDefaultAppEnvironment. */
+		FString AppEnvironment;
+		/** The UploadType that the data router should use. Defaults to GetDefaultUploadType. */
+		FString UploadType;
 
 		/** Default ctor to ensure all values have their proper default. */
 		Config() : UseLegacyProtocol(false) {}
+		/** Ctor exposing common configurables . */
+		Config(FString InAPIKeyET, FString InAPIServerET, FString InAppVersionET = FString(), bool InUseLegacyProtocol = false, FString InAppEnvironment = FString(), FString InUploadType = FString()) 
+			: APIKeyET(MoveTemp(InAPIKeyET))
+			, APIServerET(MoveTemp(InAPIServerET))
+			, AppVersionET(MoveTemp(InAppVersionET))
+			, UseLegacyProtocol(InUseLegacyProtocol)
+			, AppEnvironment(MoveTemp(InAppEnvironment))
+			, UploadType(MoveTemp(InUploadType))
+		{}
 
 		/** KeyName required for APIKey configuration. */
 		static FString GetKeyNameForAPIKey() { return TEXT("APIKeyET"); }
@@ -60,8 +74,14 @@ public:
 		static FString GetKeyNameForAppVersion() { return TEXT("AppVersionET"); }
 		/** Optional parameter to use the legacy backend protocol. */
 		static FString GetKeyNameForUseLegacyProtocol() { return TEXT("UseLegacyProtocol"); }
+		/** For the the data router backend protocol. */
+		static FString GetKeyNameForAppEnvironment() { return TEXT("AppEnvironment"); }
+		/** For the the data router backend protocol. */
+		static FString GetKeyNameForUploadType() { return TEXT("UploadType"); }
 		/** Default value if no APIServer configuration is provided. */
-		static FString GetDefaultAPIServer() { return TEXT("http://devonline-02:/ETAP/"); }
+		static FString GetDefaultAppEnvironment() { return TEXT("datacollector-binary"); }
+		/** Default value if no UploadType is given, and UseDataRouter protocol is specified. */
+		static FString GetDefaultUploadType() { return TEXT("eteventstream"); }
 	};
 
 	//--------------------------------------------------------------------------
@@ -73,15 +93,14 @@ public:
 	 * Creates the analytics provider given a configuration delegate.
 	 * The keys required exactly match the field names in the Config object. 
 	 */
-	virtual TSharedPtr<IAnalyticsProvider> CreateAnalyticsProvider(const FAnalytics::FProviderConfigurationDelegate& GetConfigValue) const override;
+	virtual TSharedPtr<IAnalyticsProvider> CreateAnalyticsProvider(const FAnalyticsProviderConfigurationDelegate& GetConfigValue) const override;
 	
 	/** 
-	 * Construct an analytics provider directly from a config object.
+	 * Construct an ET analytics provider directly from a config object.
 	 */
-	virtual TSharedPtr<IAnalyticsProvider> CreateAnalyticsProvider(const Config& ConfigValues) const;
+	virtual TSharedPtr<IAnalyticsProviderET> CreateAnalyticsProvider(const Config& ConfigValues) const;
 
 private:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 };
-

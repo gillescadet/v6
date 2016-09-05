@@ -17,6 +17,8 @@
 #include "SceneUtils.h"
 #include "LightPropagationVolumeBlendable.h"
 
+DECLARE_FLOAT_COUNTER_STAT(TEXT("LPV"), Stat_GPU_LPV, STATGROUP_GPU);
+
 static TAutoConsoleVariable<int32> CVarLightPropagationVolume(
 	TEXT("r.LightPropagationVolume"),
 	0,
@@ -391,8 +393,7 @@ class FLpvClearCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvClearCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -416,8 +417,7 @@ class FLpvClearGeometryVolumeCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvClearGeometryVolumeCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -441,8 +441,7 @@ class FLpvClearListsCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvClearListsCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -465,8 +464,7 @@ class FLpvInject_GenerateVplListsCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvInject_GenerateVplListsCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -539,8 +537,7 @@ class FLpvInject_AccumulateVplListsCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvInject_AccumulateVplListsCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -563,8 +560,7 @@ class FLpvDirectionalOcclusionCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvDirectionalOcclusionCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -603,8 +599,7 @@ class FLpvCopyAOVolumeCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvCopyAOVolumeCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -644,8 +639,7 @@ class FLpvBuildGeometryVolumeCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(FLpvBuildGeometryVolumeCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
@@ -676,13 +670,15 @@ class TLpvPropagateCS : public FLpvWriteShaderCSBase
 	DECLARE_SHADER_TYPE(TLpvPropagateCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
+		CA_SUPPRESS(6313);
 		OutEnvironment.SetDefine(TEXT("LPV_SECONDARY_OCCLUSION"), (uint32)(ShaderFlags & PROPAGATE_SECONDARY_OCCLUSION ? 1 : 0));
+		CA_SUPPRESS(6313);
 		OutEnvironment.SetDefine(TEXT("LPV_MULTIPLE_BOUNCES_ENABLED"), (uint32)(ShaderFlags & PROPAGATE_MULTIPLE_BOUNCES ? 1 : 0));
+		CA_SUPPRESS(6313);
 		OutEnvironment.SetDefine(TEXT("LPV_PROPAGATE_AO"), (uint32)(ShaderFlags & PROPAGATE_AO ? 1 : 0));
 		OutEnvironment.CompilerFlags.Add(CFLAG_StandardOptimization);
 
@@ -768,12 +764,13 @@ class TLpvInject_LightCS : public FLpvInjectShader_Base
 	DECLARE_SHADER_TYPE(TLpvInject_LightCS,Global);
 
 public:
-	//@todo-rco: Remove this when reenabling for OpenGL
-	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && !IsOpenGLPlatform(Platform) && !IsMetalPlatform(Platform); }
+	static bool ShouldCache( EShaderPlatform Platform )		{ return IsFeatureLevelSupported(Platform, ERHIFeatureLevel::SM5) && IsLPVSupported(Platform); }
 
 	static void ModifyCompilationEnvironment( EShaderPlatform Platform, FShaderCompilerEnvironment& OutEnvironment )
 	{
+		CA_SUPPRESS(6313);
 		OutEnvironment.SetDefine(TEXT("SHADOW_CASTING"),   (uint32)(InjectFlags & INJECT_SHADOW_CASTING ? 1 : 0));
+		CA_SUPPRESS(6313);
 		OutEnvironment.SetDefine(TEXT("SPOT_ATTENUATION"), (uint32)(InjectFlags & INJECT_SPOT_ATTENUATION ? 1 : 0));
 		FLpvWriteShaderCSBase::ModifyCompilationEnvironment( Platform, OutEnvironment );
 	}
@@ -801,6 +798,7 @@ FLightPropagationVolume::FLightPropagationVolume() :
 	, SecondaryBounceStrength( 0.0f )
 	, CubeSize( 5312.0f )
 	, bEnabled( false )
+	, bDirectionalOcclusionEnabled( false )
 	, bGeometryVolumeNeeded( false )
 	, mWriteBufferIndex( 0 )
 	, bNeedsBufferClear( true )
@@ -937,11 +935,12 @@ void FLightPropagationVolume::InitSettings(FRHICommandListImmediate& RHICmdList,
 	Strength	 = LPVSettings.LPVIntensity;
 	bEnabled     = Strength > 0.0f;
 	CubeSize	 = LPVSettings.LPVSize;
+	bDirectionalOcclusionEnabled = bEnabled && ( LPVSettings.LPVDirectionalOcclusionIntensity > 0.0001f );
 
-	SecondaryOcclusionStrength =LPVSettings.LPVSecondaryOcclusionIntensity;
-	SecondaryBounceStrength =LPVSettings.LPVSecondaryBounceIntensity;
+	SecondaryOcclusionStrength = LPVSettings.LPVSecondaryOcclusionIntensity;
+	SecondaryBounceStrength = LPVSettings.LPVSecondaryBounceIntensity;
 
-	bGeometryVolumeNeeded =LPVSettings.LPVSecondaryOcclusionIntensity > 0.001f ||LPVSettings.LPVDirectionalOcclusionIntensity > 0.001;
+	bGeometryVolumeNeeded = LPVSettings.LPVSecondaryOcclusionIntensity > 0.001f || bDirectionalOcclusionEnabled;
 	GeometryVolumeGenerated = false;
 
 	if ( !bEnabled )
@@ -1084,8 +1083,8 @@ void FLightPropagationVolume::Clear(FRHICommandListImmediate& RHICmdList, FViewI
 */
 void FLightPropagationVolume::GetShadowInfo( const FProjectedShadowInfo& ProjectedShadowInfo, FRsmInfo& RsmInfoOut )
 {
-	FIntPoint ShadowBufferResolution( ProjectedShadowInfo.ResolutionX, ProjectedShadowInfo.ResolutionY );
-	RsmInfoOut.WorldToShadow = ProjectedShadowInfo.GetWorldToShadowMatrix(RsmInfoOut.ShadowmapMinMax, &ShadowBufferResolution );
+	FIntPoint ShadowBufferResolution( ProjectedShadowInfo.ResolutionX, ProjectedShadowInfo.ResolutionY);
+	RsmInfoOut.WorldToShadow = ProjectedShadowInfo.GetWorldToShadowMatrix(RsmInfoOut.ShadowmapMinMax, &ShadowBufferResolution);
 	RsmInfoOut.ShadowToWorld = RsmInfoOut.WorldToShadow.InverseFast();
 
 	// Determine the shadow area in world space, so we can scale the brightness if needed. 
@@ -1135,8 +1134,8 @@ void FLightPropagationVolume::SetVplInjectionConstants(
 void FLightPropagationVolume::InjectDirectionalLightRSM(
 	FRHICommandListImmediate& RHICmdList,
 	FViewInfo&					View,
-	const FTexture2DRHIRef&		RsmDiffuseTex, 
 	const FTexture2DRHIRef&		RsmNormalTex, 
+	const FTexture2DRHIRef&		RsmDiffuseTex, 
 	const FTexture2DRHIRef&		RsmDepthTex, 
 	const FProjectedShadowInfo&	ProjectedShadowInfo,
 	const FLinearColor&			LightColour )
@@ -1156,7 +1155,7 @@ void FLightPropagationVolume::InjectDirectionalLightRSM(
 		Shader->SetParameters(RHICmdList, ShaderParams, RsmDiffuseTex, RsmNormalTex, RsmDepthTex );
 
 		int32 RSMResolution = FSceneRenderTargets::Get_FrameConstantsOnly().GetReflectiveShadowMapResolution();
-		// todo: what if not divisble by 8?
+		// todo: what if not divisible by 8?
 		DispatchComputeShader(RHICmdList, *Shader, RSMResolution / 8, RSMResolution / 8, 1 ); 
 
 		Shader->UnbindBuffers(RHICmdList, ShaderParams);
@@ -1228,9 +1227,6 @@ void FLightPropagationVolume::Update( FRHICommandListImmediate& RHICmdList, FVie
 	}
 
 	LpvWriteUniformBuffer.SetContents( *LpvWriteUniformBufferParams );
-
-	// Begin the async compute job
-	RHICmdList.BeginAsyncComputeJob_DrawThread(AsyncComputePriority_High);
 
 	check(View.GetFeatureLevel() == ERHIFeatureLevel::SM5);
 
@@ -1320,21 +1316,11 @@ void FLightPropagationVolume::Update( FRHICommandListImmediate& RHICmdList, FVie
 		DispatchComputeShader( RHICmdList, *Shader, LPV_GRIDRES/4, LPV_GRIDRES/4, LPV_GRIDRES/4 );
 		Shader->UnbindBuffers(RHICmdList, ShaderParams);
 	}
-
-	// End the async compute job
-	AsyncJobFenceID = RHICmdList.EndAsyncComputeJob_DrawThread();
 }
 
 
 void FLightPropagationVolume::InsertGPUWaitForAsyncUpdate(FRHICommandListImmediate& RHICmdList)
 {
-#if USE_ASYNC_COMPUTE_CONTEXT
-	if ( AsyncJobFenceID != -1 )
-	{
-		RHICmdList.GraphicsWaitOnAsyncComputeJob(AsyncJobFenceID);
-		AsyncJobFenceID = -1;
-	}
-#endif
 }
 
 /**
@@ -1482,7 +1468,7 @@ void FSceneViewState::SetupLightPropagationVolume(FSceneView& View, FSceneViewFa
 		return;
 	}
 
-	const ERHIFeatureLevel::Type FeatureLevel = View.GetFeatureLevel();
+	const ERHIFeatureLevel::Type ViewFeatureLevel = View.GetFeatureLevel();
 
 	if (View.StereoPass == eSSP_RIGHT_EYE)
 	{
@@ -1493,7 +1479,7 @@ void FSceneViewState::SetupLightPropagationVolume(FSceneView& View, FSceneViewFa
 			FSceneViewState* PrimaryViewState = PrimaryView->State->GetConcreteViewState();
 			if (PrimaryViewState)
 			{
-				LightPropagationVolume = PrimaryViewState->GetLightPropagationVolume(FeatureLevel);
+				LightPropagationVolume = PrimaryViewState->GetLightPropagationVolume(ViewFeatureLevel);
 				if (LightPropagationVolume.IsValid())
 				{
 					bIsStereoView = true;
@@ -1503,7 +1489,7 @@ void FSceneViewState::SetupLightPropagationVolume(FSceneView& View, FSceneViewFa
 	}
 	else
 	{
-		if (UseLightPropagationVolumeRT(FeatureLevel) && !IsOpenGLPlatform(GShaderPlatformForFeatureLevel[FeatureLevel]))
+		if (UseLightPropagationVolumeRT(ViewFeatureLevel) && IsLPVSupported(GShaderPlatformForFeatureLevel[ViewFeatureLevel]))
 		{
 			LightPropagationVolume = new FLightPropagationVolume();
 		}
@@ -1543,5 +1529,82 @@ void FSceneViewState::DestroyLightPropagationVolume()
 		}
 		);
 		bIsStereoView = false;
+	}
+}
+
+
+void FDeferredShadingSceneRenderer::ClearLPVs(FRHICommandListImmediate& RHICmdList)
+{
+	SCOPE_CYCLE_COUNTER(STAT_UpdateLPVs);
+	bool bAnyViewHasLPVs = false;
+
+	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+	{
+		FViewInfo& View = Views[ViewIndex];
+		FSceneViewState* ViewState = (FSceneViewState*)Views[ViewIndex].State;
+
+		if (ViewState)
+		{
+			FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
+
+			if (LightPropagationVolume)
+			{
+				bAnyViewHasLPVs = true;
+				break;
+			}
+		}
+	}
+
+	if (bAnyViewHasLPVs)
+	{
+		SCOPED_DRAW_EVENT(RHICmdList, ClearLPVs);
+
+		for(int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+		{
+			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
+
+			FViewInfo& View = Views[ViewIndex];
+
+			FSceneViewState* ViewState = (FSceneViewState*)Views[ViewIndex].State;
+			if(ViewState)
+			{
+				FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
+
+				if(LightPropagationVolume)
+				{
+					SCOPED_GPU_STAT(RHICmdList, Stat_GPU_LPV);
+					LightPropagationVolume->InitSettings(RHICmdList, Views[ViewIndex]);
+					LightPropagationVolume->Clear(RHICmdList, View);
+				}
+			}
+		}
+	}
+}
+
+void FDeferredShadingSceneRenderer::UpdateLPVs(FRHICommandListImmediate& RHICmdList)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, UpdateLPVs);
+	SCOPE_CYCLE_COUNTER(STAT_UpdateLPVs);
+
+	for(int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+	{
+		SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
+
+		FViewInfo& View = Views[ViewIndex];
+		FSceneViewState* ViewState = (FSceneViewState*)Views[ViewIndex].State;
+
+		if(ViewState)
+		{
+			FLightPropagationVolume* LightPropagationVolume = ViewState->GetLightPropagationVolume(View.GetFeatureLevel());
+
+			if(LightPropagationVolume)
+			{
+//				SCOPED_DRAW_EVENT(RHICmdList, UpdateLPVs);
+//				SCOPE_CYCLE_COUNTER(STAT_UpdateLPVs);
+				SCOPED_GPU_STAT(RHICmdList, Stat_GPU_LPV);
+
+				LightPropagationVolume->Update(RHICmdList, View);
+			}
+		}
 	}
 }

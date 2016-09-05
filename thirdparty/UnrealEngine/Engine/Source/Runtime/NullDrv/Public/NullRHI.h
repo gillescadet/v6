@@ -202,6 +202,10 @@ public:
 		return new FRHIShaderResourceView(); 
 	}
 
+	virtual FShaderResourceViewRHIRef RHICreateShaderResourceView(FIndexBufferRHIParamRef Buffer) final override
+	{ 
+		return new FRHIShaderResourceView(); 
+	}
 
 	virtual void RHIClearUAV(FUnorderedAccessViewRHIParamRef UnorderedAccessViewRHI, const uint32* Values) final override
 	{
@@ -525,6 +529,11 @@ public:
 
 	}
 
+	virtual void RHISetStereoViewport(uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ) final override
+	{
+
+	}
+
 	virtual void RHISetScissorRect(bool bEnable, uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY) final override
 	{
 	}
@@ -777,6 +786,14 @@ public:
 	{
 
 	}
+	virtual bool RHIEnqueueDecompress(uint8_t*, uint8_t*, int, void*) final override
+	{
+		return false;
+	}
+	virtual bool RHIEnqueueCompress(uint8_t*, uint8_t*, int, void*) final override
+	{
+		return false;
+	}
 	virtual bool RHIGetAvailableResolutions(FScreenResolutionArray& Resolutions, bool bIgnoreRefreshRate) final override
 	{ 
 		return false; 
@@ -805,7 +822,7 @@ public:
 	{ 
 		return 0; 
 	}
-	virtual void RHIPushEvent(const TCHAR* Name) final override
+	virtual void RHIPushEvent(const TCHAR* Name, FColor Color) final override
 	{
 	}
 	virtual void RHIPopEvent()
@@ -818,16 +835,6 @@ public:
 	virtual class IRHICommandContextContainer* RHIGetCommandContextContainer() final override
 	{ 
 		return nullptr; 
-	}
-	
-	virtual void RHIBeginAsyncComputeJob_DrawThread(EAsyncComputePriority Priority) override
-	{
-	}
-	virtual void RHIEndAsyncComputeJob_DrawThread(uint32 FenceIndex) override
-	{
-	}
-	virtual void RHIGraphicsWaitOnAsyncComputeJob(uint32 FenceIndex) override
-	{
 	}
 
 private:

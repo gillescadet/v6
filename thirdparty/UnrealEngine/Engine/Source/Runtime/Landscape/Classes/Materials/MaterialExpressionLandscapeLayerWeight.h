@@ -6,7 +6,7 @@
 #include "MaterialExpressionLandscapeLayerWeight.generated.h"
 
 UCLASS(collapsecategories, hidecategories=Object)
-class UMaterialExpressionLandscapeLayerWeight : public UMaterialExpression
+class LANDSCAPE_API UMaterialExpressionLandscapeLayerWeight : public UMaterialExpression
 {
 	GENERATED_UCLASS_BODY()
 
@@ -33,27 +33,32 @@ class UMaterialExpressionLandscapeLayerWeight : public UMaterialExpression
 public:
 
 	//~ Begin UMaterialExpression Interface
+#if WITH_EDITOR
 	virtual bool IsResultMaterialAttributes(int32 OutputIndex) override;
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#endif
 	virtual UTexture* GetReferencedTexture() override;
 #if WITH_EDITOR
 	virtual uint32 GetInputType(int32 InputIndex) override {return MCT_Float | MCT_MaterialAttributes;}
 #endif //WITH_EDITOR
 	//~ End UMaterialExpression Interface
 
-	LANDSCAPE_API virtual FGuid& GetParameterExpressionId() override;
+	virtual FGuid& GetParameterExpressionId() override;
 
 	/**
 	 * Called to get list of parameter names for static parameter sets
 	 */
 	void GetAllParameterNames(TArray<FName> &OutParameterNames, TArray<FGuid> &OutParameterIds) const;
 
+	//~ Begin UObject Interface
 	/**
 	 * Do any object-specific cleanup required immediately after loading an object,
 	 * and immediately after any undo/redo.
 	 */
-	void PostLoad() override;
+	virtual void PostLoad() override;
+	virtual bool NeedsLoadForClient() const override;
+	//~ End UObject Interface
 };
 
 

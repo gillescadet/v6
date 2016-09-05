@@ -28,7 +28,7 @@ public class WebBrowser : ModuleRules
 		||  Target.Platform == UnrealTargetPlatform.Win32
 		||  Target.Platform == UnrealTargetPlatform.Mac)
 		{
-			AddThirdPartyPrivateStaticDependencies(Target,
+			AddEngineThirdPartyPrivateStaticDependencies(Target,
 				"CEF3"
 				);
 
@@ -45,5 +45,12 @@ public class WebBrowser : ModuleRules
 				RuntimeDependencies.Add(new RuntimeDependency("$(EngineDir)/Binaries/" + Target.Platform.ToString() + "/UnrealCEFSubProcess.exe"));
 			}
 		}
+
+		if (Target.Platform == UnrealTargetPlatform.PS4)
+		{
+			PrivateDependencyModuleNames.Add("OnlineSubsystem");
+		}
+		
+		bEnableShadowVariableWarnings = false;
 	}
 }

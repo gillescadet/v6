@@ -6,6 +6,7 @@
 
 #include "EnginePrivate.h"
 #include "StaticMeshResources.h"
+#include "PhysicsEngine/BodySetup.h"
 
 #if WITH_EDITOR
 #include "RawMesh.h"
@@ -33,11 +34,10 @@ static bool HasBadTangents(UStaticMesh* Mesh)
 			int32 NumVerts = LOD.VertexBuffer.GetNumVertices();
 			for (int32 VertIndex = 0; !bHasBadTangents && VertIndex < NumVerts; ++VertIndex)
 			{
-				FPackedNormal& TangentX = LOD.VertexBuffer.VertexTangentX(VertIndex);
-				FPackedNormal& TangentZ = LOD.VertexBuffer.VertexTangentZ(VertIndex);
-				if (FMath::Abs((int32)TangentX.Vector.X - (int32)TangentZ.Vector.X) <= 1
-					&& FMath::Abs((int32)TangentX.Vector.Y - (int32)TangentZ.Vector.Y) <= 1
-					&& FMath::Abs((int32)TangentX.Vector.Z - (int32)TangentZ.Vector.Z) <= 1)
+				const FVector TangentX = LOD.VertexBuffer.VertexTangentX(VertIndex);
+				const FVector TangentZ = LOD.VertexBuffer.VertexTangentZ(VertIndex);
+				
+				if ((TangentX - TangentZ).GetAbs().IsNearlyZero(1.0f / 255.0f))
 				{
 					bHasBadTangents = true;
 				}
@@ -57,6 +57,12 @@ void UStaticMesh::Build(bool bSilent, TArray<FText>* OutErrors)
 	if (SourceModels.Num() <= 0)
 	{
 		UE_LOG(LogStaticMesh,Warning,TEXT("Static mesh has no source models: %s"),*GetPathName());
+		return;
+	}
+
+	if (SourceModels.Num() > MAX_STATIC_MESH_LODS)
+	{
+		UE_LOG(LogStaticMesh, Warning, TEXT("Cannot build LOD %d.  The maximum allowed is %d.  Skipping."), SourceModels.Num(), MAX_STATIC_MESH_LODS);
 		return;
 	}
 
@@ -132,19 +138,24 @@ void UStaticMesh::Build(bool bSilent, TArray<FText>* OutErrors)
 
 		// Find any static mesh components that use this mesh and fixup their override colors if necessary.
 		// Also invalidate lighting. *** WARNING components may be reattached here! ***
-		for( TObjectIterator<UStaticMeshComponent> It; It; ++It )
+		const uint32 NumLODs = RenderData->LODResources.Num();
+		for (TObjectIterator<UStaticMeshComponent> It; It; ++It)
 		{
 			if ( It->StaticMesh == this )
 			{
-				It->FixupOverrideColorsIfNecessary( true );
+				It->FixupOverrideColorsIfNecessary(true);
 				It->InvalidateLightingCache();
 			}
 		}
-
 	}
 
 	// Calculate extended bounds
 	CalculateExtendedBounds();
+
+	if (NavCollision == NULL && !!bHasNavigationData)
+	{
+		CreateNavCollision();
+	}
 
 	PostMeshBuild.Broadcast(this);
 
@@ -152,7 +163,7 @@ void UStaticMesh::Build(bool bSilent, TArray<FText>* OutErrors)
 	{
 		GWarn->EndSlowTask();
 	}
-	
+
 #else
 	UE_LOG(LogStaticMesh,Fatal,TEXT("UStaticMesh::Build should not be called on non-editor builds."));
 #endif
@@ -299,7 +310,7 @@ void RemapPaintedVertexColors(
 				{
 					FOREACH_OCTREE_CHILD_NODE( OctreeChildRef )
 					{
-						if( CurNode.HasChild( OctreeChildRef ) && CurNode.GetChild( OctreeChildRef )->GetInclusiveElementCount() > 0 )
+						if( CurNode.HasChild( OctreeChildRef ) )
 						{
 							OctreeIter.PushChild( OctreeChildRef );
 						}
@@ -316,14 +327,18 @@ void RemapPaintedVertexColors(
 		if ( PointsToConsider.Num() > 0 )
 		{
 			FPaintedVertex BestVertex = PointsToConsider[0];
+			FVector BestVertexNormal = BestVertex.Normal;
+
 			float BestDistanceSquared = ( BestVertex.Position - CurPosition ).SizeSquared();
-			float BestNormalDot = FVector( BestVertex.Normal ) | CurNormal;
+			float BestNormalDot = BestVertexNormal | CurNormal;
 
 			for ( int32 ConsiderationIndex = 1; ConsiderationIndex < PointsToConsider.Num(); ++ConsiderationIndex )
 			{
 				FPaintedVertex& Vertex = PointsToConsider[ ConsiderationIndex ];
+				FVector VertexNormal = Vertex.Normal;
+
 				const float DistSqrd = ( Vertex.Position - CurPosition ).SizeSquared();
-				const float NormalDot = FVector( Vertex.Normal ) | CurNormal;
+				const float NormalDot = VertexNormal | CurNormal;
 				if ( DistSqrd < BestDistanceSquared - DistanceOverNormalThreshold )
 				{
 					BestVertex = Vertex;

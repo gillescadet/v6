@@ -17,12 +17,14 @@
 
 #include "TargetPlatform.h"
 #include "ContentStreaming.h"
+#include "Streaming/StreamingManagerTexture.h"
 
 UTexture2D::UTexture2D(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	bHasCancelationPending = false;
-	StreamingIndex = -1;
+	StreamingIndex = INDEX_NONE;
+	LevelIndex = INDEX_NONE;
 	SRGB = true;
 }
 
@@ -35,7 +37,7 @@ static TAutoConsoleVariable<float> CVarSetMipMapLODBias(
 	TEXT("r.MipMapLODBias"),
 	0.0f,
 	TEXT("Apply additional mip map bias for all 2D textures, range of -15.0 to 15.0"),
-	ECVF_RenderThreadSafe);
+	ECVF_RenderThreadSafe | ECVF_Scalability);
 
 static TAutoConsoleVariable<int32> CVarVirtualTextureEnabled(
 	TEXT("r.VirtualTexture"),
@@ -47,6 +49,14 @@ static TAutoConsoleVariable<int32> CVarFlushRHIThreadOnSTreamingTextureLocks(
 	TEXT("r.FlushRHIThreadOnSTreamingTextureLocks"),
 	0,
 	TEXT("If set to 0, we won't do any flushes for streaming textures. This is safe because the texture streamer deals with these hazards explicitly."),
+	ECVF_RenderThreadSafe);
+
+// TODO Only adding this setting to allow backwards compatibility to be forced.  The default
+// behavior is to NOT do this.  This variable should be removed in the future.  #ADDED 4.13
+static TAutoConsoleVariable<int32> CVarForceHighestMipOnUITexturesEnabled(
+	TEXT("r.ForceHighestMipOnUITextures"),
+	0,
+	TEXT("If set to 1, texutres in the UI Group will have their highest mip level forced."),
 	ECVF_RenderThreadSafe);
 
 static bool CanCreateAsVirtualTexture(const UTexture2D* Texture, uint32 TexCreateFlags)
@@ -149,7 +159,7 @@ void FTexture2DMipMap::Serialize(FArchive& Ar, UObject* Owner, int32 MipIdx)
 }
 
 #if WITH_EDITORONLY_DATA
-void FTexture2DMipMap::StoreInDerivedDataCache(const FString& InDerivedDataKey)
+uint32 FTexture2DMipMap::StoreInDerivedDataCache(const FString& InDerivedDataKey)
 {
 	int32 BulkDataSizeInBytes = BulkData.GetBulkDataSize();
 	check(BulkDataSizeInBytes > 0);
@@ -162,10 +172,11 @@ void FTexture2DMipMap::StoreInDerivedDataCache(const FString& InDerivedDataKey)
 		Ar.Serialize(BulkMipData, BulkDataSizeInBytes);
 		BulkData.Unlock();
 	}
-
+	const uint32 Result = DerivedData.Num();
 	GetDerivedDataCacheRef().Put(*InDerivedDataKey, DerivedData);
 	DerivedDataKey = InDerivedDataKey;
 	BulkData.RemoveBulkData();
+	return Result;
 }
 #endif // #if WITH_EDITORONLY_DATA
 
@@ -322,10 +333,15 @@ float UTexture2D::GetAverageBrightness(bool bIgnoreTrueBlack, bool bUseGrayscale
 
 void UTexture2D::LinkStreaming()
 {
-	if (!IsTemplate() && IStreamingManager::Get().IsTextureStreamingEnabled())
+	if (!IsTemplate() && IStreamingManager::Get().IsTextureStreamingEnabled() && IsStreamingTexture(this))
 	{
 		IStreamingManager::Get().GetTextureStreamingManager().AddStreamingTexture(this);
 	}
+	else
+	{
+		StreamingIndex = INDEX_NONE;
+	}
+
 }
 
 void UTexture2D::UnlinkStreaming()
@@ -362,9 +378,9 @@ void UTexture2D::PostLoad()
 	Super::PostLoad();
 }
 
-void UTexture2D::PreSave()
+void UTexture2D::PreSave(const class ITargetPlatform* TargetPlatform)
 {
-	Super::PreSave();
+	Super::PreSave(TargetPlatform);
 #if WITH_EDITOR
 	if( bTemporarilyDisableStreaming )
 	{
@@ -468,22 +484,23 @@ bool UTexture2D::IsReadyForStreaming()
 
 void UTexture2D::WaitForStreaming()
 {
-	if (IStreamingManager::Get().IsTextureStreamingEnabled())
-	{
-		IStreamingManager::Get().GetTextureStreamingManager().UpdateIndividualTexture( this );
-	}
-
-	int32 RequestStatus = PendingMipChangeRequestStatus.GetValue();
-
-	// Make sure there are no pending requests in flight.
-	while (	(UpdateStreamingStatus() == true) || 
-			(RequestStatus == TexState_InProgress_Initialization) || 
-			(RequestStatus >= TexState_ReadyFor_Loading))
+	// Make sure there are no pending requests in flight otherwise calling UpdateIndividualTexture could be prevented to defined a new requested mip.
+	while (	!IsReadyForStreaming() || UpdateStreamingStatus() ) 
 	{
 		// Give up timeslice.
 		FPlatformProcess::Sleep(0);
+	}
 
-		RequestStatus = PendingMipChangeRequestStatus.GetValue();
+	// Update the wanted mip and stream in..		
+	if (IStreamingManager::Get().IsTextureStreamingEnabled())
+	{
+		IStreamingManager::Get().GetTextureStreamingManager().UpdateIndividualTexture( this );
+
+		while (	UpdateStreamingStatus() ) 
+		{
+			// Give up timeslice.
+			FPlatformProcess::Sleep(0);
+		}
 	}
 }
 
@@ -532,13 +549,6 @@ bool UTexture2D::UpdateStreamingStatus( bool bWaitForMipFading /*= false*/ )
 
 			if ( bFinalizeNow || GIsRequestingExit || bHasCancelationPending )
 			{
-#if STATS
-				// Are we measuring streaming latency? (Contains negative timestamp based off GStartTime.)
-				if ( Timer < 0.0f )
-				{
-					Timer = float(FPlatformTime::Seconds() - GStartTime) + Timer;
-				}
-#endif
 				// Finalize mip request, aka unlock textures involved, perform switcheroo and free original one.
 				Texture2DResource->BeginFinalizeMipCount();
 			}
@@ -721,25 +731,20 @@ bool UTexture2D::HasAlphaChannel() const
 
 int32 UTexture2D::GetNumNonStreamingMips() const
 {
-	// Take in to account the mip tail.
-	int32 MipCount = GetNumMips();
-	int32 NumNonStreamingMips = FMath::Max(0, MipCount - GetMipTailBaseIndex());
+	int32 NumNonStreamingMips = 0;
 
-	// Take in to account the min resident limit.
-	NumNonStreamingMips = FMath::Max(NumNonStreamingMips, UTexture2D::GetMinTextureResidentMipCount());
-	NumNonStreamingMips = FMath::Min(NumNonStreamingMips, MipCount);
-
-	// Take in to account restrictions due to block size.
-	if (PlatformData && PlatformData->Mips.Num() > 0)
+	if (PlatformData)
 	{
-		EPixelFormat PixelFormat = PlatformData->PixelFormat;
-		int32 BlockSizeX = GPixelFormats[PixelFormat].BlockSizeX;
-		int32 BlockSizeY = GPixelFormats[PixelFormat].BlockSizeY;
-		if (BlockSizeX > 1 || BlockSizeY > 1)
-		{
-			NumNonStreamingMips = FMath::Max<int32>(NumNonStreamingMips, MipCount - FPlatformMath::FloorLog2(PlatformData->Mips[0].SizeX / BlockSizeX));
-			NumNonStreamingMips = FMath::Max<int32>(NumNonStreamingMips, MipCount - FPlatformMath::FloorLog2(PlatformData->Mips[0].SizeY / BlockSizeY));
-		}
+		NumNonStreamingMips = PlatformData->GetNumNonStreamingMips();
+	}
+	else
+	{
+		int32 MipCount = GetNumMips();
+		NumNonStreamingMips = FMath::Max(0, MipCount - GetMipTailBaseIndex());
+
+		// Take in to account the min resident limit.
+		NumNonStreamingMips = FMath::Max(NumNonStreamingMips, UTexture2D::GetMinTextureResidentMipCount());
+		NumNonStreamingMips = FMath::Min(NumNonStreamingMips, MipCount);
 	}
 
 	return NumNonStreamingMips;
@@ -919,8 +924,7 @@ bool UTexture2D::ShouldMipLevelsBeForcedResident() const
 	{
 		return true;
 	}
-	float CurrentTime = float(FPlatformTime::Seconds() - GStartTime);
-	if ( ForceMipLevelsToBeResidentTimestamp >= CurrentTime )
+	if ( ForceMipLevelsToBeResidentTimestamp >= FApp::GetCurrentTime() )
 	{
 		return true;
 	}
@@ -984,7 +988,7 @@ void UTexture2D::SetForceMipLevelsToBeResident( float Seconds, int32 CinematicTe
 	uint32 TextureGroupBitfield = (uint32) CinematicTextureGroups;
 	uint32 MyTextureGroup = FMath::BitFlag[LODGroup];
 	bUseCinematicMipLevels = (TextureGroupBitfield & MyTextureGroup) ? true : false;
-	ForceMipLevelsToBeResidentTimestamp = float(FPlatformTime::Seconds() - GStartTime) + Seconds;
+	ForceMipLevelsToBeResidentTimestamp = FApp::GetCurrentTime() + Seconds;
 }
 
 int32 UTexture2D::Blueprint_GetSizeX() const
@@ -1249,6 +1253,7 @@ void FTexture2DResource::InitRHI()
 				Owner->PendingMipChangeRequestStatus.Increment();
 
 				TextureRHI = Texture2DRHI;
+				TextureRHI->SetName(Owner->GetFName());
 				RHIBindDebugLabelName(TextureRHI, *Owner->GetName());
 				RHIUpdateTextureReference(Owner->TextureReference.TextureReferenceRHI,TextureRHI);
 
@@ -1259,6 +1264,7 @@ void FTexture2DResource::InitRHI()
 			FRHIResourceCreateInfo CreateInfo(ResourceMem);
 			Texture2DRHI	= RHICreateTexture2D( SizeX, SizeY, EffectiveFormat, Owner->RequestedMips, 1, TexCreateFlags, CreateInfo);
 			TextureRHI		= Texture2DRHI;
+			TextureRHI->SetName(Owner->GetFName());
 			RHIBindDebugLabelName(TextureRHI, *Owner->GetName());
 			RHIUpdateTextureReference(Owner->TextureReference.TextureReferenceRHI,TextureRHI);
 
@@ -1311,6 +1317,7 @@ void FTexture2DResource::InitRHI()
 			FRHIResourceCreateInfo CreateInfo;
 			Texture2DRHI	= RHICreateTexture2D( SizeX, SizeY, EffectiveFormat, Owner->RequestedMips, 1, TexCreateFlags, CreateInfo );
 			TextureRHI		= Texture2DRHI;
+			TextureRHI->SetName(Owner->GetFName());
 			RHIBindDebugLabelName(TextureRHI, *Owner->GetName());
 			RHIUpdateTextureReference(Owner->TextureReference.TextureReferenceRHI,TextureRHI);
 			for( int32 MipIndex=CurrentFirstMip; MipIndex<OwnerMips.Num(); MipIndex++ )
@@ -1413,7 +1420,15 @@ uint32 FTexture2DResource::GetSizeY() const
 int32 FTexture2DResource::GetDefaultMipMapBias() const
 {
 	const TIndirectArray<FTexture2DMipMap>& OwnerMips = Owner->GetPlatformMips();
-	return (Owner->LODGroup == TEXTUREGROUP_UI) ? -OwnerMips.Num() : 0;
+	if ( Owner->LODGroup == TEXTUREGROUP_UI )
+	{
+		if ( CVarForceHighestMipOnUITexturesEnabled.GetValueOnAnyThread() > 0 )
+		{
+			return -OwnerMips.Num();
+		}
+	}
+	
+	return 0;
 }
 
 /**
@@ -1479,7 +1494,6 @@ void FTexture2DResource::BeginUpdateMipCount( bool bShouldPrioritizeAsyncIOReque
 	Owner->PendingMipChangeRequestStatus.Set( TexState_InProgress_Allocation );
 
 	bPrioritizedIORequest = bShouldPrioritizeAsyncIORequest;
-	GStreamMemoryTracker.GameThread_BeginUpdate( *Owner );
 
 	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
 		UpdateMipCountCommand,
@@ -1599,9 +1613,6 @@ void FTexture2DResource::UpdateMipCount()
 				Owner->PendingMipChangeRequestStatus.Set( TexState_InProgress_Loading );
 				LoadMipData();
 
-				// Update the memory tracker.
-				GStreamMemoryTracker.RenderThread_Update( *Owner, true );
-
 				return;
 			}
 			// Transform from regular allocation to virtual allocation
@@ -1646,9 +1657,6 @@ void FTexture2DResource::UpdateMipCount()
 		// Set the state to TexState_InProgress_Loading and start loading right away.
 		Owner->PendingMipChangeRequestStatus.Set( TexState_InProgress_Loading );
 		LoadMipData();
-
-		// Update the memory tracker.
-		GStreamMemoryTracker.RenderThread_Update( *Owner, true );
 
 		return;
 	}
@@ -1725,9 +1733,6 @@ void FTexture2DResource::UpdateMipCount()
 		// Decrement the counter so that when async allocation finishes the game thread will see TexState_ReadyFor_Loading.
 		Owner->PendingMipChangeRequestStatus.Decrement();
 	}
-
-	// Update the memory tracker.
-	GStreamMemoryTracker.RenderThread_Update( *Owner, IsValidRef(IntermediateTextureRHI) || bUsingAsyncCreation );
 }
 
 /**
@@ -2076,6 +2081,21 @@ void FTexture2DResource::UploadMipData()
 }
 
 /**
+* Helper function for cleaning up bulk data files after streaming
+* @todo: make it smarter, close only when we know we won't be streaming anymore or at least for a while
+* @todo: What if each mip is in a different bulk data file? might need to loop over all
+*/
+inline void HintDoneWithStreamedTextureFiles(const UTexture2D* InTexture)
+{
+	if (FPlatformProperties::RequiresCookedData())
+	{
+		const TIndirectArray<FTexture2DMipMap>& OwnerMips = InTexture->GetPlatformMips();
+		const FTexture2DMipMap& MipMap = OwnerMips[0];
+		FIOSystem::Get().HintDoneWithFile(MipMap.BulkData.GetFilename());
+	}
+}
+
+/**
  * Called from the rendering thread to finalize a mip change.
  */
 void FTexture2DResource::FinalizeMipCount()
@@ -2110,10 +2130,10 @@ void FTexture2DResource::FinalizeMipCount()
 			MipBiasFade.SetNewMipCount( Owner->ResidentMips, Owner->ResidentMips, LastRenderTime, MipFadeSetting );
 		}
 
-		GStreamMemoryTracker.RenderThread_Finalize( *Owner, bSuccess );
-
 		// We're done.
 		Owner->PendingMipChangeRequestStatus.Decrement();
+
+		HintDoneWithStreamedTextureFiles(Owner);
 
 		return;
 	}
@@ -2148,22 +2168,6 @@ void FTexture2DResource::FinalizeMipCount()
 			EMipFadeSettings MipFadeSetting = (Owner->LODGroup == TEXTUREGROUP_Lightmap || Owner->LODGroup == TEXTUREGROUP_Shadowmap) ? MipFade_Slow : MipFade_Normal;
 			MipBiasFade.SetNewMipCount( Owner->RequestedMips, Owner->RequestedMips, LastRenderTime, MipFadeSetting );
 
-#if STATS
-			// Update bandwidth measurements if we've streamed in mip-levels.
-			if ( Owner->Timer > 0.0f && IntermediateTextureSize > TextureSize )
-			{
-				double BandwidthSample = double(IntermediateTextureSize - TextureSize) / double(Owner->Timer);
-				double TotalBandwidth = FStreamingManagerTexture::BandwidthAverage*FStreamingManagerTexture::NumBandwidthSamples;
-				TotalBandwidth -= FStreamingManagerTexture::BandwidthSamples[FStreamingManagerTexture::BandwidthSampleIndex];
-				TotalBandwidth += BandwidthSample;
-				FStreamingManagerTexture::BandwidthSamples[FStreamingManagerTexture::BandwidthSampleIndex] = BandwidthSample;
-				FStreamingManagerTexture::BandwidthSampleIndex = (FStreamingManagerTexture::BandwidthSampleIndex + 1) % NUM_BANDWIDTHSAMPLES;
-				FStreamingManagerTexture::NumBandwidthSamples = ( FStreamingManagerTexture::NumBandwidthSamples == NUM_BANDWIDTHSAMPLES ) ? FStreamingManagerTexture::NumBandwidthSamples : (FStreamingManagerTexture::NumBandwidthSamples+1);
-				FStreamingManagerTexture::BandwidthAverage = TotalBandwidth / FStreamingManagerTexture::NumBandwidthSamples;
-				FStreamingManagerTexture::BandwidthMaximum = FMath::Max<float>(FStreamingManagerTexture::BandwidthMaximum, BandwidthSample);
-				FStreamingManagerTexture::BandwidthMinimum = FMath::IsNearlyZero(FStreamingManagerTexture::BandwidthMinimum) ? BandwidthSample : FMath::Min<float>(FStreamingManagerTexture::BandwidthMinimum, BandwidthSample);
-			}
-#endif
 			DEC_DWORD_STAT_BY( STAT_TextureMemory, TextureSize );
 			DEC_DWORD_STAT_FNAME_BY( LODGroupStatName, TextureSize );
 			STAT( TextureSize = IntermediateTextureSize );
@@ -2180,7 +2184,7 @@ void FTexture2DResource::FinalizeMipCount()
 		}
 		IntermediateTextureRHI.SafeRelease();
 
-		GStreamMemoryTracker.RenderThread_Finalize( *Owner, bSuccess );
+		HintDoneWithStreamedTextureFiles(Owner);
 	}
 	else
 	{
@@ -2235,8 +2239,8 @@ bool FTexture2DResource::TryReallocate( int32 OldMipCount, int32 NewMipCount )
 	check(MipIndex>=0);
 	uint32 NewSizeX	= OwnerMips[MipIndex].SizeX;
 	uint32 NewSizeY	= OwnerMips[MipIndex].SizeY;
-
-	FThreadSafeCounter AsyncReallocateCounter;
+	
+	AsyncReallocateCounter.Reset();
 	FTexture2DRHIRef NewTextureRHI = RHIAsyncReallocateTexture2D( Texture2DRHI, NewMipCount, NewSizeX, NewSizeY, &AsyncReallocateCounter );
 	RHIFinalizeAsyncReallocateTexture2D(Texture2DRHI,true);
 

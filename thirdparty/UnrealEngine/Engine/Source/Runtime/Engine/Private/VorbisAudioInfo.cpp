@@ -79,15 +79,20 @@ struct FVorbisFileWrapper
 ------------------------------------------------------------------------------------*/
 FVorbisAudioInfo::FVorbisAudioInfo( void ) 
 	: VFWrapper(new FVorbisFileWrapper())
-	,	SrcBufferData(NULL)
-	,	SrcBufferDataSize(0)
-	,	BufferOffset(0)
+	, SrcBufferData(NULL)
+	, SrcBufferDataSize(0)
+	, BufferOffset(0)
+	, bPerformingOperation(false)
 { 
-	check(VFWrapper != nullptr);
+	// Make sure we have properly allocated a VFWrapper
+	check(VFWrapper != NULL);
 }
 
 FVorbisAudioInfo::~FVorbisAudioInfo( void ) 
 { 
+	// Make sure we're not deleting ourselves while performing an operation
+	ensure(!bPerformingOperation);
+
 	FScopeLock ScopeLock(&VorbisCriticalSection);
 	check(VFWrapper != nullptr);
 	delete VFWrapper;
@@ -108,7 +113,7 @@ static size_t OggRead( void *ptr, size_t size, size_t nmemb, void *datasource )
 {
 	check(ptr);
 	check(datasource);
-	FVorbisAudioInfo* OggInfo = ( FVorbisAudioInfo* )datasource;
+	FVorbisAudioInfo* OggInfo = (FVorbisAudioInfo*)datasource;
 	return( OggInfo->Read( ptr, size * nmemb ) );
 }
 
@@ -171,12 +176,15 @@ static long OggTell( void *datasource )
  */
 bool FVorbisAudioInfo::ReadCompressedInfo( const uint8* InSrcBufferData, uint32 InSrcBufferDataSize, FSoundQualityInfo* QualityInfo )
 {
+	bPerformingOperation = true;
+
 	SCOPE_CYCLE_COUNTER( STAT_VorbisPrepareDecompressionTime );
 
 	FScopeLock ScopeLock(&VorbisCriticalSection);
 
 	if (!VFWrapper)
 	{
+		bPerformingOperation = false;
 		return false;
 	}
 
@@ -196,6 +204,7 @@ bool FVorbisAudioInfo::ReadCompressedInfo( const uint8* InSrcBufferData, uint32 
 	if (Result < 0)
 	{
 		UE_LOG(LogAudio, Error, TEXT("FVorbisAudioInfo::ReadCompressedInfo, ov_open_callbacks error code: %d"), Result);
+		bPerformingOperation = false;
 		return false;
 	}
 
@@ -219,6 +228,8 @@ bool FVorbisAudioInfo::ReadCompressedInfo( const uint8* InSrcBufferData, uint32 
 		}
 	}
 
+	bPerformingOperation = false;
+
 	return( true );
 }
 
@@ -228,6 +239,8 @@ bool FVorbisAudioInfo::ReadCompressedInfo( const uint8* InSrcBufferData, uint32 
  */
 void FVorbisAudioInfo::ExpandFile( uint8* DstBuffer, FSoundQualityInfo* QualityInfo )
 {
+	bPerformingOperation = true;
+
 	uint32		TotalBytesRead, BytesToRead;
 
 	check( VFWrapper != NULL );
@@ -249,12 +262,15 @@ void FVorbisAudioInfo::ExpandFile( uint8* DstBuffer, FSoundQualityInfo* QualityI
 		{
 			// indicates an error - fill remainder of buffer with zero
 			FMemory::Memzero(Destination, BytesToRead - TotalBytesRead);
+			bPerformingOperation = false;
 			return;
 		}
 
 		TotalBytesRead += BytesRead;
 		Destination += BytesRead;
 	}
+
+	bPerformingOperation = false;
 }
 
 
@@ -270,6 +286,8 @@ void FVorbisAudioInfo::ExpandFile( uint8* DstBuffer, FSoundQualityInfo* QualityI
  */
 bool FVorbisAudioInfo::ReadCompressedData( uint8* InDestination, bool bLooping, uint32 BufferSize )
 {
+	bPerformingOperation = true;
+
 	bool		bLooped;
 	uint32		TotalBytesRead;
 
@@ -299,6 +317,7 @@ bool FVorbisAudioInfo::ReadCompressedData( uint8* InDestination, bool bLooping, 
 				{
 					// indicates an error - fill remainder of buffer with zero
 					FMemory::Memzero(Destination, BufferSize - TotalBytesRead);
+					bPerformingOperation = false;
 					return true;
 				}
 			}
@@ -314,6 +333,7 @@ bool FVorbisAudioInfo::ReadCompressedData( uint8* InDestination, bool bLooping, 
 		{
 			// indicates an error - fill remainder of buffer with zero
 			FMemory::Memzero(Destination, BufferSize - TotalBytesRead);
+			bPerformingOperation = false;
 			return false;
 		}
 
@@ -321,39 +341,52 @@ bool FVorbisAudioInfo::ReadCompressedData( uint8* InDestination, bool bLooping, 
 		Destination += BytesRead;
 	}
 
+	bPerformingOperation = false;
 	return( bLooped );
 }
 
 void FVorbisAudioInfo::SeekToTime( const float SeekTime )
 {
+	bPerformingOperation = true;
+
 	FScopeLock ScopeLock(&VorbisCriticalSection);
 
-	const float TargetTime = FMath::Min(SeekTime, ( float )ov_time_total( &VFWrapper->vf, -1 ));
+	const float TargetTime = FMath::Min(SeekTime, (float)ov_time_total(&VFWrapper->vf, -1));
 	ov_time_seek( &VFWrapper->vf, TargetTime );
+
+	bPerformingOperation = false;
 }
 
 void FVorbisAudioInfo::EnableHalfRate( bool HalfRate )
 {
+
+	bPerformingOperation = true;
+
 	FScopeLock ScopeLock(&VorbisCriticalSection);
 
-	ov_halfrate( &VFWrapper->vf, int32(HalfRate));
+	ov_halfrate(&VFWrapper->vf, int32(HalfRate));
+
+	bPerformingOperation = false;
 }
 
 void LoadVorbisLibraries()
 {
-	static bool bIsIntialized = false;
-	if (!bIsIntialized)
+	static bool bIsInitialized = false;
+	if (!bIsInitialized)
 	{
-		bIsIntialized = true;
+		bIsInitialized = true;
 #if PLATFORM_WINDOWS  && WITH_OGGVORBIS
 		//@todo if ogg is every ported to another platform, then use the platform abstraction to load these DLLs
 		// Load the Ogg dlls
+#  if _MSC_VER >= 1900
+		FString VSVersion = TEXT("VS2015/");
+#  elif _MSC_VER >= 1800
 		FString VSVersion = TEXT("VS2013/");
+#  else
+#    error "Unsupported Visual Studio version."
+#  endif
 		FString PlatformString = TEXT("Win32");
 		FString DLLNameStub = TEXT(".dll");
-#if _MSC_VER == 1900
-		VSVersion = TEXT("VS2015/");
-#endif
 #if PLATFORM_64BITS
 		PlatformString = TEXT("Win64");
 		DLLNameStub = TEXT("_64.dll");

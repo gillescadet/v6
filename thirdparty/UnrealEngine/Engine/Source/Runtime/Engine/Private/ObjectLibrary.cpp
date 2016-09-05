@@ -9,6 +9,7 @@ UObjectLibrary::UObjectLibrary(const FObjectInitializer& ObjectInitializer)
 {
 	bIsFullyLoaded = false;
 	bUseWeakReferences = false;
+	bIncludeOnlyOnDiskAssets = true;
 
 #if WITH_EDITOR
 	if ( !HasAnyFlags(RF_ClassDefaultObject) )
@@ -40,6 +41,11 @@ void UObjectLibrary::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 				if(Objects[i] != NULL)
 				{
 					UClass* BlueprintClass = Cast<UClass>(Objects[i]);
+					if (!BlueprintClass)
+					{
+						UBlueprintCore* Blueprint = Cast<UBlueprintCore>(Objects[i]);
+						BlueprintClass = Blueprint ? Blueprint->GeneratedClass : nullptr;
+					}
 
 					if (!BlueprintClass)
 					{
@@ -319,7 +325,7 @@ int32 UObjectLibrary::LoadAssetDataFromPaths(const TArray<FString>& Paths, bool 
 	}
 
 	ARFilter.bRecursivePaths = true;
-	ARFilter.bIncludeOnlyOnDiskAssets = true;
+	ARFilter.bIncludeOnlyOnDiskAssets = bIncludeOnlyOnDiskAssets;
 
 	AssetDataList.Empty();
 	AssetRegistry.GetAssets(ARFilter, AssetDataList);
@@ -338,20 +344,33 @@ int32 UObjectLibrary::LoadBlueprintAssetDataFromPaths(const TArray<FString>& Pat
 	}
 
 #if WITH_EDITOR
-	// Cooked data has the asset data already set up
-	const bool bShouldDoSynchronousScan = !bIsGlobalAsyncScanEnvironment || bForceSynchronousScan;
-	if ( bShouldDoSynchronousScan )
 	{
-		AssetRegistry.ScanPathsSynchronous(Paths);
-	}
-	else
-	{
-		if ( AssetRegistry.IsLoadingAssets() )
+		// Cooked data has the asset data already set up
+		const bool bShouldDoSynchronousScan = !bIsGlobalAsyncScanEnvironment || bForceSynchronousScan;
+		if ( bShouldDoSynchronousScan )
 		{
-			// Keep track of the paths we asked for so once assets are discovered we will refresh the list
-			for (const FString& Path : Paths)
+			// The calls into AssetRegistery require /Game/ instead of /Game.
+			// The calls further below, when setting up the ARFilters, do not want the trailing /.
+			// (note: this is only an annoying edge case with /Game. Subfolders will work in both cases without the trailing /".
+			TArray<FString> LongFileNamePaths = Paths;
+			for (FString& Str : LongFileNamePaths)
 			{
-				DeferredAssetDataPaths.AddUnique(Path);
+				if (Str.EndsWith(TEXT("/")) == false)
+				{
+					Str += TEXT("/");
+				}
+			}
+			AssetRegistry.ScanPathsSynchronous(LongFileNamePaths);
+		}
+		else
+		{
+			if ( AssetRegistry.IsLoadingAssets() )
+			{
+				// Keep track of the paths we asked for so once assets are discovered we will refresh the list
+				for (const FString& Path : Paths)
+				{
+					DeferredAssetDataPaths.AddUnique(Path);
+				}
 			}
 		}
 	}
@@ -366,7 +385,7 @@ int32 UObjectLibrary::LoadBlueprintAssetDataFromPaths(const TArray<FString>& Pat
 	}
 	
 	ARFilter.bRecursivePaths = true;
-	ARFilter.bIncludeOnlyOnDiskAssets = true;
+	ARFilter.bIncludeOnlyOnDiskAssets = bIncludeOnlyOnDiskAssets;
 
 	/* GetDerivedClassNames doesn't work yet
 	if ( ObjectBaseClass )
@@ -400,10 +419,10 @@ int32 UObjectLibrary::LoadBlueprintAssetDataFromPaths(const TArray<FString>& Pat
 			FAssetData& Data = AssetDataList[AssetIdx];
 
 			bool bShouldRemove = true;
-			const FString* ParentClassFromData = Data.TagsAndValues.Find("ParentClass");
-			if (ParentClassFromData && !ParentClassFromData->IsEmpty())
+			const FString ParentClassFromData = Data.GetTagValueRef<FString>("ParentClass");
+			if (!ParentClassFromData.IsEmpty())
 			{
-				const FString ClassObjectPath = FPackageName::ExportTextPathToObjectPath(*ParentClassFromData);
+				const FString ClassObjectPath = FPackageName::ExportTextPathToObjectPath(ParentClassFromData);
 				const FString ClassName = FPackageName::ObjectPathToObjectName(ClassObjectPath);
 				if (DerivedClassNames.Contains(FName(*ClassName)))
 				{

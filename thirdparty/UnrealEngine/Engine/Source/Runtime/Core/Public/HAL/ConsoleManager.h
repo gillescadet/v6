@@ -50,6 +50,7 @@ public:
 	virtual IConsoleVariable* RegisterConsoleVariable(const TCHAR* Name, const FString& DefaultValue, const TCHAR* Help, uint32 Flags) override;
 	virtual IConsoleVariable* RegisterConsoleVariableRef(const TCHAR* Name, int32& RefValue, const TCHAR* Help, uint32 Flags) override;
 	virtual IConsoleVariable* RegisterConsoleVariableRef(const TCHAR* Name, float& RefValue, const TCHAR* Help, uint32 Flags) override;
+	virtual IConsoleVariable* RegisterConsoleVariableRef(const TCHAR* Name, bool& RefValue, const TCHAR* Help, uint32 Flags) override;
 	virtual IConsoleVariable* RegisterConsoleVariableBitRef(const TCHAR* CVarName, const TCHAR* FlagName, uint32 BitNumber, uint8* Force0MaskPtr, uint8* Force1MaskPtr, const TCHAR* Help, uint32 Flags) override;
 	
 	virtual void CallAllConsoleVariableSinks() override;
@@ -65,7 +66,8 @@ public:
 	virtual IConsoleCommand* RegisterConsoleCommand(const TCHAR* Name, const TCHAR* Help, uint32 Flags) override;
 	virtual IConsoleObject* FindConsoleObject(const TCHAR* Name) const override;
 	virtual IConsoleVariable* FindConsoleVariable(const TCHAR* Name) const override;
-	virtual void ForEachConsoleObject(const FConsoleObjectVisitor& Visitor, const TCHAR* ThatStartsWith) const override;
+	virtual void ForEachConsoleObjectThatStartsWith(const FConsoleObjectVisitor& Visitor, const TCHAR* ThatStartsWith) const override;
+	virtual void ForEachConsoleObjectThatContains(const FConsoleObjectVisitor& Visitor, const TCHAR* ThatContains) const override;
 	virtual bool ProcessUserConsoleInput(const TCHAR* InInput, FOutputDevice& Ar, UWorld* InWorld) override;
 	virtual void AddConsoleHistoryEntry(const TCHAR* Input) override;
 	virtual void GetConsoleHistory(TArray<FString>& Out) override;
@@ -108,6 +110,10 @@ private: // ----------------------------------------------------
 	 * @param Pattern must not be 0
 	 */
 	static bool MatchPartialName(const TCHAR* Stream, const TCHAR* Pattern);
+
+	/** Returns true if Pattern is found in Stream, case insensitive. */
+	static bool MatchSubstring(const TCHAR* Stream, const TCHAR* Pattern);
+
 	/**
 	 * Get string till whitespace, jump over whitespace
 	 * inefficient but this code is not performance critical

@@ -113,6 +113,7 @@ void FPawnActionStack::PopAction(UPawnAction& ActionToPop)
 
 		while (ActionBeingRemoved != StopAction)
 		{
+			checkSlow(ActionBeingRemoved);
 			UPawnAction* NextAction = ActionBeingRemoved->ParentAction;
 
 			if (ActionBeingRemoved->IsBeingAborted() == false && ActionBeingRemoved->IsFinished() == false)
@@ -452,6 +453,18 @@ uint32 UPawnActionsComponent::AbortActionsInstigatedBy(UObject* const Instigator
 			}
 			Action = Action->ParentAction;
 		}
+
+		for (int32 ActionIndex = ActionEvents.Num() - 1; ActionIndex >= 0; --ActionIndex)
+		{
+			const FPawnActionEvent& Event = ActionEvents[ActionIndex];
+			if (Event.Priority == Priority &&
+				Event.EventType == EPawnActionEventType::Push &&
+				Event.Action && Event.Action->GetInstigator() == Instigator)
+			{
+				ActionEvents.RemoveAtSwap(ActionIndex, /*Count=*/1, /*bAllowShrinking=*/false);
+				AbortedActionsCount++;
+			}
+		}
 	}
 
 	return AbortedActionsCount;
@@ -603,7 +616,14 @@ void UPawnActionsComponent::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) cons
 
 		while (Action)
 		{
-			StatusCategory.Add(Action->GetName(), Action->GetStateDescription());
+			FString InstigatorDesc;
+			const UObject* InstigatorOb = Action->GetInstigator();
+			const UBTNode* InstigatorBT = Cast<const UBTNode>(InstigatorOb);
+			InstigatorDesc = InstigatorBT ?
+				FString::Printf(TEXT("%s = %s"), *UBehaviorTreeTypes::DescribeNodeHelper(InstigatorBT), *InstigatorBT->GetName()) :
+				GetNameSafe(InstigatorOb);
+
+			StatusCategory.Add(Action->GetName(), FString::Printf(TEXT("%s, Instigator:%s"), *Action->GetStateDescription(), *InstigatorDesc));
 			Action = Action->GetParentAction();
 		}
 

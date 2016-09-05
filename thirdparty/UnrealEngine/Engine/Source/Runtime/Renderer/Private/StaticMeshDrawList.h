@@ -7,6 +7,7 @@
 #ifndef __STATICMESHDRAWLIST_H__
 #define __STATICMESHDRAWLIST_H__
 
+extern ENGINE_API bool GDrawListsLocked;
 /** View state for instanced stereo rendering. */
 struct StereoPair
 {
@@ -67,6 +68,8 @@ struct FDrawListStats
 	int32 MedianMeshesPerDrawingPolicy;
 	int32 MaxMeshesPerDrawingPolicy;
 	int32 NumSingleMeshDrawingPolicies;
+	TMap<FString, int32> SingleMeshPolicyMatchFailedReasons;
+	TMap<FName, int32> SingleMeshPolicyVertexFactoryFrequency;
 };
 
 /** Fields in the key used to sort mesh elements in a draw list. */
@@ -269,7 +272,7 @@ private:
 
 		static bool Matches(const DrawingPolicyType& A,const DrawingPolicyType& B)
 		{
-			return A.Matches(B);
+			return A.Matches(B).Result();
 		}
 
 		static uint32 GetKeyHash(const DrawingPolicyType& DrawingPolicy)
@@ -287,7 +290,7 @@ private:
 	* @param bDrawnShared - determines whether to draw shared 
 	*/
 	template<InstancedStereoPolicy InstancedStereo>
-	void DrawElement(FRHICommandList& RHICmdList, const FViewInfo& View, const typename DrawingPolicyType::ContextDataType PolicyContext, const FElement& Element, uint64 BatchElementMask, FDrawingPolicyLink* DrawingPolicyLink, bool &bDrawnShared);
+	int32 DrawElement(FRHICommandList& RHICmdList, const FViewInfo& View, const typename DrawingPolicyType::ContextDataType PolicyContext, const FElement& Element, uint64 BatchElementMask, FDrawingPolicyLink* DrawingPolicyLink, bool &bDrawnShared);
 
 public:
 
@@ -344,7 +347,7 @@ public:
 		FRHICommandList& RHICmdList,
 		const StereoPair& StereoView)
 	{
-		return DrawVisibleInner<InstancedStereoPolicy::Enabled>(RHICmdList, *StereoView.LeftView, typename DrawingPolicyType::ContextDataType(true, false), nullptr, nullptr, &StereoView, 0, OrderedDrawingPolicies.Num() - 1, false);
+		return DrawVisibleInner<InstancedStereoPolicy::Enabled>(RHICmdList, *StereoView.LeftView, typename DrawingPolicyType::ContextDataType(true), nullptr, nullptr, &StereoView, 0, OrderedDrawingPolicies.Num() - 1, false);
 	}
 
 	/**
@@ -389,7 +392,7 @@ public:
 	*/
 	inline void DrawVisibleParallelInstancedStereo(const StereoPair& StereoView, FParallelCommandListSet& ParallelCommandListSet)
 	{
-		DrawVisibleParallelInternal(typename DrawingPolicyType::ContextDataType(true, false), nullptr, nullptr, &StereoView, ParallelCommandListSet);
+		DrawVisibleParallelInternal(typename DrawingPolicyType::ContextDataType(true), nullptr, nullptr, &StereoView, ParallelCommandListSet);
 	}
 
 	/**
@@ -457,6 +460,11 @@ public:
 	FDrawListStats GetStats() const;
 
 private:
+	void CollectClosestMatchingPolicies(
+		typename TArray<FSetElementId>::TConstIterator DrawingPolicyIter,
+		TMap<FString, int32>& MatchFailedReasons
+		) const;
+
 	/** All drawing policies in the draw list, in rendering order. */
 	TArray<FSetElementId> OrderedDrawingPolicies;
 	

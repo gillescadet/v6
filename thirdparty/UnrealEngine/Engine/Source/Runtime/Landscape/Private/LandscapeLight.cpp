@@ -9,10 +9,11 @@ LandscapeLight.cpp: Static lighting for LandscapeComponents
 #include "LandscapeInfo.h"
 #include "LandscapeRender.h"
 #include "LandscapeDataAccess.h"
-
-#include "ComponentReregisterContext.h"
+#include "LandscapeGrassType.h"
 
 #include "UnrealEngine.h"
+#include "ComponentReregisterContext.h"
+#include "Materials/MaterialInstanceConstant.h"
 
 #if WITH_EDITOR
 
@@ -407,6 +408,9 @@ void FLandscapeStaticLightingMesh::GetHeightmapData(int32 InLOD, int32 GeometryL
 	ULandscapeInfo* const Info = LandscapeComponent->GetLandscapeInfo();
 	check(Info);
 
+	bool bUseRenderedWPO = LandscapeComponent->GetLandscapeProxy()->bUseMaterialPositionOffsetInStaticLighting &&
+	                       LandscapeComponent->GetLandscapeMaterial()->GetMaterial()->WorldPositionOffset.IsConnected();
+
 	HeightData.Empty(FMath::Square(NumVertices));
 	HeightData.AddUninitialized(FMath::Square(NumVertices));
 
@@ -429,6 +433,13 @@ void FLandscapeStaticLightingMesh::GetHeightmapData(int32 InLOD, int32 GeometryL
 		FLandscapeComponentDataInterface DataInterface(LandscapeComponent, InLOD);
 		::InternalUpscaling(DataInterface, LandscapeComponent, InLOD, GeometryLOD, CompHeightData, CompXYOffsetData);
 
+		TArray<uint16> RenderedWPOData;
+		if (bUseRenderedWPO)
+		{
+			// todo - do we need to invalidate the landscape mesh version?
+			RenderedWPOData = LandscapeComponent->RenderWPOHeightmap(InLOD);
+		}
+
 		for (int32 Y = 0; Y < ComponentSizeQuads + 1; Y++)
 		{
 			const FColor* const Data = DataInterface.GetHeightData(0, Y);
@@ -436,38 +447,49 @@ void FLandscapeStaticLightingMesh::GetHeightmapData(int32 InLOD, int32 GeometryL
 			for (int32 SubsectionX = 0; SubsectionX < NumSubsections; SubsectionX++)
 			{
 				const int32 X = SubsectionSizeQuads * SubsectionX;
-				const int32 CompX = X + FMath::Min(X/SubsectionSizeQuads, NumSubsections - 1);
-				const FColor* const SubsectionData = &Data[CompX];
+				const int32 TexX = X + FMath::Min(X/SubsectionSizeQuads, NumSubsections - 1);
+				const FColor* const SubsectionData = &Data[TexX];
 
 				// Copy the data
-				FMemory::Memcpy( &HeightData[X + ExpandQuadsX + (Y + ExpandQuadsY) * NumVertices], SubsectionData, SubsectionSizeVerts * sizeof(FColor));
+				FMemory::Memcpy(&HeightData[X + ExpandQuadsX + (Y + ExpandQuadsY) * NumVertices], SubsectionData, SubsectionSizeVerts * sizeof(FColor));
+			}
+
+			if (bUseRenderedWPO)
+			{
+				const int32 HeightDataOffset = ExpandQuadsX + (Y + ExpandQuadsY) * NumVertices;
+				const int32 WPODataOffset    = Y * (ComponentSizeQuads + 1);
+				for (int32 X = 0; X < ComponentSizeQuads; ++X)
+				{
+					const uint16 WPOHeight = RenderedWPOData[X + WPODataOffset];
+					FColor& Height = HeightData[X + HeightDataOffset];
+					Height.R = (WPOHeight >> 8);
+					Height.G = (WPOHeight & 0xFF);
+				}
 			}
 		}
 	}
 
 	// copy surrounding heightmaps...
-	for (int32 ComponentY = 0; ComponentY < 3; ComponentY++)
+	for (int32 ComponentY = -1; ComponentY <= 1; ++ComponentY)
 	{
-		for (int32 ComponentX = 0; ComponentX < 3; ComponentX++)
+		for (int32 ComponentX = -1; ComponentX <= 1; ++ComponentX)
 		{
-			if (ComponentX == 1 && ComponentY == 1)
+			if (ComponentX == 0 && ComponentY == 0)
 			{
 				// Ourself
 				continue;
 			}
 
-			const int32 XSource = (ComponentX == 0) ? (ComponentSizeQuads - ExpandQuadsX) : ((ComponentX == 1) ? 0 : 1);
-			const int32 YSource = (ComponentY == 0) ? (ComponentSizeQuads - ExpandQuadsY) : ((ComponentY == 1) ? 0 : 1);
-			const int32 XDest = (ComponentX == 0) ? 0 : ((ComponentX == 1) ? ExpandQuadsX : (ComponentSizeQuads + ExpandQuadsX + 1));
-			const int32 YDest = (ComponentY == 0) ? 0 : ((ComponentY == 1) ? ExpandQuadsY : (ComponentSizeQuads + ExpandQuadsY + 1));
-			const int32 XNum = (ComponentX == 1) ? (ComponentSizeQuads + 1) : ExpandQuadsX;
-			const int32 YNum = (ComponentY == 1) ? (ComponentSizeQuads + 1) : ExpandQuadsY;
-			const int32 XBackup = (ComponentX == 2) ? (ComponentSizeQuads + ExpandQuadsX) : ExpandQuadsX;
-			const int32 YBackup = (ComponentY == 2) ? (ComponentSizeQuads + ExpandQuadsY) : ExpandQuadsY;
-			const int32 XBackupNum = (ComponentX == 1) ? (ComponentSizeQuads + 1) : 1;
-			const int32 YBackupNum = (ComponentY == 1) ? (ComponentSizeQuads + 1) : 1;
-			
-			ULandscapeComponent* Neighbor = Info->XYtoComponentMap.FindRef(ComponentBase + FIntPoint((ComponentX - 1), (ComponentY - 1)));
+			// Coordinates and Num are all in component-space not tex-space
+			// Note: This means they don't include the duped vert when NumSubsections == 2
+			const int32 XSource = (ComponentX == -1) ? (ComponentSizeQuads - ExpandQuadsX) : ((ComponentX == 0) ? 0 : 1);
+			const int32 YSource = (ComponentY == -1) ? (ComponentSizeQuads - ExpandQuadsY) : ((ComponentY == 0) ? 0 : 1);
+			const int32 XDest = (ComponentX == -1) ? 0 : ((ComponentX == 0) ? ExpandQuadsX : (ComponentSizeQuads + ExpandQuadsX + 1));
+			const int32 YDest = (ComponentY == -1) ? 0 : ((ComponentY == 0) ? ExpandQuadsY : (ComponentSizeQuads + ExpandQuadsY + 1));
+			const int32 XNum = (ComponentX == 0) ? (ComponentSizeQuads + 1) : ExpandQuadsX;
+			const int32 YNum = (ComponentY == 0) ? (ComponentSizeQuads + 1) : ExpandQuadsY;
+
+			ULandscapeComponent* Neighbor = Info->XYtoComponentMap.FindRef(ComponentBase + FIntPoint(ComponentX, ComponentY));
 			if (Neighbor)
 			{
 				// Data array for upscaling case
@@ -476,25 +498,53 @@ void FLandscapeStaticLightingMesh::GetHeightmapData(int32 InLOD, int32 GeometryL
 				int32 NeighborGeometricLOD = ::GetLightingLOD(Neighbor);
 				FLandscapeComponentDataInterface DataInterface(Neighbor, InLOD);
 				::InternalUpscaling(DataInterface, Neighbor, InLOD, NeighborGeometricLOD, CompHeightData, CompXYOffsetData);
+
+				TArray<uint16> RenderedWPOData;
+				if (bUseRenderedWPO)
+				{
+					RenderedWPOData = Neighbor->RenderWPOHeightmap(InLOD);
+				}
+
 				for (int32 Y = 0; Y < YNum; Y++)
 				{
 					const FColor* const Data = DataInterface.GetHeightData(0, YSource + Y);
+
+					const int32 HeightDataOffset = XDest - XSource + (YDest + Y) * NumVertices;
 
 					int32 NextX;
 					for (int32 X = XSource; X < XSource + XNum; X = NextX)
 					{
 						NextX = (X / SubsectionSizeQuads + 1) * SubsectionSizeQuads + 1;
 
-						const int32 CompX = X + FMath::Min(X/SubsectionSizeQuads, NumSubsections - 1);
-						const FColor* const SubsectionData = &Data[CompX];
+						// Correct for Subsection texel duplication
+						const int32 TexX = X + FMath::Min(X/SubsectionSizeQuads, NumSubsections - 1);
+						const FColor* const SubsectionData = &Data[TexX];
 
 						// Copy the data
-						FMemory::Memcpy( &HeightData[XDest + (X - XSource) + (YDest + Y) * NumVertices], SubsectionData, FMath::Min(NextX - X, XSource + XNum - X) * sizeof(FColor));
+						FMemory::Memcpy(&HeightData[X + HeightDataOffset], SubsectionData, (FMath::Min(NextX, XSource + XNum) - X) * sizeof(FColor));
+					}
+
+					if (bUseRenderedWPO)
+					{
+						// All in component-space, no need to take texel duplication into account :)
+						const int32 WPODataOffset    = (YSource + Y) * (ComponentSizeQuads + 1);
+						for (int32 X = XSource; X < XSource + XNum; ++X)
+						{
+							const uint16 WPOHeight = RenderedWPOData[X + WPODataOffset];
+							FColor& Height = HeightData[X + HeightDataOffset];
+							Height.R = (WPOHeight >> 8);
+							Height.G = (WPOHeight & 0xFF);
+						}
 					}
 				}
 			}
 			else
 			{
+				const int32 XBackup = (ComponentX == 1) ? (ComponentSizeQuads + ExpandQuadsX) : ExpandQuadsX;
+				const int32 YBackup = (ComponentY == 1) ? (ComponentSizeQuads + ExpandQuadsY) : ExpandQuadsY;
+				const int32 XBackupNum = (ComponentX == 0) ? (ComponentSizeQuads + 1) : 1;
+				const int32 YBackupNum = (ComponentY == 0) ? (ComponentSizeQuads + 1) : 1;
+
 				for (int32 Y = 0; Y < YNum; Y++)
 				{
 					for (int32 X = 0; X < XNum; X += XBackupNum)
@@ -649,6 +699,13 @@ bool ULandscapeComponent::GetLightMapResolution( int32& Width, int32& Height ) c
 	return false;
 }
 
+int32 ULandscapeComponent::GetStaticLightMapResolution() const
+{
+	int32 Width, Height;
+	GetLightMapResolution(Width, Height);
+	return FMath::Max<int32>(Width, Height);
+}
+
 void ULandscapeComponent::GetLightAndShadowMapMemoryUsage( int32& LightMapMemoryUsage, int32& ShadowMapMemoryUsage ) const
 {
 	int32 Width, Height;
@@ -668,7 +725,6 @@ void ULandscapeComponent::GetLightAndShadowMapMemoryUsage( int32& LightMapMemory
 	ShadowMapMemoryUsage = (Width * Height * 4 / 3); // assuming G8
 	return;
 }
-#endif
 
 void ULandscapeComponent::InvalidateLightingCacheDetailed(bool bInvalidateBuildEnqueuedLighting, bool bTranslationOnly)
 {
@@ -683,9 +739,31 @@ void ULandscapeComponent::InvalidateLightingCacheDetailed(bool bInvalidateBuildE
 
 		Super::InvalidateLightingCacheDetailed(bInvalidateBuildEnqueuedLighting, bTranslationOnly);
 
+		// invalidate grass that has bUseLandscapeLightmap so the new lightmap is applied to the grass
+		for (auto Iter = GetLandscapeProxy()->FoliageCache.CachedGrassComps.CreateIterator(); Iter; ++Iter)
+		{
+			const auto& GrassKey = Iter->Key;
+			const ULandscapeGrassType* GrassType = GrassKey.GrassType.Get();
+			const ULandscapeComponent* BasedOn = GrassKey.BasedOn.Get();
+			UHierarchicalInstancedStaticMeshComponent* GrassComponent = Iter->Foliage.Get();
+
+			if (BasedOn == this && GrassType && GrassComponent &&
+				GrassType->GrassVarieties.IsValidIndex(GrassKey.VarietyIndex) &&
+				GrassType->GrassVarieties[GrassKey.VarietyIndex].bUseLandscapeLightmap)
+			{
+				// Remove this grass component from the cache, which will cause it to be replaced
+				Iter.RemoveCurrent();
+			}
+		}
+
 		// Discard all cached lighting.
 		IrrelevantLights.Empty();
-		LightMap = NULL;
-		ShadowMap = NULL;
+		LightMap = nullptr;
+		ShadowMap = nullptr;
+	}
+	else
+	{
+		Super::InvalidateLightingCacheDetailed(bInvalidateBuildEnqueuedLighting, bTranslationOnly);
 	}
 }
+#endif

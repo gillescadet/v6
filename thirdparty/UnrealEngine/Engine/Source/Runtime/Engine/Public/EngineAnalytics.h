@@ -2,7 +2,8 @@
 
 #pragma once
 
-class IAnalyticsProvider;
+class IAnalyticsProviderET;
+class FEngineSessionManager;
 
 /**
  * The public interface for the engine's analytics provider singleton.
@@ -28,12 +29,19 @@ public:
 	/** Called to initialize the singleton. */
 	static ENGINE_API void Initialize();
 	/** Called to shut down the singleton */
-	static ENGINE_API void Shutdown();
+	static ENGINE_API void Shutdown(bool bIsEngineShutdown = false);
+	/** Is this an editor run? (false for games and commandlets) */
+	static ENGINE_API bool IsEditorRun() { return bIsEditorRun; }
+	/** Is this a game run? (false for the editor, commandlets, programs and non-cooked games) */
+	static ENGINE_API bool IsGameRun() { return bIsGameRun; }
+
+	static ENGINE_API void Tick(float DeltaTime);
 
 private:
 	static bool bIsInitialized;
 	static bool bIsEditorRun;
 	static bool bIsGameRun;
-	static TSharedPtr<IAnalyticsProvider> Analytics;
+	static TSharedPtr<IAnalyticsProviderET> Analytics;
+	static TSharedPtr<FEngineSessionManager> SessionManager;
 };
 

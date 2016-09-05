@@ -28,7 +28,7 @@ void FLandscapeVertexFactoryMobile::InitRHI()
 	}
 
 	// create the actual device decls
-	InitDeclaration(Elements,FVertexFactory::DataType());
+	InitDeclaration(Elements);
 }
 
 /** Shader parameters for use with FLandscapeVertexFactory */
@@ -215,15 +215,13 @@ void FLandscapeVertexBufferMobile::InitRHI()
 }
 
 FLandscapeComponentSceneProxyMobile::FLandscapeComponentSceneProxyMobile(ULandscapeComponent* InComponent, FLandscapeEditToolRenderData* InEditToolRenderData)
-	:	FLandscapeComponentSceneProxy(InComponent, InEditToolRenderData)
+	: FLandscapeComponentSceneProxy(InComponent, {InComponent->MobileMaterialInterface}, InEditToolRenderData)
 {
 	check(InComponent && InComponent->PlatformData.HasValidPlatformData());
 	InComponent->PlatformData.GetUncompressedData(PlatformData);
 
 	check(InComponent->MobileMaterialInterface);
 	check(InComponent->MobileWeightNormalmapTexture);
-	
-	MaterialInterface = InComponent->MobileMaterialInterface;
 
 	WeightmapTextures.Empty(1);
 	WeightmapTextures.Add(InComponent->MobileWeightNormalmapTexture);
@@ -245,9 +243,12 @@ void FLandscapeComponentSceneProxyMobile::CreateRenderThreadResources()
 {
 	// Use only Index buffers
 	SharedBuffers = FLandscapeComponentSceneProxy::SharedBuffersMap.FindRef(SharedBuffersKey);
-	if( SharedBuffers == NULL )
+	if (SharedBuffers == nullptr)
 	{
-		SharedBuffers = new FLandscapeSharedBuffers(SharedBuffersKey, SubsectionSizeQuads, NumSubsections, GetScene().GetFeatureLevel(), false);
+		SharedBuffers = new FLandscapeSharedBuffers(
+			SharedBuffersKey, SubsectionSizeQuads, NumSubsections,
+			GetScene().GetFeatureLevel(), false);
+
 		FLandscapeComponentSceneProxy::SharedBuffersMap.Add(SharedBuffersKey, SharedBuffers);
 	}
 

@@ -12,7 +12,6 @@ public class Launch : ModuleRules
 		PrivateIncludePathModuleNames.AddRange(
 			new string[] {
 				"AutomationController",
-				"OnlineSubsystem",
 				"TaskGraph",
 			}
 		);
@@ -38,6 +37,17 @@ public class Launch : ModuleRules
 				"Sockets",
 			}
 		);
+
+		// Enable the LauncherCheck module to be used for platforms that support the Launcher.
+        // Projects should set UEBuildConfiguration.bUseLauncherChecks in their Target.cs to enable the functionality.
+        if (UEBuildConfiguration.bUseLauncherChecks &&
+            ((Target.Platform == UnrealTargetPlatform.Win32) ||
+			(Target.Platform == UnrealTargetPlatform.Win64) ||
+			(Target.Platform == UnrealTargetPlatform.Mac)))
+		{
+            PrivateDependencyModuleNames.Add("LauncherCheck");
+            Definitions.Add("WITH_LAUNCHERCHECK=1");
+		}
 
 		if (Target.Type != TargetRules.TargetType.Server)
 		{
@@ -104,9 +114,9 @@ public class Launch : ModuleRules
 			PublicDependencyModuleNames.Add("SessionServices");
 			PrivateIncludePaths.Add("Developer/DerivedDataCache/Public");
 
-			// LaunchEngineLoop.cpp does a LoadModule() on OnlineSubsystem and OnlineSubsystemUtils when compiled WITH_ENGINE, so they must be marked as dependencies so that they get compiled and cleaned
-			DynamicallyLoadedModuleNames.Add("OnlineSubsystem");
-			DynamicallyLoadedModuleNames.Add("OnlineSubsystemUtils");
+            // LaunchEngineLoop.cpp will still attempt to load XMPP but not all projects require it so it will silently fail unless referenced by the project's build.cs file.
+            // DynamicallyLoadedModuleNames.Add("XMPP");
+            DynamicallyLoadedModuleNames.Add("HTTP");
 		}
 
 		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
@@ -167,6 +177,7 @@ public class Launch : ModuleRules
 			PrivateDependencyModuleNames.Add("OpenGLDrv");
 			PrivateDependencyModuleNames.Add("IOSAudio");
 			DynamicallyLoadedModuleNames.Add("IOSRuntimeSettings");
+			DynamicallyLoadedModuleNames.Add("IOSLocalNotification");
 			PublicFrameworks.Add("OpenGLES");
 			// this is weak for IOS8 support for CAMetalLayer that is in QuartzCore
 			PublicWeakFrameworks.Add("QuartzCore");
@@ -198,7 +209,7 @@ public class Launch : ModuleRules
                 PrivateDependencyModuleNames.Add("HTML5Win32");
                 PublicIncludePathModuleNames.Add("HTML5Win32");
 			}
-            AddThirdPartyPrivateStaticDependencies(Target, "SDL2");
+            AddEngineThirdPartyPrivateStaticDependencies(Target, "SDL2");
         }
 
 		// @todo ps4 clang bug: this works around a PS4/clang compiler bug (optimizations)

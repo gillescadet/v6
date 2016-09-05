@@ -14,8 +14,6 @@ public class Engine : ModuleRules
 		PrivateIncludePaths.AddRange(
 			new string[] {
 				"Developer/DerivedDataCache/Public",
-				"Runtime/Online/OnlineSubsystem/Public",
-				"Runtime/Online/OnlineSubsystemUtils/Public",
                 "Runtime/SynthBenchmark/Public",
                 "Runtime/Engine/Private",
 			}
@@ -23,7 +21,6 @@ public class Engine : ModuleRules
 
 		PrivateIncludePathModuleNames.AddRange(
 			new string[] {				
-				"OnlineSubsystem",
 				"TargetPlatform",
 				"ImageWrapper",
 				"HeadMountedDisplay",
@@ -31,11 +28,9 @@ public class Engine : ModuleRules
 				"NetworkReplayStreaming",
 				"MovieSceneCapture",
 				"AutomationWorker",
-                "Analytics",
 				"MovieSceneCapture",
 				"DesktopPlatform",
-				"Analytics"
-			}
+            }
 		);
 
 		if (Target.Configuration != UnrealTargetConfiguration.Shipping)
@@ -76,8 +71,10 @@ public class Engine : ModuleRules
 				"SynthBenchmark",
                 "AIModule",
 				"DatabaseSupport",
-			}
-		);
+                "PacketHandler",
+				"HardwareSurvey",
+            }
+        );
 
 		if (Target.Type == TargetRules.TargetType.Editor)
 		{
@@ -85,7 +82,6 @@ public class Engine : ModuleRules
 			DynamicallyLoadedModuleNames.AddRange(new string[] { "CrashTracker" });
 			PublicDependencyModuleNames.AddRange(
 				new string[] {
-                "CookingStats",
 			}
 			);
 		}
@@ -99,14 +95,37 @@ public class Engine : ModuleRules
 				"Landscape",
                 "UMG",
 				"Projects",
-				"Niagara",
                 "Internationalization",
-                "PacketHandler",
                 "MaterialShaderQualitySettings",
-			}
-        );
+                "CinematicCamera",
+				"Analytics",
+				"AnalyticsET",
+            }
+		);
 
-        if (Target.Platform != UnrealTargetPlatform.XboxOne)
+        // to prevent "causes WARNING: Non-editor build cannot depend on non-redistributable modules."
+        if (Target.Type == TargetRules.TargetType.Editor)
+        {
+            // for now we depend on this 
+            PrivateDependencyModuleNames.Add("RawMesh");
+        }
+
+        bool bVariadicTemplatesSupported = true;
+		if (Target.Platform == UnrealTargetPlatform.XboxOne)
+		{
+			// Use reflection to allow type not to exist if console code is not present
+			System.Type XboxOnePlatformType = System.Type.GetType("UnrealBuildTool.XboxOnePlatform,UnrealBuildTool");
+			if (XboxOnePlatformType != null)
+			{
+				System.Object VersionName = XboxOnePlatformType.GetMethod("GetVisualStudioCompilerVersionName").Invoke(null, null);
+				if (VersionName.ToString().Equals("2012"))
+				{
+					bVariadicTemplatesSupported = false;
+				}
+			}
+		}
+
+		if (bVariadicTemplatesSupported)
         {
             PrivateIncludePathModuleNames.AddRange(
                 new string[] {
@@ -118,26 +137,26 @@ public class Engine : ModuleRules
 
             if (Target.Type == TargetRules.TargetType.Editor)
             {
-                // these modules require variadic templates
-                PrivateDependencyModuleNames.AddRange(
-                    new string[] {
-                        "MessagingRpc",
-                        "PortalRpc",
-                        "PortalServices",
-                    }
-                );
-            }
+            // these modules require variadic templates
+            PrivateDependencyModuleNames.AddRange(
+                new string[] {
+                    "MessagingRpc",
+                    "PortalRpc",
+                    "PortalServices",
+                }
+            );
+        }
         }
 
         CircularlyReferencedDependentModules.Add("AIModule");
 		CircularlyReferencedDependentModules.Add("Landscape");
         CircularlyReferencedDependentModules.Add("UMG");
-        CircularlyReferencedDependentModules.Add("Niagara");
         CircularlyReferencedDependentModules.Add("MaterialShaderQualitySettings");
+        CircularlyReferencedDependentModules.Add("CinematicCamera");
 
-		// The AnimGraphRuntime module is not needed by Engine proper, but it is loaded in LaunchEngineLoop.cpp,
-		// and needs to be listed in an always-included module in order to be compiled into standalone games
-		DynamicallyLoadedModuleNames.Add("AnimGraphRuntime");
+        // The AnimGraphRuntime module is not needed by Engine proper, but it is loaded in LaunchEngineLoop.cpp,
+        // and needs to be listed in an always-included module in order to be compiled into standalone games
+        DynamicallyLoadedModuleNames.Add("AnimGraphRuntime");
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
@@ -232,6 +251,7 @@ public class Engine : ModuleRules
 						"LinuxTargetPlatform",
 						"LinuxNoEditorTargetPlatform",
 						"LinuxServerTargetPlatform",
+						"LinuxClientTargetPlatform",
 						"AllDesktopTargetPlatform",
 					}
 				);
@@ -240,13 +260,9 @@ public class Engine : ModuleRules
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[] {
-				"Analytics",
-				"AnalyticsET",
 				"NetworkReplayStreaming",
 				"NullNetworkReplayStreaming",
 				"HttpNetworkReplayStreaming",
-				"OnlineSubsystem", 
-				"OnlineSubsystemUtils",
 				"Advertising"
 			}
 		);
@@ -291,7 +307,10 @@ public class Engine : ModuleRules
 
 			PrivateIncludePathModuleNames.Add("TextureCompressor");
 			PrivateIncludePaths.Add("Developer/TextureCompressor/Public");
-		}
+
+            PrivateIncludePathModuleNames.Add("HierarchicalLODUtilities");
+            DynamicallyLoadedModuleNames.Add("HierarchicalLODUtilities");
+        }
 
 		SetupModulePhysXAPEXSupport(Target);
         if(UEBuildConfiguration.bCompilePhysX && UEBuildConfiguration.bRuntimePhysicsCooking)
@@ -306,16 +325,17 @@ public class Engine : ModuleRules
 		if ((Target.Platform == UnrealTargetPlatform.Win64) ||
 			(Target.Platform == UnrealTargetPlatform.Win32))
 		{
-			AddThirdPartyPrivateStaticDependencies(Target,
+			AddEngineThirdPartyPrivateStaticDependencies(Target,
 				"UEOgg",
 				"Vorbis",
 				"VorbisFile",
-				"libOpus"
+				"libOpus",
+			    "OpenSubdiv"
 				);
 
 			if (UEBuildConfiguration.bCompileLeanAndMeanUE == false)
 			{
-				AddThirdPartyPrivateStaticDependencies(Target, "DirectShow");
+				AddEngineThirdPartyPrivateStaticDependencies(Target, "DirectShow");
 			}
 
             // Head Mounted Display support
@@ -325,7 +345,7 @@ public class Engine : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.HTML5 && Target.Architecture == "-win32")
         {
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
                     "UEOgg",
                     "Vorbis",
                     "VorbisFile"
@@ -338,7 +358,7 @@ public class Engine : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
-			AddThirdPartyPrivateStaticDependencies(Target, 
+			AddEngineThirdPartyPrivateStaticDependencies(Target, 
 				"UEOgg",
 				"Vorbis",
 				"libOpus"
@@ -348,7 +368,7 @@ public class Engine : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Android)
         {
-			AddThirdPartyPrivateStaticDependencies(Target,
+			AddEngineThirdPartyPrivateStaticDependencies(Target,
 				"UEOgg",
 				"Vorbis",
 				"VorbisFile"
@@ -357,7 +377,7 @@ public class Engine : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			AddThirdPartyPrivateStaticDependencies(Target,
+			AddEngineThirdPartyPrivateStaticDependencies(Target,
 				"UEOgg",
 				"Vorbis",
 				"VorbisFile",
@@ -377,5 +397,13 @@ public class Engine : ModuleRules
 			// module, so it's definitions won't propagate to modules that import Engine.
 			Definitions.Add("WITH_RECAST=0");
 		}
-	}
+
+		// Add a reference to the stats HTML files referenced by UEngine::DumpFPSChartToHTML. Previously staged by CopyBuildToStagingDirectory.
+		if(UEBuildConfiguration.bBuildEditor || Target.Configuration != UnrealTargetConfiguration.Shipping)
+		{
+			RuntimeDependencies.Add("$(EngineDir)/Content/Stats/...", StagedFileType.UFS);
+		}
+
+        DynamicallyLoadedModuleNames.Add("Niagara");
+    }
 }

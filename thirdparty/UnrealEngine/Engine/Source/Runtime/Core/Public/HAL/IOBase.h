@@ -3,20 +3,6 @@
 #pragma once
 
 
-/**
- * Enum for async IO priorities.
- */
-enum EAsyncIOPriority
-{
-	AIOP_MIN	= 0,
-	AIOP_Low,
-	AIOP_BelowNormal,
-	AIOP_Normal,
-	AIOP_High,
-	AIOP_MAX
-};
-
-
 /*-----------------------------------------------------------------------------
 	FIOSystem.
 -----------------------------------------------------------------------------*/
@@ -140,5 +126,10 @@ struct CORE_API FIOSystem
 	 * @return Minimum read size
 	 */
 	virtual int64 MinimumReadSize() = 0;
+
+	/**
+	 * Flush the pending logs if any.
+	 */
+	virtual void FlushLog() = 0;
 };
 

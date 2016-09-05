@@ -71,6 +71,9 @@ struct FComponentOverrideRecord
 	UPROPERTY()
 	FComponentKey ComponentKey;
 
+	UPROPERTY()
+	FBlueprintCookedComponentInstancingData CookedComponentInstancingData;
+
 	FComponentOverrideRecord()
 		: ComponentTemplate(nullptr)
 	{}
@@ -95,14 +98,6 @@ public:
 	bool IsValid() const;
 	UActorComponent* FindBestArchetype(FComponentKey Key) const;
 
-	void GetAllTemplates(TArray<UActorComponent*>& OutArray) const
-	{
-		for (auto Record : Records)
-		{
-			OutArray.Add(Record.ComponentTemplate);
-		}
-	}
-
 	bool IsEmpty() const
 	{
 		return 0 == Records.Num();
@@ -125,6 +120,20 @@ public:
 	FComponentKey FindKey(const FName VariableName) const;
 
 	UActorComponent* GetOverridenComponentTemplate(FComponentKey Key) const;
+	const FBlueprintCookedComponentInstancingData* GetOverridenComponentTemplateData(FComponentKey Key) const;
+
+	TArray<FComponentOverrideRecord>::TIterator CreateRecordIterator()
+	{
+		return Records.CreateIterator();
+	}
+
+	void GetAllTemplates(TArray<UActorComponent*>& OutArray) const
+	{
+		for (auto Record : Records)
+		{
+			OutArray.Add(Record.ComponentTemplate);
+		}
+	}
 
 private:
 	const FComponentOverrideRecord* FindRecord(const FComponentKey Key) const;

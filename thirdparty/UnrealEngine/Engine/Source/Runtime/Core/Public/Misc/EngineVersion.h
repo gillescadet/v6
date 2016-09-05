@@ -28,6 +28,9 @@ public:
 	/** Generates a version string */
 	FString ToString(EVersionComponent LastComponent = EVersionComponent::Branch) const;
 
+    /** Generates a version string appropriate for the build info system */
+	FString ToBuildInfoString() const;
+
 	/** Parses a version object from a string. Returns true on success. */
 	static bool Parse(const FString &Text, FEngineVersion &OutVersion);
 
@@ -62,11 +65,13 @@ private:
 };
 
 /** Version used for networking; the P4 changelist number. */
+DEPRECATED( 4.13, "Please use FNetworkVersion::GetNetworkCompatibleChangelist intead." )
 CORE_API extern int32 GEngineNetVersion;
 
 /** Earliest engine build that is network compatible with this one. */
+DEPRECATED( 4.13, "GEngineMinNetVersion is no longer a valid property." )
 CORE_API extern const int32 GEngineMinNetVersion;
 
 /** Base protocol version to negotiate in network play. */
-CORE_API extern const int32 GEngineNegotiationVersion;		
-
+DEPRECATED( 4.13, "GEngineNegotiationVersion is no longer a valid property." )
+CORE_API extern const int32 GEngineNegotiationVersion;

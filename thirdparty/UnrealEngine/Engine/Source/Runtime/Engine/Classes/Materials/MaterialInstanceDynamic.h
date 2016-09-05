@@ -5,14 +5,28 @@
 #include "MaterialInstance.h"
 #include "MaterialInstanceDynamic.generated.h"
 
-UCLASS(hidecategories=Object, collapsecategories, BlueprintType, MinimalAPI)
-class UMaterialInstanceDynamic : public UMaterialInstance
+UCLASS(hidecategories=Object, collapsecategories, BlueprintType)
+class ENGINE_API UMaterialInstanceDynamic : public UMaterialInstance
 {
 	GENERATED_UCLASS_BODY()
 
 	/** Set a MID scalar (float) parameter value */
 	UFUNCTION(BlueprintCallable, meta=(Keywords = "SetFloatParameterValue"), Category="Rendering|Material")
-	ENGINE_API void SetScalarParameterValue(FName ParameterName, float Value);
+	void SetScalarParameterValue(FName ParameterName, float Value);
+
+	// NOTE: These Index-related functions should be used VERY carefully, and only in cases where optimization is
+	// critical.  Generally that's only if you're using an unusually high number of parameters in a material AND
+	// setting a huge number of parameters in the same frame.
+
+	// Use this function to set an initial value and fetch the index for use in the following function.
+	bool InitializeScalarParameterAndGetIndex(const FName& ParameterName, float Value, int32& OutParameterIndex);
+	// Use the cached value of OutParameterIndex above to set the scalar parameter ONLY on the exact same MID
+	bool SetScalarParameterByIndex(int32 ParameterIndex, float Value);
+
+	// Use this function to set an initial value and fetch the index for use in the following function.
+	bool InitializeVectorParameterAndGetIndex(const FName& ParameterName, const FLinearColor& Value, int32& OutParameterIndex);
+	// Use the cached value of OutParameterIndex above to set the vector parameter ONLY on the exact same MID
+	bool SetVectorParameterByIndex(int32 ParameterIndex, const FLinearColor& Value);
 
 	/** Get the current scalar (float) parameter value from an MID */
 	UFUNCTION(BlueprintCallable, meta=(DisplayName = "GetScalarParameterValue", Keywords = "GetFloatParameterValue"), Category="Rendering|Material")
@@ -20,7 +34,7 @@ class UMaterialInstanceDynamic : public UMaterialInstance
 
 	/** Set an MID texture parameter value */
 	UFUNCTION(BlueprintCallable, Category="Rendering|Material")
-	ENGINE_API void SetTextureParameterValue(FName ParameterName, class UTexture* Value);
+	void SetTextureParameterValue(FName ParameterName, class UTexture* Value);
 
 	/** Get the current MID texture parameter value */
 	UFUNCTION(BlueprintCallable, meta=(DisplayName = "GetTextureParameterValue"), Category="Rendering|Material")
@@ -28,7 +42,7 @@ class UMaterialInstanceDynamic : public UMaterialInstance
 
 	/** Set an MID vector parameter value */
 	UFUNCTION(BlueprintCallable, meta=(Keywords = "SetColorParameterValue"), Category="Rendering|Material")
-	ENGINE_API void SetVectorParameterValue(FName ParameterName, FLinearColor Value);
+	void SetVectorParameterValue(FName ParameterName, FLinearColor Value);
 
 	/** Get the current MID vector parameter value */
 	UFUNCTION(BlueprintCallable, meta=(DisplayName = "GetVectorParameterValue", Keywords = "GetColorParameterValue"), Category="Rendering|Material")
@@ -61,12 +75,17 @@ class UMaterialInstanceDynamic : public UMaterialInstance
 	 * @param Source ignores the call if 0
 	 */
 	UFUNCTION(meta=(DisplayName = "CopyInterpParameters"), Category="Rendering|Material")
-	ENGINE_API void CopyInterpParameters(UMaterialInstance* Source);
+	void CopyInterpParameters(UMaterialInstance* Source);
 
 	/**
 	 * Create a material instance dynamic parented to the specified material.
 	 */
-	ENGINE_API static UMaterialInstanceDynamic* Create(class UMaterialInterface* ParentMaterial, class UObject* InOuter);
+	static UMaterialInstanceDynamic* Create(class UMaterialInterface* ParentMaterial, class UObject* InOuter);
+
+	/**
+	* Create a material instance dynamic parented to the specified material with the specified name.
+	*/
+	static UMaterialInstanceDynamic* Create( class UMaterialInterface* ParentMaterial, class UObject* InOuter, FName Name );
 
 	/**
 	 * Set the value of the given font parameter.  
@@ -74,22 +93,32 @@ class UMaterialInstanceDynamic : public UMaterialInstance
 	 * @param OutFontValue - New font value to set for this MIC
 	 * @param OutFontPage - New font page value to set for this MIC
 	 */
-	ENGINE_API void SetFontParameterValue(FName ParameterName, class UFont* FontValue, int32 FontPage);
+	void SetFontParameterValue(FName ParameterName, class UFont* FontValue, int32 FontPage);
 
 	/** Remove all parameter values */
-	ENGINE_API void ClearParameterValues();
+	void ClearParameterValues();
 
 	/**
 	 * Copy parameter values from another material instance. This will copy only
 	 * parameters explicitly overridden in that material instance!!
 	 */
 	UFUNCTION(BlueprintCallable, meta=(DisplayName = "CopyParameterOverrides"), Category="Rendering|Material")
-	ENGINE_API void CopyParameterOverrides(UMaterialInstance* MaterialInstance);
+	void CopyParameterOverrides(UMaterialInstance* MaterialInstance);
 		
 	/**
 	 * Copy all interpolatable (scalar/vector) parameters from *SourceMaterialToCopyFrom to *this, using the current QualityLevel and given FeatureLevel
 	 * For runtime use. More specialized and efficient than CopyMaterialInstanceParameters().
 	 */
-	ENGINE_API void CopyScalarAndVectorParameters(const UMaterialInterface& SourceMaterialToCopyFrom, ERHIFeatureLevel::Type FeatureLevel);
+	void CopyScalarAndVectorParameters(const UMaterialInterface& SourceMaterialToCopyFrom, ERHIFeatureLevel::Type FeatureLevel);
+
+	virtual bool HasOverridenBaseProperties()const override{ return false; }
+
+	//Material base property overrides. MIDs cannot override these so they just grab from their parent.
+	virtual float GetOpacityMaskClipValue() const override;
+	virtual EBlendMode GetBlendMode() const override;
+	virtual EMaterialShadingModel GetShadingModel() const override;
+	virtual bool IsTwoSided() const override;
+	virtual bool IsDitheredLODTransition() const override;
+	virtual bool IsMasked() const override;
 };
 

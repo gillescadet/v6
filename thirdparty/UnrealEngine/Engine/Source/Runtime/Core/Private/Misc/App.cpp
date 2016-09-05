@@ -16,11 +16,13 @@ FString FApp::SessionOwner = FString();
 TArray<FString> FApp::SessionUsers = TArray<FString>();
 bool FApp::Standalone = true;
 bool FApp::bIsBenchmarking = false;
+bool FApp::bUseFixedSeed = false;
 bool FApp::bUseFixedTimeStep = false;
 double FApp::FixedDeltaTime = 1 / 30.0;
 double FApp::CurrentTime = 0.0;
 double FApp::LastTime = 0.0;
 double FApp::DeltaTime = 1 / 30.0;
+double FApp::IdleTime = 0.0;
 float FApp::VolumeMultiplier = 1.0f;
 float FApp::UnfocusedVolumeMultiplier = 0.0f;
 bool FApp::bUseVRFocus = false;
@@ -35,6 +37,10 @@ FString FApp::GetBranchName()
 	return FString(TEXT(BRANCH_NAME));
 }
 
+const TCHAR* FApp::GetBuildVersion()
+{
+	return BUILD_VERSION;
+}
 
 int32 FApp::GetEngineIsPromotedBuild()
 {
@@ -47,6 +53,21 @@ FString FApp::GetEpicProductIdentifier()
 	return FString(TEXT(EPIC_PRODUCT_IDENTIFIER));
 }
 
+const TCHAR * FApp::GetDeploymentName()
+{
+	static TCHAR StaticDeploymentName[64] = {0};
+	static bool bHaveDeployment = false;
+
+	if (!bHaveDeployment)
+	{
+		// use -epicapp value from the commandline. Default deployment is not captured by this,
+		// but this may not be a problem as that would be the case only during the development
+		FParse::Value(FCommandLine::Get(), TEXT("EPICAPP="), StaticDeploymentName, ARRAY_COUNT(StaticDeploymentName) - 1);
+		bHaveDeployment = true;
+	}
+
+	return StaticDeploymentName;
+}
 
 EBuildConfigurations::Type FApp::GetBuildConfiguration()
 {
@@ -139,16 +160,32 @@ bool FApp::IsEngineInstalled()
 
 	if (EngineInstalledState == -1)
 	{
-		bool bIsInstalledEngine = IsInstalled() || (FRocketSupport::IsRocket() ? !FParse::Param(FCommandLine::Get(), TEXT("NotInstalledEngine")) : FParse::Param(FCommandLine::Get(), TEXT("InstalledEngine")));
+		bool bIsInstalledEngine = IsInstalled();
 		FString InstalledBuildFile = FPaths::RootDir() / TEXT("Engine/Build/InstalledBuild.txt");
 		FPaths::NormalizeFilename(InstalledBuildFile);
 		bIsInstalledEngine |= IFileManager::Get().FileExists(*InstalledBuildFile);
+		// Allow commandline options to disable/enable installed engine behavior
+		if (bIsInstalledEngine)
+		{
+			bIsInstalledEngine = !FParse::Param(FCommandLine::Get(), TEXT("NotInstalledEngine"));
+		}
+		else
+		{
+			bIsInstalledEngine = FParse::Param(FCommandLine::Get(), TEXT("InstalledEngine"));
+		}
 		EngineInstalledState = bIsInstalledEngine ? 1 : 0;
 	}
 
 	return EngineInstalledState == 1;
 }
 
+#if PLATFORM_WINDOWS && defined(__clang__)
+bool FApp::IsUnattended() // @todo clang: Workaround for missing symbol export
+{
+	static bool bIsUnattended = FParse::Param(FCommandLine::Get(), TEXT("UNATTENDED"));
+	return bIsUnattended || GIsAutomationTesting;
+}
+#endif
 
 #if HAVE_RUNTIME_THREADING_SWITCHES
 bool FApp::ShouldUseThreadingForPerformance()
@@ -159,12 +196,12 @@ bool FApp::ShouldUseThreadingForPerformance()
 #endif // HAVE_RUNTIME_THREADING_SWITCHES
 
 
-static bool GUnfocusedVolumeMultiplierItialised = false;
+static bool GUnfocusedVolumeMultiplierInitialised = false;
 float FApp::GetUnfocusedVolumeMultiplier()
 {
-	if (!GUnfocusedVolumeMultiplierItialised)
+	if (!GUnfocusedVolumeMultiplierInitialised)
 	{
-		GUnfocusedVolumeMultiplierItialised = true;
+		GUnfocusedVolumeMultiplierInitialised = true;
 		GConfig->GetFloat(TEXT("Audio"), TEXT("UnfocusedVolumeMultiplier"), UnfocusedVolumeMultiplier, GEngineIni);
 	}
 	return UnfocusedVolumeMultiplier;
@@ -173,17 +210,15 @@ float FApp::GetUnfocusedVolumeMultiplier()
 void FApp::SetUnfocusedVolumeMultiplier(float InVolumeMultiplier)
 {
 	UnfocusedVolumeMultiplier = InVolumeMultiplier;
-	GUnfocusedVolumeMultiplierItialised = true;
+	GUnfocusedVolumeMultiplierInitialised = true;
 }
 
 void FApp::SetUseVRFocus(bool bInUseVRFocus)
 {
-	UE_CLOG(bUseVRFocus != bInUseVRFocus, LogApp, Log, TEXT("UseVRFocus has changed to %d"), int(bInUseVRFocus));
 	bUseVRFocus = bInUseVRFocus;
 }
 
 void FApp::SetHasVRFocus(bool bInHasVRFocus)
 {
-	UE_CLOG(bHasVRFocus != bInHasVRFocus, LogApp, Log, TEXT("HasVRFocus has changed to %d"), int(bInHasVRFocus));
 	bHasVRFocus = bInHasVRFocus;
 }

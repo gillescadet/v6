@@ -16,12 +16,14 @@ USlider::USlider(const FObjectInitializer& ObjectInitializer)
 	StepSize = 0.01f;
 	SSlider::FArguments Defaults;
 	WidgetStyle = *Defaults._Style;
+	IsFocusable = true;
 }
 
 TSharedRef<SWidget> USlider::RebuildWidget()
 {
 	MySlider = SNew(SSlider)
 		.Style(&WidgetStyle)
+		.IsFocusable(IsFocusable)
 		.OnMouseCaptureBegin(BIND_UOBJECT_DELEGATE(FSimpleDelegate, HandleOnMouseCaptureBegin))
 		.OnMouseCaptureEnd(BIND_UOBJECT_DELEGATE(FSimpleDelegate, HandleOnMouseCaptureEnd))
 		.OnControllerCaptureBegin(BIND_UOBJECT_DELEGATE(FSimpleDelegate, HandleOnControllerCaptureBegin))
@@ -144,11 +146,6 @@ void USlider::SetSliderBarColor(FLinearColor InValue)
 
 
 #if WITH_EDITOR
-
-const FSlateBrush* USlider::GetEditorIcon()
-{
-	return FUMGStyle::Get().GetBrush("Widget.Slider");
-}
 
 const FText USlider::GetPaletteCategory()
 {

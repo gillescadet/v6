@@ -15,6 +15,8 @@
 #include "SlateElementIndexBuffer.h"
 #include "SlateElementVertexBuffer.h"
 
+extern void UpdateNoiseTextureParameters(FViewUniformShaderParameters& ViewUniformShaderParameters);
+
 DECLARE_CYCLE_STAT(TEXT("Update Buffers RT"), STAT_SlateUpdateBufferRTTime, STATGROUP_Slate);
 DECLARE_CYCLE_STAT(TEXT("PreFill Buffers RT"), STAT_SlatePreFullBufferRTTime, STATGROUP_Slate);
 DECLARE_DWORD_COUNTER_STAT(TEXT("Num Layers"), STAT_SlateNumLayers, STATGROUP_Slate);
@@ -206,7 +208,6 @@ static FSceneView& CreateSceneView( FSceneViewFamilyContext& ViewFamilyContext, 
 
 	// Create the view's uniform buffer.
 	FViewUniformShaderParameters ViewUniformShaderParameters;
-	FFrameUniformShaderParameters FrameUniformShaderParameters;
 
 	ViewUniformShaderParameters.TranslatedWorldToClip = View->ViewMatrices.TranslatedViewProjectionMatrix;
 	ViewUniformShaderParameters.WorldToClip = ViewProjectionMatrix;
@@ -220,28 +221,28 @@ static FSceneView& CreateSceneView( FSceneViewFamilyContext& ViewFamilyContext, 
 	ViewUniformShaderParameters.InvDeviceZToWorldZTransform = View->InvDeviceZToWorldZTransform;
 	ViewUniformShaderParameters.WorldViewOrigin = View->ViewMatrices.ViewOrigin;
 	ViewUniformShaderParameters.WorldCameraOrigin = View->ViewMatrices.ViewOrigin;
-	ViewUniformShaderParameters.WorldEyeOrigin = View->ViewMatrices.ViewOrigin;
 	ViewUniformShaderParameters.TranslatedWorldCameraOrigin = ViewUniformShaderParameters.WorldCameraOrigin + View->ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.PreViewTranslation = View->ViewMatrices.PreViewTranslation;
 	ViewUniformShaderParameters.ScreenPositionScaleBias = ScreenPositionScaleBias;
 	
-	FrameUniformShaderParameters.ViewRectMin = FVector4(ViewRect.Min.X, ViewRect.Min.Y, 0.0f, 0.0f);
-	FrameUniformShaderParameters.ViewSizeAndInvSize = FVector4(ViewRect.Width(), ViewRect.Height(), 1.0f / ViewRect.Width(), 1.0f / ViewRect.Height());
-	FrameUniformShaderParameters.BufferSizeAndInvSize = FrameUniformShaderParameters.ViewSizeAndInvSize;
-	FrameUniformShaderParameters.DiffuseOverrideParameter = View->DiffuseOverrideParameter;
-	FrameUniformShaderParameters.SpecularOverrideParameter = View->SpecularOverrideParameter;
-	FrameUniformShaderParameters.NormalOverrideParameter = View->NormalOverrideParameter;
-	FrameUniformShaderParameters.RoughnessOverrideParameter = View->RoughnessOverrideParameter;
-	FrameUniformShaderParameters.PrevFrameGameTime = View->Family->CurrentWorldTime - View->Family->DeltaWorldTime;
-	FrameUniformShaderParameters.PrevFrameRealTime = View->Family->CurrentRealTime - View->Family->DeltaWorldTime;
-	FrameUniformShaderParameters.CullingSign = View->bReverseCulling ? -1.0f : 1.0f;
-	FrameUniformShaderParameters.NearPlane = GNearClippingPlane;
-	FrameUniformShaderParameters.GameTime = View->Family->CurrentWorldTime;
-	FrameUniformShaderParameters.RealTime = View->Family->CurrentRealTime;
-	FrameUniformShaderParameters.Random = FMath::Rand();
-	FrameUniformShaderParameters.FrameNumber = View->Family->FrameNumber;
-	FrameUniformShaderParameters.DirectionalLightShadowTexture = GWhiteTexture->TextureRHI;
-	FrameUniformShaderParameters.DirectionalLightShadowSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	ViewUniformShaderParameters.ViewRectMin = FVector4(ViewRect.Min.X, ViewRect.Min.Y, 0.0f, 0.0f);
+	ViewUniformShaderParameters.ViewSizeAndInvSize = FVector4(ViewRect.Width(), ViewRect.Height(), 1.0f / ViewRect.Width(), 1.0f / ViewRect.Height());
+	ViewUniformShaderParameters.BufferSizeAndInvSize = ViewUniformShaderParameters.ViewSizeAndInvSize;
+	ViewUniformShaderParameters.DiffuseOverrideParameter = View->DiffuseOverrideParameter;
+	ViewUniformShaderParameters.SpecularOverrideParameter = View->SpecularOverrideParameter;
+	ViewUniformShaderParameters.NormalOverrideParameter = View->NormalOverrideParameter;
+	ViewUniformShaderParameters.RoughnessOverrideParameter = View->RoughnessOverrideParameter;
+	ViewUniformShaderParameters.PrevFrameGameTime = View->Family->CurrentWorldTime - View->Family->DeltaWorldTime;
+	ViewUniformShaderParameters.PrevFrameRealTime = View->Family->CurrentRealTime - View->Family->DeltaWorldTime;
+	ViewUniformShaderParameters.CullingSign = View->bReverseCulling ? -1.0f : 1.0f;
+	ViewUniformShaderParameters.NearPlane = GNearClippingPlane;
+	ViewUniformShaderParameters.GameTime = View->Family->CurrentWorldTime;
+	ViewUniformShaderParameters.RealTime = View->Family->CurrentRealTime;
+	ViewUniformShaderParameters.Random = FMath::Rand();
+	ViewUniformShaderParameters.FrameNumber = View->Family->FrameNumber;
+
+	// Update noise buffers
+	UpdateNoiseTextureParameters(ViewUniformShaderParameters);
 
 	{
 		// setup a matrix to transform float4(SvPosition.xyz,1) directly to TranslatedWorld (quality, performance as we don't need to convert or use interpolator)
@@ -250,10 +251,10 @@ static FSceneView& CreateSceneView( FSceneViewFamilyContext& ViewFamilyContext, 
 
 		//  transformed into one MAD:  new_xy = xy * ViewSizeAndInvSize.zw * float2(2,-2)      +       (-ViewRectMin.xy) * ViewSizeAndInvSize.zw * float2(2,-2) + float2(-1, 1);
 
-		float Mx = 2.0f * FrameUniformShaderParameters.ViewSizeAndInvSize.Z;
-		float My = -2.0f * FrameUniformShaderParameters.ViewSizeAndInvSize.W;
-		float Ax = -1.0f - 2.0f * ViewRect.Min.X * FrameUniformShaderParameters.ViewSizeAndInvSize.Z;
-		float Ay = 1.0f + 2.0f * ViewRect.Min.Y * FrameUniformShaderParameters.ViewSizeAndInvSize.W;
+		float Mx = 2.0f * ViewUniformShaderParameters.ViewSizeAndInvSize.Z;
+		float My = -2.0f * ViewUniformShaderParameters.ViewSizeAndInvSize.W;
+		float Ax = -1.0f - 2.0f * ViewRect.Min.X * ViewUniformShaderParameters.ViewSizeAndInvSize.Z;
+		float Ay = 1.0f + 2.0f * ViewRect.Min.Y * ViewUniformShaderParameters.ViewSizeAndInvSize.W;
 
 		// http://stackoverflow.com/questions/9010546/java-transformation-matrix-operations
 
@@ -265,21 +266,21 @@ static FSceneView& CreateSceneView( FSceneViewFamilyContext& ViewFamilyContext, 
 	}
 
 	ViewUniformShaderParameters.ScreenToWorld = FMatrix(
-		FPlane(1, 0, 0, 0),
-		FPlane(0, 1, 0, 0),
-		FPlane(0, 0, View->ProjectionMatrixUnadjustedForRHI.M[2][2], 1),
-		FPlane(0, 0, View->ProjectionMatrixUnadjustedForRHI.M[3][2], 0))
+		FPlane(1,0,0,0),
+		FPlane(0,1,0,0),
+		FPlane(0,0,View->ProjectionMatrixUnadjustedForRHI.M[2][2],View->ProjectionMatrixUnadjustedForRHI.M[2][3]),
+		FPlane(0,0,View->ProjectionMatrixUnadjustedForRHI.M[3][2],View->ProjectionMatrixUnadjustedForRHI.M[3][3]))
 		* View->InvViewProjectionMatrix;
 
 	ViewUniformShaderParameters.ScreenToTranslatedWorld = FMatrix(
-		FPlane(1, 0, 0, 0),
-		FPlane(0, 1, 0, 0),
-		FPlane(0, 0, View->ProjectionMatrixUnadjustedForRHI.M[2][2], 1),
-		FPlane(0, 0, View->ProjectionMatrixUnadjustedForRHI.M[3][2], 0))
+		FPlane(1,0,0,0),
+		FPlane(0,1,0,0),
+		FPlane(0,0,View->ProjectionMatrixUnadjustedForRHI.M[2][2],View->ProjectionMatrixUnadjustedForRHI.M[2][3]),
+		FPlane(0,0,View->ProjectionMatrixUnadjustedForRHI.M[3][2],View->ProjectionMatrixUnadjustedForRHI.M[3][3]))
 		* View->ViewMatrices.InvTranslatedViewProjectionMatrix;
 
 	View->ViewUniformBuffer = TUniformBufferRef<FViewUniformShaderParameters>::CreateUniformBufferImmediate(ViewUniformShaderParameters, UniformBuffer_SingleFrame);
-	View->FrameUniformBuffer = TUniformBufferRef<FFrameUniformShaderParameters>::CreateUniformBufferImmediate(FrameUniformShaderParameters, UniformBuffer_SingleFrame);
+
 	return *View;
 }
 
@@ -317,11 +318,6 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 	TSlateElementVertexBuffer<FSlateVertex>* VertexBuffer = &VertexBuffers;
 	FSlateElementIndexBuffer* IndexBuffer = &IndexBuffers;
 
-	if ( GRHISupportsBaseVertexIndex )
-	{
-		RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), 0);
-	}
-
 	// Disable depth/stencil testing by default
 	RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false,CF_Always>::GetRHI());
 
@@ -354,11 +350,6 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 
 			checkSlow(VertexBuffer);
 			checkSlow(IndexBuffer);
-
-			if ( GRHISupportsBaseVertexIndex )
-			{
-				RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), 0);
-			}
 		}
 
 		const FSlateShaderResource* ShaderResource = RenderBatch.Texture;
@@ -420,13 +411,12 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 
 				if (DrawFlags & ESlateBatchDrawFlag::Wireframe)
 				{
-					RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Wireframe, CM_None, true>::GetRHI());
+					RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Wireframe, CM_None, false>::GetRHI());
 				}
 				else
 				{
-					RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Solid, CM_None, true>::GetRHI());
+					RHICmdList.SetRasterizerState(TStaticRasterizerState<FM_Solid, CM_None, false>::GetRHI());
 				}
-
 
 				FSamplerStateRHIParamRef SamplerState = BilinearClamp;
 				FTextureRHIParamRef TextureRHI = GWhiteTexture->TextureRHI;
@@ -436,7 +426,8 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 
 					if (ResourceType == ESlateShaderResource::TextureObject)
 					{
-						FSlateUTextureResource* TextureObjectResource = (FSlateUTextureResource*)ShaderResource;
+						FSlateBaseUTextureResource* TextureObjectResource = (FSlateBaseUTextureResource*)ShaderResource;
+		
 						TextureRHI = TextureObjectResource->AccessRHIResource();
 
 						if ( UTexture* TextureObj = TextureObjectResource->TextureObject )
@@ -446,7 +437,9 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 					}
 					else
 					{	
-						TextureRHI = ((TSlateTexture<FTexture2DRHIRef>*)ShaderResource)->GetTypedResource();
+						FTextureRHIParamRef NativeTextureRHI = ((TSlateTexture<FTexture2DRHIRef>*)ShaderResource)->GetTypedResource();
+						// Atlas textures that have no content are never initialised but null textures are invalid on many platforms.
+						TextureRHI = NativeTextureRHI ? NativeTextureRHI : (FTextureRHIParamRef)GWhiteTexture->TextureRHI;
 					}
 
 					if ( DrawFlags == ( ESlateBatchDrawFlag::TileU | ESlateBatchDrawFlag::TileV ) )
@@ -522,6 +515,7 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 				}
 				else
 				{
+					RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), 0);
 					RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, RenderBatch.InstanceCount);
 				}
 
@@ -535,105 +529,110 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 				}
 
 				FSlateMaterialResource* MaterialShaderResource = (FSlateMaterialResource*)ShaderResource;
-				FMaterialRenderProxy* MaterialRenderProxy = MaterialShaderResource->GetRenderProxy();
-
-				const FMaterial* Material = MaterialRenderProxy->GetMaterial(SceneView->GetFeatureLevel());
-
-				FSlateMaterialShaderPS* PixelShader = GetMaterialPixelShader( Material, ShaderType, DrawEffects );
-
-				const bool bUseInstancing = RenderBatch.InstanceCount > 0 && RenderBatch.InstanceData != nullptr;
-				FSlateMaterialShaderVS* VertexShader = GetMaterialVertexShader( Material, bUseInstancing );
-
-				if( VertexShader && PixelShader )
+				if( MaterialShaderResource->GetMaterialObject() != nullptr )
 				{
-					RHICmdList.SetLocalBoundShaderState(RHICmdList.BuildLocalBoundShaderState(
-						bUseInstancing ? GSlateInstancedVertexDeclaration.VertexDeclarationRHI : GSlateVertexDeclaration.VertexDeclarationRHI,
-						VertexShader->GetVertexShader(),
-						nullptr,
-						nullptr,
-						PixelShader->GetPixelShader(),
-						FGeometryShaderRHIRef()));
+					FMaterialRenderProxy* MaterialRenderProxy = MaterialShaderResource->GetRenderProxy();
 
-					VertexShader->SetViewProjection(RHICmdList, DynamicOffset * ViewProjectionMatrix);
-					VertexShader->SetVerticalAxisMultiplier(RHICmdList, bAllowSwitchVerticalAxis && RHINeedsToSwitchVerticalAxis(GShaderPlatformForFeatureLevel[GMaxRHIFeatureLevel]) ? -1.0f : 1.0f );
-					VertexShader->SetMaterialShaderParameters(RHICmdList, *SceneView, MaterialRenderProxy, Material);
+					const FMaterial* Material = MaterialRenderProxy->GetMaterial(SceneView->GetFeatureLevel());
 
-					PixelShader->SetParameters(RHICmdList, *SceneView, MaterialRenderProxy, Material, DisplayGamma, ShaderParams.PixelParams);
-					PixelShader->SetDisplayGamma(RHICmdList, (DrawFlags & ESlateBatchDrawFlag::NoGamma) ? 1.0f : DisplayGamma);
-					
-					FSlateShaderResource* MaskResource = MaterialShaderResource->GetTextureMaskResource();
-					if( MaskResource )
+					FSlateMaterialShaderPS* PixelShader = GetMaterialPixelShader(Material, ShaderType, DrawEffects);
+
+					const bool bUseInstancing = RenderBatch.InstanceCount > 0 && RenderBatch.InstanceData != nullptr;
+					FSlateMaterialShaderVS* VertexShader = GetMaterialVertexShader(Material, bUseInstancing);
+
+					if (VertexShader && PixelShader)
 					{
-						RHICmdList.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha, BO_Add, BF_InverseDestAlpha, BF_One>::GetRHI());
+						RHICmdList.SetLocalBoundShaderState(RHICmdList.BuildLocalBoundShaderState(
+							bUseInstancing ? GSlateInstancedVertexDeclaration.VertexDeclarationRHI : GSlateVertexDeclaration.VertexDeclarationRHI,
+							VertexShader->GetVertexShader(),
+							nullptr,
+							nullptr,
+							PixelShader->GetPixelShader(),
+							FGeometryShaderRHIRef()));
 
-						FTexture2DRHIRef TextureRHI;
-						TextureRHI = ((TSlateTexture<FTexture2DRHIRef>*)MaskResource)->GetTypedResource();
+						VertexShader->SetViewProjection(RHICmdList, DynamicOffset * ViewProjectionMatrix);
+						VertexShader->SetVerticalAxisMultiplier(RHICmdList, bAllowSwitchVerticalAxis && RHINeedsToSwitchVerticalAxis(GShaderPlatformForFeatureLevel[GMaxRHIFeatureLevel]) ? -1.0f : 1.0f);
+						VertexShader->SetMaterialShaderParameters(RHICmdList, *SceneView, MaterialRenderProxy, Material);
 
-						PixelShader->SetAdditionalTexture(RHICmdList, TextureRHI, BilinearClamp);
-					}
+						PixelShader->SetParameters(RHICmdList, *SceneView, MaterialRenderProxy, Material, DisplayGamma, ShaderParams.PixelParams);
+						PixelShader->SetDisplayGamma(RHICmdList, (DrawFlags & ESlateBatchDrawFlag::NoGamma) ? 1.0f : DisplayGamma);
+
+						FSlateShaderResource* MaskResource = MaterialShaderResource->GetTextureMaskResource();
+						if (MaskResource)
+						{
+							RHICmdList.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha, BO_Add, BF_InverseDestAlpha, BF_One>::GetRHI());
+
+							FTexture2DRHIRef TextureRHI;
+							TextureRHI = ((TSlateTexture<FTexture2DRHIRef>*)MaskResource)->GetTypedResource();
+
+							PixelShader->SetAdditionalTexture(RHICmdList, TextureRHI, BilinearClamp);
+						}
 
 #if SLATE_PRE_MULTIPLY
-					if (RenderBatch.DrawFlags & ESlateBatchDrawFlag::PreMultipliedAlpha)
-					{
-						RHICmdList.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_InverseSourceAlpha, BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI());
-					}
+						if (RenderBatch.DrawFlags & ESlateBatchDrawFlag::PreMultipliedAlpha)
+						{
+							RHICmdList.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_InverseSourceAlpha, BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI());
+						}
 #endif
 
-					uint32 PrimitiveCount = RenderBatch.DrawPrimitiveType == ESlateDrawPrimitive::LineList ? RenderBatch.NumIndices / 2 : RenderBatch.NumIndices / 3;
+						uint32 PrimitiveCount = RenderBatch.DrawPrimitiveType == ESlateDrawPrimitive::LineList ? RenderBatch.NumIndices / 2 : RenderBatch.NumIndices / 3;
 
-					if ( bUseInstancing )
-					{
-						uint32 InstanceCount = RenderBatch.InstanceCount;
-
-						if ( GRHISupportsInstancing )
+						if ( bUseInstancing )
 						{
-							FSlateUpdatableInstanceBuffer* InstanceBuffer = (FSlateUpdatableInstanceBuffer*)RenderBatch.InstanceData;
-							InstanceBuffer->BindStreamSource(RHICmdList, 1, RenderBatch.InstanceOffset);
+							uint32 InstanceCount = RenderBatch.InstanceCount;
+
+							if ( GRHISupportsInstancing )
+							{
+								FSlateUpdatableInstanceBuffer* InstanceBuffer = (FSlateUpdatableInstanceBuffer*)RenderBatch.InstanceData;
+								InstanceBuffer->BindStreamSource(RHICmdList, 1, RenderBatch.InstanceOffset);
+
+								// for RHIs that can't handle VertexOffset, we need to offset the stream source each time
+								if ( !GRHISupportsBaseVertexIndex )
+								{
+									RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), RenderBatch.VertexOffset * sizeof(FSlateVertex));
+									RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, InstanceCount);
+								}
+								else
+								{
+									RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), 0);
+									RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, InstanceCount);
+								}
+							}
+							//else
+							//{
+							//	for ( uint32 InstanceIndex = 0; InstanceIndex < InstanceCount; InstanceIndex++ )
+							//	{
+							//		FSlateUpdatableInstanceBuffer* InstanceBuffer = (FSlateUpdatableInstanceBuffer*)RenderBatch.InstanceData;
+							//		InstanceBuffer->BindStreamSource(RHICmdList, 1, RenderBatch.InstanceOffset + InstanceIndex);
+
+							//		// for RHIs that can't handle VertexOffset, we need to offset the stream source each time
+							//		if ( !GRHISupportsBaseVertexIndex )
+							//		{
+							//			RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), RenderBatch.VertexOffset * sizeof(FSlateVertex));
+							//			RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
+							//		}
+							//		else
+							//		{
+							//			RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
+							//		}
+							//	}
+							//}
+						}
+						else
+						{
+							RHICmdList.SetStreamSource(1, nullptr, 0, 0);
 
 							// for RHIs that can't handle VertexOffset, we need to offset the stream source each time
 							if ( !GRHISupportsBaseVertexIndex )
 							{
 								RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), RenderBatch.VertexOffset * sizeof(FSlateVertex));
-								RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, InstanceCount);
+								RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
 							}
 							else
 							{
-								RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, InstanceCount);
+								RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), 0);
+								RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
 							}
-						}
-						//else
-						//{
-						//	for ( uint32 InstanceIndex = 0; InstanceIndex < InstanceCount; InstanceIndex++ )
-						//	{
-						//		FSlateUpdatableInstanceBuffer* InstanceBuffer = (FSlateUpdatableInstanceBuffer*)RenderBatch.InstanceData;
-						//		InstanceBuffer->BindStreamSource(RHICmdList, 1, RenderBatch.InstanceOffset + InstanceIndex);
-
-						//		// for RHIs that can't handle VertexOffset, we need to offset the stream source each time
-						//		if ( !GRHISupportsBaseVertexIndex )
-						//		{
-						//			RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), RenderBatch.VertexOffset * sizeof(FSlateVertex));
-						//			RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
-						//		}
-						//		else
-						//		{
-						//			RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
-						//		}
-						//	}
-						//}
-					}
-					else
-					{
-						RHICmdList.SetStreamSource(1, nullptr, 0, 0);
-
-						// for RHIs that can't handle VertexOffset, we need to offset the stream source each time
-						if ( !GRHISupportsBaseVertexIndex )
-						{
-							RHICmdList.SetStreamSource(0, VertexBuffer->VertexBufferRHI, sizeof(FSlateVertex), RenderBatch.VertexOffset * sizeof(FSlateVertex));
-							RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), 0, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
-						}
-						else
-						{
-							RHICmdList.DrawIndexedPrimitive(IndexBuffer->IndexBufferRHI, GetRHIPrimitiveType(RenderBatch.DrawPrimitiveType), RenderBatch.VertexOffset, 0, RenderBatch.NumVertices, RenderBatch.IndexOffset, PrimitiveCount, 1);
 						}
 					}
 				}
@@ -645,6 +644,9 @@ void FSlateRHIRenderingPolicy::DrawElements(FRHICommandListImmediate& RHICmdList
 			TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> CustomDrawer = RenderBatch.CustomDrawer.Pin();
 			if (CustomDrawer.IsValid())
 			{
+				// Disable scissor rect. A previous draw element may have had one
+				RHICmdList.SetScissorRect(false, 0, 0, 0, 0);
+
 				// This element is custom and has no Slate geometry.  Tell it to render itself now
 				CustomDrawer->DrawRenderThread(RHICmdList, &BackBuffer.GetRenderTargetTexture());
 

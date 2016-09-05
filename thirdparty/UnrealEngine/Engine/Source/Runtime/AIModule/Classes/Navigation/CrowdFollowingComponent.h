@@ -43,18 +43,21 @@ class AIMODULE_API UCrowdFollowingComponent : public UPathFollowingComponent, pu
 	virtual FVector GetCrowdAgentVelocity() const override;
 	virtual void GetCrowdAgentCollisions(float& CylinderRadius, float& CylinderHalfHeight) const override;
 	virtual float GetCrowdAgentMaxSpeed() const override;
+	virtual int32 GetCrowdAgentAvoidanceGroup() const override;
+	virtual int32 GetCrowdAgentGroupsToAvoid() const override;
+	virtual int32 GetCrowdAgentGroupsToIgnore() const override;
 	// ICrowdAgentInterface END
 
 	// PathFollowingComponent BEGIN
 	virtual void Initialize() override;
 	virtual void Cleanup() override;
-	virtual void AbortMove(const FString& Reason, FAIRequestID RequestID = FAIRequestID::CurrentRequest, bool bResetVelocity = true, bool bSilent = false, uint8 MessageFlags = 0) override;
-	virtual void PauseMove(FAIRequestID RequestID = FAIRequestID::CurrentRequest, bool bResetVelocity = true) override;
+	virtual void AbortMove(const UObject& Instigator, FPathFollowingResultFlags::Type AbortFlags, FAIRequestID RequestID = FAIRequestID::CurrentRequest, EPathFollowingVelocityMode VelocityMode = EPathFollowingVelocityMode::Reset) override;
+	virtual void PauseMove(FAIRequestID RequestID = FAIRequestID::CurrentRequest, EPathFollowingVelocityMode VelocityMode = EPathFollowingVelocityMode::Reset) override;
 	virtual void ResumeMove(FAIRequestID RequestID = FAIRequestID::CurrentRequest) override;
 	virtual FVector GetMoveFocus(bool bAllowStrafe) const override;
 	virtual void OnLanded() override;
 	virtual void FinishUsingCustomLink(INavLinkCustomInterface* CustomNavLink) override;
-	virtual void OnPathFinished(EPathFollowingResult::Type Result) override;
+	virtual void OnPathFinished(const FPathFollowingResult& Result) override;
 	virtual void OnPathUpdated() override;
 	virtual void OnPathfindingQuery(FPathFindingQuery& Query) override;
 	virtual int32 GetCurrentPathElement() const override { return LastPathPolyIndex; }
@@ -136,6 +139,8 @@ class AIMODULE_API UCrowdFollowingComponent : public UPathFollowingComponent, pu
 
 	DEPRECATED(4.11, "Use SetCrowdSimulationState function instead.")
 	virtual void SetCrowdSimulation(bool bEnable);
+
+	void UpdateDestinationForMovingGoal(const FVector& NewDestination);
 
 protected:
 
@@ -219,7 +224,10 @@ protected:
 	bool ShouldSwitchPathPart(int32 CorridorSize) const;
 	bool HasMovedDuringPause() const;
 	void UpdateCachedDirections(const FVector& NewVelocity, const FVector& NextPathCorner, bool bTraversingLink);
+
+	DEPRECATED(4.12, "This function is now deprecated and was renamed to ShouldTrackMovingGoal.")
 	virtual bool UpdateCachedGoal(FVector& NewGoalPos);
+	virtual bool ShouldTrackMovingGoal(FVector& OutGoalLocation) const;
 	
 	void OnPendingNavigationInit();
 	void RegisterCrowdAgent();

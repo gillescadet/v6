@@ -24,6 +24,7 @@ void SComboButton::Construct( const FArguments& InArgs )
 		.Method(InArgs._Method)
 		.OnMenuOpenChanged(InArgs._OnMenuOpenChanged)
 		.OnGetMenuContent(InArgs._OnGetMenuContent)
+		.IsCollapsedByParent(InArgs._CollapseMenuOnParentFocus)
 		[
 			SNew( SButton )
 			.ButtonStyle( OurButtonStyle )
@@ -74,7 +75,9 @@ FReply SComboButton::OnButtonClicked()
 {
 	// Button was clicked; show the popup.
 	// Do nothing if clicking on the button also dismissed the menu, because we will end up doing the same thing twice.
-	this->SetIsOpen( ShouldOpenDueToClick(), bIsFocusable );
+	// Don't explicitly focus the menu, here, we're going to do it in the button reply so that it's properly focused
+	// to the correct user.
+	SetIsOpen( ShouldOpenDueToClick(), false );
 
 	// If the menu is open, execute the related delegate.
 	if( IsOpen() && OnComboBoxOpened.IsBound() )

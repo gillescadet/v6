@@ -32,7 +32,7 @@ enum EShowFlagInitMode
 	ESFIM_All0
 };
 
-#if (UE_BUILD_SHIPPING) || (UE_BUILD_TEST)
+#if (UE_BUILD_SHIPPING)
 	#define UE_BUILD_OPTIMIZED_SHOWFLAGS 1
 #else
 	#define UE_BUILD_OPTIMIZED_SHOWFLAGS 0
@@ -50,7 +50,12 @@ struct FEngineShowFlags
 	// ---------------------------------------------------------
 	// Define the showflags.
 	// A show flag is either an uint32:1 or static const bool (if optimized out according to UE_BUILD_OPTIMIZED_SHOWFLAGS)
+
+#if PLATFORM_HTML5 // broken fit field compiler -- will be sending this file to the emscripten &/or clang keepers
+	#define SHOWFLAG_ALWAYS_ACCESSIBLE(a,...) bool a; void Set##a(bool bVal){ a = bVal;}
+#else
 	#define SHOWFLAG_ALWAYS_ACCESSIBLE(a,...) uint32 a : 1; void Set##a(bool bVal){ a = bVal?1:0;}
+#endif
 
 	#if UE_BUILD_OPTIMIZED_SHOWFLAGS 
 		#define SHOWFLAG_FIXED_IN_SHIPPING(v,a,...) static const bool a = v; void Set##a(bool bVal){}
@@ -187,7 +192,35 @@ struct FEngineShowFlags
 		SetStereoRendering(false);
 		SetDistanceFieldAO(false);
 		SetDistanceFieldGI(false);
+		// hiding the SkinCache would break thumbnail caching
+		SetSkinCache(true);
 	}
+
+	void EnableAdvancedFeatures()
+	{
+		SetLensFlares(true);
+		SetEyeAdaptation(true);
+		SetColorGrading(true);
+		SetCameraImperfections(true);
+		SetDepthOfField(true);
+		SetVignette(true);
+		SetGrain(true);
+		SetSeparateTranslucency(true);
+		SetScreenSpaceReflections(true);
+		SetTemporalAA(true);
+
+		// might cause reallocation if we render rarely to it - for now off
+		SetAmbientOcclusion(true);
+
+		// Requires resources in the FScene, which get reallocated for every temporary scene if enabled
+		SetIndirectLightingCache(true);
+
+		SetLightShafts(true);
+		SetPostProcessMaterial(true);
+		SetDistanceFieldAO(true);
+		SetDistanceFieldGI(true);
+	}
+
 
 	// ---------------------------------------------------------
 	// The following methods are there for serialization, localization and in general to iterate and manipulate flags.
@@ -268,10 +301,15 @@ private:
 		}
 
 		// Most flags are on by default. With the following line we only need disable flags.
+#if PLATFORM_HTML5
+		FMemory::Memset(this, uint8(true), sizeof(*this));
+#else
 		FMemory::Memset(this, 0xff, sizeof(*this));
+#endif
 
 		// The following code sets what should be off by default.
 		SetVisualizeHDR(false);
+		SetVisualizeShadingModels(false);
 		SetOverrideDiffuseAndSpecular(false);
 		SetReflectionOverride(false);
 		SetVisualizeBuffer(false);
@@ -288,12 +326,12 @@ private:
 		SetNavigation(false);
 		SetLightComplexity(false);
 		SetShaderComplexity(false);
-		SetQuadComplexity(false);
-		SetQuadOverhead(false);
+		SetQuadOverdraw(false);
+		SetShaderComplexityWithQuadOverdraw(false);
 		SetStationaryLightOverlap(false);
 		SetLightMapDensity(false);
-		SetVertexDensities(false);
 		SetLODColoration(false);
+		SetHLODColoration(false);
 		SetVisualizeLPV(false);
 		SetStreamingBounds(false);
 		SetConstraints(false);
@@ -341,6 +379,10 @@ private:
 		SetVisualizeSSR(false);
 		SetVisualizeSSS(false);
 		SetVisualizeBloom(false);
+		SetPrimitiveDistanceAccuracy(false);
+		SetMeshTexCoordSizeAccuracy(false);
+		SetMaterialTexCoordScalesAccuracy(false);
+		SetMaterialTexCoordScalesAnalysis(false);
 	}
 
 

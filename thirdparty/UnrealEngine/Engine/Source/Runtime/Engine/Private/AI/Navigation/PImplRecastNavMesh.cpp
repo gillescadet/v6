@@ -720,7 +720,8 @@ void FPImplRecastNavMesh::SetRecastMesh(dtNavMesh* NavMesh)
 	}
 }
 
-void FPImplRecastNavMesh::Raycast2D(const FVector& StartLoc, const FVector& EndLoc, const FNavigationQueryFilter& InQueryFilter, const UObject* Owner, ARecastNavMesh::FRaycastResult& RaycastResult) const
+void FPImplRecastNavMesh::Raycast(const FVector& StartLoc, const FVector& EndLoc, const FNavigationQueryFilter& InQueryFilter, const UObject* Owner, 
+	ARecastNavMesh::FRaycastResult& RaycastResult, NavNodeRef StartNode) const
 {
 	if (DetourNavMesh == NULL || NavMeshOwner == NULL)
 	{
@@ -730,7 +731,7 @@ void FPImplRecastNavMesh::Raycast2D(const FVector& StartLoc, const FVector& EndL
 	const dtQueryFilter* QueryFilter = ((const FRecastQueryFilter*)(InQueryFilter.GetImplementation()))->GetAsDetourQueryFilter();
 	if (QueryFilter == NULL)
 	{
-		UE_VLOG(NavMeshOwner, LogNavigation, Warning, TEXT("FPImplRecastNavMesh::FindPath failing due to QueryFilter == NULL"));
+		UE_VLOG(NavMeshOwner, LogNavigation, Warning, TEXT("FPImplRecastNavMesh::Raycast failing due to QueryFilter == NULL"));
 		return;
 	}
 
@@ -743,8 +744,13 @@ void FPImplRecastNavMesh::Raycast2D(const FVector& StartLoc, const FVector& EndL
 	const FVector RecastStart = Unreal2RecastPoint(StartLoc);
 	const FVector RecastEnd = Unreal2RecastPoint(EndLoc);
 
-	NavNodeRef StartNode = INVALID_NAVNODEREF;
-	NavQuery.findNearestContainingPoly(&RecastStart.X, Extent, QueryFilter, &StartNode, NULL);
+	if (StartNode == INVALID_NAVNODEREF)
+	{
+		NavQuery.findNearestContainingPoly(&RecastStart.X, Extent, QueryFilter, &StartNode, NULL);
+	}
+
+	NavNodeRef EndNode = INVALID_NAVNODEREF;
+	NavQuery.findNearestContainingPoly(&RecastEnd.X, Extent, QueryFilter, &EndNode, NULL);
 
 	if (StartNode != INVALID_NAVNODEREF)
 	{
@@ -755,58 +761,10 @@ void FPImplRecastNavMesh::Raycast2D(const FVector& StartLoc, const FVector& EndL
 			, RaycastResult.CorridorPolys, &RaycastResult.CorridorPolysCount, RaycastResult.GetMaxCorridorSize());
 
 		RaycastResult.HitNormal = Recast2UnrVector(RecastHitNormal);
-
-		if (dtStatusSucceed(RaycastStatus) == false)
-		{
-			UE_VLOG(NavMeshOwner, LogNavigation, Log, TEXT("FPImplRecastNavMesh::Raycast2D failed"));
-		}
+		RaycastResult.bIsRaycastEndInCorridor = dtStatusSucceed(RaycastStatus) && (RaycastResult.GetLastNodeRef() == EndNode);
 	}
 	else
 	{
-		// start location is not on navmesh, treat it as a blocked raycast
-		RaycastResult.HitTime = 0.f;
-		RaycastResult.HitNormal = (StartLoc - EndLoc).GetSafeNormal();
-	}
-}
-
-void FPImplRecastNavMesh::Raycast2D(NavNodeRef StartNode, const FVector& StartLoc, const FVector& EndLoc, const FNavigationQueryFilter& InQueryFilter, const UObject* Owner, ARecastNavMesh::FRaycastResult& RaycastResult) const
-{
-	if (DetourNavMesh == NULL || NavMeshOwner == NULL)
-	{
-		return;
-	}
-
-	const dtQueryFilter* QueryFilter = ((const FRecastQueryFilter*)(InQueryFilter.GetImplementation()))->GetAsDetourQueryFilter();
-	if (QueryFilter == NULL)
-	{
-		UE_VLOG(NavMeshOwner, LogNavigation, Warning, TEXT("FPImplRecastNavMesh::FindPath failing due to QueryFilter == NULL"));
-		return;
-	}
-
-	FRecastSpeciaLinkFilter LinkFilter(UNavigationSystem::GetCurrent(NavMeshOwner->GetWorld()), Owner);
-	INITIALIZE_NAVQUERY(NavQuery, InQueryFilter.GetMaxSearchNodes(), LinkFilter);
-
-	const FVector RecastStart = Unreal2RecastPoint(StartLoc);
-	const FVector RecastEnd = Unreal2RecastPoint(EndLoc);
-
-	if (StartNode != INVALID_NAVNODEREF)
-	{
-		float RecastHitNormal[3];
-
-		const dtStatus RaycastStatus = NavQuery.raycast(StartNode, &RecastStart.X, &RecastEnd.X
-			, QueryFilter, &RaycastResult.HitTime, RecastHitNormal
-			, RaycastResult.CorridorPolys, &RaycastResult.CorridorPolysCount, RaycastResult.GetMaxCorridorSize());
-
-		RaycastResult.HitNormal = Recast2UnrVector(RecastHitNormal);
-
-		if (dtStatusSucceed(RaycastStatus) == false)
-		{
-			UE_VLOG(NavMeshOwner, LogNavigation, Log, TEXT("FPImplRecastNavMesh::Raycast2D failed"));
-		}
-	}
-	else
-	{
-		// start location is not on navmesh, treat it as a blocked raycast
 		RaycastResult.HitTime = 0.f;
 		RaycastResult.HitNormal = (StartLoc - EndLoc).GetSafeNormal();
 	}
@@ -849,9 +807,6 @@ ENavigationQueryResult::Type FPImplRecastNavMesh::FindPath(const FVector& StartL
 		return ENavigationQueryResult::Error;
 	}
 
-	// initialize output
-	Path.Reset();
-
 	// get path corridor
 	dtQueryResult PathResult;
 	const dtStatus FindPathStatus = NavQuery.findPath(StartPolyID, EndPolyID, &RecastStartPos.X, &RecastEndPos.X, QueryFilter, PathResult, 0);
@@ -890,7 +845,11 @@ ENavigationQueryResult::Type FPImplRecastNavMesh::FindPath(const FVector& StartL
 	if (dtStatusDetail(FindPathStatus, DT_INVALID_CYCLE_PATH))
 	{
 		UE_VLOG(NavMeshOwner, LogNavigation, Error, TEXT("FPImplRecastNavMesh::FindPath resulted in a cyclic path!"));
-		Path.DescribeSelfToVisLog(FVisualLogger::Get().GetLastEntryForObject(NavMeshOwner));
+		FVisualLogEntry* Entry = FVisualLogger::Get().GetLastEntryForObject(NavMeshOwner);
+		if (Entry)
+		{
+			Path.DescribeSelfToVisLog(Entry);
+		}
 	}
 #endif // ENABLE_VISUAL_LOG
 
@@ -1221,6 +1180,7 @@ static void StorePathfindingDebugData(const dtNavMeshQuery& NavQuery, const dtNa
 		NodeInfo.bOffMeshLink = NavPoly ? (NavPoly->getType() != DT_POLYTYPE_GROUND) : false;
 		if (Data.Flags & ERecastDebugPathfindingFlags::Vertices)
 		{
+			check(NavPoly);
 			for (int32 iv = 0; iv < NavPoly->vertCount; iv++)
 			{
 				NodeInfo.Verts.Add(Recast2UnrealPoint(&NavTile->verts[NavPoly->verts[iv] * 3]));
@@ -1434,18 +1394,18 @@ bool FPImplRecastNavMesh::ProjectPointToNavMesh(const FVector& Point, FNavLocati
 		const FVector ModifiedExtent = NavMeshOwner->GetModifiedQueryExtent(Extent);
 		FVector RcExtent = Unreal2RecastPoint(ModifiedExtent).GetAbs();
 	
-		FVector RcPoint = Unreal2RecastPoint( Point );
+		FVector RcPoint = Unreal2RecastPoint(Point);
 		dtPolyRef PolyRef;
-		NavQuery.findNearestPoly( &RcPoint.X, &RcExtent.X, QueryFilter, &PolyRef, ClosestPoint );
+		NavQuery.findNearestPoly2D(&RcPoint.X, &RcExtent.X, QueryFilter, &PolyRef, ClosestPoint);
 
 		if( PolyRef > 0 )
 		{
 			// one last step required due to recast's BVTree imprecision
 			const FVector& UnrealClosestPoint = Recast2UnrVector(ClosestPoint);			
 			const FVector ClosestPointDelta = UnrealClosestPoint - Point;
-			if (FMath::Abs(ClosestPointDelta.X) <= ModifiedExtent.X &&
-				FMath::Abs(ClosestPointDelta.Y) <= ModifiedExtent.Y &&
-				FMath::Abs(ClosestPointDelta.Z) <= ModifiedExtent.Z)
+			if (-ModifiedExtent.X <= ClosestPointDelta.X && ClosestPointDelta.X <= ModifiedExtent.X
+				&& -ModifiedExtent.Y <= ClosestPointDelta.Y && ClosestPointDelta.Y <= ModifiedExtent.Y
+				&& -ModifiedExtent.Z <= ClosestPointDelta.Z && ClosestPointDelta.Z <= ModifiedExtent.Z)
 			{
 				bSuccess = true;
 				Result = FNavLocation(UnrealClosestPoint, PolyRef);
@@ -1801,15 +1761,21 @@ bool FPImplRecastNavMesh::GetPolyEdges(NavNodeRef PolyID, TArray<FNavigationPort
 		dtStatus Status = DetourNavMesh->getTileAndPolyByRef(PolyRef, &Tile, &Poly);
 		if (dtStatusSucceed(Status))
 		{
-			for (int32 Idx = 0; Idx < Poly->vertCount; Idx++)
-			{
-				FNavigationPortalEdge NeiData;
-				NeiData.Left = Recast2UnrealPoint(&Tile->verts[3 * Poly->verts[Idx]]);
-				NeiData.Right = Recast2UnrealPoint(&Tile->verts[3 * Poly->verts[(Idx + 1) % Poly->vertCount]]);
+			const bool bIsNavLink = (Poly->getType() != DT_POLYTYPE_GROUND);
 
-				// not a ref, but can be converted into one later if needed, basic info (hard edge) is there
-				NeiData.ToRef = Poly->neis[Idx];
-				Edges.Add(NeiData);
+			for (uint32 LinkIt = Poly->firstLink; LinkIt != DT_NULL_LINK;)
+			{
+				const dtLink& LinkInfo = DetourNavMesh->getLink(Tile, LinkIt);
+				if (LinkInfo.edge >= 0 && LinkInfo.edge < Poly->vertCount)
+				{
+					FNavigationPortalEdge NeiData;
+					NeiData.Left = Recast2UnrealPoint(&Tile->verts[3 * Poly->verts[LinkInfo.edge]]);
+					NeiData.Right = bIsNavLink ? NeiData.Left : Recast2UnrealPoint(&Tile->verts[3 * Poly->verts[(LinkInfo.edge + 1) % Poly->vertCount]]);
+					NeiData.ToRef = LinkInfo.ref;
+					Edges.Add(NeiData);
+				}
+
+				LinkIt = LinkInfo.next;
 			}
 
 			return true;
@@ -2194,7 +2160,6 @@ void FPImplRecastNavMesh::GetDebugGeometry(FRecastDebugGeometry& OutGeometry, in
 
 	int32 NumVertsToReserve = 0;
 	int32 NumIndicesToReserve = 0;
-	int32 NumClusters = 0;
 
 	const FRecastNavMeshGenerator* Generator = static_cast<const FRecastNavMeshGenerator*>(NavMeshOwner->GetGenerator());
 
@@ -2217,18 +2182,15 @@ void FPImplRecastNavMesh::GetDebugGeometry(FRecastDebugGeometry& OutGeometry, in
 						dtPolyDetail const* const DetailPoly = &Tile->detailMeshes[PolyIdx];
 						NumIndicesToReserve += (DetailPoly->triCount * 3);
 					}
-
-					NumClusters = FMath::Max(Tile->header->clusterCount, NumClusters);
 				}
 			}
 		}
 
-		OutGeometry.MeshVerts.Reserve(NumVertsToReserve);
-		OutGeometry.AreaIndices[0].Reserve(NumIndicesToReserve);
-		OutGeometry.BuiltMeshIndices.Reserve(NumIndicesToReserve);
-		OutGeometry.Clusters.AddZeroed(NumClusters);
+		OutGeometry.MeshVerts.Reserve(OutGeometry.MeshVerts.Num() + NumVertsToReserve);
+		OutGeometry.AreaIndices[0].Reserve(OutGeometry.AreaIndices[0].Num() + NumIndicesToReserve);
+		OutGeometry.BuiltMeshIndices.Reserve(OutGeometry.BuiltMeshIndices.Num() + NumIndicesToReserve);
 
-		uint32 AllTilesVertBase = 0;
+		uint32 VertBase = OutGeometry.MeshVerts.Num();
 		for (const FIntPoint& TileLocation : ActiveTiles)
 		{
 			const int32 LayersCount = ConstNavMesh->getTileCountAt(TileLocation.X, TileLocation.Y);
@@ -2238,7 +2200,7 @@ void FPImplRecastNavMesh::GetDebugGeometry(FRecastDebugGeometry& OutGeometry, in
 				dtMeshTile const* const Tile = ConstNavMesh->getTileAt(TileLocation.X, TileLocation.Y, Layer);
 				if (Tile != nullptr && Tile->header != nullptr)
 				{
-					AllTilesVertBase += GetTilesDebugGeometry(Generator, *Tile, AllTilesVertBase, OutGeometry);
+					VertBase += GetTilesDebugGeometry(Generator, *Tile, VertBase, OutGeometry);
 				}
 			}
 		}
@@ -2259,19 +2221,14 @@ void FPImplRecastNavMesh::GetDebugGeometry(FRecastDebugGeometry& OutGeometry, in
 					dtPolyDetail const* const DetailPoly = &Tile->detailMeshes[PolyIdx];
 					NumIndicesToReserve += (DetailPoly->triCount * 3);
 				}
-
-				NumClusters = FMath::Max(Header->clusterCount, NumClusters);
 			}
 		}
 
-		OutGeometry.MeshVerts.Reserve(NumVertsToReserve);
-		OutGeometry.AreaIndices[0].Reserve(NumIndicesToReserve);
-		OutGeometry.BuiltMeshIndices.Reserve(NumIndicesToReserve);
-		OutGeometry.Clusters.AddZeroed(NumClusters);
+		OutGeometry.MeshVerts.Reserve(OutGeometry.MeshVerts.Num() + NumVertsToReserve);
+		OutGeometry.AreaIndices[0].Reserve(OutGeometry.AreaIndices[0].Num() + NumIndicesToReserve);
+		OutGeometry.BuiltMeshIndices.Reserve(OutGeometry.BuiltMeshIndices.Num() + NumIndicesToReserve);
 
-		// spin through all polys in all tiles and draw them
-		// @see drawMeshTile() in recast code for reference
-		uint32 AllTilesVertBase = 0;
+		uint32 VertBase = OutGeometry.MeshVerts.Num();
 		for (int32 TileIdx = StartingTile; TileIdx < NumTiles; ++TileIdx)
 		{
 			dtMeshTile const* const Tile = ConstNavMesh->getTile(TileIdx);
@@ -2281,7 +2238,7 @@ void FPImplRecastNavMesh::GetDebugGeometry(FRecastDebugGeometry& OutGeometry, in
 				continue;
 			}
 
-			AllTilesVertBase += GetTilesDebugGeometry(Generator, *Tile, AllTilesVertBase, OutGeometry, TileIdx);
+			VertBase += GetTilesDebugGeometry(Generator, *Tile, VertBase, OutGeometry, TileIdx);
 		}
 	}
 }
@@ -2348,12 +2305,21 @@ int32 FPImplRecastNavMesh::GetTilesDebugGeometry(const FRecastNavMeshGenerator* 
 				Indices->Add(TriVertIndices[1]);
 				Indices->Add(TriVertIndices[2]);
 
-				if (Tile.polyClusters && OutGeometry.Clusters.IsValidIndex(Tile.polyClusters[PolyIdx]))
+				if (Tile.polyClusters)
 				{
-					TArray<int32>& ClusterIndices = OutGeometry.Clusters[Tile.polyClusters[PolyIdx]].MeshIndices;
-					ClusterIndices.Add(TriVertIndices[0]);
-					ClusterIndices.Add(TriVertIndices[1]);
-					ClusterIndices.Add(TriVertIndices[2]);
+					const uint16 ClusterId = Tile.polyClusters[PolyIdx];
+					if (ClusterId < MAX_uint8)
+					{
+						if (ClusterId >= OutGeometry.Clusters.Num())
+						{
+							OutGeometry.Clusters.AddDefaulted(ClusterId - OutGeometry.Clusters.Num() + 1);
+						}
+
+						TArray<int32>& ClusterIndices = OutGeometry.Clusters[ClusterId].MeshIndices;
+						ClusterIndices.Add(TriVertIndices[0]);
+						ClusterIndices.Add(TriVertIndices[1]);
+						ClusterIndices.Add(TriVertIndices[2]);
+					}
 				}
 			}
 		}
@@ -2578,6 +2544,7 @@ void FPImplRecastNavMesh::GetNavMeshTilesIn(const TArray<FBox>& InclusionBounds,
 		const float* NavMeshOrigin = DetourNavMesh->getParams()->orig;
 		const float TileSize = DetourNavMesh->getParams()->tileWidth;
 
+		// Generate a set of all possible tile coordinates that belong to requested bounds
 		TSet<FIntPoint>	TileCoords;	
 		for (const FBox& Bounds : InclusionBounds)
 		{
@@ -2599,20 +2566,35 @@ void FPImplRecastNavMesh::GetNavMeshTilesIn(const TArray<FBox>& InclusionBounds,
 		// We guess that each tile has 3 layers in average
 		Indices.Reserve(TileCoords.Num()*3);
 
-		for (FIntPoint TileCoord : TileCoords)
+		TArray<const dtMeshTile*> MeshTiles;
+		MeshTiles.Reserve(3);
+
+		for (const FIntPoint& TileCoord : TileCoords)
 		{
 			int32 MaxTiles = DetourNavMesh->getTileCountAt(TileCoord.X, TileCoord.Y);
-			TArray<const dtMeshTile*> Tiles;
-			Tiles.AddZeroed(MaxTiles);
-
-			const int32 NumTiles = DetourNavMesh->getTilesAt(TileCoord.X, TileCoord.Y, Tiles.GetData(), MaxTiles);
-			for (int32 i = 0; i < NumTiles; ++i)
+			if (MaxTiles > 0)
 			{
-				dtTileRef TileRef = DetourNavMesh->getTileRef(Tiles[i]);
-				if (TileRef)
+				MeshTiles.SetNumZeroed(MaxTiles, false);
+				
+				const int32 MeshTilesCount = DetourNavMesh->getTilesAt(TileCoord.X, TileCoord.Y, MeshTiles.GetData(), MaxTiles);
+				for (int32 i = 0; i < MeshTilesCount; ++i)
 				{
-					const int32 TileIndex = (int32)DetourNavMesh->decodePolyIdTile(TileRef);
-					Indices.Add(TileIndex);
+					const dtMeshTile* MeshTile = MeshTiles[i];
+					dtTileRef TileRef = DetourNavMesh->getTileRef(MeshTile);
+					if (TileRef)
+					{
+						// Consider only mesh tiles that actually belong to a requested bounds
+						FBox TileBounds = Recast2UnrealBox(MeshTile->header->bmin, MeshTile->header->bmax);
+						for (const FBox& RequestedBounds : InclusionBounds)
+						{
+							if (TileBounds.Intersect(RequestedBounds))
+							{
+								int32 TileIndex = (int32)DetourNavMesh->decodePolyIdTile(TileRef);
+								Indices.Add(TileIndex);
+								break;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -2713,6 +2695,11 @@ void FPImplRecastNavMesh::RemoveTileCacheLayer(int32 TileX, int32 TileY, int32 L
 		if (ExistingLayersList->IsValidIndex(LayerIdx))
 		{
 			ExistingLayersList->RemoveAt(LayerIdx);
+
+			for (int32 Idx = LayerIdx; Idx < ExistingLayersList->Num(); Idx++)
+			{
+				(*ExistingLayersList)[Idx].LayerIndex = Idx;
+			}
 		}
 		
 		if (ExistingLayersList->Num() == 0)

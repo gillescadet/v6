@@ -5,6 +5,7 @@
 #include "AI/Navigation/NavigationTypes.h"
 #include "AI/Navigation/RecastNavMesh.h"
 #include "AI/Navigation/NavigationPath.h"
+#include "AI/Navigation/NavAreas/NavArea.h"
 #include "Debug/DebugDrawService.h"
 
 #define DEBUG_DRAW_OFFSET 0
@@ -22,25 +23,30 @@ const FNavPathType FNavigationPath::Type;
 
 FNavigationPath::FNavigationPath()
 	: PathType(FNavigationPath::Type)
-	, bUpToDate(true)
-	, bIsReady(false)
-	, bIsPartial(false)
-	, bReachedSearchLimit(false)
+	, bDoAutoUpdateOnInvalidation(true)
+	, bIgnoreInvalidation(false)
+	, bUpdateStartPointOnRepath(true)
+	, bUpdateEndPointOnRepath(true)
+	, bUseOnPathUpdatedNotify(false)
 	, LastUpdateTimeStamp(-1.f)	// indicates that it has not been set
 	, GoalActorLocationTetherDistanceSq(-1.f)
 {
-
+	InternalResetNavigationPath();
 }
 
 FNavigationPath::FNavigationPath(const TArray<FVector>& Points, AActor* InBase)
 	: PathType(FNavigationPath::Type)
-	, bUpToDate(true)
-	, bIsReady(true)
-	, bIsPartial(false)
-	, bReachedSearchLimit(false)
+	, bDoAutoUpdateOnInvalidation(true)
+	, bIgnoreInvalidation(false)
+	, bUpdateStartPointOnRepath(true)
+	, bUpdateEndPointOnRepath(true)
+	, bUseOnPathUpdatedNotify(false)
 	, LastUpdateTimeStamp(-1.f)	// indicates that it has not been set
 	, GoalActorLocationTetherDistanceSq(-1.f)
 {
+	InternalResetNavigationPath();
+	MarkReady();
+
 	Base = InBase;
 
 	PathPoints.AddZeroed(Points.Num());
@@ -49,6 +55,37 @@ FNavigationPath::FNavigationPath(const TArray<FVector>& Points, AActor* InBase)
 		FBasedPosition BasedPoint(InBase, Points[i]);
 		PathPoints[i] = FNavPathPoint(*BasedPoint);
 	}
+}
+
+void FNavigationPath::InternalResetNavigationPath()
+{
+	ShortcutNodeRefs.Reset();
+	PathPoints.Reset();
+	Base.Reset();
+
+	bUpToDate = true;
+	bIsReady = false;
+	bIsPartial = false;
+	bReachedSearchLimit = false;
+
+	// keep:
+	// - GoalActor
+	// - GoalActorAsNavAgent
+	// - SourceActor
+	// - SourceActorAsNavAgent
+	// - Querier
+	// - Filter
+	// - PathType
+	// - ObserverDelegate
+	// - bDoAutoUpdateOnInvalidation
+	// - bIgnoreInvalidation
+	// - bUpdateStartPointOnRepath
+	// - bUpdateEndPointOnRepath
+	// - bWaitingForRepath
+	// - NavigationDataUsed
+	// - LastUpdateTimeStamp
+	// - GoalActorLocationTetherDistanceSq
+	// - GoalActorLastLocation
 }
 
 FVector FNavigationPath::GetGoalLocation() const
@@ -70,21 +107,19 @@ void FNavigationPath::SetGoalActorObservation(const AActor& ActorToObserve, floa
 			, *GetNameSafe(&ActorToObserve));
 		return;
 	}
-	else if (IsValid() == false)
-	{
-		UE_LOG(LogNavigation, Log, TEXT("FNavigationPath::SetGoalActorObservation called for an invalid path. Skipping."));
-		return;
-	}
 
 	// register for path observing only if we weren't registered already
-	const bool RegisterForPathUpdates = GoalActor.IsValid() == false;	
+	const bool RegisterForPathUpdates = (GoalActor.IsValid() == false);
 	GoalActor = &ActorToObserve;
 	checkSlow(GoalActor.IsValid());
 	GoalActorAsNavAgent = Cast<INavAgentInterface>(&ActorToObserve);
 	GoalActorLocationTetherDistanceSq = FMath::Square(TetherDistance);
 	UpdateLastRepathGoalLocation();
 
-	NavigationDataUsed->RegisterObservedPath(AsShared());
+	if (RegisterForPathUpdates)
+	{
+		NavigationDataUsed->RegisterObservedPath(AsShared());
+	}
 }
 
 void FNavigationPath::SetSourceActor(const AActor& InSourceActor)
@@ -121,12 +156,15 @@ void FNavigationPath::DisableGoalActorObservation()
 
 void FNavigationPath::Invalidate()
 {
-	bUpToDate = false;
-	ObserverDelegate.Broadcast(this, ENavPathEvent::Invalidated);
-	if (bDoAutoUpdateOnInvalidation && NavigationDataUsed.IsValid())
+	if (!bIgnoreInvalidation)
 	{
-		bWaitingForRepath = true;
-		NavigationDataUsed->RequestRePath(AsShared(), ENavPathUpdateType::NavigationChanged);
+		bUpToDate = false;
+		ObserverDelegate.Broadcast(this, ENavPathEvent::Invalidated);
+		if (bDoAutoUpdateOnInvalidation && NavigationDataUsed.IsValid())
+		{
+			bWaitingForRepath = true;
+			NavigationDataUsed->RequestRePath(AsShared(), ENavPathUpdateType::NavigationChanged);
+		}
 	}
 }
 
@@ -134,6 +172,11 @@ void FNavigationPath::RePathFailed()
 {
 	ObserverDelegate.Broadcast(this, ENavPathEvent::RePathFailed);
 	bWaitingForRepath = false;
+}
+
+void FNavigationPath::ResetForRepath()
+{
+	InternalResetNavigationPath();
 }
 
 void FNavigationPath::DebugDraw(const ANavigationData* NavData, FColor PathColor, UCanvas* Canvas, bool bPersistent, const uint32 NextPathPointIndex) const
@@ -340,6 +383,11 @@ FBasedPosition FNavigationPath::GetPathPointLocation(uint32 Index) const
 
 void FNavigationPath::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const 
 {
+	if (Snapshot == nullptr)
+	{
+		return;
+	}
+
 	const int32 NumPathVerts = PathPoints.Num();
 	FVisualLogShapeElement Element(EVisualLoggerShapeElement::Path);
 	Element.Category = LogNavigation.GetCategoryName();
@@ -369,23 +417,33 @@ FString FNavigationPath::GetDescription() const
 const FNavPathType FNavMeshPath::Type;
 	
 FNavMeshPath::FNavMeshPath()
-	: bCorridorEdgesGenerated(false)
-	, bDynamic(false)
-	, bStringPulled(false)
-	, bWantsStringPulling(true)
+	: bWantsStringPulling(true)
 	, bWantsPathCorridor(false)
 {
 	PathType = FNavMeshPath::Type;
+	InternalResetNavMeshPath();
 }
 
-void FNavMeshPath::Reset()
+void FNavMeshPath::ResetForRepath()
 {
-	PathPoints.Reset();
+	Super::ResetForRepath();
+	InternalResetNavMeshPath();
+}
+
+void FNavMeshPath::InternalResetNavMeshPath()
+{
 	PathCorridor.Reset();
 	PathCorridorCost.Reset();
-	bStringPulled = false;
+	CustomLinkIds.Reset();
+	PathCorridorEdges.Reset();
+
 	bCorridorEdgesGenerated = false;
-	bIsPartial = false;
+	bDynamic = false;
+	bStringPulled = false;
+
+	// keep:
+	// - bWantsStringPulling
+	// - bWantsPathCorridor
 }
 
 float FNavMeshPath::GetStringPulledLength(const int32 StartingPoint) const
@@ -851,10 +909,11 @@ void FNavMeshPath::DebugDraw(const ANavigationData* NavData, FColor PathColor, U
 	const ARecastNavMesh* RecastNavMesh = Cast<const ARecastNavMesh>(NavData);		
 	const TArray<FNavigationPortalEdge>& Edges = (const_cast<FNavMeshPath*>(this))->GetPathCorridorEdges();	
 	const int32 CorridorEdgesCount = Edges.Num();
+	const UWorld* World = NavData->GetWorld();
 
 	for (int32 EdgeIndex = 0; EdgeIndex < CorridorEdgesCount; ++EdgeIndex)
 	{
-		DrawDebugLine(NavData->GetWorld(), Edges[EdgeIndex].Left + NavigationDebugDrawing::PathOffset, Edges[EdgeIndex].Right + NavigationDebugDrawing::PathOffset
+		DrawDebugLine(World, Edges[EdgeIndex].Left + NavigationDebugDrawing::PathOffset, Edges[EdgeIndex].Right + NavigationDebugDrawing::PathOffset
 			, FColor::Blue, bPersistent, /*LifeTime*/-1.f, /*DepthPriority*/0
 			, /*Thickness*/NavigationDebugDrawing::PathLineThickness);
 	}
@@ -941,6 +1000,13 @@ bool FNavMeshPath::DoesPathIntersectBoxImplementation(const FBox& Box, const FVe
 	FVector Start = StartLocation;
 	if (CorridorEdges.IsValidIndex(StartingIndex))
 	{
+		// make sure that Start is initialized correctly when testing from the middle of path (StartingIndex > 0)
+		if (CorridorEdges.IsValidIndex(StartingIndex - 1))
+		{
+			const FNavigationPortalEdge& Edge = CorridorEdges[StartingIndex - 1];
+			Start = Edge.Right + (Edge.Left - Edge.Right) / 2 + (AgentExtent ? FVector(0.f, 0.f, AgentExtent->Z) : FVector::ZeroVector);
+		}
+
 		for (uint32 PortalIndex = StartingIndex; PortalIndex < NumCorridorEdges; ++PortalIndex)
 		{
 			const FNavigationPortalEdge& Edge = CorridorEdges[PortalIndex];
@@ -1101,6 +1167,11 @@ FVector FNavMeshPath::GetSegmentDirection(uint32 SegmentEndIndex) const
 
 void FNavMeshPath::DescribeSelfToVisLog(FVisualLogEntry* Snapshot) const
 {
+	if (Snapshot == nullptr)
+	{
+		return;
+	}
+
 	if (IsStringPulled())
 	{
 		// draw path points only for string pulled paths

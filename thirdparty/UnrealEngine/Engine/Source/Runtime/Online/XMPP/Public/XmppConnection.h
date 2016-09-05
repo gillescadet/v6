@@ -26,6 +26,7 @@ public:
 		, PingInterval(60.0f)
 		, PingTimeout(30.0f)
 		, MaxPingRetries(1)
+		, bPrivateChatFriendsOnly(false)
 	{}
 
 	/** ip/host to connect to */
@@ -48,6 +49,8 @@ public:
 	float PingTimeout;
 	/** max number of retries on ping timeout before connection is abandoned and logged out */
 	int32 MaxPingRetries;
+	/** limit private chat to friends only */
+	bool bPrivateChatFriendsOnly;
 };
 
 /**
@@ -77,14 +80,28 @@ public:
 	/**
 	 * Get the components that comprise the resource
 	 *
+	 * @param InResource The resource to parse
 	 * @param OutAppId The app id the user is using
 	 * @param OutPlatform The platform the user is using
 	 *
 	 * @return Whether the Resource was successfully parsed or not
 	 */
-	bool ParseResource(FString& OutAppId, FString& OutPlatform) const;
+	static bool ParseResource(const FString& InResource, FString& OutAppId, FString& OutPlatform);
 
-	bool operator==(const FXmppUserJid& Other)
+	/** 
+	 * Get the components that comprise the resource
+	 *
+	 * @param OutAppId The app id the user is using
+	 * @param OutPlatform The platform the user is using
+	 *
+	 * @return Whether the Resource was successfully parsed or not
+	 */
+	bool ParseResource(FString& OutAppId, FString& OutPlatform) const
+	{
+		return ParseResource(Resource, OutAppId, OutPlatform);
+	}
+
+	bool operator==(const FXmppUserJid& Other) const
 	{
 		return 
 			Other.Id == Id && 
@@ -112,7 +129,18 @@ public:
 	{
 		return !Id.IsEmpty() && !Domain.IsEmpty();
 	}
+
+	FString ToDebugString() const
+	{
+		return FString::Printf(TEXT("%s:%s:%s"), *Id, *Domain, *Resource);
+	}
 };
+
+typedef TSharedPtr<class IXmppPresence, ESPMode::ThreadSafe> IXmppPresencePtr;
+typedef TSharedPtr<class IXmppPubSub, ESPMode::ThreadSafe> IXmppPubSubPtr;
+typedef TSharedPtr<class IXmppMessages, ESPMode::ThreadSafe> IXmppMessagesPtr;
+typedef TSharedPtr<class IXmppMultiUserChat, ESPMode::ThreadSafe> IXmppMultiUserChatPtr;
+typedef TSharedPtr<class IXmppChat, ESPMode::ThreadSafe> IXmppChatPtr;
 
 /**
  * Base interface for connecting to Xmpp
@@ -207,14 +235,14 @@ public:
 	virtual FOnXmppLogoutComplete& OnLogoutComplete() = 0;
 
 	/** @return Presence interface if available. NULL otherwise */
-	virtual TSharedPtr<class IXmppPresence> Presence() = 0;
+	virtual IXmppPresencePtr Presence() = 0;
 	/** @return PubSub interface if available. NULL otherwise */
-	virtual TSharedPtr<class IXmppPubSub> PubSub() = 0;
+	virtual IXmppPubSubPtr PubSub() = 0;
 	/** @return Messages interface if available. NULL otherwise */
-	virtual TSharedPtr<class IXmppMessages> Messages() = 0;
+	virtual IXmppMessagesPtr Messages() = 0;
 	/** @return MultiUserChat interface if available. NULL otherwise */
-	virtual TSharedPtr<class IXmppMultiUserChat> MultiUserChat() = 0;
+	virtual IXmppMultiUserChatPtr MultiUserChat() = 0;
 	/** @return PrivateChat interface if available. NULL otherwise */
-	virtual TSharedPtr<class IXmppChat> PrivateChat() = 0;
+	virtual IXmppChatPtr PrivateChat() = 0;
 };
 

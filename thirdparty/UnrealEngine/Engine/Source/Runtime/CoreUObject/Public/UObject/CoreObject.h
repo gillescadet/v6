@@ -164,6 +164,8 @@ public:
 	// World browser information
 	TScopedPointer< FWorldTileInfo > WorldTileInfo;
 
+	TMap<FName, int32> ClassUniqueNameIndexMap;
+
 #if WITH_EDITOR
 	/** Editor only: PIE instance ID this package belongs to, INDEX_NONE otherwise */
 	int32 PIEInstanceID;
@@ -176,7 +178,7 @@ public:
 
 	/**
 	 * Called after the C++ constructor and after the properties have been initialized, but before the config has been loaded, etc.
-	 * mainly this is to emulate some behavior of when the constructor was called after the properties were intialized.
+	 * mainly this is to emulate some behavior of when the constructor was called after the properties were initialized.
 	 */
 	virtual void PostInitProperties() override;
 
@@ -580,8 +582,16 @@ class COREUOBJECT_API UMetaData : public UObject
 	DECLARE_CLASS_INTRINSIC(UMetaData, UObject, 0, TEXT("/Script/CoreUObject"))
 
 public:
-	// Variables.
+	/**
+	 * Mapping between an object, and its key->value meta-data pairs. 
+	 */
 	TMap< FWeakObjectPtr, TMap<FName, FString> > ObjectMetaDataMap;
+
+	/**
+	 * Root-level (not associated with a particular object) key->value meta-data pairs.
+	 * Meta-data associated with the package itself should be stored here.
+	 */
+	TMap< FName, FString > RootMetaDataMap;
 
 public:
 	// MetaData utility functions
@@ -677,7 +687,6 @@ public:
 	// UObject interface
 	virtual void Serialize(FArchive& Ar) override;
 	virtual bool NeedsLoadForClient() const override;
-	virtual bool NeedsLoadForServer() const override;
 	virtual bool NeedsLoadForEditorGame() const override;
 	virtual bool IsAsset() const override { return false; }
 	// End of UObject interface

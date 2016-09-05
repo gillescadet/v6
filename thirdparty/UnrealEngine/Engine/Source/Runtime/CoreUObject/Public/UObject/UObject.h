@@ -156,7 +156,7 @@ protected:
 public:
 	/**
 	 * Called after the C++ constructor and after the properties have been initialized, including those loaded from config.
-	 * mainly this is to emulate some behavior of when the constructor was called after the properties were intialized.
+	 * mainly this is to emulate some behavior of when the constructor was called after the properties were initialized.
 	 */
 	virtual void PostInitProperties();
 
@@ -187,7 +187,7 @@ public:
 	 *
 	 * @warning: Objects created from within PreSave will NOT have PreSave called on them!!!
 	 */
-	virtual void PreSave();
+	virtual void PreSave(const class ITargetPlatform* TargetPlatform);
 
 	/**
 	 * Note that the object will be modified.  If we are currently recording into the 
@@ -348,10 +348,7 @@ public:
 	 *
 	 * @return	true if this object should not be loaded on servers
 	 */
-	virtual bool NeedsLoadForServer() const 
-	{ 
-		return true; 
-	}
+	virtual bool NeedsLoadForServer() const;
 
 	/**
 	 * Called during saving to determine the load flags to save with the object.
@@ -464,16 +461,6 @@ public:
 	virtual FName GetExporterName( void )
 	{
 		return( FName( TEXT( "" ) ) );
-	}
-
-	/**
-	 * Returns whether this wave file is a localized resource.
-	 *
-	 * @return true if it is a localized resource, false otherwise.
-	 */
-	virtual bool IsLocalizedResource()
-	{
-		return false;
 	}
 
 	/**
@@ -592,6 +579,9 @@ public:
 
 	/** Returns true if this object is considered an asset. */
 	virtual bool IsAsset() const;
+
+	/** Returns true if this object is considered a localized resource. */
+	virtual bool IsLocalizedResource() const;
 
 	/** Returns true if this object is safe to add to the root set. */
 	virtual bool IsSafeForRootSet() const;
@@ -1083,6 +1073,8 @@ public:
 
 	// Constants
 	DECLARE_FUNCTION(execIntConst);
+	DECLARE_FUNCTION(execInt64Const);
+	DECLARE_FUNCTION(execUInt64Const);
 	DECLARE_FUNCTION(execSkipOffsetConst);
 	DECLARE_FUNCTION(execFloatConst);
 	DECLARE_FUNCTION(execStringConst);
@@ -1151,6 +1143,8 @@ public:
 	DECLARE_FUNCTION(execCallMathFunction);
 
 	DECLARE_FUNCTION(execSwitchValue);
+
+	DECLARE_FUNCTION(execArrayGetByRef);
 
 	// -- K2 support functions
 	struct Object_eventExecuteUbergraph_Parms

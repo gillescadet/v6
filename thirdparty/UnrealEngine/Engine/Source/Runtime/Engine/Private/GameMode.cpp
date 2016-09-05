@@ -8,7 +8,7 @@
 #include "Engine/LevelScriptActor.h"
 #include "GameFramework/GameNetworkManager.h"
 #include "Matinee/MatineeActor.h"
-#include "OnlineSubsystemUtils.h"
+#include "Net/OnlineEngineInterface.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/DefaultPawn.h"
 #include "GameFramework/SpectatorPawn.h"
@@ -39,6 +39,10 @@ namespace MatchState
 	const FName LeavingMap = FName(TEXT("LeavingMap"));
 	const FName Aborted = FName(TEXT("Aborted"));
 }
+
+// Statically declared events for plugins to use
+FGameModeEvents::FGameModePostLoginEvent FGameModeEvents::GameModePostLoginEvent;
+FGameModeEvents::FGameModeLogoutEvent FGameModeEvents::GameModeLogoutEvent;
 
 AGameMode::AGameMode(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer
@@ -169,15 +173,9 @@ void AGameMode::InitGame(const FString& MapName, const FString& Options, FString
 
 	if (GetNetMode() != NM_Standalone)
 	{
-		FOnlineSessionSettings* SessionSettings = NULL;
-		IOnlineSessionPtr SessionInt = Online::GetSessionInterface(World);
-		if (SessionInt.IsValid())
-		{
-			SessionSettings = SessionInt->GetSessionSettings(GameSessionName);
-		}
-
 		// Attempt to login, returning true means an async login is in flight
-		if (!SessionSettings && !GameSession->ProcessAutoLogin())
+		if (!UOnlineEngineInterface::Get()->DoesSessionExist(World, GameSession->SessionName) &&
+			!GameSession->ProcessAutoLogin())
 		{
 			GameSession->RegisterServer();
 		}
@@ -299,6 +297,7 @@ void AGameMode::PostLogin( APlayerController* NewPlayer )
 
 	// Notify Blueprints that a new player has logged in.  Calling it here, because this is the first time that the PlayerController can take RPCs
 	K2_PostLogin(NewPlayer);
+	FGameModeEvents::GameModePostLoginEvent.Broadcast(this, NewPlayer);
 }
 
 bool AGameMode::ShouldStartInCinematicMode(APlayerController* Player, bool& OutHidePlayer,bool& OutHideHUD,bool& OutDisableMovement,bool& OutDisableTurning)
@@ -342,6 +341,7 @@ void AGameMode::Logout( AController* Exiting )
 	APlayerController* PC = Cast<APlayerController>(Exiting);
 	if ( PC != NULL )
 	{
+		FGameModeEvents::GameModeLogoutEvent.Broadcast(this, Exiting);
 		K2_OnLogout(Exiting);
 
 		RemovePlayerControllerFromPlayerCount(PC);
@@ -390,11 +390,18 @@ AActor* AGameMode::FindPlayerStart_Implementation( AController* Player, const FS
 	// always pick StartSpot at start of match
 	if ( ShouldSpawnAtStartSpot(Player) )
 	{
-		return Player->StartSpot.Get();
+		if (AActor* PlayerStartSpot = Player->StartSpot.Get())
+		{
+			return PlayerStartSpot;
+		}
+		else
+		{
+			UE_LOG(LogGameMode, Error, TEXT("Error - ShouldSpawnAtStartSpot returned true but the Player StartSpot was null."));
+		}
 	}
 
 	AActor* BestStart = ChoosePlayerStart(Player);
-	if (BestStart == NULL)
+	if (BestStart == nullptr)
 	{
 		// no player start found
 		UE_LOG(LogGameMode, Log, TEXT("Warning - PATHS NOT DEFINED or NO PLAYERSTART with positive rating"));
@@ -726,10 +733,23 @@ void AGameMode::SetMatchState(FName NewState)
 		return;
 	}
 
+	UE_LOG(LogGameMode, Display, TEXT("Match State Changed from %s to %s"), *MatchState.ToString(), *NewState.ToString());
+
 	MatchState = NewState;
 
-	// Call change callbacks
+	OnMatchStateSet();
 
+	if (GameState)
+	{
+		GameState->SetMatchState(NewState);
+	}
+
+	K2_OnSetMatchState(NewState);
+}
+
+void AGameMode::OnMatchStateSet()
+{
+	// Call change callbacks
 	if (MatchState == MatchState::WaitingToStart)
 	{
 		HandleMatchIsWaitingToStart();
@@ -750,13 +770,6 @@ void AGameMode::SetMatchState(FName NewState)
 	{
 		HandleMatchAborted();
 	}
-
-	if (GameState)
-	{
-		GameState->SetMatchState(NewState);
-	}
-
-	K2_OnSetMatchState(NewState);
 }
 
 void AGameMode::Tick(float DeltaSeconds)
@@ -768,6 +781,7 @@ void AGameMode::Tick(float DeltaSeconds)
 		// Check to see if we should start the match
 		if (ReadyToStartMatch())
 		{
+			UE_LOG(LogGameMode, Log, TEXT("GameMode returned ReadyToStartMatch"));
 			StartMatch();
 		}
 	}
@@ -776,6 +790,7 @@ void AGameMode::Tick(float DeltaSeconds)
 		// Check to see if we should start the match
 		if (ReadyToEndMatch())
 		{
+			UE_LOG(LogGameMode, Log, TEXT("GameMode returned ReadyToEndMatch"));
 			EndMatch();
 		}
 	}
@@ -989,21 +1004,27 @@ void AGameMode::ProcessServerTravel(const FString& URL, bool bAbsolute)
 }
 
 
-void AGameMode::GetSeamlessTravelActorList(bool bToEntry, TArray<AActor*>& ActorList)
+void AGameMode::GetSeamlessTravelActorList(bool bToTransition, TArray<AActor*>& ActorList)
 {
 	UWorld* World = GetWorld();
-	// always keep PlayerStates, so that after we restart we can keep players on the same team, etc
-	for (int32 i = 0; i < World->GameState->PlayerArray.Num(); i++)
-	{
-		ActorList.Add(World->GameState->PlayerArray[i]);
-	}
 
-	if (bToEntry)
+	// Get allocations for the elements we're going to add handled in one go
+	const int32 ActorsToAddCount = World->GameState->PlayerArray.Num() + (bToTransition ?  3 : 0);
+	ActorList.Reserve(ActorsToAddCount);
+
+	// always keep PlayerStates, so that after we restart we can keep players on the same team, etc
+	ActorList.Append(World->GameState->PlayerArray);
+
+	if (bToTransition)
 	{
+		// keep ourselves until we transition to the final destination
+		ActorList.Add(this);
 		// keep general game state until we transition to the final destination
 		ActorList.Add(World->GameState);
 		// keep the game session state until we transition to the final destination
 		ActorList.Add(GameSession);
+
+		// If adding in this section best to increase the literal above for the ActorsToAddCount
 	}
 }
 
@@ -1014,12 +1035,18 @@ void AGameMode::SetBandwidthLimit(float AsyncIOBandwidthLimit)
 
 FString AGameMode::InitNewPlayer(APlayerController* NewPlayerController, const TSharedPtr<const FUniqueNetId>& UniqueId, const FString& Options, const FString& Portal)
 {
+	FUniqueNetIdRepl UniqueIdRepl(UniqueId);
+	return InitNewPlayer(NewPlayerController, UniqueIdRepl, Options, Portal);
+}
+
+FString AGameMode::InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal)
+{
 	check(NewPlayerController);
 
 	FString ErrorMessage;
 
 	// Register the player with the session
-	GameSession->RegisterPlayer(NewPlayerController, UniqueId, UGameplayStatics::HasOption(Options, TEXT("bIsFromInvite")));
+	GameSession->RegisterPlayer(NewPlayerController, UniqueId.GetUniqueNetId(), UGameplayStatics::HasOption(Options, TEXT("bIsFromInvite")));
 
 	// Init player's name
 	FString InName = UGameplayStatics::ParseOption(Options, TEXT("Name")).Left(20);
@@ -1053,29 +1080,35 @@ bool AGameMode::MustSpectate_Implementation(APlayerController* NewPlayerControll
 	return NewPlayerController->PlayerState->bOnlySpectator;
 }
 
-APlayerController* AGameMode::Login(UPlayer* NewPlayer, ENetRole RemoteRole, const FString& Portal, const FString& Options, const TSharedPtr<const FUniqueNetId>& UniqueId, FString& ErrorMessage)
+APlayerController* AGameMode::Login(UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const TSharedPtr<const FUniqueNetId>& UniqueId, FString& ErrorMessage)
+{
+	FUniqueNetIdRepl UniqueIdRepl(UniqueId);
+	return Login(NewPlayer, InRemoteRole, Portal, Options, UniqueIdRepl, ErrorMessage);
+}
+
+APlayerController* AGameMode::Login(UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
 {
 	ErrorMessage = GameSession->ApproveLogin(Options);
 	if (!ErrorMessage.IsEmpty())
 	{
-		return NULL;
+		return nullptr;
 	}
 
-	APlayerController* NewPlayerController = SpawnPlayerController(RemoteRole, FVector::ZeroVector, FRotator::ZeroRotator);
+	APlayerController* NewPlayerController = SpawnPlayerController(InRemoteRole, FVector::ZeroVector, FRotator::ZeroRotator);
 
 	// Handle spawn failure.
-	if (NewPlayerController == NULL)
+	if (NewPlayerController == nullptr)
 	{
 		UE_LOG(LogGameMode, Log, TEXT("Couldn't spawn player controller of class %s"), PlayerControllerClass ? *PlayerControllerClass->GetName() : TEXT("NULL"));
 		ErrorMessage = FString::Printf(TEXT("Failed to spawn player controller"));
-		return NULL;
+		return nullptr;
 	}
 
 	// Customize incoming player based on URL options
 	ErrorMessage = InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
 	if (!ErrorMessage.IsEmpty())
 	{
-		return NULL;
+		return nullptr;
 	}
 
 	// Set up spectating
@@ -1246,10 +1279,16 @@ APlayerController* AGameMode::ProcessClientTravel( FString& FURL, FGuid NextMapG
 
 void AGameMode::PreLogin(const FString& Options, const FString& Address, const TSharedPtr<const FUniqueNetId>& UniqueId, FString& ErrorMessage)
 {
+	FUniqueNetIdRepl UniqueIdRepl(UniqueId);
+	PreLogin(Options, Address, UniqueIdRepl, ErrorMessage);
+}
+
+void AGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
 	ErrorMessage = GameSession->ApproveLogin(Options);
 }
 
-APlayerController* AGameMode::SpawnPlayerController(ENetRole RemoteRole, FVector const& SpawnLocation, FRotator const& SpawnRotation)
+APlayerController* AGameMode::SpawnPlayerController(ENetRole InRemoteRole, FVector const& SpawnLocation, FRotator const& SpawnRotation)
 {
 	FActorSpawnParameters SpawnInfo;
 	SpawnInfo.Instigator = Instigator;	
@@ -1258,7 +1297,7 @@ APlayerController* AGameMode::SpawnPlayerController(ENetRole RemoteRole, FVector
 	APlayerController* NewPC = GetWorld()->SpawnActor<APlayerController>(PlayerControllerClass, SpawnLocation, SpawnRotation, SpawnInfo);
 	if (NewPC)
 	{
-		if (RemoteRole == ROLE_SimulatedProxy)
+		if (InRemoteRole == ROLE_SimulatedProxy)
 		{
 			// This is a local player because it has no authority/autonomous remote role
 			NewPC->SetAsLocalPlayerController();
@@ -1529,13 +1568,16 @@ void AGameMode::PostCommitMapChange() {}
 
 void AGameMode::AddInactivePlayer(APlayerState* PlayerState, APlayerController* PC)
 {
-	// don't store if it's an old PlayerState from the previous level or if it's a spectator
-	if (!PlayerState->bFromPreviousLevel && !PlayerState->bOnlySpectator)
+	check(PlayerState)
+	UWorld* LocalWorld = GetWorld();
+	// don't store if it's an old PlayerState from the previous level or if it's a spectator... or if we are shutting down
+	if (!PlayerState->bFromPreviousLevel && !PlayerState->bOnlySpectator && !LocalWorld->bIsTearingDown)
 	{
-		APlayerState* NewPlayerState = PlayerState->Duplicate();
+		APlayerState* const NewPlayerState = PlayerState->Duplicate();
 		if (NewPlayerState)
 		{
-			GetWorld()->GameState->RemovePlayerState(NewPlayerState);
+			// Side effect of Duplicate() adding PlayerState to PlayerArray (see APlayerState::PostInitializeComponents)
+			LocalWorld->GameState->RemovePlayerState(NewPlayerState);
 
 			// make PlayerState inactive
 			NewPlayerState->SetReplicates(false);
@@ -1544,17 +1586,30 @@ void AGameMode::AddInactivePlayer(APlayerState* PlayerState, APlayerController* 
 			NewPlayerState->SetLifeSpan(InactivePlayerStateLifeSpan);
 
 			// On console, we have to check the unique net id as network address isn't valid
-			bool bIsConsole = GEngine->IsConsoleBuild();
-
+			const bool bIsConsole = GEngine->IsConsoleBuild();
+			// Assume valid unique ids means comparison should be via this method
+			const bool bHasValidUniqueId = NewPlayerState->UniqueId.IsValid();
+			// Don't accidentally compare empty network addresses (already issue with two clients on same machine during development)
+			const bool bHasValidNetworkAddress = !NewPlayerState->SavedNetworkAddress.IsEmpty();
+			const bool bUseUniqueIdCheck = bIsConsole || bHasValidUniqueId;
+			
 			// make sure no duplicates
-			for (int32 i=0; i<InactivePlayerArray.Num(); i++)
+			for (int32 Idx = 0; Idx < InactivePlayerArray.Num(); ++Idx)
 			{
-				APlayerState* CurrentPlayerState = InactivePlayerArray[i];
-				if ( (CurrentPlayerState == NULL) || CurrentPlayerState->IsPendingKill() ||
-					(!bIsConsole && (CurrentPlayerState->SavedNetworkAddress == NewPlayerState->SavedNetworkAddress)))
+				APlayerState* const CurrentPlayerState = InactivePlayerArray[Idx];
+				if ((CurrentPlayerState == nullptr) || CurrentPlayerState->IsPendingKill())
 				{
-					InactivePlayerArray.RemoveAt(i,1);
-					i--;
+					// already destroyed, just remove it
+					InactivePlayerArray.RemoveAt(Idx, 1);
+					Idx--;
+				}
+				else if ( (!bUseUniqueIdCheck && bHasValidNetworkAddress && (CurrentPlayerState->SavedNetworkAddress == NewPlayerState->SavedNetworkAddress))
+						|| (bUseUniqueIdCheck && (CurrentPlayerState->UniqueId == NewPlayerState->UniqueId)) )
+				{
+					// destroy the playerstate, then remove it from the tracking
+					CurrentPlayerState->Destroy();
+					InactivePlayerArray.RemoveAt(Idx, 1);
+					Idx--;
 				}
 			}
 			InactivePlayerArray.Add(NewPlayerState);
@@ -1562,7 +1617,20 @@ void AGameMode::AddInactivePlayer(APlayerState* PlayerState, APlayerController* 
 			// cap at 16 saved PlayerStates
 			if ( InactivePlayerArray.Num() > 16 )
 			{
-				InactivePlayerArray.RemoveAt(0, InactivePlayerArray.Num() - 16);
+				int32 const NumToRemove = InactivePlayerArray.Num() - 16;
+
+				// destroy the extra inactive players
+				for (int Idx = 0; Idx < NumToRemove; ++Idx)
+				{
+					APlayerState* const PS = InactivePlayerArray[Idx];
+					if (PS != nullptr)
+					{
+						PS->Destroy();
+					}
+				}
+
+				// and then remove them from the tracking array
+				InactivePlayerArray.RemoveAt(0, NumToRemove);
 			}
 		}
 	}
@@ -1573,6 +1641,7 @@ void AGameMode::AddInactivePlayer(APlayerState* PlayerState, APlayerController* 
 
 bool AGameMode::FindInactivePlayer(APlayerController* PC)
 {
+	check(PC && PC->PlayerState);
 	// don't bother for spectators
 	if (PC->PlayerState->bOnlySpectator)
 	{
@@ -1580,11 +1649,16 @@ bool AGameMode::FindInactivePlayer(APlayerController* PC)
 	}
 
 	// On console, we have to check the unique net id as network address isn't valid
-	bool bIsConsole = GEngine->IsConsoleBuild();
+	const bool bIsConsole = GEngine->IsConsoleBuild();
+	// Assume valid unique ids means comparison should be via this method
+	const bool bHasValidUniqueId = PC->PlayerState->UniqueId.IsValid();
+	// Don't accidentally compare empty network addresses (already issue with two clients on same machine during development)
+	const bool bHasValidNetworkAddress = !PC->PlayerState->SavedNetworkAddress.IsEmpty();
+	const bool bUseUniqueIdCheck = bIsConsole || bHasValidUniqueId;
 
-	FString NewNetworkAddress = PC->PlayerState->SavedNetworkAddress;
-	FString NewName = PC->PlayerState->PlayerName;
-	for (int32 i=0; i<InactivePlayerArray.Num(); i++)
+	const FString NewNetworkAddress = PC->PlayerState->SavedNetworkAddress;
+	const FString NewName = PC->PlayerState->PlayerName;
+	for (int32 i=0; i < InactivePlayerArray.Num(); i++)
 	{
 		APlayerState* CurrentPlayerState = InactivePlayerArray[i];
 		if ( (CurrentPlayerState == NULL) || CurrentPlayerState->IsPendingKill() )
@@ -1592,18 +1666,18 @@ bool AGameMode::FindInactivePlayer(APlayerController* PC)
 			InactivePlayerArray.RemoveAt(i,1);
 			i--;
 		}
-		else if ( (bIsConsole && ( CurrentPlayerState->UniqueId == PC->PlayerState->UniqueId ) ) ||
-			(!bIsConsole && (FCString::Stricmp(*CurrentPlayerState->SavedNetworkAddress, *NewNetworkAddress) == 0) && (FCString::Stricmp(*CurrentPlayerState->PlayerName, *NewName) == 0)) )
+		else if ((bUseUniqueIdCheck && (CurrentPlayerState->UniqueId == PC->PlayerState->UniqueId)) ||
+				 (!bUseUniqueIdCheck && bHasValidNetworkAddress && (FCString::Stricmp(*CurrentPlayerState->SavedNetworkAddress, *NewNetworkAddress) == 0) && (FCString::Stricmp(*CurrentPlayerState->PlayerName, *NewName) == 0)))
 		{
 			// found it!
 			APlayerState* OldPlayerState = PC->PlayerState;
 			PC->PlayerState = CurrentPlayerState;
 			PC->PlayerState->SetOwner(PC);
 			PC->PlayerState->SetReplicates(true);
-			PC->PlayerState->SetLifeSpan( 0.0f );
+			PC->PlayerState->SetLifeSpan(0.0f);
 			OverridePlayerState(PC, OldPlayerState);
 			GetWorld()->GameState->AddPlayerState(PC->PlayerState);
-			InactivePlayerArray.RemoveAt(i,1);
+			InactivePlayerArray.RemoveAt(i, 1);
 			OldPlayerState->bIsInactive = true;
 			// Set the uniqueId to NULL so it will not kill the player's registration 
 			// in UnregisterPlayerWithSession()
@@ -1612,13 +1686,14 @@ bool AGameMode::FindInactivePlayer(APlayerController* PC)
 			PC->PlayerState->OnReactivated();
 			return true;
 		}
+		
 	}
 	return false;
 }
 
 void AGameMode::OverridePlayerState(APlayerController* PC, APlayerState* OldPlayerState)
 {
-	PC->PlayerState->OverrideWith(OldPlayerState);
+	PC->PlayerState->DispatchOverrideWith(OldPlayerState);
 }
 
 void AGameMode::PostSeamlessTravel()

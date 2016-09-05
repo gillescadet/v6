@@ -79,6 +79,45 @@ float AActor::GetNetPriority(const FVector& ViewPos, const FVector& ViewDir, AAc
 	return NetPriority * Time;
 }
 
+float AActor::GetReplayPriority(const FVector& ViewPos, const FVector& ViewDir, class AActor* Viewer, AActor* ViewTarget, UActorChannel* const InChannel, float Time)
+{
+	if (ViewTarget && (this == ViewTarget || Instigator == ViewTarget))
+	{
+		// If we're the view target or owned by the view target, use a high priority
+		Time *= 10.0f;
+	}
+	else if (!bHidden && GetRootComponent() != NULL)
+	{
+		// If this actor has a location, adjust priority based on location
+		FVector Dir = GetActorLocation() - ViewPos;
+		float DistSq = Dir.SizeSquared();
+
+		// Adjust priority based on distance
+		if (DistSq < CLOSEPROXIMITYSQUARED)
+		{
+			Time *= 4.0f;
+		}
+		else if (DistSq < NEARSIGHTTHRESHOLDSQUARED)
+		{
+			Time *= 3.0f;
+		}
+		else if (DistSq < MEDSIGHTTHRESHOLDSQUARED)
+		{
+			Time *= 2.4f;
+		}
+		else if (DistSq < FARSIGHTTHRESHOLD)
+		{
+			Time *= 0.8f;
+		}
+		else
+		{
+			Time *= 0.2f;
+		}
+	}
+
+	return Time;
+}
+
 bool AActor::GetNetDormancy(const FVector& ViewPos, const FVector& ViewDir, AActor* Viewer, AActor* ViewTarget, UActorChannel* InChannel, float Time, bool bLowBandwidth)
 {
 	// For now, per peer dormancy is not supported
@@ -139,7 +178,7 @@ void AActor::OnRep_ReplicatedMovement()
 		else
 		{
 			// Attachment trumps global position updates, see GatherCurrentMovement().
-			if (!RootComponent->AttachParent)
+			if (!RootComponent->GetAttachParent())
 			{
 				if (Role == ROLE_SimulatedProxy)
 				{
@@ -218,9 +257,9 @@ bool AActor::IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget
 	{
 		return false;
 	}
-	else if ( RootComponent && RootComponent->AttachParent && RootComponent->AttachParent->GetOwner() && (Cast<USkeletalMeshComponent>(RootComponent->AttachParent) || (RootComponent->AttachParent->GetOwner() == Owner)) )
+	else if ( RootComponent && RootComponent->GetAttachParent() && RootComponent->GetAttachParent()->GetOwner() && (Cast<USkeletalMeshComponent>(RootComponent->GetAttachParent()) || (RootComponent->GetAttachParent()->GetOwner() == Owner)) )
 	{
-		return RootComponent->AttachParent->GetOwner()->IsNetRelevantFor(RealViewer, ViewTarget, SrcLocation);
+		return RootComponent->GetAttachParent()->GetOwner()->IsNetRelevantFor(RealViewer, ViewTarget, SrcLocation);
 	}
 	else if( bHidden && (!RootComponent || !RootComponent->IsCollisionEnabled()) )
 	{
@@ -256,18 +295,18 @@ void AActor::GatherCurrentMovement()
 	else if (RootComponent != nullptr)
 	{
 		// If we are attached, don't replicate absolute position, use AttachmentReplication instead.
-		if (RootComponent->AttachParent != nullptr)
+		if (RootComponent->GetAttachParent() != nullptr)
 		{
 			// Networking for attachments assumes the RootComponent of the AttachParent actor. 
 			// If that's not the case, we can't update this, as the client wouldn't be able to resolve the Component and would detach as a result.
-			AttachmentReplication.AttachParent = RootComponent->AttachParent->GetAttachmentRootActor();
+			AttachmentReplication.AttachParent = RootComponent->GetAttachParent()->GetAttachmentRootActor();
 			if (AttachmentReplication.AttachParent != nullptr)
 			{
 				AttachmentReplication.LocationOffset = RootComponent->RelativeLocation;
 				AttachmentReplication.RotationOffset = RootComponent->RelativeRotation;
 				AttachmentReplication.RelativeScale3D = RootComponent->RelativeScale3D;
-				AttachmentReplication.AttachComponent = RootComponent->AttachParent;
-				AttachmentReplication.AttachSocket = RootComponent->AttachSocketName;
+				AttachmentReplication.AttachComponent = RootComponent->GetAttachParent();
+				AttachmentReplication.AttachSocket = RootComponent->GetAttachSocketName();
 			}
 		}
 		else

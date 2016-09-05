@@ -2,12 +2,24 @@
 
 #pragma once
 
+#include "EnumClassFlags.h"
 #include "MovieSceneTrack.generated.h"
 
 
 class UMovieSceneSection;
 class FMovieSceneSequenceInstance;
 
+/** Flags used to perform cook-time optimization of movie scene data */
+enum class ECookOptimizationFlags
+{
+	/** Perform no cook optimization */
+	None 			= 0,
+	/** Remove this track since its of no consequence to runtime */
+	RemoveTrack		= 1 << 0,
+	/** Remove this track's object since its of no consequence to runtime */
+	RemoveObject	= 1 << 1,
+};
+ENUM_CLASS_FLAGS(ECookOptimizationFlags)
 
 /**
  * Base class for a track in a Movie Scene
@@ -19,6 +31,14 @@ class UMovieSceneTrack
 	GENERATED_BODY()
 
 public:
+
+	UMovieSceneTrack(const FObjectInitializer& InInitializer)
+		: Super(InInitializer)
+	{
+#if WITH_EDITORONLY_DATA
+		TrackTint = FColor(127, 127, 127, 0);
+#endif
+	}
 
 	/**
 	 * Creates a runtime instance of this class.
@@ -47,6 +67,14 @@ public:
 	 * @return Whether or not this track supports multiple row indices.
 	 */
 	virtual bool SupportsMultipleRows() const
+	{
+		return false;
+	}
+
+	/**
+	 * @return Whether or not this track's section bounds should be added to the play range
+	 */
+	virtual bool AddsSectionBoundsToPlayRange() const
 	{
 		return false;
 	}
@@ -96,13 +124,52 @@ public:
 	 */
 	virtual void RemoveSection(UMovieSceneSection& Section) PURE_VIRTUAL(UMovieSceneSection::RemoveSection,);
 
+#if WITH_EDITOR
+
+	/**
+	 * Called when this track's movie scene is being cooked to determine if/how this track should be cooked.
+	 * @return ECookOptimizationFlags detailing how to optimize this track
+	 */
+	virtual ECookOptimizationFlags GetCookOptimizationFlags() const { return ECookOptimizationFlags::None; }
+
+#endif
+
 #if WITH_EDITORONLY_DATA
+
 	/**
 	 * Get the track's display name.
 	 *
 	 * @return Display name text.
 	 */
 	virtual FText GetDisplayName() const PURE_VIRTUAL(UMovieSceneTrack::GetDisplayName, return FText::FromString(TEXT("Unnamed Track")););
+
+	/**
+	 * Get this track's color tint.
+	 *
+	 * @return Color Tint.
+	 */
+	const FColor& GetColorTint() const
+	{
+		return TrackTint;
+	}
+
+	/**
+	 * Set this track's color tint.
+	 *
+	 * @param InTrackTint The color to tint this track.
+	 */
+	void SetColorTint(const FColor& InTrackTint)
+	{
+		TrackTint = InTrackTint;
+	}
+
+protected:
+
+	/** This track's tint color */
+	UPROPERTY(EditAnywhere, Category=General, DisplayName=Color)
+	FColor TrackTint;
+
+public:
 #endif
 
 #if WITH_EDITOR

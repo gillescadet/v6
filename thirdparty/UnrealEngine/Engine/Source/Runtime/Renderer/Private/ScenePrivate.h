@@ -80,6 +80,7 @@ public:
 #include "DrawingPolicy.h"
 #include "DepthRendering.h"
 #include "SceneHitProxyRendering.h"
+#include "DebugViewModeRendering.h"
 #include "ShaderComplexityRendering.h"
 #include "ShadowRendering.h"
 #include "SceneRendering.h"
@@ -87,7 +88,7 @@ public:
 #include "DeferredShadingRenderer.h"
 #include "FogRendering.h"
 #include "BasePassRendering.h"
-#include "ForwardBasePassRendering.h"
+#include "MobileBasePassRendering.h"
 #include "DynamicPrimitiveDrawing.h"
 #include "TranslucentRendering.h"
 #include "VelocityRendering.h"
@@ -259,6 +260,43 @@ private:
 	ERenderQueryType QueryType;
 };
 
+class FIndividualOcclusionHistory
+{
+	TArray<FRenderQueryRHIRef, TInlineAllocator<FOcclusionQueryHelpers::MaxBufferedOcclusionFrames> > PendingOcclusionQuery;
+
+public:
+
+	FORCEINLINE FIndividualOcclusionHistory()
+	{
+		PendingOcclusionQuery.Empty(FOcclusionQueryHelpers::MaxBufferedOcclusionFrames);
+		PendingOcclusionQuery.AddZeroed(FOcclusionQueryHelpers::MaxBufferedOcclusionFrames);
+	}
+
+
+	template<class TOcclusionQueryPool> // here we use a template just to allow this to be inlined without sorting out the header order
+	FORCEINLINE void ReleaseQueries(FRHICommandListImmediate& RHICmdList, TOcclusionQueryPool& Pool, int32 NumBufferedFrames)
+	{
+		for (int32 QueryIndex = 0; QueryIndex < NumBufferedFrames; QueryIndex++)
+		{
+			Pool.ReleaseQuery(PendingOcclusionQuery[QueryIndex]);
+		}
+	}
+
+	FORCEINLINE FRenderQueryRHIRef& GetPastQuery(uint32 FrameNumber, int32 NumBufferedFrames)
+	{
+		// Get the oldest occlusion query
+		const uint32 QueryIndex = FOcclusionQueryHelpers::GetQueryLookupIndex(FrameNumber, NumBufferedFrames);
+		return PendingOcclusionQuery[QueryIndex];
+	}
+
+	FORCEINLINE void SetCurrentQuery(uint32 FrameNumber, FRenderQueryRHIParamRef NewQuery, int32 NumBufferedFrames)
+	{
+		// Get the current occlusion query
+		const uint32 QueryIndex = FOcclusionQueryHelpers::GetQueryIssueIndex(FrameNumber, NumBufferedFrames);
+		PendingOcclusionQuery[QueryIndex] = NewQuery;
+	}
+};
+
 /**
  * Distance cull fading uniform buffer containing faded in
  */
@@ -320,11 +358,15 @@ public:
 	{
 		FullUpdateOrigin = FIntVector::ZeroValue;
 		LastPartialUpdateOrigin = FIntVector::ZeroValue;
+		CachedMaxOcclusionDistance = 0;
+		CachedGlobalDistanceFieldViewDistance = 0;
 	}
 
 	FIntVector FullUpdateOrigin;
 	FIntVector LastPartialUpdateOrigin;
 	TArray<FVector4> PrimitiveModifiedBounds;
+	float CachedMaxOcclusionDistance;
+	float CachedGlobalDistanceFieldViewDistance;
 	TRefCountPtr<IPooledRenderTarget> VolumeTexture;
 };
 
@@ -370,6 +412,49 @@ private:
 /** Random table for occlusion **/
 extern FOcclusionRandomStream GOcclusionRandomStream;
 
+
+/**
+Helper class to time sections of the GPU work.
+Buffers multiple frames to avoid waiting on the GPU so times are a little lagged.
+*/
+class FLatentGPUTimer
+{
+	static const int32 NumBufferedFrames = FOcclusionQueryHelpers::MaxBufferedOcclusionFrames + 1;
+
+public:
+
+	FLatentGPUTimer(int32 InAvgSamples = 30);
+
+	void Release();
+
+	/** Retrieves the most recently ready query results. */
+	bool Tick(FRHICommandListImmediate& RHICmdList);
+	/** Kicks off the query for the start of the rendering you're timing. */
+	void Begin(FRHICommandListImmediate& RHICmdList);
+	/** Kicks off the query for the end of the rendering you're timing. */
+	void End(FRHICommandListImmediate& RHICmdList);
+
+	/** Returns the most recent time in ms. */
+	float GetTimeMS();
+	/** Gets the average time in ms. Average is tracked over AvgSamples. */
+	float GetAverageTimeMS();
+
+private:
+
+	int32 GetQueryIndex();
+
+	//Average Tracking;
+	int32 AvgSamples;
+	TArray<float> TimeSamples;
+	float TotalTime;
+	int32 SampleIndex;
+
+	int32 QueryIndex;
+	FRenderQueryRHIRef StartQueries[NumBufferedFrames];
+	FRenderQueryRHIRef EndQueries[NumBufferedFrames];
+	FGraphEventRef QuerySubmittedFences[NumBufferedFrames];
+};
+
 /**
  * The scene manager's private implementation of persistent view state.
  * This class is associated with a particular camera across multiple frames by the game thread.
@@ -385,13 +470,14 @@ public:
 
 		FORCEINLINE bool operator == (const FProjectedShadowKey &Other) const
 		{
-			return (PrimitiveId == Other.PrimitiveId && Light == Other.Light && ShadowSplitIndex == Other.ShadowSplitIndex && bTranslucentShadow == Other.bTranslucentShadow);
+			return (PrimitiveId == Other.PrimitiveId && Light == Other.Light && ShadowSplitIndex == Other.ShadowSplitIndex && CacheMode == Other.CacheMode && bTranslucentShadow == Other.bTranslucentShadow);
 		}
 
 		FProjectedShadowKey(const FProjectedShadowInfo& ProjectedShadowInfo)
 			: PrimitiveId(ProjectedShadowInfo.GetParentSceneInfo() ? ProjectedShadowInfo.GetParentSceneInfo()->PrimitiveComponentId : FPrimitiveComponentId())
 			, Light(ProjectedShadowInfo.GetLightSceneInfo().Proxy->GetLightComponent())
 			, ShadowSplitIndex(ProjectedShadowInfo.CascadeSettings.ShadowSplitIndex)
+			, CacheMode(ProjectedShadowInfo.CacheMode)
 			, bTranslucentShadow(ProjectedShadowInfo.bTranslucentShadow)
 		{
 		}
@@ -400,6 +486,7 @@ public:
 			: PrimitiveId(InPrimitiveId)
 			, Light(InLight)
 			, ShadowSplitIndex(InSplitIndex)
+			, CacheMode(SDCM_Uncached)
 			, bTranslucentShadow(bInTranslucentShadow)
 		{
 		}
@@ -413,6 +500,7 @@ public:
 		FPrimitiveComponentId PrimitiveId;
 		const ULightComponent* Light;
 		int32 ShadowSplitIndex;
+		EShadowDepthCacheMode CacheMode;
 		bool bTranslucentShadow;
 	};
 
@@ -457,15 +545,23 @@ public:
 
 	FIndirectLightingCacheAllocation* TranslucencyLightingCacheAllocations[TVC_MAX];
 
+	TMap<int32, FIndividualOcclusionHistory> PlanarReflectionOcclusionHistories;
+
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	/** Are we currently in the state of freezing rendering? (1 frame where we gather what was rendered) */
-	bool bIsFreezing;
+	uint32 bIsFreezing : 1;
 
 	/** Is rendering currently frozen? */
-	bool bIsFrozen;
+	uint32 bIsFrozen : 1;
+
+	/** True if the CachedViewMatrices is holding frozen view matrices, otherwise false */
+	uint32 bIsFrozenViewMatricesCached : 1;
 
 	/** The set of primitives that were rendered the frame that we froze rendering */
 	TSet<FPrimitiveComponentId> FrozenPrimitives;
+
+	/** The cache view matrices at the time of freezing or the cached debug fly cam's view matrices. */
+	FViewMatrices CachedViewMatrices;
 #endif
 
 private:
@@ -533,11 +629,15 @@ private:
 	TArray<UMaterialInstanceDynamic*> MIDPool;
 	uint32 MIDUsedCount;
 
-	// if TemporalAA is on this cycles through 0..TemporalAASampleCount-1
+	// if TemporalAA is on this cycles through 0..TemporalAASampleCount-1, ResetViewState() puts it back to 0
 	uint8 TemporalAASampleIndex;
 	// >= 1, 1 means there is no TemporalAA
 	uint8 TemporalAASampleCount;
 
+	// counts up by one each frame, warped in 0..7 range, ResetViewState() puts it back to 0
+	uint32 FrameIndexMod8;
+	
+	// counts up by one each frame, warped in 0..3 range, ResetViewState() puts it back to 0
 	int32 DistanceFieldTemporalSampleIndex;
 
 	// light propagation volume used in this view
@@ -574,12 +674,14 @@ public:
 	FTextureRHIRef SelectionOutlineCacheKey;
 	TRefCountPtr<FRHIShaderResourceView> SelectionOutlineCacheValue;
 
+	FForwardLightingViewResources ForwardLightingResources;
+
 	/** Distance field AO tile intersection GPU resources.  Last frame's state is not used, but they must be sized exactly to the view so stored here. */
 	class FTileIntersectionResources* AOTileIntersectionResources;
 
 	class FAOScreenGridResources* AOScreenGridResources;
 
-	bool bIntializedGlobalDistanceFieldOrigins;
+	bool bInitializedGlobalDistanceFieldOrigins;
 	FGlobalDistanceFieldClipmapState GlobalDistanceFieldClipmapState[GMaxGlobalDistanceFieldClipmaps];
 	int32 GlobalDistanceFieldUpdateIndex;
 
@@ -589,27 +691,57 @@ public:
 	FShaderResourceViewRHIRef IndirectShadowLightDirectionSRV;
 	FRWBuffer CapsuleTileIntersectionCountsBuffer;
 
+	/** Timestamp queries around separate translucency, used for auto-downsampling. */
+	FLatentGPUTimer TranslucencyTimer;
+	FLatentGPUTimer SeparateTranslucencyTimer;
+
+	/** This is float since it is derived off of UWorld::RealTimeSeconds, which is relative to BeginPlay time. */
+	float LastAutoDownsampleChangeTime;
+	float SmoothedHalfResTranslucencyGPUDuration;
+	float SmoothedFullResTranslucencyGPUDuration;
+
+	/** Current desired state of auto-downsampled separate translucency for this view. */
+	bool bShouldAutoDownsampleTranslucency;
+
 	// Is DOFHistoryRT set from DepthOfField?
 	bool bDOFHistory;
 	// Is DOFHistoryRT2 set from DepthOfField?
 	bool bDOFHistory2;
 
+	// True when Sequencer has paused
+	bool bSequencerIsPaused;
+
 	FTemporalLODState TemporalLODState;
 
-	// call after SetupTemporalAA()
+	// call after OnFrameRenderingSetup()
 	virtual uint32 GetCurrentTemporalAASampleIndex() const
 	{
 		return TemporalAASampleIndex;
 	}
 
-	// call after SetupTemporalAA()
+	// call after OnFrameRenderingSetup()
 	uint32 GetCurrentTemporalAASampleCount() const
 	{
 		return TemporalAASampleCount;
 	}
 
+	virtual uint32 GetFrameIndexMod8() const
+	{
+		return FrameIndexMod8;
+	}
+
+	// to make rendering more deterministic
+	virtual void ResetViewState()
+	{
+		TemporalAASampleIndex = 0;
+		FrameIndexMod8 = 0;
+		DistanceFieldTemporalSampleIndex = 0;
+
+		ReleaseDynamicRHI();
+	}
+
 	// @param SampleCount 0 or 1 for no TemporalAA 
-	void SetupTemporalAA(uint32 SampleCount, const FSceneViewFamily& Family)
+	void OnFrameRenderingSetup(uint32 SampleCount, const FSceneViewFamily& Family)
 	{
 		if(!SampleCount)
 		{
@@ -621,6 +753,8 @@ public:
 		if (!Family.bWorldIsPaused)
 		{
 			TemporalAASampleIndex++;
+
+			FrameIndexMod8 = (FrameIndexMod8 + 1) % 8;
 		}
 
 		if(TemporalAASampleIndex >= TemporalAASampleCount)
@@ -682,6 +816,13 @@ public:
 	 */
 	void UpdateTemporalLODTransition(const FViewInfo& View)
 	{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+		if (bIsFrozen)
+		{
+			return;
+		}
+#endif
+
 		TemporalLODState.UpdateTemporalLODTransition(View, LastRenderTime);
 	}
 
@@ -788,6 +929,9 @@ public:
 		IndirectShadowLightDirectionVertexBuffer.SafeRelease();
 		IndirectShadowLightDirectionSRV.SafeRelease();
 		CapsuleTileIntersectionCountsBuffer.Release();
+		TranslucencyTimer.Release();
+		SeparateTranslucencyTimer.Release();
+		ForwardLightingResources.Release();
 	}
 
 	// FSceneViewStateInterface
@@ -800,12 +944,8 @@ public:
 
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override
 	{
-		uint32 Count = MIDPool.Num();
-
-		for(uint32 i = 0; i < Count; ++i)
+		for(UMaterialInstanceDynamic*& MID : MIDPool)
 		{
-			UMaterialInstanceDynamic* MID = MIDPool[i];
-
 			Collector.AddReferencedObject(MID);
 		}
 	}
@@ -879,31 +1019,60 @@ public:
 		}
 
 		check(NewMID->GetRenderProxy(false));
+		MIDUsedCount++;
 		return NewMID;
 	}
+
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+	virtual void ActivateFrozenViewMatrices(FSceneView& SceneView) override
+	{
+		auto* ViewState = static_cast<FSceneViewState*>(SceneView.State);
+		if (ViewState->bIsFrozen)
+		{
+			check(ViewState->bIsFrozenViewMatricesCached);
+
+			Swap(SceneView.ViewMatrices, ViewState->CachedViewMatrices);
+			ViewState->bIsFrozenViewMatricesCached = false;
+		}
+	}
+
+	virtual void RestoreUnfrozenViewMatrices(FSceneView& SceneView) override
+	{
+		auto* ViewState = static_cast<FSceneViewState*>(SceneView.State);
+		if (ViewState->bIsFrozen)
+		{
+			check(!ViewState->bIsFrozenViewMatricesCached);
+
+			Swap(SceneView.ViewMatrices, ViewState->CachedViewMatrices);
+			ViewState->bIsFrozenViewMatricesCached = true;
+		}
+	}
+#endif
 
 	virtual FTemporalLODState& GetTemporalLODState() override
 	{
 		return TemporalLODState;
 	}
+
 	virtual const FTemporalLODState& GetTemporalLODState() const override
 	{
 		return TemporalLODState;
 	}
+
 	float GetTemporalLODTransition() const override
 	{
 		return TemporalLODState.GetTemporalLODTransition(LastRenderTime);
 	}
+
 	uint32 GetViewKey() const override
 	{
 		return UniqueID;
 	}
+
 	uint32 GetOcclusionFrameCounter() const
 	{
 		return OcclusionFrameCounter;
 	}
-
-
 
 	// FDeferredCleanupInterface
 	virtual void FinishCleanup() override
@@ -913,6 +1082,15 @@ public:
 
 	virtual SIZE_T GetSizeBytes() const override;
 
+	virtual void SetSequencerState(const bool bIsPaused) override
+	{
+		bSequencerIsPaused = bIsPaused;
+	}
+
+	virtual bool GetSequencerState() override
+	{
+		return bSequencerIsPaused;
+	}
 
 	/** Information about visibility/occlusion states in past frames for individual primitives. */
 	TSet<FPrimitiveOcclusionHistory,FPrimitiveOcclusionHistoryKeyFuncs> PrimitiveOcclusionHistorySet;
@@ -923,9 +1101,10 @@ class FReflectionEnvironmentCubemapArray : public FRenderResource
 {
 public:
 
-	FReflectionEnvironmentCubemapArray(ERHIFeatureLevel::Type InFeatureLevel) : 
-		FRenderResource(InFeatureLevel)
-	,	MaxCubemaps(0)
+	FReflectionEnvironmentCubemapArray(ERHIFeatureLevel::Type InFeatureLevel)
+		: FRenderResource(InFeatureLevel)
+		, MaxCubemaps(0)
+		, CubemapSize(0)
 	{}
 
 	virtual void InitDynamicRHI() override;
@@ -935,13 +1114,15 @@ public:
 	 * Updates the maximum number of cubemaps that this array is allocated for.
 	 * This reallocates the resource but does not copy over the old contents. 
 	 */
-	void UpdateMaxCubemaps(uint32 InMaxCubemaps);
+	void UpdateMaxCubemaps(uint32 InMaxCubemaps, int32 CubemapSize);
 	int32 GetMaxCubemaps() const { return MaxCubemaps; }
+	int32 GetCubemapSize() const { return CubemapSize; }
 	bool IsValid() const { return IsValidRef(ReflectionEnvs); }
 	FSceneRenderTargetItem& GetRenderTarget() const { return ReflectionEnvs->GetRenderTargetItem(); }
 
 protected:
 	uint32 MaxCubemaps;
+	int32 CubemapSize;
 	TRefCountPtr<IPooledRenderTarget> ReflectionEnvs;
 
 	void ReleaseCubeArray();
@@ -1240,7 +1421,7 @@ public:
 
 	FIndirectLightingCacheAllocation* FindPrimitiveAllocation(FPrimitiveComponentId PrimitiveId);	
 
-	/** Updates indirect lighting in the cache based on visibility syncronously. */
+	/** Updates indirect lighting in the cache based on visibility synchronously. */
 	void UpdateCache(FScene* Scene, FSceneRenderer& Renderer, bool bAllowUnbuiltPreview);
 
 	/** Starts a task to update the cache primitives.  Results and task ref returned in the FILCUpdatePrimTaskData structure */
@@ -1267,8 +1448,8 @@ private:
 	/** Internal helper to perform blockupdates and transition updates on the results of UpdateCachePrimitivesInternal.  Must be on render thread. */
 	void FinalizeUpdateInternal_RenderThread(FScene* Scene, FSceneRenderer& Renderer, TMap<FIntVector, FBlockUpdateInfo>& BlocksToUpdate, const TArray<FIndirectLightingCacheAllocation*>& TransitionsOverTimeToUpdate);
 
-	/** Internal helper which adds an entry to the update lists for this allocation, if needed (due to movement, etc). */
-	void UpdateCacheAllocation(
+	/** Internal helper which adds an entry to the update lists for this allocation, if needed (due to movement, etc). Returns true if the allocation was updated or will be udpated */
+	bool UpdateCacheAllocation(
 		const FBoxSphereBounds& Bounds, 
 		int32 BlockSize,
 		bool bPointSample,
@@ -1317,7 +1498,7 @@ private:
 		FScene* Scene, 
 		const FIndirectLightingCacheBlock& Block,
 		float& OutDirectionalShadowing, 
-		FSHVectorRGB2& OutIncidentRadiance,
+		FSHVectorRGB3& OutIncidentRadiance,
 		FVector& OutSkyBentNormal);
 
 	/** Interpolates SH samples for a block from all levels. */
@@ -1325,9 +1506,7 @@ private:
 		FScene* Scene, 
 		const FIndirectLightingCacheBlock& Block, 
 		TArray<float>& AccumulatedWeight, 
-		TArray<FSHVectorRGB2>& AccumulatedIncidentRadiance,
-		FVector& CenterSkyBentNormal,
-		float& CenterDirectionalLightShadowing);
+		TArray<FSHVectorRGB2>& AccumulatedIncidentRadiance);
 
 	/** 
 	 * Normalizes, adjusts for SH ringing, and encodes SH samples into a texture format.
@@ -1340,8 +1519,8 @@ private:
 		const TArray<FSHVectorRGB2>& AccumulatedIncidentRadiance,
 		TArray<FFloat16Color>& Texture0Data,
 		TArray<FFloat16Color>& Texture1Data,
-		TArray<FFloat16Color>& Texture2Data,
-		FSHVectorRGB2& SingleSample);
+		TArray<FFloat16Color>& Texture2Data		
+		);
 
 	/** Helper that calculates an effective world position min and size given a bounds. */
 	void CalculateBlockPositionAndSize(const FBoxSphereBounds& Bounds, int32 TexelSize, FVector& OutMin, FVector& OutSize) const;
@@ -1437,11 +1616,11 @@ public:
 	/** Information about the primitives that are attached together. */
 	struct FLODSceneNode
 	{
-		/** The primitive. */
-		FPrimitiveSceneInfo* SceneInfo;
-
 		/** Children scene infos. */
 		TArray<FPrimitiveSceneInfo*> ChildrenSceneInfos;
+
+		/** The primitive. */
+		FPrimitiveSceneInfo* SceneInfo;
 
 		/** Last updated FrameCount */
 		int32 LatestUpdateCount;
@@ -1449,12 +1628,14 @@ public:
 		/** Persistent visibility states */
 		bool bWasVisible;
 		bool bIsVisible;
+		bool bIsFading;
 
-		FLODSceneNode() :
-			SceneInfo(nullptr), 
-			LatestUpdateCount(INDEX_NONE),
-			bWasVisible(false),
-			bIsVisible(false)
+		FLODSceneNode()
+			: SceneInfo(nullptr)
+			, LatestUpdateCount(INDEX_NONE)
+			, bWasVisible(false)
+			, bIsVisible(false)
+			, bIsFading(false)
 		{}
 
 		void AddChild(FPrimitiveSceneInfo * NewChild)
@@ -1478,8 +1659,7 @@ public:
 	void RemoveChildNode(FPrimitiveComponentId NodeId, FPrimitiveSceneInfo* ChildSceneInfo);
 
 	void UpdateNodeSceneInfo(FPrimitiveComponentId NodeId, FPrimitiveSceneInfo* SceneInfo);
-	void PopulateFadingFlags(FViewInfo& View);
-	void PopulateHiddenFlags(FViewInfo& View, FSceneBitArray& HiddenFlags);
+	void UpdateAndApplyVisibilityStates(FViewInfo& View);
 
 	bool IsNodeFading(const int32 Index) const
 	{
@@ -1510,12 +1690,49 @@ private:
 	/**  Update Count. This is used to skip Child node that has been updated */
 	int32 UpdateCount;
 
-	/** Propagate flags to children */
-	void PropagateFadingFlagsToChildren(FViewInfo& View, FLODSceneNode& Node, bool bIsFading, bool bIsFadingOut);
-	void PropagateHiddenFlagsToChildren(FSceneBitArray& HiddenFlags, FLODSceneNode& Node);
+	/** Recursive state updates */
+	void ApplyNodeFadingToChildren(FLODSceneNode& Node, FSceneBitArray& VisibilityFlags, const bool bIsFading, const bool bIsFadingOut);
+	void HideNodeChildren(FLODSceneNode& Node, FSceneBitArray& VisibilityFlags);
 };
 
 typedef TMap<FMaterial*, FMaterialShaderMap*> FMaterialsToUpdateMap;
+
+class FCachedShadowMapData
+{
+public:
+	FWholeSceneProjectedShadowInitializer Initializer;
+	FShadowMapRenderTargetsRefCounted ShadowMap;
+	float LastUsedTime;
+	bool bCachedShadowMapHasPrimitives;
+
+	FCachedShadowMapData(const FWholeSceneProjectedShadowInitializer& InInitializer, float InLastUsedTime) :
+		Initializer(InInitializer),
+		LastUsedTime(InLastUsedTime),
+		bCachedShadowMapHasPrimitives(true)
+	{}
+};
+
+#if WITH_EDITOR
+	class FPixelInspectorData
+	{
+	public:
+		FPixelInspectorData();
+
+		void InitializeBuffers(FRenderTarget* BufferFinalColor, FRenderTarget* BufferSceneColor, FRenderTarget* BufferDepth, FRenderTarget* BufferHDR, FRenderTarget* BufferA, FRenderTarget* BufferBCDE, int32 bufferIndex);
+
+		bool AddPixelInspectorRequest(FPixelInspectorRequest *PixelInspectorRequest);
+
+		//Hold the buffer array
+		TMap<FIntPoint, FPixelInspectorRequest *> Requests;
+
+		FRenderTarget* RenderTargetBufferDepth[2];
+		FRenderTarget* RenderTargetBufferFinalColor[2];
+		FRenderTarget* RenderTargetBufferHDR[2];
+		FRenderTarget* RenderTargetBufferSceneColor[2];
+		FRenderTarget* RenderTargetBufferA[2];
+		FRenderTarget* RenderTargetBufferBCDE[2];
+	};
+#endif //WITH_EDITOR
 
 /** 
  * Renderer scene which is private to the renderer module.
@@ -1526,18 +1743,20 @@ class FScene : public FSceneInterface
 {
 public:
 
+	struct FReadOnlyCVARCache
+	{
+		FReadOnlyCVARCache();
+		bool bEnablePointLightShadows;
+		bool bEnableStationarySkylight;
+		bool bEnableAtmosphericFog;
+		bool bEnableLowQualityLightmaps;
+	};
+
 	/** An optional world associated with the scene. */
 	UWorld* World;
 
 	/** An optional FX system associated with the scene. */
 	class FFXSystemInterface* FXSystem;
-
-	enum EBasePassDrawListType
-	{
-		EBasePass_Default=0,
-		EBasePass_Masked,
-		EBasePass_MAX
-	};
 
 	// various static draw lists for this DPG
 
@@ -1572,12 +1791,17 @@ public:
 	template<typename LightMapPolicyType>
 	TStaticMeshDrawList<TBasePassDrawingPolicy<LightMapPolicyType> >& GetBasePassDrawList(EBasePassDrawListType DrawType);
 
-	/** Forward shading base pass draw lists */
-	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy<FUniformLightMapPolicy,0> > BasePassForForwardShadingUniformLightMapPolicyDrawList[EBasePass_MAX];
+	/** Mobile base pass draw lists */
+	TStaticMeshDrawList<TMobileBasePassDrawingPolicy<FUniformLightMapPolicy, 0> > MobileBasePassUniformLightMapPolicyDrawList[EBasePass_MAX];
+	TStaticMeshDrawList<TMobileBasePassDrawingPolicy<FUniformLightMapPolicy, 0> > MobileBasePassUniformLightMapPolicyDrawListWithCSM[EBasePass_MAX];
+
 
 	/** Maps a light-map type to the appropriate base pass draw list. */
 	template<typename LightMapPolicyType>
-	TStaticMeshDrawList<TBasePassForForwardShadingDrawingPolicy<LightMapPolicyType,0> >& GetForwardShadingBasePassDrawList(EBasePassDrawListType DrawType);
+	TStaticMeshDrawList<TMobileBasePassDrawingPolicy<LightMapPolicyType,0> >& GetMobileBasePassDrawList(EBasePassDrawListType DrawType);
+
+	template<typename LightMapPolicyType>
+	TStaticMeshDrawList<TMobileBasePassDrawingPolicy<LightMapPolicyType, 0> >& GetMobileBasePassCSMDrawList(EBasePassDrawListType DrawType);
 
 	/**
 	 * The following arrays are densely packed primitive data needed by various
@@ -1607,6 +1831,9 @@ public:
 	 */
 	TSparseArray<FLightSceneInfoCompact> InvisibleLights;
 
+	/** Map from light id to the cached shadowmap data for that light. */
+	TMap<int32, FCachedShadowMapData> CachedShadowMaps;
+
 	/** The mobile quality level for which static draw lists have been built. */
 	bool bStaticDrawListsMobileHDR;
 	bool bStaticDrawListsMobileHDR32bpp;
@@ -1629,6 +1856,9 @@ public:
 	/** The directional light to use for simple dynamic lighting, if any. */
 	FLightSceneInfo* SimpleDirectionalLight;
 
+	/** For the mobile renderer, the first directional light in each lighting channel. */
+	FLightSceneInfo* MobileDirectionalLights[NUM_LIGHTING_CHANNELS];
+
 	/** The sun light for atmospheric effect, if any. */
 	FLightSceneInfo* SunLight;
 
@@ -1637,6 +1867,9 @@ public:
 
 	/** Potential capsule shadow casters registered to the scene. */
 	TArray<FPrimitiveSceneInfo*> CapsuleIndirectCasterPrimitives; 
+
+	TArray<class FPlanarReflectionSceneProxy*> PlanarReflections;
+	TArray<class UPlanarReflectionComponent*> PlanarReflections_GameThread;
 
 	/** State needed for the reflection environment feature. */
 	FReflectionEnvironmentSceneData ReflectionSceneData;
@@ -1699,9 +1932,6 @@ public:
 	/** Set by the rendering thread to signal to the game thread that the scene needs a static lighting build. */
 	volatile mutable int32 NumUncachedStaticLightingInteractions;
 
-	FLinearColor UpperDynamicSkylightColor;
-	FLinearColor LowerDynamicSkylightColor;
-
 	FMotionBlurInfoData MotionBlurInfoData;
 
 	/** Uniform buffers for parameter collections with the corresponding Ids. */
@@ -1709,6 +1939,17 @@ public:
 
 	/** LOD Tree Holder for massive LOD system */
 	FLODSceneTree SceneLODHierarchy;
+
+	float DefaultMaxDistanceFieldOcclusionDistance;
+
+	float GlobalDistanceFieldViewDistance;
+
+	FReadOnlyCVARCache ReadOnlyCVARCache;
+
+#if WITH_EDITOR
+	/** Editor Pixel inspector */
+	FPixelInspectorData PixelInspectorData;
+#endif //WITH_EDITOR
 
 	/** Initialization constructor. */
 	FScene(UWorld* InWorld, bool bInRequiresHitProxies,bool bInIsEditorScene, bool bCreateFXSystem, ERHIFeatureLevel::Type InFeatureLevel);
@@ -1732,11 +1973,15 @@ public:
 	virtual void UpdateDecalTransform(UDecalComponent* Decal) override;
 	virtual void AddReflectionCapture(UReflectionCaptureComponent* Component) override;
 	virtual void RemoveReflectionCapture(UReflectionCaptureComponent* Component) override;
-	virtual void GetReflectionCaptureData(UReflectionCaptureComponent* Component, class FReflectionCaptureFullHDRDerivedData& OutDerivedData) override;
+	virtual void GetReflectionCaptureData(UReflectionCaptureComponent* Component, class FReflectionCaptureFullHDR& OutDerivedData) override;
 	virtual void UpdateReflectionCaptureTransform(UReflectionCaptureComponent* Component) override;
 	virtual void ReleaseReflectionCubemap(UReflectionCaptureComponent* CaptureComponent) override;
+	virtual void AddPlanarReflection(class UPlanarReflectionComponent* Component) override;
+	virtual void RemovePlanarReflection(UPlanarReflectionComponent* Component) override;
+	virtual void UpdatePlanarReflectionTransform(UPlanarReflectionComponent* Component) override;
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponent2D* CaptureComponent) override;
 	virtual void UpdateSceneCaptureContents(class USceneCaptureComponentCube* CaptureComponent) override;
+	virtual void UpdatePlanarReflectionContents(UPlanarReflectionComponent* CaptureComponent, FSceneRenderer& MainSceneRenderer) override;
 	virtual void AllocateReflectionCaptures(const TArray<UReflectionCaptureComponent*>& NewCaptures) override;
 	virtual void UpdateSkyCaptureContents(const USkyLightComponent* CaptureComponent, bool bCaptureEmissiveOnly, UTextureCube* SourceCubemap, FTexture* OutProcessedTexture, FSHVectorRGB3& OutIrradianceEnvironmentMap) override; 
 	virtual void PreCullStaticMeshes(const TArray<UStaticMeshComponent*>& ComponentsToPreCull, const TArray<TArray<FPlane> >& CullVolumes) override;
@@ -1744,7 +1989,6 @@ public:
 	virtual void RemovePrecomputedLightVolume(const class FPrecomputedLightVolume* Volume) override;
 	virtual void UpdateLightTransform(ULightComponent* Light) override;
 	virtual void UpdateLightColorAndBrightness(ULightComponent* Light) override;
-	virtual void UpdateDynamicSkyLight(const FLinearColor& UpperColor, const FLinearColor& LowerColor) override;
 	virtual void AddExponentialHeightFog(UExponentialHeightFogComponent* FogComponent) override;
 	virtual void RemoveExponentialHeightFog(UExponentialHeightFogComponent* FogComponent) override;
 	virtual void AddAtmosphericFog(UAtmosphericFogComponent* FogComponent) override;
@@ -1765,12 +2009,6 @@ public:
 	virtual void DumpStaticMeshDrawListStats() const override;
 	virtual void SetClearMotionBlurInfoGameThread() override;
 	virtual void UpdateParameterCollections(const TArray<FMaterialParameterCollectionInstanceResource*>& InParameterCollections) override;
-
-	/** Determines whether the scene has dynamic sky lighting. */
-	bool HasDynamicSkyLighting() const
-	{
-		return (!UpperDynamicSkylightColor.Equals(FLinearColor::Black) || !LowerDynamicSkylightColor.Equals(FLinearColor::Black));
-	}
 
 	/** Determines whether the scene has atmospheric fog and sun light. */
 	bool HasAtmosphericFog() const
@@ -1801,6 +2039,7 @@ public:
 	/** Finds the closest reflection capture to a point in space. */
 	const FReflectionCaptureProxy* FindClosestReflectionCapture(FVector Position) const;
 
+	const class FPlanarReflectionSceneProxy* FindClosestPlanarReflection(const FPrimitiveBounds& Bounds) const;
 
 	void FindClosestReflectionCaptures(FVector Position, const FReflectionCaptureProxy* (&SortedByDistanceOUT)[FPrimitiveSceneInfo::MaxCachedReflectionCaptureProxies]) const;
 	
@@ -1809,6 +2048,8 @@ public:
 	 * If the proxy was not found in the scene's reflection state, the outputs are not written to.
 	 */
 	void GetCaptureParameters(const FReflectionCaptureProxy* ReflectionProxy, FTextureRHIParamRef& ReflectionCubemapArray, int32& ArrayIndex) const;
+
+	int64 GetCachedWholeSceneShadowMapsSize() const;
 
 	/**
 	 * Marks static mesh elements as needing an update if necessary.
@@ -1829,6 +2070,8 @@ public:
 	{
 		return this;
 	}
+
+	virtual void UpdateSceneSettings(AWorldSettings* WorldSettings) override;
 
 	/**
 	 * Sets the FX system associated with the scene.
@@ -1873,15 +2116,38 @@ public:
 
 	virtual ERHIFeatureLevel::Type GetFeatureLevel() const override { return FeatureLevel; }
 
-	bool ShouldRenderSkylight() const
+	bool ShouldRenderSkylight(EBlendMode BlendMode) const
 	{
-		return SkyLight && !SkyLight->bHasStaticLighting && GSupportsRenderTargetFormat_PF_FloatRGBA;
+		return ShouldRenderSkylight_Internal(BlendMode) && ReadOnlyCVARCache.bEnableStationarySkylight;
+	}
+
+	bool ShouldRenderSkylight_Internal(EBlendMode BlendMode) const
+	{
+		if (IsTranslucentBlendMode(BlendMode))
+		{
+			return SkyLight && !SkyLight->bHasStaticLighting;
+		}
+		else
+	{
+		const bool bRenderSkylight = SkyLight
+			&& !SkyLight->bHasStaticLighting
+			// The deferred shading renderer does movable skylight diffuse in a later deferred pass, not in the base pass
+			&& (SkyLight->bWantsStaticShadowing || IsAnyForwardShadingEnabled(GetShaderPlatform()));
+
+		return bRenderSkylight;
+	}
 	}
 
 	virtual TArray<FPrimitiveComponentId> GetScenePrimitiveComponentIds() const override
 	{
 		return PrimitiveComponentIds;
 	}
+
+#if WITH_EDITOR
+	virtual bool InitializePixelInspector(FRenderTarget* BufferFinalColor, FRenderTarget* BufferSceneColor, FRenderTarget* BufferDepth, FRenderTarget* BufferHDR, FRenderTarget* BufferA, FRenderTarget* BufferBCDE, int32 BufferIndex) override;
+
+	virtual bool AddPixelInspectorRequest(FPixelInspectorRequest *PixelInspectorRequest) override;
+#endif //WITH_EDITOR
 
 private:
 
@@ -1965,22 +2231,6 @@ private:
 	 * @param	InLevelName		Level name
 	 */
 	void OnLevelAddedToWorld_RenderThread(FName InLevelName);
-
-	/**
-	 * Builds a FSceneRenderer instance for a given view and render target. Helper function for Scene capture code.
-	 *
-	 * @param	SceneCaptureComponent - The scene capture component for which to create a scene renderer.
-	 * @param	TextureTarget - render target to draw to.
-	 * @param	ViewRotationMatrix - Camera rotation matrix.
-	 * @param	ViewLocation - Camera location.
-	 * @param	FOV - Camera field of view.
-	 * @param	MaxViewDistance - Far draw distance.
-	 * @param	bCaptureSceneColour if true the returned scenerenderer will ignore post process operations as only the raw scene color is used.
-	 * @param	PostProcessSettings - pointer to post process structure, NULL for no effect.
-	 * @param	PostProcessBlendWeight - Blendweight for PostProcessSettings.
-	 * @return	pointer to a configured SceneRenderer instance.
-	 */
-	FSceneRenderer* CreateSceneRenderer(USceneCaptureComponent* SceneCaptureComponent, UTextureRenderTarget* TextureTarget, const FMatrix& ViewRotationMatrix, const FVector& ViewLocation, float FOV, float MaxViewDistance, bool bCaptureSceneColour = true, FPostProcessSettings* PostProcessSettings = NULL, float PostProcessBlendWeight = 0);
 
 private:
 	/** 

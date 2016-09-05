@@ -6,6 +6,7 @@
 // THIS FILE SHOULD BE USED ONLY BY AUTOMATICALLY GENERATED CODE. 
 
 // Common includes
+#include "Runtime/Core/Public/Core.h"
 #include "UObject/Stack.h"
 #include "Blueprint/BlueprintSupport.h"
 #include "Engine/BlueprintGeneratedClass.h"
@@ -23,11 +24,22 @@
 //For DOREPLIFETIME macros
 #include "Net/UnrealNetwork.h"
 
+//For Box2D
+#include "Runtime/Core/Public/Math/Box2D.h"
+
+inline FBox2D CreateFBox2D(FVector2D InMin, FVector2D InMax, bool InIsValid)
+{
+	FBox2D Result;
+	Result.Min = InMin;
+	Result.Max = InMax;
+	Result.bIsValid = InIsValid;
+	return Result;
+}
+
 template<class NativeType>
 inline NativeType* NoNativeCast(UClass* NoNativeClass, UObject* Object)
 {
-	check(NoNativeClass);
-	check(!Object || (nullptr != Cast<NativeType>(Object)));
+	check(NoNativeClass && NoNativeClass->IsChildOf<NativeType>());
 	return (Object && Object->IsA(NoNativeClass)) ? ((NativeType*)Object) : nullptr;
 }
 
@@ -41,6 +53,11 @@ inline bool IsValid(const FScriptInterface& Test)
 	return IsValid(Test.GetObject()) && (nullptr != Test.GetInterface());
 }
 
+inline bool IsValid(const FWeakObjectPtr& Test)
+{
+	return Test.IsValid();
+}
+
 template<class TEnum>
 inline uint8 EnumToByte(TEnumAsByte<TEnum> Val)
 {
@@ -51,6 +68,12 @@ template<class T>
 inline const T* GetDefaultValueSafe(UClass* Class)
 {
 	return IsValid(Class) ? GetDefault<T>(Class) : nullptr;
+}
+
+template<typename ValueType>
+inline ValueType* AccessPrivateProperty(void const* ContainerPtr, int32 PropertyOffset, int32 ElementSize, int32 ArrayIndex = 0)
+{
+	return (ValueType*)((uint8*)ContainerPtr + PropertyOffset + (ElementSize * ArrayIndex));
 }
 
 struct FCustomThunkTemplates
@@ -77,14 +100,8 @@ public:
 		return TargetArray.Add(NewItem);
 	}
 
-	template<typename T, typename U>
-	static int32 Array_AddUnique(TArray<T>& TargetArray, const U& NewItem)
-	{
-		return TargetArray.AddUnique(NewItem);
-	}
-
 	template<typename T>
-	static void Array_Shuffle(TArray<T>& TargetArray, const UArrayProperty* ArrayProperty)
+	static void Array_Shuffle(TArray<T>& TargetArray)
 	{
 		int32 LastIndex = TargetArray.Num() - 1;
 		for (int32 i = 0; i < LastIndex; ++i)
@@ -135,10 +152,101 @@ public:
 		return TargetArray.Find(ItemToFind);
 	}
 
+	template<typename T>
+	static int32 Array_Find_Struct(const TArray<T>& TargetArray, const T& ItemToFind)
+	{
+		auto ScriptStruct = T::StaticStruct();
+		return TargetArray.IndexOfByPredicate([&](const T& Element) -> bool
+		{
+			return ScriptStruct->CompareScriptStruct(&Element, &ItemToFind, 0);
+		});
+	}
+
+	static int32 Array_Find_FText(const TArray<FText>& TargetArray, const FText& ItemToFind)
+	{
+		return TargetArray.IndexOfByPredicate([&](const FText& Element) -> bool
+		{
+			return UTextProperty::Identical_Implementation(Element, ItemToFind, 0);
+		});
+	}
+
+	template<typename T, typename U>
+	static bool Array_Contains(const TArray<T>& TargetArray, const U& ItemToFind)
+	{
+		return TargetArray.Contains(ItemToFind);
+	}
+
+	template<typename T>
+	static bool Array_Contains_Struct(const TArray<T>& TargetArray, const T& ItemToFind)
+	{
+		auto ScriptStruct = T::StaticStruct();
+		return TargetArray.ContainsByPredicate([&](const T& Element) -> bool
+		{
+			return ScriptStruct->CompareScriptStruct(&Element, &ItemToFind, 0);
+		});
+	}
+
+	static bool Array_Contains_FText(const TArray<FText>& TargetArray, const FText& ItemToFind)
+	{
+		return TargetArray.ContainsByPredicate([&](const FText& Element) -> bool
+		{
+			return UTextProperty::Identical_Implementation(Element, ItemToFind, 0);
+		});
+	}
+
+	template<typename T, typename U>
+	static int32 Array_AddUnique(TArray<T>& TargetArray, const U& NewItem)
+	{
+		return TargetArray.AddUnique(NewItem);
+	}
+
+	template<typename T>
+	static int32 Array_AddUnique_Struct(TArray<T>& TargetArray, const T& NewItem)
+	{
+		int32 Index = Array_Find_Struct<T>(TargetArray, NewItem);
+		if (Index != INDEX_NONE)
+		{
+			return Index;
+		}
+		return TargetArray.Add(NewItem);
+	}
+
+	static int32 Array_AddUnique_FText(TArray<FText>& TargetArray, const FText& NewItem)
+	{
+		int32 Index = Array_Find_FText(TargetArray, NewItem);
+		if (Index != INDEX_NONE)
+		{
+			return Index;
+		}
+		return TargetArray.Add(NewItem);
+	}
+
 	template<typename T, typename U>
 	static bool Array_RemoveItem(TArray<T>& TargetArray, const U& Item)
 	{
 		return TargetArray.Remove(Item) != 0;
+	}
+
+	template<typename T>
+	static bool Array_RemoveItem_Struct(TArray<T>& TargetArray, const T& Item)
+	{
+		TargetArray.CheckAddress(&Item);
+
+		auto ScriptStruct = T::StaticStruct();
+		return TargetArray.RemoveAll([&](const T& Element) -> bool
+		{
+			return ScriptStruct->CompareScriptStruct(&Element, &Item, 0);
+		}) != 0;
+	}
+
+	static bool Array_RemoveItem_FText(TArray<FText>& TargetArray, const FText& Item)
+	{
+		TargetArray.CheckAddress(&Item);
+
+		return TargetArray.RemoveAll([&](const FText& Element) -> bool
+		{
+			return UTextProperty::Identical_Implementation(Element, Item, 0);
+		}) != 0;
 	}
 
 	template<typename T>
@@ -181,7 +289,8 @@ public:
 		}
 		else
 		{
-			ExecutionMessage(*FString::Printf(TEXT("Attempted to get an item from array out of bounds [%d/%d]!"), Index, LastIndexForLog(TargetArray)), ELogVerbosity::Warning);
+			ExecutionMessage(*FString::Printf(TEXT("Attempted to access index %d from array of length %d!"), 
+				Index, TargetArray.Num()), ELogVerbosity::Error);
 			Item = U{};
 		}
 	}
@@ -204,16 +313,16 @@ public:
 		}
 	}
 
-	template<typename T, typename U>
-	static bool Array_Contains(const TArray<T>& TargetArray, const U& ItemToFind)
-	{
-		return TargetArray.Contains(ItemToFind);
-	}
-
 	template<typename T>
 	static void SetArrayPropertyByName(UObject* Object, FName PropertyName, TArray<T>& Value)
 	{
 		UKismetArrayLibrary::GenericArray_SetArrayPropertyByName(Object, PropertyName, &Value);
+	}
+
+	template<typename T>
+	static bool Array_IsValidIndex(const TArray<T>& TargetArray, int32 Index)
+	{
+		return TargetArray.IsValidIndex(Index);
 	}
 
 	//Replacements for CustomThunk functions from UDataTableFunctionLibrary
@@ -304,7 +413,6 @@ struct TSwitchPair<IndexType, ValueType*>
 	}
 };
 
-#if PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES
 template<typename IndexType, typename ValueType>
 ValueType& TSwitchValue(const IndexType& CurrentIndex, ValueType& DefaultValue, int OptionsNum)
 {
@@ -320,30 +428,6 @@ ValueType& TSwitchValue(const IndexType& CurrentIndex, ValueType& DefaultValue, 
 	}
 	return TSwitchValue<IndexType, ValueType, Tail...>(CurrentIndex, DefaultValue, OptionsNum, TailOptions...);
 }
-#else //PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES
-template<typename IndexType, typename ValueType>
-ValueType& TSwitchValue(const IndexType& CurrentIndex, ValueType& DefaultValue, int OptionsNum, ...)
-{
-	typedef TSwitchPair < IndexType, ValueType > OptionType;
-
-	ValueType* SelectedValuePtr = nullptr;
-
-	va_list Options;
-	va_start(Options, OptionsNum);
-	for (int OptionIt = 0; OptionIt < OptionsNum; ++OptionIt)
-	{
-		OptionType Option = va_arg(Options, OptionType);
-		if (Option.IndexRef == CurrentIndex)
-		{
-			SelectedValuePtr = &Option.ValueRef;
-			break;
-		}
-	}
-	va_end(Options);
-
-	return SelectedValuePtr ? *SelectedValuePtr : DefaultValue;
-}
-#endif //PLATFORM_COMPILER_HAS_VARIADIC_TEMPLATES
 
 // Base class for wrappers for unconverted BlueprintGeneratedClasses
 template<class NativeType>
@@ -365,23 +449,23 @@ struct FUnconvertedWrapper
 template<typename T>
 struct TArrayCaster
 {
-	TArray<T*> Val;
-	TArray<T*>& ValRef;
+	TArray<T> Val;
+	TArray<T>& ValRef;
 
-	TArrayCaster(TArray<T*>& InArr) 
+	TArrayCaster(const TArray<T>& InArr)
 		: Val()
-		, ValRef(InArr)
+		, ValRef(*(TArray<T>*)(&InArr))
 	{}
 
-	TArrayCaster(TArray<T*>&& InArr) 
+	TArrayCaster(TArray<T>&& InArr) 
 		: Val(MoveTemp(InArr))
 		, ValRef(Val)
 	{}
 
 	template<typename U>
-	TArray<U*>& Get()
+	TArray<U>& Get()
 	{
-		static_assert(sizeof(T*) == sizeof(U*), "Incompatible pointers");
-		return *reinterpret_cast<TArray<U*>*>(&ValRef);
+		static_assert(sizeof(T) == sizeof(U), "Incompatible pointers");
+		return *reinterpret_cast<TArray<U>*>(&ValRef);
 	}
 };

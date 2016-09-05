@@ -5,8 +5,8 @@
 #include "Materials/MaterialExpression.h"
 #include "MaterialExpressionLandscapeVisibilityMask.generated.h"
 
-UCLASS(collapsecategories, hidecategories=Object)
-class UMaterialExpressionLandscapeVisibilityMask : public UMaterialExpression
+UCLASS(collapseCategories, hideCategories=Object)
+class LANDSCAPE_API UMaterialExpressionLandscapeVisibilityMask : public UMaterialExpression
 {
 	GENERATED_UCLASS_BODY()
 
@@ -16,20 +16,26 @@ class UMaterialExpressionLandscapeVisibilityMask : public UMaterialExpression
 
 public:
 
-	LANDSCAPE_API static FName ParameterName;
+	static FName ParameterName;
 
 	//~ Begin UMaterialExpression Interface
+#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#endif
 	virtual UTexture* GetReferencedTexture() override;
 	//~ End UMaterialExpression Interface
 
-	LANDSCAPE_API virtual FGuid& GetParameterExpressionId() override;
+	virtual FGuid& GetParameterExpressionId() override;
 
 	/**
 	 * Called to get list of parameter names for static parameter sets
 	 */
 	void GetAllParameterNames(TArray<FName> &OutParameterNames, TArray<FGuid> &OutParameterIds) const;
+
+	//~ Begin UObject Interface
+	virtual bool NeedsLoadForClient() const override;
+	//~ End UObject Interface
 };
 
 

@@ -9,6 +9,7 @@
 #include "Shader.h"
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "EngineVersion.h"
 
 DECLARE_STATS_GROUP(TEXT("Shader Cache"),STATGROUP_ShaderCache, STATCAT_Advanced);
 DECLARE_DWORD_ACCUMULATOR_STAT(TEXT("Num Shaders Cached"),STATGROUP_NumShadersCached,STATGROUP_ShaderCache);
@@ -26,6 +27,7 @@ DECLARE_FLOAT_ACCUMULATOR_STAT(TEXT("Binary Cache Load Time (s)"),STATGROUP_Bina
 const FGuid FShaderCacheCustomVersion::Key(0xB954F018, 0xC9624DD6, 0xA74E79B1, 0x8EA113C2);
 const FGuid FShaderCacheCustomVersion::GameKey(0x03D4EB48, 0xB50B4CC3, 0xA598DE41, 0x5C6CC993);
 FCustomVersionRegistration GRegisterShaderCacheVersion(FShaderCacheCustomVersion::Key, FShaderCacheCustomVersion::Latest, TEXT("ShaderCacheVersion"));
+FCustomVersionRegistration GRegisterShaderCacheGameVersion(FShaderCacheCustomVersion::GameKey, 0, TEXT("ShaderCacheGameVersion"));
 #if WITH_EDITOR
 static TCHAR const* GShaderCacheFileName = TEXT("EditorDrawCache.ushadercache");
 static TCHAR const* GShaderCodeCacheFileName = TEXT("EditorCodeCache.ushadercode");
@@ -39,7 +41,7 @@ static TCHAR const* GCookedCodeCacheFileName = TEXT("ByteCodeCache.ushadercode")
 #endif
 
 // Only the Mac build defaults to using the shader cache for now, Editor uses a separate cache from the game to avoid ever-growing cache being propagated to the game.
-int32 FShaderCache::bUseShaderCaching = (PLATFORM_MAC && !WITH_EDITOR) ? 1 : 0;
+int32 FShaderCache::bUseShaderCaching = 0;
 FAutoConsoleVariableRef FShaderCache::CVarUseShaderCaching(
 	TEXT("r.UseShaderCaching"),
 	bUseShaderCaching,
@@ -49,7 +51,7 @@ FAutoConsoleVariableRef FShaderCache::CVarUseShaderCaching(
 
 // Predrawing takes an existing shader cache with draw log & renders each shader + draw-state combination before use to avoid in-driver recompilation
 // This requires plenty of setup & is done in batches at frame-end.
-int32 FShaderCache::bUseShaderPredraw = (PLATFORM_MAC && !WITH_EDITOR) ? 1 : 0;
+int32 FShaderCache::bUseShaderPredraw = 0;
 FAutoConsoleVariableRef FShaderCache::CVarUseShaderPredraw(
 	TEXT("r.UseShaderPredraw"),
 	bUseShaderPredraw,
@@ -58,7 +60,7 @@ FAutoConsoleVariableRef FShaderCache::CVarUseShaderPredraw(
 	);
 
 // The actual draw loggging is even more expensive as it has to cache all the RHI draw state & is disabled by default.
-int32 FShaderCache::bUseShaderDrawLog = (PLATFORM_MAC && !WITH_EDITOR) ? 1 : 0;
+int32 FShaderCache::bUseShaderDrawLog = 0;
 FAutoConsoleVariableRef FShaderCache::CVarUseShaderDrawLog(
 	TEXT("r.UseShaderDrawLog"),
 	bUseShaderDrawLog,
@@ -76,7 +78,7 @@ FAutoConsoleVariableRef FShaderCache::CVarPredrawBatchTime(
 	);
 
 // A separate cache of used shader binaries for even earlier submission - may be platform or even device specific.
-int32 FShaderCache::bUseShaderBinaryCache = (PLATFORM_MAC && !WITH_EDITOR) ? 1 : 0;
+int32 FShaderCache::bUseShaderBinaryCache = 0;
 FAutoConsoleVariableRef FShaderCache::CVarUseShaderBinaryCache(
 	TEXT("r.UseShaderBinaryCache"),
 	bUseShaderBinaryCache,
@@ -147,6 +149,7 @@ static bool ShaderPlatformCanPrebindBoundShaderState(EShaderPlatform Platform)
 		case SP_METAL_MRT:
 		case SP_METAL_SM5:
 		case SP_METAL_MACES3_1:
+		case SP_METAL_MACES2:
 		{
 			return true;
 		}
@@ -157,6 +160,7 @@ static bool ShaderPlatformCanPrebindBoundShaderState(EShaderPlatform Platform)
 		case SP_OPENGL_ES2_WEBGL:
 		case SP_OPENGL_ES2_IOS:
 		case SP_OPENGL_ES31_EXT:
+		case SP_OPENGL_ES3_1_ANDROID:
 		default:
 		{
 			return false;
@@ -172,22 +176,31 @@ void FShaderCache::SetGameVersion(int32 InGameVersion)
 
 void FShaderCache::InitShaderCache(uint32 Options, uint32 InMaxResources)
 {
+#if WITH_EDITORONLY_DATA
+	check(!CookCache || (Options == SCO_Cooking && WITH_EDITORONLY_DATA));
+#endif
 	check(!Cache);
+	checkf(!(Options & SCO_Cooking) || (Options == SCO_Cooking && WITH_EDITORONLY_DATA), TEXT("Binary shader cache cooking is only permitted on its own & within the editor/cooker."));
+	
+	// Set the GameVersion to the FEngineVersion::Current().GetChangelist() value if it wasn't set to ensure we don't load invalidated caches.
+	if (GameVersion == 0)
+	{
+		GameVersion = (int32)FEngineVersion::Current().GetChangelist();
+	}
+	
 	if(bUseShaderCaching)
 	{
-		checkf(!(Options & SCO_Cooking) || (Options == SCO_Cooking && WITH_EDITORONLY_DATA), TEXT("Binary shader cache cooking is only permitted on its own & within the editor/cooker."));
-		
 		if(!(Options & SCO_Cooking))
 		{
 			Cache = new FShaderCache(Options, InMaxResources);
 		}
-#if WITH_EDITORONLY_DATA
-		else if(Options & SCO_Cooking)
-		{
-			CookCache = new FShaderCookCache;
-		}
-#endif
 	}
+#if WITH_EDITORONLY_DATA
+	else if((Options & SCO_Cooking) && !CookCache)
+	{
+		CookCache = new FShaderCookCache;
+	}
+#endif
 }
 
 void FShaderCache::LoadBinaryCache()
@@ -1320,6 +1333,12 @@ void FShaderCache::InternalPreDrawShaders(FRHICommandList& RHICmdList, float Del
 				PredrawVBs.Empty();
 			}
 			
+			if ( ShadersToDraw.FindOrAdd(StreamingKey).ShaderDrawStates.Num() == 0 )
+			{
+				PredrawRTs.Empty();
+				PredrawBindings.Empty();
+				PredrawVBs.Empty();
+			}
 			bIsPreDraw = false;
 			
 			double LoadTimeUpdate = FPlatformTime::Seconds();
@@ -2159,12 +2178,12 @@ uint32 FShaderCache::FSamplerStateInitializerRHIKeyFuncs::GetKeyHash(KeyInitType
 
 int32 FShaderCache::GetPredrawBatchTime() const
 {
-	return OverridePrecompileTime == 0 ? PredrawBatchTime : OverridePrecompileTime;
+	return OverridePredrawBatchTime == 0 ? PredrawBatchTime : OverridePredrawBatchTime;
 }
 
 int32 FShaderCache::GetTargetPrecompileFrameTime() const
 {
-	return OverridePredrawBatchTime == 0 ? TargetPrecompileFrameTime : OverridePredrawBatchTime;
+	return OverridePrecompileTime == 0 ? TargetPrecompileFrameTime : OverridePrecompileTime;
 }
 
 void FShaderCache::MergePlatformCaches(FShaderPlatformCache& Target, FShaderPlatformCache const& Source)

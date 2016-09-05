@@ -210,7 +210,8 @@ bool UParticleModuleEventGenerator::HandleParticleCollision(FParticleEmitterInst
 					Hit->Normal, 
 					Hit->Time, 
 					Hit->Item, 
-					Hit->BoneName);
+					Hit->BoneName,
+					Hit->PhysMaterial.Get());
 				bProcessed = true;
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 				Owner->EventCount++;
@@ -295,14 +296,14 @@ UParticleModuleEventReceiverSpawn::UParticleModuleEventReceiverSpawn(const FObje
 
 void UParticleModuleEventReceiverSpawn::InitializeDefaults()
 {
-	if (!SpawnCount.Distribution)
+	if (!SpawnCount.IsCreated())
 	{
 		UDistributionFloatConstant* RequiredDistributionSpawnCount = NewObject<UDistributionFloatConstant>(this, TEXT("RequiredDistributionSpawnCount"));
 		RequiredDistributionSpawnCount->Constant = 0.0f;
 		SpawnCount.Distribution = RequiredDistributionSpawnCount;
 	}
 
-	if (!InheritVelocityScale.Distribution)
+	if (!InheritVelocityScale.IsCreated())
 	{
 		UDistributionVectorConstant* RequiredDistributionInheritVelocityScale = NewObject<UDistributionVectorConstant>(this, TEXT("RequiredDistributionInheritVelocityScale"));
 		RequiredDistributionInheritVelocityScale->Constant = FVector(1.0f, 1.0f, 1.0f);
@@ -348,7 +349,13 @@ bool UParticleModuleEventReceiverSpawn::ProcessParticleEvent(FParticleEmitterIns
 		case EPET_Collision:
 			{
 				FParticleEventCollideData* CollideData = (FParticleEventCollideData*)(&InEvent);
-				Count = FMath::RoundToInt(SpawnCount.GetValue(bUseParticleTime ? CollideData->ParticleTime : InEvent.EmitterTime));
+				UPhysicalMaterial* PhysMat = CollideData->PhysMat;
+				bool bPhysMatIsAllowed = !PhysMat || (PhysicalMaterials.Num() == 0 || PhysicalMaterials.Contains(PhysMat) == !bBanPhysicalMaterials);
+
+				if (bPhysMatIsAllowed)
+				{
+					Count = FMath::RoundToInt(SpawnCount.GetValue(bUseParticleTime ? CollideData->ParticleTime : InEvent.EmitterTime));
+				}
 			}
 			break;
 		case EPET_Blueprint:

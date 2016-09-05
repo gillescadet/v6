@@ -117,9 +117,17 @@ public:
 	 * @param bEvenIfPendingKill, if this is true, pendingkill objects are considered valid	
 	 * @return NULL if this object is gone or the weak pointer was NULL, otherwise a valid uobject pointer
 	**/
-	FORCEINLINE T* Get(bool bEvenIfPendingKill = false) const
+	FORCEINLINE T* Get(bool bEvenIfPendingKill) const
 	{
 		return (T*)TWeakObjectPtrBase::Get(bEvenIfPendingKill);
+	}
+
+	/**  
+	 * Dereference the weak pointer. This is an optimized version implying bEvenIfPendingKill=false.
+	 */
+	FORCEINLINE T* Get(/*bool bEvenIfPendingKill = false*/) const
+	{
+		return (T*)TWeakObjectPtrBase::Get();
 	}
 
 	/** Deferences the weak pointer even if its marked RF_Unreachable. This is needed to resolve weak pointers during GC (such as ::AddReferenceObjects) */
@@ -151,9 +159,18 @@ public:
 	 *							UObject is gone forever (@return false) or if it is still there (@return true, no object flags checked).
 	 * @return true if Get() would return a valid non-null pointer
 	**/
-	FORCEINLINE bool IsValid(bool bEvenIfPendingKill = false, bool bThreadsafeTest = false) const
+	FORCEINLINE bool IsValid(bool bEvenIfPendingKill, bool bThreadsafeTest = false) const
 	{
 		return TWeakObjectPtrBase::IsValid(bEvenIfPendingKill, bThreadsafeTest);
+	}
+
+	/**
+	 * Test if this points to a live UObject. This is an optimized version implying bEvenIfPendingKill=false, bThreadsafeTest=false.
+	 * @return true if Get() would return a valid non-null pointer
+	 */
+	FORCEINLINE bool IsValid(/*bool bEvenIfPendingKill = false, bool bThreadsafeTest = false*/) const
+	{
+		return TWeakObjectPtrBase::IsValid();
 	}
 
 	/**  
@@ -165,6 +182,11 @@ public:
 	FORCEINLINE bool IsStale(bool bIncludingIfPendingKill = false, bool bThreadsafeTest = false) const
 	{
 		return TWeakObjectPtrBase::IsStale(bIncludingIfPendingKill, bThreadsafeTest);
+	}
+
+	FORCEINLINE bool HasSameIndexAndSerialNumber(const TWeakObjectPtr& Other) const
+	{
+		return static_cast<const TWeakObjectPtrBase&>(*this).HasSameIndexAndSerialNumber(static_cast<const TWeakObjectPtrBase&>(Other));
 	}
 
 	/** Hash function. */
@@ -276,6 +298,27 @@ FORCENOINLINE bool operator!=(TYPE_OF_NULLPTR, const TWeakObjectPtr<RhsT, OtherT
 template<class T> struct TIsPODType<TWeakObjectPtr<T> > { enum { Value = true }; };
 template<class T> struct TIsZeroConstructType<TWeakObjectPtr<T> > { enum { Value = true }; };
 template<class T> struct TIsWeakPointerType<TWeakObjectPtr<T> > { enum { Value = true }; };
+
+
+/**
+ * MapKeyFuncs for TWeakObjectPtrs which allow the key to become stale without invalidating the map.
+ */
+template <typename KeyType, typename ValueType, bool bInAllowDuplicateKeys = false>
+struct TWeakObjectPtrMapKeyFuncs : public TDefaultMapKeyFuncs<KeyType, ValueType, bInAllowDuplicateKeys>
+{
+	typedef typename TDefaultMapKeyFuncs<KeyType, ValueType, bInAllowDuplicateKeys>::KeyInitType KeyInitType;
+
+	static FORCEINLINE bool Matches(KeyInitType A, KeyInitType B)
+	{
+		return A.HasSameIndexAndSerialNumber(B);
+	}
+
+	static FORCEINLINE uint32 GetKeyHash(KeyInitType Key)
+	{
+		return GetTypeHash(Key);
+	}
+};
+
 
 /**
   * Automatic version of the weak object pointer

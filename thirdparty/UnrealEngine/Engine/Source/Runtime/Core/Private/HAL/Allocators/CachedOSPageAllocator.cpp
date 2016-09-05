@@ -38,6 +38,7 @@ void* FCachedOSPageAllocator::AllocateImpl(SIZE_T Size, FFreePageBlock* First, F
 		if (Found)
 		{
 			void* Result = Found->Ptr;
+			UE_CLOG(!Result, LogMemory, Fatal, TEXT("OS memory allocation cache has been corrupted!"));
 			CachedTotal -= Found->ByteSize;
 			if (Found + 1 != Last)
 			{
@@ -55,7 +56,7 @@ void* FCachedOSPageAllocator::AllocateImpl(SIZE_T Size, FFreePageBlock* First, F
 		// Are we holding on to much mem? Release it all.
 		for (FFreePageBlock* Block = First; Block != Last; ++Block)
 		{
-			FPlatformMemory::BinnedFreeToOS(Block->Ptr);
+			FPlatformMemory::BinnedFreeToOS(Block->Ptr, Block->ByteSize);
 			Block->Ptr      = nullptr;
 			Block->ByteSize = 0;
 		}
@@ -70,21 +71,22 @@ void FCachedOSPageAllocator::FreeImpl(void* Ptr, SIZE_T Size, uint32 NumCacheBlo
 {
 	if (Size > CachedByteLimit / 4)
 	{
-		FPlatformMemory::BinnedFreeToOS(Ptr);
+		FPlatformMemory::BinnedFreeToOS(Ptr, Size);
 		return;
 	}
 
-	while (FreedPageBlocksNum && (FreedPageBlocksNum >= NumCacheBlocks || CachedTotal + Size > CachedByteLimit)) 
+	while (FreedPageBlocksNum && (FreedPageBlocksNum >= NumCacheBlocks || CachedTotal + Size > CachedByteLimit))
 	{
 		//Remove the oldest one
 		void* FreePtr = First->Ptr;
-		CachedTotal -= First->ByteSize;
+		SIZE_T FreeSize = First->ByteSize;
+		CachedTotal -= FreeSize;
 		FreedPageBlocksNum--;
 		if (FreedPageBlocksNum)
 		{
 			FMemory::Memmove(First, First + 1, sizeof(FFreePageBlock) * FreedPageBlocksNum);
 		}
-		FPlatformMemory::BinnedFreeToOS(FreePtr);
+		FPlatformMemory::BinnedFreeToOS(FreePtr, FreeSize);
 	}
 
 	First[FreedPageBlocksNum].Ptr      = Ptr;
@@ -92,4 +94,21 @@ void FCachedOSPageAllocator::FreeImpl(void* Ptr, SIZE_T Size, uint32 NumCacheBlo
 
 	CachedTotal += Size;
 	++FreedPageBlocksNum;
+}
+
+void FCachedOSPageAllocator::FreeAllImpl(FFreePageBlock* First, uint32& FreedPageBlocksNum, uint32& CachedTotal)
+{
+	while (FreedPageBlocksNum)
+	{
+		//Remove the oldest one
+		void* FreePtr = First->Ptr;
+		SIZE_T FreeSize = First->ByteSize;
+		CachedTotal -= FreeSize;
+		FreedPageBlocksNum--;
+		if (FreedPageBlocksNum)
+		{
+			FMemory::Memmove(First, First + 1, sizeof(FFreePageBlock)* FreedPageBlocksNum);
+		}
+		FPlatformMemory::BinnedFreeToOS(FreePtr, FreeSize);
+	}
 }

@@ -12,6 +12,29 @@ namespace physx
 	class PxRigidActor;
 }
 
+/** UV information for BodySetup, only created if UPhysicsSettings::bSupportUVFromHitResults */
+struct FBodySetupUVInfo
+{
+	/** Index buffer, required to go from face index to UVs */
+	TArray<int32> IndexBuffer;
+	/** Vertex positions, used to determine barycentric co-ords */
+	TArray<FVector> VertPositions;
+	/** UV channels for each vertex */
+	TArray< TArray<FVector2D> > VertUVs;
+
+	friend FArchive& operator<<(FArchive& Ar, FBodySetupUVInfo& UVInfo)
+	{
+		Ar << UVInfo.IndexBuffer;
+		Ar << UVInfo.VertPositions;
+		Ar << UVInfo.VertUVs;
+
+		return Ar;
+	}
+
+	/** Get resource size of UV info */
+	SIZE_T GetResourceSize();
+};
+
 /**
  * BodySetup contains all collision information that is associated with a single asset.
  * A single BodySetup instance is shared among many BodyInstances so that geometry data is not duplicated.
@@ -27,7 +50,7 @@ class UBodySetup : public UObject
 	GENERATED_UCLASS_BODY()
 
 	/** Simplified collision representation of this  */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, Category = BodySetup, meta=(DisplayName = "Primitives"))
 	struct FKAggregateGeom AggGeom;
 
 	/** Used in the PhysicsAsset case. Associates this Body with Bone in a skeletal mesh. */
@@ -95,7 +118,7 @@ class UBodySetup : public UObject
 	UPROPERTY(EditAnywhere, Category=Collision, meta=(DisplayName = "Collision Complexity"))
 	TEnumAsByte<enum ECollisionTraceFlag> CollisionTraceFlag;
 
-	TEnumAsByte<enum ECollisionTraceFlag> GetCollisionTraceFlag() const;
+	ENGINE_API TEnumAsByte<enum ECollisionTraceFlag> GetCollisionTraceFlag() const;
 
 	/** Default properties of the body instance, copied into objects on instantiation, was URB_BodyInstance */
 	UPROPERTY(EditAnywhere, Category=Collision, meta=(FullyExpand = "true"))
@@ -118,6 +141,15 @@ class UBodySetup : public UObject
 	/** Cooked physics data for each format */
 	FFormatContainer CookedFormatData;
 
+private:
+#if WITH_EDITOR
+	/** Cooked physics data with runtime only optimizations. This allows us to remove editor only data (like face index remap) assuming the project doesn't use it at runtime. At runtime we load this into CookedFormatData */
+	FFormatContainer CookedFormatDataRuntimeOnlyOptimization;
+#endif
+
+	int32 GetRuntimeOnlyCookOptimizationFlags() const;
+public:
+
 	/** Cooked physics data override. This is needed in cases where some other body setup has the cooked data and you don't want to own it or copy it. See per poly skeletal mesh */
 	FFormatContainer* CookedFormatDataOverride;
 
@@ -125,6 +157,9 @@ class UBodySetup : public UObject
 	/** Physics triangle mesh, created from cooked data in CreatePhysicsMeshes */
 	TArray<physx::PxTriangleMesh*> TriMeshes;
 #endif
+
+	/** Additional UV info, if available. Used for determining UV for a line trace impact. */
+	FBodySetupUVInfo UVInfo;
 
 	/** Flag used to know if we have created the physics convex and tri meshes from the cooked data yet */
 	bool bCreatedPhysicsMeshes;
@@ -207,13 +242,55 @@ public:
 	 */
 	ENGINE_API void UpdateTriMeshVertices(const TArray<FVector> & NewPositions);
 
+	/**	
+	 * Finds the shortest distance between the body setup and a world position. Input and output are given in world space
+	 * @param	WorldPosition	The point we are trying to get close to
+	 * @param	BodyToWorldTM	The transform to convert BodySetup into world space
+	 * @return					The distance between WorldPosition and the body setup. 0 indicates WorldPosition is inside one of the shapes.
+	 *
+	 * NOTE: This function ignores convex and trimesh data
+	 */
+	ENGINE_API float GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& BodyToWorldTM) const;
+
+	/** 
+	 * Finds the closest point in the body setup. Input and outputs are given in world space.
+	 * @param	WorldPosition			The point we are trying to get close to
+	 * @param	BodyToWorldTM			The transform to convert BodySetup into world space
+	 * @param	ClosestWorldPosition	The closest point on the body setup to WorldPosition
+	 * @param	FeatureNormal			The normal of the feature associated with ClosestWorldPosition
+	 * @return							The distance between WorldPosition and the body setup. 0 indicates WorldPosition is inside one of the shapes.
+	 *
+	 * NOTE: This function ignores convex and trimesh data
+	 */
+	ENGINE_API float GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& BodyToWorldTM, FVector& ClosestWorldPosition, FVector& FeatureNormal) const;
+
 	/**
 	 * Given a format name returns its cooked data.
 	 *
 	 * @param Format Physics format name.
+	 * @param bRuntimeOnlyOptimizedVersion whether we want the data that has runtime only optimizations. At runtime this flag is ignored and we use the runtime only optimized data regardless.
 	 * @return Cooked data or NULL of the data was not found.
 	 */
-	FByteBulkData* GetCookedData(FName Format);
+	FByteBulkData* GetCookedData(FName Format, bool bRuntimeOnlyOptimizedVersion = false);
+
+	/** 
+	 *	Given a location in body space, and face index, find the UV of the desired UV channel.
+	 *	Note this ONLY works if 'Support UV From Hit Results' is enabled in Physics Settings.
+	 */
+	bool CalcUVAtLocation(const FVector& BodySpaceLocation, int32 FaceIndex, int32 UVChannel, FVector2D& UV) const;
+
+
+#if WITH_EDITOR
+	ENGINE_API virtual void BeginCacheForCookedPlatformData(  const ITargetPlatform* TargetPlatform ) override;
+	ENGINE_API virtual void ClearCachedCookedPlatformData(  const ITargetPlatform* TargetPlatform ) override;
+
+	/*
+	* Copy all UPROPERTY settings except the collision geometry.
+	* This function is use when we restore the original data after a re-import of a static mesh.
+	* All UProperty should be copy here except the collision geometry (i.e. AggGeom)
+	*/
+	ENGINE_API virtual void CopyBodySetupProperty(const UBodySetup* Other);
+#endif // WITH_EDITOR
 
 #if WITH_PHYSX
 	/** 

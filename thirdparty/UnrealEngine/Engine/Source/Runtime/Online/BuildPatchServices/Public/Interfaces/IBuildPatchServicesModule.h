@@ -3,6 +3,7 @@
 
 #include "IBuildInstaller.h"
 #include "IBuildManifest.h"
+#include "BuildPatchSettings.h"
 
 class IAnalyticsProvider;
 class FHttpServiceTracker;
@@ -65,10 +66,11 @@ public:
 	 * @param	InstallManifest			The manifest to be installed
 	 * @param	InstallDirectory		The directory to install the App to
 	 * @param	OnCompleteDelegate		The delegate to call on completion
+	 * @param	bIsRepair				Whether the operation is a repair to an existing installation
 	 * @param	InstallTags				The set of tags that describe what to be installed, default empty set means full installation
 	 * @return		An interface to the created installer. Will be an invalid ptr if error.
 	 */
-	virtual IBuildInstallerPtr StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags = TSet<FString>()) = 0;
+	virtual IBuildInstallerPtr StartBuildInstall(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair = false, TSet<FString> InstallTags = TSet<FString>()) = 0;
 
 	/**
 	 * Starts an installer thread for the provided manifests, only producing the necessary stage. Useful for handling specific install directory write access requirements yourself.
@@ -77,10 +79,11 @@ public:
 	 * @param	InstallManifest			The manifest to be installed
 	 * @param	InstallDirectory		The directory to install the App to - this should still be the real install directory. It may be read from for patching.
 	 * @param	OnCompleteDelegate		The delegate to call on completion
+	 * @param	bIsRepair				Whether the operation is a repair to an existing installation
 	 * @param	InstallTags				The set of tags that describe what to be installed, default empty set means full installation
 	 * @return		An interface to the created installer. Will be an invalid ptr if error.
 	 */
-	virtual IBuildInstallerPtr StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, TSet<FString> InstallTags = TSet<FString>()) = 0;
+	virtual IBuildInstallerPtr StartBuildInstallStageOnly(IBuildManifestPtr CurrentManifest, IBuildManifestPtr InstallManifest, const FString& InstallDirectory, FBuildPatchBoolManifestDelegate OnCompleteDelegate, bool bIsRepair = false, TSet<FString> InstallTags = TSet<FString>()) = 0;
 
 	/**
 	 * Sets the directory used for staging intermediate files.
@@ -92,7 +95,14 @@ public:
 	 * Sets the cloud directory where chunks and manifests will be pulled from and saved to.
 	 * @param CloudDir		The cloud directory
 	 */
-	virtual void SetCloudDirectory( const FString& CloudDir ) = 0;
+	virtual void SetCloudDirectory( FString CloudDir ) = 0;
+
+	/**
+	 * Sets the cloud directory list where chunks and manifests will be pulled from and saved to.
+	 * When downloading, if we get a failure, we move on to the next cloud option for that request.
+	 * @param CloudDirs		The cloud directory list
+	 */
+	virtual void SetCloudDirectories( TArray<FString> CloudDirs ) = 0;
 
 	/**
 	 * Sets the backup directory where files that are being clobbered by repair/patch will be placed.
@@ -126,7 +136,6 @@ public:
 	 */
 	virtual void CancelAllInstallers(bool WaitForThreads) = 0;
 
-#if WITH_BUILDPATCHGENERATION
 	/**
 	 * Processes a Build Image to determine new chunks and produce a chunk based manifest, all saved to the cloud.
 	 * NOTE: This function is blocking and will not return until finished. Don't run on main thread.
@@ -136,22 +145,13 @@ public:
 	virtual bool GenerateChunksManifestFromDirectory( const FBuildPatchSettings& Settings ) = 0;
 
 	/**
-	 * Processes a Build Image to determine new raw files and produce a raw file based manifest, all saved to the cloud.
-	 * NOTE: This function is blocking and will not return until finished. Don't run on main thread.
-	 * @param Settings				Specifies the settings for the operation.  See FBuildPatchSettings documentation.
-	 * @return		true if no file errors occurred
-	 */
-	virtual bool GenerateFilesManifestFromDirectory( const FBuildPatchSettings& Settings ) = 0;
-
-	/**
 	 * Processes a Cloud Directory to identify and delete any orphaned chunks or files.
 	 * NOTE: THIS function is blocking and will not return until finished. Don't run on main thread.
-	 * @param ManifestsToKeep      If specified, these manifests will be retained, and all others will be deleted
 	 * @param DataAgeThreshold     Chunks which are not referenced by a valid manifest, and which are older than this age (in days), will be deleted
-	 * @param Mode      The mode that compactify will run in. If Preview, then no work will be carried out, if NoPatchData, then no patch-data will be deleted
-	 * @return              true if no file errors occurred
+	 * @param Mode                 The mode that compactify will run in. If Preview, then no work will be carried out, if NoPatchData, then no patch-data will be deleted
+	 * @return                     true if no file errors occurred
 	 */
-	virtual bool CompactifyCloudDirectory(const TArray<FString>& ManifestsToKeep, const float DataAgeThreshold, const ECompactifyMode::Type Mode) = 0;
+	virtual bool CompactifyCloudDirectory(float DataAgeThreshold, ECompactifyMode::Type Mode) = 0;
 
 	/**
 	 * Saves to file, and logs, a full list of cloud dir relative referenced data file paths
@@ -160,9 +160,21 @@ public:
 	 * @param   bIncludeSizes        If true, will include the size (in bytes) with every file output
 	 * @return  true if successful
 	 */
-	virtual bool EnumerateManifestData(FString ManifestFilePath, FString OutputFile, const bool bIncludeSizes) = 0;
+	virtual bool EnumerateManifestData(const FString& ManifestFilePath, const FString& OutputFile, bool bIncludeSizes) = 0;
 
-#endif // WITH_BUILDPATCHGENERATION
+	/**
+	 * Takes two manifests as input, in order to merge together producing a new manifest containing all files.
+	 * @param   ManifestFilePathA          A full file path for the base manifest to be loaded
+	 * @param   ManifestFilePathB          A full file path for the merge manifest to be loaded, by default files in B will stomp over A
+	 * @param   ManifestFilePathC          A full file path for the manifest to be output
+	 * @param   NewVersionString           The new version string for the build, all other meta will be copied from B
+	 * @param   SelectionDetailFilePath    Optional full file path to a text file listing each build relative file required, followed by A or B to select which manifest to pull from.
+	 *                                     The format should be \r\n separated lines of filename \t A|B. Example:
+	 *                                     File/in/build1	A
+	 *                                     File/in/build2	B
+	 * @return  true if successful
+	 */
+	virtual bool MergeManifests(const FString& ManifestFilePathA, const FString& ManifestFilePathB, const FString& ManifestFilePathC, const FString& NewVersionString, const FString& SelectionDetailFilePath) = 0;
 
 	/**
 	 * Deprecated function, use MakeManifestFromData instead

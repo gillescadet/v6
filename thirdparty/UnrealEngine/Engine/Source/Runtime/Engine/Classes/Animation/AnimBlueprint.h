@@ -89,6 +89,8 @@ class ENGINE_API UAnimBlueprint : public UBlueprint
 	{
 		return false;
 	}
+
+	virtual bool IsValidForBytecodeOnlyRecompile() const override { return false; }
 	// End of UBlueprint interface
 
 	// Finds the index of the specified group, or creates a new entry for it (unless the name is NAME_None, which will return INDEX_NONE)
@@ -118,6 +120,8 @@ class ENGINE_API UAnimBlueprint : public UBlueprint
 
 	virtual void PostLoad() override;
 
+	virtual void Serialize(FArchive& Ar) override;
+
 protected:
 	// Broadcast when an override is changed, allowing derived blueprints to be updated
 	FOnOverrideChangedMulticaster OnOverrideChanged;
@@ -128,5 +132,10 @@ public:
 	// Array of overrides to asset containing nodes in the parent that have been overridden
 	UPROPERTY()
 	TArray<FAnimParentNodeAssetOverride> ParentAssetOverrides;
+
+	// Array of active pose watches (pose watch allows us to see the bone pose at a 
+	// particular point of the anim graph) 
+	UPROPERTY(transient)
+	TArray<class UPoseWatch*> PoseWatches;
 #endif
 };

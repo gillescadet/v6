@@ -25,6 +25,9 @@ typedef FMacCursor FPlatformCursor;
 #else
 #endif
 
+// Enable buffered video to smooth out the frames we get back from Cef
+#define USE_BUFFERED_VIDEO 1
+
 namespace {
 	// Private helper class to post a callback to GetSource.
 	class FWebBrowserClosureVisitor
@@ -46,9 +49,124 @@ namespace {
 	};
 }
 
-FWebBrowserWindow::FWebBrowserWindow(CefRefPtr<CefBrowser> InBrowser, FString InUrl, TOptional<FString> InContentsToLoad, bool InShowErrorMessage, bool InThumbMouseButtonNavigation, bool InUseTransparency)
+
+// Private helper class to smooth out video buffering, using a ringbuffer
+// (cef sometimes submits multiple frames per engine frame)
+class FBrowserBufferedVideo
+{
+public:
+	FBrowserBufferedVideo(uint32 NumFrames) 
+		: FrameWriteIndex(0)
+		, FrameReadIndex(0)
+		, FrameCountThisEngineTick(0)
+		, FrameCount(0)
+		, FrameNumberOfLastRender(-1)
+	{
+		Frames.SetNum(NumFrames);
+	}
+
+	~FBrowserBufferedVideo()
+	{
+	}
+
+	/**
+	* Submits a frame to the video buffer
+	* @return true if this is the first frame submitted this engine tick, or false otherwise
+	*/
+	bool SubmitFrame(
+		int32 InWidth,
+		int32 InHeight,
+		const void* Buffer,
+		FIntRect Dirty)
+	{
+		check(IsInGameThread());
+		check(Buffer != nullptr);
+
+		const uint32 NumBytesPerPixel = 4;
+		FFrame& Frame = Frames[FrameWriteIndex];
+
+		// If the write buffer catches up to the read buffer, we need to release the read buffer and increment its index
+		if (FrameWriteIndex == FrameReadIndex && FrameCount > 0)
+		{
+			Frame.ReleaseTextureData();
+			FrameReadIndex = (FrameReadIndex + 1) % Frames.Num();
+		}
+
+		check(Frame.SlateTextureData == nullptr);
+		Frame.SlateTextureData = new FSlateTextureData((uint8*)Buffer, InWidth, InHeight, NumBytesPerPixel);
+
+		FrameWriteIndex = (FrameWriteIndex + 1) % Frames.Num();
+		FrameCount = FMath::Min(Frames.Num(), FrameCount + 1);
+		FrameCountThisEngineTick++;
+
+		return FrameCountThisEngineTick == 1;
+	}
+
+    /**
+     * Called once per frame to get the next frame's texturedata
+     * @return The texture data. Can be nullptr if no frame is available
+     */
+	FSlateTextureData* GetNextFrameTextureData()
+	{
+		// Grab the next available frame if available. Ensure we don't grab more than one frame per engine tick
+		check(IsInGameThread());
+		FSlateTextureData* SlateTextureData = nullptr;
+		if ( FrameCount > 0 )
+		{
+			// Grab the first frame we haven't submitted yet 
+			FFrame& Frame = Frames[FrameReadIndex];
+			SlateTextureData = Frame.SlateTextureData;
+			
+			// Set this to NULL because the renderthread is taking ownership
+			Frame.SlateTextureData = nullptr; 
+			FrameReadIndex = (FrameReadIndex + 1) % Frames.Num();
+			FrameCount--;
+		}
+		FrameCountThisEngineTick = 0;
+		return SlateTextureData;
+	}
+
+private:
+	struct FFrame
+	{
+		FFrame()
+			: SlateTextureData(nullptr) 
+		{}
+		
+		~FFrame()
+		{
+			ReleaseTextureData();
+		}
+
+		void ReleaseTextureData()
+		{
+			if (SlateTextureData)
+			{
+				delete SlateTextureData;
+			}
+			SlateTextureData = nullptr;
+		}
+
+		FSlateTextureData* SlateTextureData;
+	};
+
+	TArray<FFrame> Frames;
+
+	// Read/write position in the ringbuffer
+	int32 FrameWriteIndex;
+	int32 FrameReadIndex;
+
+	int32 FrameCountThisEngineTick;
+	int32 FrameCount;
+	int32 FrameNumberOfLastRender;
+};
+
+
+
+FWebBrowserWindow::FWebBrowserWindow(CefRefPtr<CefBrowser> InBrowser, CefRefPtr<FWebBrowserHandler> InHandler, FString InUrl, TOptional<FString> InContentsToLoad, bool InShowErrorMessage, bool InThumbMouseButtonNavigation, bool InUseTransparency)
 	: DocumentState(EWebBrowserDocumentState::NoDocument)
 	, InternalCefBrowser(InBrowser)
+	, WebBrowserHandler(InHandler)
 	, CurrentUrl(InUrl)
 	, ViewportSize(FIntPoint::ZeroValue)
 	, bIsClosing(false)
@@ -77,11 +195,18 @@ FWebBrowserWindow::FWebBrowserWindow(CefRefPtr<CefBrowser> InBrowser, FString In
 
 	UpdatableTextures[0] = nullptr;
 	UpdatableTextures[1] = nullptr;
+
+#if USE_BUFFERED_VIDEO
+	BufferedVideo = TUniquePtr<FBrowserBufferedVideo>(new FBrowserBufferedVideo(4));
+#endif
 }
 
 FWebBrowserWindow::~FWebBrowserWindow()
 {
+	WebBrowserHandler->OnCreateWindow().Unbind();
+	WebBrowserHandler->OnBeforePopup().Unbind();
 	CloseBrowser(true);
+
 	if(FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer().IsValid())
 	{
 		for (int I = 0; I < 1; ++I)
@@ -94,6 +219,8 @@ FWebBrowserWindow::~FWebBrowserWindow()
 	}
 	UpdatableTextures[0] = nullptr;
 	UpdatableTextures[1] = nullptr;
+
+	BufferedVideo.Reset();
 }
 
 void FWebBrowserWindow::LoadURL(FString NewURL)
@@ -521,21 +648,6 @@ bool FWebBrowserWindow::OnUnhandledKeyEvent(const CefKeyEvent& CefEvent)
 	return bWasHandled;
 }
 
-
-bool FWebBrowserWindow::SupportsNewWindows()
-{
-	return OnCreateWindow().IsBound() ? true : false;
-}
-
-bool FWebBrowserWindow::RequestCreateWindow( const TSharedRef<IWebBrowserWindow>& NewBrowserWindow, const TSharedPtr<IWebBrowserPopupFeatures>& BrowserPopupFeatures )
-{
-	if(OnCreateWindow().IsBound())
-	{
-		return OnCreateWindow().Execute(TWeakPtr<IWebBrowserWindow>(NewBrowserWindow), TWeakPtr<IWebBrowserPopupFeatures>(BrowserPopupFeatures));
-	}
-	return false;
-}
-
 bool FWebBrowserWindow::OnJSDialog(CefJSDialogHandler::JSDialogType DialogType, const CefString& MessageText, const CefString& DefaultPromptText, CefRefPtr<CefJSDialogCallback> Callback, bool& OutSuppressMessage)
 {
 	bool Retval = false;
@@ -826,7 +938,7 @@ void FWebBrowserWindow::ExecuteJavascript(const FString& Script)
 	if (IsValid())
 	{
 		CefRefPtr<CefFrame> frame = InternalCefBrowser->GetMainFrame();
-		frame->ExecuteJavaScript(TCHAR_TO_ANSI(*Script), frame->GetURL(), 0);
+		frame->ExecuteJavaScript(TCHAR_TO_UTF8(*Script), frame->GetURL(), 0);
 	}
 }
 
@@ -928,7 +1040,7 @@ void FWebBrowserWindow::NotifyDocumentLoadingStateChange(bool IsLoading)
 
 void FWebBrowserWindow::OnPaint(CefRenderHandler::PaintElementType Type, const CefRenderHandler::RectList& DirtyRects, const void* Buffer, int Width, int Height)
 {
-
+	bool bNeedsRedraw = false;
 	if (UpdatableTextures[Type] == nullptr && FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer().IsValid())
 	{
 		UpdatableTextures[Type] = FSlateApplication::Get().GetRenderer()->CreateUpdatableTexture(Width,Height);
@@ -938,21 +1050,48 @@ void FWebBrowserWindow::OnPaint(CefRenderHandler::PaintElementType Type, const C
 	{
 		// Note that with more recent versions of CEF, the DirtyRects will always contain a single element, as it merges all dirty areas into a single rectangle before calling OnPaint
 		// In case that should change in the future, we'll simply update the entire area if DirtyRects is not a single element.
-		FIntRect Dirty = (DirtyRects.size() == 1)?FIntRect(DirtyRects[0].x, DirtyRects[0].y, DirtyRects[0].x + DirtyRects[0].width, DirtyRects[0].y + DirtyRects[0].height):FIntRect();
-		UpdatableTextures[Type]->UpdateTextureThreadSafeRaw(Width, Height, Buffer, Dirty);
-	}
+		FIntRect Dirty = (DirtyRects.size() == 1) ? FIntRect(DirtyRects[0].x, DirtyRects[0].y, DirtyRects[0].x + DirtyRects[0].width, DirtyRects[0].y + DirtyRects[0].height) : FIntRect();
 
-	if (Type == PET_POPUP && bShowPopupRequested)
-	{
-		bShowPopupRequested = false;
-		bPopupHasFocus = true;
-		FIntPoint PopupSize = FIntPoint(Width, Height);
-		FIntRect PopupRect = FIntRect(PopupPosition, PopupPosition+PopupSize);
-		OnShowPopup().Broadcast(PopupRect);
+		if (Type == PET_VIEW && BufferedVideo.IsValid() )
+		{
+			// If we're using bufferedVideo, submit the frame to it
+			bNeedsRedraw = BufferedVideo->SubmitFrame(Width, Height, Buffer, Dirty);
+		}
+		else
+		{
+			UpdatableTextures[Type]->UpdateTextureThreadSafeRaw(Width, Height, Buffer, Dirty);
+
+		    if (Type == PET_POPUP && bShowPopupRequested)
+		    {
+			    bShowPopupRequested = false;
+			    bPopupHasFocus = true;
+			    FIntPoint PopupSize = FIntPoint(Width, Height);
+			    FIntRect PopupRect = FIntRect(PopupPosition, PopupPosition + PopupSize);
+			    OnShowPopup().Broadcast(PopupRect);
+		    }
+			bNeedsRedraw = true;
+		}
 	}
 
 	bIsInitialized = true;
-	NeedsRedrawEvent.Broadcast();
+	if (bNeedsRedraw)
+	{
+		NeedsRedrawEvent.Broadcast();
+	}
+}
+
+
+
+void FWebBrowserWindow::UpdateVideoBuffering()
+{
+	if (BufferedVideo.IsValid() && UpdatableTextures[PET_VIEW] != nullptr )
+	{
+		FSlateTextureData* SlateTextureData = BufferedVideo->GetNextFrameTextureData();
+		if (SlateTextureData != nullptr )
+		{
+			UpdatableTextures[PET_VIEW]->UpdateTextureThreadSafeWithTextureData(SlateTextureData);
+		}
+	}
 }
 
 void FWebBrowserWindow::OnCursorChange(CefCursorHandle CefCursor, CefRenderHandler::CursorType Type, const CefCursorInfo& CustomCursorInfo)
@@ -1052,7 +1191,12 @@ bool FWebBrowserWindow::OnBeforeBrowse( CefRefPtr<CefBrowser> Browser, CefRefPtr
 			if(OnBeforeBrowse().IsBound())
 			{
 				FString Url = Request->GetURL().ToWString().c_str();
-				return OnBeforeBrowse().Execute(Url, bIsRedirect);
+
+				FWebNavigationRequest RequestDetails;
+				RequestDetails.bIsRedirect = bIsRedirect;
+				RequestDetails.bIsMainFrame = Frame->IsMain();
+
+				return OnBeforeBrowse().Execute(Url, RequestDetails);
 			}
 		}
 	}
@@ -1273,17 +1417,6 @@ void FWebBrowserWindow::UnbindUObject(const FString& Name, UObject* Object, bool
 	Scripting->UnbindUObject(Name, Object, bIsPermanent);
 }
 
-bool FWebBrowserWindow::OnCefBeforePopup(const CefString& Target_Url, const CefString& Target_Frame_Name)
-{
-	if (OnBeforePopup().IsBound())
-	{
-		FString URL = Target_Url.ToWString().c_str();
-		FString FrameName = Target_Frame_Name.ToWString().c_str();
-		return OnBeforePopup().Execute(URL, FrameName);
-	}
-
-	return false;
-}
 
 void FWebBrowserWindow::OnBrowserClosing()
 {

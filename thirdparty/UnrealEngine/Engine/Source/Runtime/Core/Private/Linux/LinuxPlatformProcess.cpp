@@ -38,7 +38,7 @@ void* FLinuxPlatformProcess::GetDllHandle( const TCHAR* Filename )
 	void *Handle = dlopen( TCHAR_TO_UTF8(*AbsolutePath), DlOpenMode );
 	if (!Handle)
 	{
-		UE_LOG(LogLinux, Warning, TEXT("dlopen failed: %s"), ANSI_TO_TCHAR(dlerror()) );
+		UE_LOG(LogLinux, Warning, TEXT("dlopen failed: %s"), UTF8_TO_TCHAR(dlerror()) );
 	}
 	return Handle;
 }
@@ -101,7 +101,7 @@ const TCHAR* FLinuxPlatformProcess::ComputerName()
 			SysName = "Linux Computer";
 		}
 
-		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, ANSI_TO_TCHAR(SysName));
+		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, UTF8_TO_TCHAR(SysName));
 		CachedResult[ARRAY_COUNT(CachedResult) - 1] = 0;
 		bHaveResult = true;
 	}
@@ -147,7 +147,7 @@ const TCHAR* FLinuxPlatformProcess::BaseDir()
 		}
 		SelfPath[ARRAY_COUNT(SelfPath) - 1] = 0;
 
-		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, ANSI_TO_TCHAR(dirname(SelfPath)));
+		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, UTF8_TO_TCHAR(dirname(SelfPath)));
 		CachedResult[ARRAY_COUNT(CachedResult) - 1] = 0;
 		FCString::Strcat(CachedResult, ARRAY_COUNT(CachedResult) - 1, TEXT("/"));
 		bHaveResult = true;
@@ -214,7 +214,7 @@ const TCHAR* FLinuxPlatformProcess::UserDir()
 				if (DocLen > 0)
 				{
 					DocPath[DocLen] = '\0';
-					FCString::Strncpy(Result, ANSI_TO_TCHAR(DocPath), ARRAY_COUNT(Result));
+					FCString::Strncpy(Result, UTF8_TO_TCHAR(DocPath), ARRAY_COUNT(Result));
 					FCString::Strncat(Result, TEXT("/"), ARRAY_COUNT(Result));
 				}
 			}
@@ -242,7 +242,7 @@ const TCHAR* FLinuxPlatformProcess::UserHomeDir()
 		const char * VarValue = secure_getenv("HOME");
 		if (VarValue)
 		{
-			FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, ANSI_TO_TCHAR(VarValue));
+			FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, UTF8_TO_TCHAR(VarValue));
 			bHaveHome = true;
 		}
 		else
@@ -250,7 +250,7 @@ const TCHAR* FLinuxPlatformProcess::UserHomeDir()
 			struct passwd * UserInfo = getpwuid(geteuid());
 			if (NULL != UserInfo && NULL != UserInfo->pw_dir)
 			{
-				FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, ANSI_TO_TCHAR(UserInfo->pw_dir));
+				FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, UTF8_TO_TCHAR(UserInfo->pw_dir));
 				bHaveHome = true;
 			}
 			else
@@ -305,7 +305,7 @@ bool FLinuxPlatformProcess::SetProcessLimits(EProcessResource::Type Resource, ui
 
 	if (setrlimit(NativeResource, &NativeLimit) != 0)
 	{
-		UE_LOG(LogHAL, Warning, TEXT("setrlimit() failed with error %d (%s)\n"), errno, ANSI_TO_TCHAR(strerror(errno)));
+		UE_LOG(LogHAL, Warning, TEXT("setrlimit() failed with error %d (%s)\n"), errno, UTF8_TO_TCHAR(strerror(errno)));
 		return false;
 	}
 
@@ -328,7 +328,7 @@ const TCHAR* FLinuxPlatformProcess::ExecutableName(bool bRemoveExtension)
 		}
 		SelfPath[ARRAY_COUNT(SelfPath) - 1] = 0;
 
-		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, ANSI_TO_TCHAR(basename(SelfPath)));
+		FCString::Strcpy(CachedResult, ARRAY_COUNT(CachedResult) - 1, UTF8_TO_TCHAR(basename(SelfPath)));
 		CachedResult[ARRAY_COUNT(CachedResult) - 1] = 0;
 		bHaveResult = true;
 	}
@@ -339,7 +339,7 @@ const TCHAR* FLinuxPlatformProcess::ExecutableName(bool bRemoveExtension)
 FString FLinuxPlatformProcess::GenerateApplicationPath( const FString& AppName, EBuildConfigurations::Type BuildConfiguration)
 {
 	FString PlatformName = GetBinariesSubdirectory();
-	FString ExecutablePath = FString::Printf(TEXT("../%s/%s"), *PlatformName, *AppName);
+	FString ExecutablePath = FString::Printf(TEXT("../../../Engine/Binaries/%s/%s"), *PlatformName, *AppName);
 	
 	if (BuildConfiguration != EBuildConfigurations::Development && BuildConfiguration != EBuildConfigurations::DebugGame)
 	{
@@ -361,7 +361,7 @@ FString FLinuxPlatformProcess::GetApplicationName( uint32 ProcessId )
 	int32 Ret = readlink(ReadLinkCmd, ProcessPath, ARRAY_COUNT(ProcessPath) - 1);
 	if (Ret != -1)
 	{
-		Output = ANSI_TO_TCHAR(ProcessPath);
+		Output = UTF8_TO_TCHAR(ProcessPath);
 	}
 	return Output;
 }
@@ -570,7 +570,7 @@ struct FChildWaiterThread : public FRunnable
 				{
 					int ErrNo = errno;
 					UE_LOG(LogHAL, Fatal, TEXT("FChildWaiterThread::Run(): waitid for pid %d failed (errno=%d, %s)"), 
-						   static_cast< int32 >(ChildPid), ErrNo, ANSI_TO_TCHAR(strerror(ErrNo)));
+						   static_cast< int32 >(ChildPid), ErrNo, UTF8_TO_TCHAR(strerror(ErrNo)));
 					break;	// exit the loop if for some reason Fatal log (above) returns
 				}
 			}
@@ -596,6 +596,60 @@ TArray<FChildWaiterThread *> FChildWaiterThread::ChildWaiterThreadsArray;
 /** See FChildWaiterThread */
 FCriticalSection FChildWaiterThread::ChildWaiterThreadsArrayGuard;
 
+namespace LinuxPlatformProcess
+{
+	/**
+	 * This function tries to set exec permissions on the file (if it is missing them).
+	 * It exists because files copied manually from foreign filesystems (e.g. CrashReportClient) or unzipped from
+	 * certain arhcive types may lack +x, yet we still want to execute them.
+	 *
+	 * @param AbsoluteFilename absolute filename to the file in question
+	 *
+	 * @return true if we should attempt to execute the file, false if it is not worth even trying
+	 */	
+	bool AttemptToMakeExecIfNotAlready(const FString & AbsoluteFilename)
+	{
+		bool bWorthTryingToExecute = true;	// be conservative and let the OS decide in most cases
+
+		FTCHARToUTF8 AbsoluteFilenameUTF8Buffer(*AbsoluteFilename);
+		const char* AbsoluteFilenameUTF8 = AbsoluteFilenameUTF8Buffer.Get();
+
+		struct stat FilePerms;
+		if (UNLIKELY(stat(AbsoluteFilenameUTF8, &FilePerms) == -1))
+		{
+			int ErrNo = errno;
+			UE_LOG(LogHAL, Warning, TEXT("LinuxPlatformProcess::AttemptToMakeExecIfNotAlready: could not stat '%s', errno=%d (%s)"),
+				*AbsoluteFilename,
+				ErrNo,
+				UTF8_TO_TCHAR(strerror(ErrNo))
+				);
+		}
+		else
+		{
+			// Try to make a guess if we can execute the file. We are not trying to do the exact check,
+			// so if any of executable bits are set, assume it's executable
+			if ((FilePerms.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0)
+			{
+				// if no executable bits at all, try setting permissions
+				if (chmod(AbsoluteFilenameUTF8, FilePerms.st_mode | S_IXUSR) == -1)
+				{
+					int ErrNo = errno;
+					UE_LOG(LogHAL, Warning, TEXT("LinuxPlatformProcess::AttemptToMakeExecIfNotAlready: could not chmod +x '%s', errno=%d (%s)"),
+						*AbsoluteFilename,
+						ErrNo,
+						UTF8_TO_TCHAR(strerror(ErrNo))
+						);
+
+					// at this point, assume that execution will fail
+					bWorthTryingToExecute = false;
+				}
+			}
+		}
+
+		return bWorthTryingToExecute;
+	}
+}
+
 FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Parms, bool bLaunchDetached, bool bLaunchHidden, bool bLaunchReallyHidden, uint32* OutProcessID, int32 PriorityModifier, const TCHAR* OptionalWorkingDirectory, void* PipeWriteChild, void * PipeReadChild)
 {
 	// @TODO bLaunchHidden bLaunchReallyHidden are not handled
@@ -607,6 +661,12 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 	}
 
 	if (!FPaths::FileExists(ProcessPath))
+	{
+		return FProcHandle();
+	}
+
+	// check if it's worth attemptting to execute the file
+	if (!LinuxPlatformProcess::AttemptToMakeExecIfNotAlready(ProcessPath))
 	{
 		return FProcHandle();
 	}
@@ -686,6 +746,11 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 					{
 						NewArgvArray.Add(MultiPartArg.TrimQuotes(NULL));
 					}
+					else if (MultiPartArg.Contains(TEXT("=\"")))
+					{
+						FString SingleArg = MultiPartArg.Replace(TEXT("=\""), TEXT("="));
+						NewArgvArray.Add(SingleArg.TrimQuotes(nullptr));
+					}
 					else
 					{
 						NewArgvArray.Add(MultiPartArg);
@@ -728,26 +793,68 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 	extern char ** environ;	// provided by libc
 	pid_t ChildPid = -1;
 
-	posix_spawn_file_actions_t FileActions;
+	posix_spawnattr_t SpawnAttr;
+	posix_spawnattr_init(&SpawnAttr);
+	short int SpawnFlags = 0;
 
-	posix_spawn_file_actions_init(&FileActions);
-	if (PipeWriteChild)
+	// unmask all signals and set realtime signals to default for children
+	// the latter is particularly important for mono, which otherwise will crash attempting to find usable signals
+	// (NOTE: setting all signals to default fails)
+	sigset_t EmptySignalSet;
+	sigemptyset(&EmptySignalSet);
+	posix_spawnattr_setsigmask(&SpawnAttr, &EmptySignalSet);
+	SpawnFlags |= POSIX_SPAWN_SETSIGMASK;
+
+	sigset_t SetToDefaultSignalSet;
+	sigemptyset(&SetToDefaultSignalSet);
+	for (int SigNum = SIGRTMIN; SigNum <= SIGRTMAX; ++SigNum)
 	{
-		const FPipeHandle* PipeWriteHandle = reinterpret_cast< const FPipeHandle* >(PipeWriteChild);
-		posix_spawn_file_actions_adddup2(&FileActions, PipeWriteHandle->GetHandle(), STDOUT_FILENO);
+		sigaddset(&SetToDefaultSignalSet, SigNum);
 	}
+	posix_spawnattr_setsigdefault(&SpawnAttr, &SetToDefaultSignalSet);
+	SpawnFlags |= POSIX_SPAWN_SETSIGDEF;
 
-	if (PipeReadChild)
+	int PosixSpawnErrNo = -1;
+	if (PipeWriteChild || PipeReadChild)
 	{
-		const FPipeHandle* PipeReadHandle = reinterpret_cast< const FPipeHandle* >(PipeReadChild);
-		posix_spawn_file_actions_adddup2(&FileActions, PipeReadHandle->GetHandle(), STDIN_FILENO);
-	}
+		posix_spawn_file_actions_t FileActions;
+		posix_spawn_file_actions_init(&FileActions);
 
-	int PosixSpawnErrNo = posix_spawn(&ChildPid, TCHAR_TO_UTF8(*ProcessPath), &FileActions, nullptr, Argv, environ);
-	posix_spawn_file_actions_destroy(&FileActions);
+		if (PipeWriteChild)
+		{
+			const FPipeHandle* PipeWriteHandle = reinterpret_cast<const FPipeHandle*>(PipeWriteChild);
+			posix_spawn_file_actions_adddup2(&FileActions, PipeWriteHandle->GetHandle(), STDOUT_FILENO);
+		}
+
+		if (PipeReadChild)
+		{
+			const FPipeHandle* PipeReadHandle = reinterpret_cast<const FPipeHandle*>(PipeReadChild);
+			posix_spawn_file_actions_adddup2(&FileActions, PipeReadHandle->GetHandle(), STDIN_FILENO);
+		}
+
+		posix_spawnattr_setflags(&SpawnAttr, SpawnFlags);
+		PosixSpawnErrNo = posix_spawn(&ChildPid, TCHAR_TO_UTF8(*ProcessPath), &FileActions, &SpawnAttr, Argv, environ);
+		posix_spawn_file_actions_destroy(&FileActions);
+	}
+	else
+	{
+		// if we don't have any actions to do, use a faster route that will use vfork() instead.
+		// This is not just faster, it is crucial when spawning a crash reporter to report a crash due to stack overflow in a thread
+		// since otherwise atfork handlers will get called and posix_spawn() will crash (in glibc's __reclaim_stacks()).
+		// However, it has its problems, see:
+		//		http://ewontfix.com/7/
+		//		https://sourceware.org/bugzilla/show_bug.cgi?id=14750
+		//		https://sourceware.org/bugzilla/show_bug.cgi?id=14749
+		SpawnFlags |= POSIX_SPAWN_USEVFORK;
+
+		posix_spawnattr_setflags(&SpawnAttr, SpawnFlags);
+		PosixSpawnErrNo = posix_spawn(&ChildPid, TCHAR_TO_UTF8(*ProcessPath), nullptr, &SpawnAttr, Argv, environ);
+	}
+	posix_spawnattr_destroy(&SpawnAttr);
+
 	if (PosixSpawnErrNo != 0)
 	{
-		UE_LOG(LogHAL, Fatal, TEXT("FLinuxPlatformProcess::CreateProc: posix_spawn() failed (%d, %s)"), PosixSpawnErrNo, ANSI_TO_TCHAR(strerror(PosixSpawnErrNo)));
+		UE_LOG(LogHAL, Fatal, TEXT("FLinuxPlatformProcess::CreateProc: posix_spawn() failed (%d, %s)"), PosixSpawnErrNo, UTF8_TO_TCHAR(strerror(PosixSpawnErrNo)));
 		return FProcHandle();	// produce knowingly invalid handle if for some reason Fatal log (above) returns
 	}
 
@@ -764,7 +871,7 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 			int ErrNo = errno;
 			UE_LOG(LogHAL, Warning, TEXT("FLinuxPlatformProcess::CreateProc: could not get child's priority, errno=%d (%s)"),
 				ErrNo,
-				ANSI_TO_TCHAR(strerror(ErrNo))
+				UTF8_TO_TCHAR(strerror(ErrNo))
 			);
 			
 			// proceed anyway...
@@ -778,7 +885,7 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 			int ErrNo = errno;
 			UE_LOG(LogHAL, Warning, TEXT("FLinuxPlatformProcess::CreateProc: could not get priority limits (RLIMIT_NICE), errno=%d (%s)"),
 				ErrNo,
-				ANSI_TO_TCHAR(strerror(ErrNo))
+				UTF8_TO_TCHAR(strerror(ErrNo))
 			);
 
 			// proceed anyway...
@@ -809,7 +916,7 @@ FProcHandle FLinuxPlatformProcess::CreateProc(const TCHAR* URL, const TCHAR* Par
 			UE_LOG(LogHAL, Warning, TEXT("FLinuxPlatformProcess::CreateProc: could not change child's priority (nice value) from %d to %d, errno=%d (%s)"),
 				TheirCurrentPrio, NewPrio,
 				ErrNo,
-				ANSI_TO_TCHAR(strerror(ErrNo))
+				UTF8_TO_TCHAR(strerror(ErrNo))
 			);
 		}
 		else
@@ -904,7 +1011,7 @@ bool FProcState::IsRunning()
 					{
 						int ErrNo = errno;
 						UE_LOG(LogHAL, Fatal, TEXT("FLinuxPlatformProcess::WaitForProc: waitid for pid %d failed (errno=%d, %s)"), 
-							static_cast< int32 >(GetProcessId()), ErrNo, ANSI_TO_TCHAR(strerror(ErrNo)));
+							static_cast< int32 >(GetProcessId()), ErrNo, UTF8_TO_TCHAR(strerror(ErrNo)));
 						break;	// exit the loop if for some reason Fatal log (above) returns
 					}
 				}
@@ -921,7 +1028,7 @@ bool FProcState::IsRunning()
 		// which is a dubious, but valid behavior. We don't want to keep zombie around though.
 		if (!bIsRunning)
 		{
-			UE_LOG(LogHAL, Log, TEXT("Child %d is no more running (zombie), Wait()ing immediately."), GetProcessId() );
+			UE_LOG(LogHAL, Log, TEXT("Child %d is no longer running (zombie), Wait()ing immediately."), GetProcessId() );
 			Wait();
 		}
 	}
@@ -965,7 +1072,7 @@ void FProcState::Wait()
 			{
 				int ErrNo = errno;
 				UE_LOG(LogHAL, Fatal, TEXT("FLinuxPlatformProcess::WaitForProc: waitid for pid %d failed (errno=%d, %s)"), 
-					static_cast< int32 >(GetProcessId()), ErrNo, ANSI_TO_TCHAR(strerror(ErrNo)));
+					static_cast< int32 >(GetProcessId()), ErrNo, UTF8_TO_TCHAR(strerror(ErrNo)));
 				break;	// exit the loop if for some reason Fatal log (above) returns
 			}
 		}
@@ -976,6 +1083,7 @@ void FProcState::Wait()
 			ReturnCode = (SignalInfo.si_code == CLD_EXITED) ? SignalInfo.si_status : -1;
 			bHasBeenWaitedFor = true;
 			bIsRunning = false;	// set in advance
+			UE_LOG(LogHAL, Log, TEXT("Child %d's return code is %d."), GetProcessId(), ReturnCode);
 			break;
 		}
 	}

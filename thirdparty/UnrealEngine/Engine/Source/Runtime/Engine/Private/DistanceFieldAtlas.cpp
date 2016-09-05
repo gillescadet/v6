@@ -7,24 +7,79 @@
 #include "EnginePrivate.h"
 #include "StaticMeshResources.h"
 #include "DistanceFieldAtlas.h"
+#include "CookStats.h"
 
 #if WITH_EDITOR
 #include "DerivedDataCacheInterface.h"
 #include "MeshUtilities.h"
 #endif
 
+#if ENABLE_COOK_STATS
+namespace DistanceFieldCookStats
+{
+	FCookStats::FDDCResourceUsageStats UsageStats;
+	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
+	{
+		UsageStats.LogStats(AddStat, TEXT("DistanceField.Usage"), TEXT(""));
+	});
+}
+#endif
+
+static TAutoConsoleVariable<int32> CVarDistField(
+	TEXT("r.GenerateMeshDistanceFields"),
+	0,	
+	TEXT("Whether to build distance fields of static meshes, needed for distance field AO, which is used to implement Movable SkyLight shadows.\n")
+	TEXT("Enabling will increase mesh build times and memory usage.  Changing this value will cause a rebuild of all static meshes."),
+	ECVF_ReadOnly);
+
+static TAutoConsoleVariable<int32> CVarDistFieldRes(
+	TEXT("r.DistanceFields.MaxPerMeshResolution"),
+	128,	
+	TEXT("Highest resolution (in one dimension) allowed for a single static mesh asset, used to cap the memory usage of meshes with a large scale.\n")
+	TEXT("Changing this will cause all distance fields to be rebuilt.  Large values such as 512 can consume memory very quickly! (128Mb for one asset at 512)"),
+	ECVF_ReadOnly);
+
+static TAutoConsoleVariable<float> CVarDistFieldResScale(
+	TEXT("r.DistanceFields.DefaultVoxelDensity"),
+	.1f,	
+	TEXT("Determines how the default scale of a mesh converts into distance field voxel dimensions.\n")
+	TEXT("Changing this will cause all distance fields to be rebuilt.  Large values can consume memory very quickly!"),
+	ECVF_ReadOnly);
+
+static TAutoConsoleVariable<int32> CVarDistFieldAtlasResXY(
+	TEXT("r.DistanceFields.AtlasSizeXY"),
+	512,	
+	TEXT("Size of the global mesh distance field atlas volume texture in X and Y."),
+	ECVF_ReadOnly);
+
+static TAutoConsoleVariable<int32> CVarDistFieldAtlasResZ(
+	TEXT("r.DistanceFields.AtlasSizeZ"),
+	1024,	
+	TEXT("Size of the global mesh distance field atlas volume texture in Z."),
+	ECVF_ReadOnly);
+
+static TAutoConsoleVariable<int32> CVarLandscapeGI(
+	TEXT("r.GenerateLandscapeGIData"),
+	1,
+	TEXT("Whether to generate a low-resolution base color texture for landscapes for rendering real-time global illumination.\n")
+	TEXT("This feature requires GenerateMeshDistanceFields is also enabled, and will increase mesh build times and memory usage.\n"),
+	ECVF_Default);
+
 TGlobalResource<FDistanceFieldVolumeTextureAtlas> GDistanceFieldVolumeTextureAtlas = TGlobalResource<FDistanceFieldVolumeTextureAtlas>(PF_R16F);
 
-// 512Mb
-const int32 MaxAtlasDimensionX = 512;
-const int32 MaxAtlasDimensionY = 512;
-const int32 MaxAtlasDimensionZ = 1024;
-
 FDistanceFieldVolumeTextureAtlas::FDistanceFieldVolumeTextureAtlas(EPixelFormat InFormat) :
-	BlockAllocator(0, 0, 0, MaxAtlasDimensionX, MaxAtlasDimensionY, MaxAtlasDimensionZ, false, false)
+	BlockAllocator(0, 0, 0, 0, 0, 0, false, false)
 {
 	Generation = 0;
 	Format = InFormat;
+
+	static const auto CVarXY = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DistanceFields.AtlasSizeXY"));
+	const int32 AtlasXY = CVarXY->GetValueOnAnyThread();
+
+	static const auto CVarZ = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DistanceFields.AtlasSizeZ"));
+	const int32 AtlasZ = CVarZ->GetValueOnAnyThread();
+
+	BlockAllocator = FTextureLayout3d(0, 0, 0, AtlasXY, AtlasXY, AtlasZ, false, false);
 }
 
 FString FDistanceFieldVolumeTextureAtlas::GetSizeString() const
@@ -94,8 +149,14 @@ void FDistanceFieldVolumeTextureAtlas::UpdateAllocations()
 		{
 			if (CurrentAllocations.Num() > 0)
 			{
+				static const auto CVarXY = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DistanceFields.AtlasSizeXY"));
+				const int32 AtlasXY = CVarXY->GetValueOnAnyThread();
+
+				static const auto CVarZ = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.DistanceFields.AtlasSizeZ"));
+				const int32 AtlasZ = CVarZ->GetValueOnAnyThread();
+
 				// Remove all allocations from the layout so we have a clean slate
-				BlockAllocator = FTextureLayout3d(0, 0, 0, MaxAtlasDimensionX, MaxAtlasDimensionY, MaxAtlasDimensionZ, false, false);
+				BlockAllocator = FTextureLayout3d(0, 0, 0, AtlasXY, AtlasXY, AtlasZ, false, false);
 				
 				Generation++;
 
@@ -212,13 +273,17 @@ void FDistanceFieldVolumeData::CacheDerivedData(const FString& InDDCKey, UStatic
 {
 	TArray<uint8> DerivedData;
 
+	COOK_STAT(auto Timer = DistanceFieldCookStats::UsageStats.TimeSyncWork());
 	if (GetDerivedDataCacheRef().GetSynchronous(*InDDCKey, DerivedData))
 	{
+		COOK_STAT(Timer.AddHit(DerivedData.Num()));
 		FMemoryReader Ar(DerivedData, /*bIsPersistent=*/ true);
 		Ar << *this;
 	}
 	else
 	{
+		// We don't actually build the resource until later, so only track the cycles used here.
+		COOK_STAT(Timer.TrackCyclesOnly());
 		FAsyncDistanceFieldTask* NewTask = new FAsyncDistanceFieldTask;
 		NewTask->DDCKey = InDDCKey;
 		NewTask->StaticMesh = Mesh;
@@ -343,6 +408,16 @@ uint32 FBuildDistanceFieldThreadRunnable::Run()
 	return 0;
 }
 
+FAsyncDistanceFieldTask::FAsyncDistanceFieldTask()
+	: StaticMesh(nullptr)
+	, GenerateSource(nullptr)
+	, DistanceFieldResolutionScale(0.0f)
+	, bGenerateDistanceFieldAsIfTwoSided(false)
+	, GeneratedVolumeData(nullptr)
+{
+}
+
+
 FDistanceFieldAsyncQueue::FDistanceFieldAsyncQueue() 
 {
 #if WITH_EDITOR
@@ -387,6 +462,11 @@ void FDistanceFieldAsyncQueue::AddTask(FAsyncDistanceFieldTask* Task)
 
 void FDistanceFieldAsyncQueue::BlockUntilBuildComplete(UStaticMesh* StaticMesh, bool bWarnIfBlocked)
 {
+	// We will track the wait time here, but only the cycles used.
+	// This function is called whether or not an async task is pending, 
+	// so we have to look elsewhere to properly count how many resources have actually finished building.
+	COOK_STAT(auto Timer = DistanceFieldCookStats::UsageStats.TimeAsyncWait());
+	COOK_STAT(Timer.TrackCyclesOnly());
 	bool bReferenced = false;
 	bool bHadToBlock = false;
 	double StartTime = 0;
@@ -470,6 +550,8 @@ void FDistanceFieldAsyncQueue::ProcessAsyncTasks()
 
 	for (int TaskIndex = 0; TaskIndex < LocalCompletedTasks.Num(); TaskIndex++)
 	{
+		// We want to count each resource built from a DDC miss, so count each iteration of the loop separately.
+		COOK_STAT(auto Timer = DistanceFieldCookStats::UsageStats.TimeSyncWork());
 		FAsyncDistanceFieldTask* Task = LocalCompletedTasks[TaskIndex];
 
 		ReferencedTasks.Remove(Task);
@@ -496,6 +578,7 @@ void FDistanceFieldAsyncQueue::ProcessAsyncTasks()
 			FMemoryWriter Ar(DerivedData, /*bIsPersistent=*/ true);
 			Ar << *(Task->StaticMesh->RenderData->LODResources[0].DistanceFieldData);
 			GetDerivedDataCacheRef().Put(*Task->DDCKey, DerivedData);
+			COOK_STAT(Timer.AddMiss(DerivedData.Num()));
 		}
 
 		delete Task;

@@ -18,13 +18,6 @@ class AIMODULE_API UAISense : public UObject
 	static const float SuspendNextUpdate;
 
 protected:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Debug)
-	FColor DebugDrawColor;
-
-	/** Sense name used in debug drawing */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Debug)
-	FString DebugName;
-
 	/** age past which stimulus of this sense are "forgotten"*/
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Perception", config)
 	float DefaultExpirationAge;
@@ -71,7 +64,7 @@ public:
 	/** use with caution! Needs to be called before any senses get instantiated or listeners registered. DOES NOT update any perceptions system instances */
 	static void HardcodeSenseID(TSubclassOf<UAISense> SenseClass, FAISenseID HardcodedID);
 
-	static FAISenseID GetSenseID(TSubclassOf<UAISense> SenseClass) { return SenseClass ? ((UAISense*)SenseClass->GetDefaultObject())->SenseID : FAISenseID::InvalidID(); }
+	static FAISenseID GetSenseID(const TSubclassOf<UAISense> SenseClass) { return SenseClass ? ((const UAISense*)SenseClass->GetDefaultObject())->SenseID : FAISenseID::InvalidID(); }
 	template<typename TSense>
 	static FAISenseID GetSenseID() 
 	{ 
@@ -148,13 +141,10 @@ protected:
 	/** To be called only for BP-generated classes */
 	void ForceSenseID(FAISenseID SenseID);
 
-public:
-#if !UE_BUILD_SHIPPING
-	//----------------------------------------------------------------------//
-	// DEBUG
-	//----------------------------------------------------------------------//
-	FColor GetDebugColor() const { return DebugDrawColor; }
-	FString GetDebugName() const { return DebugName; }
-	virtual FString GetDebugLegend() const;
-#endif // !UE_BUILD_SHIPPING
+	DEPRECATED(4.13, "Function removed, use AISenseConfig.GetDebugColor() instead.")
+	FColor GetDebugColor() const { return FColor::White; }
+	DEPRECATED(4.13, "Function removed, use AISenseConfig.GetSenseName() instead.")
+	FString GetDebugName() const { return FString(); }
+	DEPRECATED(4.13, "Function removed, use AISenseConfig.DescribeSelfToGameplayDebugger() instead.")
+	virtual FString GetDebugLegend() const { return FString(); };
 };

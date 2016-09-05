@@ -76,6 +76,7 @@ extern RHI_API FString GRHIAdapterName;
 extern RHI_API FString GRHIAdapterInternalDriverVersion;
 extern RHI_API FString GRHIAdapterUserDriverVersion;
 extern RHI_API FString GRHIAdapterDriverDate;
+extern RHI_API uint32 GRHIDeviceId;
 
 // 0 means not defined yet, use functions like IsRHIDeviceAMD() to access
 extern RHI_API uint32 GRHIVendorId;
@@ -101,6 +102,9 @@ extern RHI_API bool GSupportsShaderFramebufferFetch;
 /** true if mobile depth & stencil fetch is supported */
 extern RHI_API bool GSupportsShaderDepthStencilFetch;
 
+/** true if RQT_AbsoluteTime is supported by RHICreateRenderQuery */
+extern RHI_API bool GSupportsTimestampRenderQueries;
+
 /** true if the GPU supports hidden surface removal in hardware. */
 extern RHI_API bool GHardwareHiddenSurfaceRemoval;
 
@@ -119,8 +123,26 @@ extern RHI_API bool GSupportsSeparateRenderTargetBlendState;
 /** True if the RHI can render to a depth-only render target with no additional color render target. */
 extern RHI_API bool GSupportsDepthRenderTargetWithoutColorRenderTarget;
 
-/** True if the RHI supports depth bounds testing */
+/** true if the RHI supports 3D textures */
+extern RHI_API bool GSupportsTexture3D;
+
+/** true if the RHI supports SRVs */
+extern RHI_API bool GSupportsResourceView;
+
+/** true if the RHI supports MRT */
+extern RHI_API bool GSupportsMultipleRenderTargets;
+
+/** true if the RHI supports 256bit MRT */
+extern RHI_API bool GSupportsWideMRT;
+
+/** True if the RHI and current hardware supports supports depth bounds testing */
 extern RHI_API bool GSupportsDepthBoundsTest;
+
+/** True if the RHI and current hardware support a render target write mask */
+extern RHI_API bool GSupportsRenderTargetWriteMask;
+
+/** True if the RHI and current hardware supports efficient AsyncCompute (by default we assume false and later we can enable this for more hardware) */
+extern RHI_API bool GSupportsEfficientAsyncCompute;
 
 /** True if the RHI supports 'GetHDR32bppEncodeModeES2' shader intrinsic. */
 extern RHI_API bool GSupportsHDR32bppEncodeModeIntrinsic;
@@ -195,6 +217,9 @@ extern RHI_API bool GTriggerGPUProfile;
 /** Whether we are profiling GPU hitches. */
 extern RHI_API bool GTriggerGPUHitchProfile;
 
+/** Non-empty if we are performing a gpu trace. Also says where to place trace file. */
+extern RHI_API FString GGPUTraceFileName;
+
 /** True if the RHI supports texture streaming */
 extern RHI_API bool GRHISupportsTextureStreaming;
 /** Amount of memory allocated by textures. In kilobytes. */
@@ -232,15 +257,6 @@ Requirements for RHI thread
 * BeginDrawingViewport, and 5 or so other frame advance methods are queued with an RHIThread. Without an RHIThread, these just flush internally.
 ***/
 extern RHI_API bool GRHISupportsRHIThread;
-
-inline bool IsAsyncComputeEnabled()
-{
-#if USE_ASYNC_COMPUTE_CONTEXT
-	extern int32 GAllowAsyncComputeJobs;
-	return GAllowAsyncComputeJobs != 0;
-#endif
-	return false;
-}
 
 /** Whether or not the RHI supports parallel RHIThread executes / translates
 Requirements:
@@ -993,6 +1009,7 @@ enum class EResourceTransitionAccess
 	ERWBarrier, // Mostly for UAVs.  Transition to read/write state and always insert a resource barrier.
 	ERWNoBarrier, //Mostly UAVs.  Indicates we want R/W access and do not require synchronization for the duration of the RW state.  The initial transition from writable->RWNoBarrier and readable->RWNoBarrier still requires a sync
 	ERWSubResBarrier, //For special cases where read/write happens to different subresources of the same resource in the same call.  Inserts a barrier, but read validation will pass.  Temporary until we pass full subresource info to all transition calls.
+	EMetaData,		  // For transitioning texture meta data, for example for making readable in shaders
 	EMaxAccess,
 };
 
@@ -1137,6 +1154,8 @@ struct FTextureMemoryStats
 
 	// Size of allocated memory, in bytes
 	int64 AllocatedMemorySize;
+	// Size of the largest memory fragment, in bytes
+	int64 LargestContiguousAllocation;
 	// 0 if streaming pool size limitation is disabled, in bytes
 	int64 TexturePoolSize;
 	// Upcoming adjustments to allocated memory, in bytes (async reallocations)
@@ -1149,6 +1168,7 @@ struct FTextureMemoryStats
 		, SharedSystemMemory(-1)
 		, TotalGraphicsMemory(-1)
 		, AllocatedMemorySize(0)
+		, LargestContiguousAllocation(0)
 		, TexturePoolSize(0)
 		, PendingMemoryAdjustment(0)
 	{

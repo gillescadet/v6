@@ -5,9 +5,10 @@
 =============================================================================*/
 
 #include "CorePrivatePCH.h"
-#include "MallocBinned2.h"
+#include "MallocBinned.h"
 #include "MallocAnsi.h"
 
+#include <sys/mman.h>
 
 void FIOSPlatformMemory::Init()
 {
@@ -99,17 +100,44 @@ FMalloc* FIOSPlatformMemory::BaseAllocator()
 	uint64 MemoryLimit = FMath::Min<uint64>( uint64(1) << FMath::CeilLogTwo(Stats.free_count * PageSize), 0x100000000);
 
 	//return new FMallocAnsi();
-	return new FMallocBinned2(PageSize, MemoryLimit);
+	return new FMallocBinned(PageSize, MemoryLimit);
+}
+
+bool FIOSPlatformMemory::PageProtect(void* const Ptr, const SIZE_T Size, const bool bCanRead, const bool bCanWrite)
+{
+	int32 ProtectMode;
+	if (bCanRead && bCanWrite)
+	{
+		ProtectMode = PROT_READ | PROT_WRITE;
+	}
+	else if (bCanRead)
+	{
+		ProtectMode = PROT_READ;
+	}
+	else if (bCanWrite)
+	{
+		ProtectMode = PROT_WRITE;
+	}
+	else
+	{
+		ProtectMode = PROT_NONE;
+	}
+	return mprotect(Ptr, Size, ProtectMode) == 0;
 }
 
 void* FIOSPlatformMemory::BinnedAllocFromOS( SIZE_T Size )
 {
-	return valloc(Size);
+	return mmap(nullptr, Size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 }
 
-void FIOSPlatformMemory::BinnedFreeToOS( void* Ptr )
+void FIOSPlatformMemory::BinnedFreeToOS( void* Ptr, SIZE_T Size )
 {
-	free(Ptr);
+	if (munmap(Ptr, Size) != 0)
+	{
+		const int ErrNo = errno;
+		UE_LOG(LogHAL, Fatal, TEXT("munmap(addr=%p, len=%llu) failed with errno = %d (%s)"), Ptr, Size,
+			   ErrNo, StringCast< TCHAR >(strerror(ErrNo)).Get());
+	}
 }
 
 

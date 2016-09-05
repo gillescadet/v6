@@ -9,6 +9,7 @@
 class FSlateDynamicTextureResource;
 class FSlateUTextureResource;
 class FSlateMaterialResource;
+class FSlateAtlasedTextureResource;
 
 struct FDynamicResourceMap
 {
@@ -18,6 +19,8 @@ public:
 	TSharedPtr<FSlateDynamicTextureResource> GetDynamicTextureResource( FName ResourceName ) const;
 
 	TSharedPtr<FSlateUTextureResource> GetUTextureResource( UTexture* TextureObject ) const;
+
+	TSharedPtr<FSlateAtlasedTextureResource> GetAtlasedTextureResource(UTexture* InObject) const;
 
 	TSharedPtr<FSlateMaterialResource> GetMaterialResource( const UMaterialInterface* Material ) const;
 
@@ -29,6 +32,11 @@ public:
 
 	void AddMaterialResource( const UMaterialInterface* Material, TSharedRef<FSlateMaterialResource> InResource );
 	void RemoveMaterialResource( const UMaterialInterface* Material );
+
+	void AddAtlasedTextureResource(UTexture* TextureObject, TSharedRef<FSlateAtlasedTextureResource> InResource);
+	void RemoveAtlasedTextureResource(UTexture* TextureObject);
+
+	FSlateShaderResourceProxy* FindOrCreateAtlasedProxy(UObject* InObject);
 
 	void Empty();
 
@@ -47,17 +55,22 @@ public:
 private:
 	TMap<FName, TSharedPtr<FSlateDynamicTextureResource> > NativeTextureMap;
 	
-	typedef TMap<TWeakObjectPtr<UTexture>, TSharedPtr<FSlateUTextureResource> > TextureResourceMap;
+	typedef TMap<TWeakObjectPtr<UTexture>, TSharedPtr<FSlateUTextureResource> > FTextureResourceMap;
 
 	/** Map of all texture resources */
-	TextureResourceMap TextureMap;
+	FTextureResourceMap TextureMap;
 
 	uint64 TextureMemorySincePurge;
 
-	typedef TMap<TWeakObjectPtr<UMaterialInterface>, TSharedPtr<FSlateMaterialResource> > MaterialResourceMap;
+	typedef TMap<TWeakObjectPtr<UMaterialInterface>, TSharedPtr<FSlateMaterialResource> > FMaterialResourceMap;
 
 	/** Map of all material resources */
-	MaterialResourceMap MaterialMap;
+	FMaterialResourceMap MaterialMap;
+
+	typedef TMap<TWeakObjectPtr<UObject>, TSharedPtr<FSlateAtlasedTextureResource> > FObjectResourceMap;
+
+	/** Map of all object resources */
+	FObjectResourceMap ObjectMap;
 
 	int32 LastExpiredMaterialNumMarker;
 };
@@ -165,11 +178,17 @@ public:
 	virtual bool LoadTexture( const FName& TextureName, const FString& ResourcePath, uint32& Width, uint32& Height, TArray<uint8>& DecodedImage );
 	virtual bool LoadTexture( const FSlateBrush& InBrush, uint32& Width, uint32& Height, TArray<uint8>& DecodedImage );
 
+	/**
+	 * 
+	 */
 	FCachedRenderBuffers* FindCachedBuffersForHandle(const FSlateRenderDataHandle* RenderHandle) const
 	{
 		return CachedBuffers.FindRef(RenderHandle);
 	}
 
+	/**
+	 * Creates a vertex and index buffer for a given render handle that it can use to store cached widget geometry to.
+	 */
 	FCachedRenderBuffers* FindOrCreateCachedBuffersForHandle(const TSharedRef<FSlateRenderDataHandle, ESPMode::ThreadSafe>& RenderHandle);
 
 	/**

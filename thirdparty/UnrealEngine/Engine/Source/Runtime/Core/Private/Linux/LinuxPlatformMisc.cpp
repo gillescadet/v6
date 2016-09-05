@@ -9,6 +9,7 @@
 #include "LinuxApplication.h"
 #include "LinuxPlatformCrashContext.h"
 
+#include <cpuid.h>
 #include <sys/sysinfo.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -21,6 +22,7 @@
 #include <net/if_arp.h>
 
 #include "ModuleManager.h"
+#include "HAL/ThreadHeartBeat.h"
 
 // define for glibc 2.12.2 and lower (which is shipped with CentOS 6.x and which we target by default)
 #define __secure_getenv getenv
@@ -48,11 +50,11 @@ namespace
 	void InstallChildExitedSignalHanlder()
 	{
 		struct sigaction Action;
-		FMemory::Memzero(&Action, sizeof(struct sigaction));
+		FMemory::Memzero(Action);
 		Action.sa_sigaction = EmptyChildHandler;
-		sigemptyset(&Action.sa_mask);
+		sigfillset(&Action.sa_mask);
 		Action.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
-		sigaction(SIGCHLD, &Action, NULL);
+		sigaction(SIGCHLD, &Action, nullptr);
 	}
 }
 
@@ -116,6 +118,7 @@ void FLinuxPlatformMisc::PlatformInit()
 
 	// do not remove the below check for IsFirstInstance() - it is not just for logging, it actually lays the claim to be first
 	bool bFirstInstance = FPlatformProcess::IsFirstInstance();
+	bool bIsNullRHI = FApp::ShouldUseNullRHI();
 
 	UE_LOG(LogInit, Log, TEXT("Linux hardware info:"));
 	UE_LOG(LogInit, Log, TEXT(" - we are %sthe first instance of this executable"), bFirstInstance ? TEXT("") : TEXT("not "));
@@ -124,6 +127,8 @@ void FLinuxPlatformMisc::PlatformInit()
 	UE_LOG(LogInit, Log, TEXT(" - machine network name is '%s'"), FPlatformProcess::ComputerName());
 	UE_LOG(LogInit, Log, TEXT(" - user name is '%s' (%s)"), FPlatformProcess::UserName(), FPlatformProcess::UserName(false));
 	UE_LOG(LogInit, Log, TEXT(" - we're logged in %s"), FPlatformMisc::HasBeenStartedRemotely() ? TEXT("remotely") : TEXT("locally"));
+	UE_LOG(LogInit, Log, TEXT(" - we're running %s rendering"), bIsNullRHI ? TEXT("without") : TEXT("with"));
+	UE_LOG(LogInit, Log, TEXT(" - CPU: %s '%s' (signature: 0x%X)"), *FPlatformMisc::GetCPUVendor(), *FPlatformMisc::GetCPUBrand(), FPlatformMisc::GetCPUInfo());
 	UE_LOG(LogInit, Log, TEXT(" - Number of physical cores available for the process: %d"), FPlatformMisc::NumberOfCores());
 	UE_LOG(LogInit, Log, TEXT(" - Number of logical cores available for the process: %d"), FPlatformMisc::NumberOfCoresIncludingHyperthreads());
 	LinuxPlatform_UpdateCacheLineSize();
@@ -149,7 +154,7 @@ void FLinuxPlatformMisc::PlatformInit()
 	UE_LOG(LogInit, Log, TEXT(" -virtmemkb=NUMBER - sets process virtual memory (address space) limit (overrides VirtualMemoryLimitInKB value from .ini)"));
 
 	// skip for servers and programs, unless they request later
-	if (!UE_SERVER && !IS_PROGRAM)
+	if (!IS_PROGRAM && !bIsNullRHI)
 	{
 		PlatformInitMultimedia();
 	}
@@ -173,7 +178,7 @@ bool FLinuxPlatformMisc::PlatformInitMultimedia()
 			const char * SDLError = SDL_GetError();
 
 			// do not fail at this point, allow caller handle failure
-			UE_LOG(LogInit, Warning, TEXT("Could not initialize SDL: %s"), ANSI_TO_TCHAR(SDLError));
+			UE_LOG(LogInit, Warning, TEXT("Could not initialize SDL: %s"), UTF8_TO_TCHAR(SDLError));
 			return false;
 		}
 
@@ -229,7 +234,7 @@ void FLinuxPlatformMisc::GetEnvironmentVariable(const TCHAR* InVariableName, TCH
 	ANSICHAR *AnsiResult = secure_getenv(TCHAR_TO_ANSI(*VariableName));
 	if (AnsiResult)
 	{
-		wcsncpy(Result, ANSI_TO_TCHAR(AnsiResult), ResultLength);
+		wcsncpy(Result, UTF8_TO_TCHAR(AnsiResult), ResultLength);
 	}
 	else
 	{
@@ -275,6 +280,7 @@ void FLinuxPlatformMisc::PumpMessages( bool bFromMainLoop )
 			SDL_Event event;
 			while (SDL_PollEvent(&event))
 			{
+				// noop
 			}
 		}
 	}
@@ -334,13 +340,13 @@ uint32 FLinuxPlatformMisc::GetKeyMap( uint32* KeyCodes, FString* KeyNames, uint3
 		ADDKEYMAP(SDLK_F11, TEXT("F11"));
 		ADDKEYMAP(SDLK_F12, TEXT("F12"));
 
-        ADDKEYMAP(SDLK_LCTRL, TEXT("LeftControl"));
-        ADDKEYMAP(SDLK_LSHIFT, TEXT("LeftShift"));
-        ADDKEYMAP(SDLK_LALT, TEXT("LeftAlt"));
+		ADDKEYMAP(SDLK_LCTRL, TEXT("LeftControl"));
+		ADDKEYMAP(SDLK_LSHIFT, TEXT("LeftShift"));
+		ADDKEYMAP(SDLK_LALT, TEXT("LeftAlt"));
 		ADDKEYMAP(SDLK_LGUI, TEXT("LeftCommand"));
-        ADDKEYMAP(SDLK_RCTRL, TEXT("RightControl"));
-        ADDKEYMAP(SDLK_RSHIFT, TEXT("RightShift"));
-        ADDKEYMAP(SDLK_RALT, TEXT("RightAlt"));
+		ADDKEYMAP(SDLK_RCTRL, TEXT("RightControl"));
+		ADDKEYMAP(SDLK_RSHIFT, TEXT("RightShift"));
+		ADDKEYMAP(SDLK_RALT, TEXT("RightAlt"));
 		ADDKEYMAP(SDLK_RGUI, TEXT("RightCommand"));
 
 		ADDKEYMAP(SDLK_KP_0, TEXT("NumPadZero"));
@@ -359,13 +365,36 @@ uint32 FLinuxPlatformMisc::GetKeyMap( uint32* KeyCodes, FString* KeyNames, uint3
 		ADDKEYMAP(SDLK_KP_DECIMAL, TEXT("Decimal"));
 		ADDKEYMAP(SDLK_KP_DIVIDE, TEXT("Divide"));
 
-        ADDKEYMAP(SDLK_CAPSLOCK, TEXT("CapsLock"));
+		ADDKEYMAP(SDLK_CAPSLOCK, TEXT("CapsLock"));
 		ADDKEYMAP(SDLK_NUMLOCKCLEAR, TEXT("NumLock"));
 		ADDKEYMAP(SDLK_SCROLLLOCK, TEXT("ScrollLock"));
 	}
 
 	check(NumMappings < MaxMappings);
 	return NumMappings;
+}
+
+uint8 GOverriddenReturnCode = 0;
+bool GHasOverriddenReturnCode = false;
+
+void FLinuxPlatformMisc::RequestExitWithStatus(bool Force, uint8 ReturnCode)
+{
+	UE_LOG(LogLinux, Log, TEXT("FLinuxPlatformMisc::RequestExit(bForce=%s, ReturnCode=%d)"), Force ? TEXT("true") : TEXT("false"), ReturnCode);
+
+	GOverriddenReturnCode = ReturnCode;
+	GHasOverriddenReturnCode = true;
+
+	return FPlatformMisc::RequestExit(Force);
+}
+
+bool FLinuxPlatformMisc::HasOverriddenReturnCode(uint8 * OverriddenReturnCodeToUsePtr)
+{
+	if (GHasOverriddenReturnCode && OverriddenReturnCodeToUsePtr != nullptr)
+	{
+		*OverriddenReturnCodeToUsePtr = GOverriddenReturnCode;
+	}
+
+	return GHasOverriddenReturnCode;
 }
 
 const TCHAR* FLinuxPlatformMisc::GetSystemErrorMessage(TCHAR* OutBuffer, int32 BufferCount, int32 Error)
@@ -388,7 +417,7 @@ void FLinuxPlatformMisc::ClipboardCopy(const TCHAR* Str)
 	{
 		if (SDL_SetClipboardText(TCHAR_TO_UTF8(Str)))
 		{
-			UE_LOG(LogInit, Fatal, TEXT("Error copying clipboard contents: %s\n"), ANSI_TO_TCHAR(SDL_GetError()));
+			UE_LOG(LogInit, Fatal, TEXT("Error copying clipboard contents: %s\n"), UTF8_TO_TCHAR(SDL_GetError()));
 		}
 	}
 }
@@ -399,7 +428,7 @@ void FLinuxPlatformMisc::ClipboardPaste(class FString& Result)
 
 	if (!ClipContent)
 	{
-		UE_LOG(LogInit, Fatal, TEXT("Error pasting clipboard contents: %s\n"), ANSI_TO_TCHAR(SDL_GetError()));
+		UE_LOG(LogInit, Fatal, TEXT("Error pasting clipboard contents: %s\n"), UTF8_TO_TCHAR(SDL_GetError()));
 		// unreachable
 		Result = TEXT("");
 	}
@@ -553,9 +582,11 @@ EAppReturnType::Type FLinuxPlatformMisc::MessageBoxExt(EAppMsgType::Type MsgType
 	};
 
 	int ButtonPressed = -1;
+
+	FSlowHeartBeatScope SuspendHeartBeat;
 	if (SDL_ShowMessageBox(&MessageBoxData, &ButtonPressed) == -1) 
 	{
-		UE_LOG(LogInit, Fatal, TEXT("Error Presenting MessageBox: %s\n"), ANSI_TO_TCHAR(SDL_GetError()));
+		UE_LOG(LogInit, Fatal, TEXT("Error Presenting MessageBox: %s\n"), UTF8_TO_TCHAR(SDL_GetError()));
 		// unreachable
 		return EAppReturnType::Cancel;
 	}
@@ -707,40 +738,105 @@ const TCHAR* FLinuxPlatformMisc::GetNullRHIShaderFormat()
 	return TEXT("GLSL_150");
 }
 
+bool FLinuxPlatformMisc::HasCPUIDInstruction()
+{
 #if PLATFORM_HAS_CPUID
+	return __get_cpuid_max(0, 0) != 0;
+#else
+	return false;	// Linux ARM or something more exotic
+#endif // PLATFORM_HAS_CPUID
+}
+
 FString FLinuxPlatformMisc::GetCPUVendor()
 {
-	union
+	static TCHAR Result[13] = TEXT("NonX86Vendor");
+	static bool bHaveResult = false;
+
+	if (!bHaveResult)
 	{
-		char Buffer[12+1];
-		struct
+#if PLATFORM_HAS_CPUID
+		union
 		{
-			int dw0;
-			int dw1;
-			int dw2;
-		} Dw;
-	} VendorResult;
+			char Buffer[12 + 1];
+			struct
+			{
+				int dw0;
+				int dw1;
+				int dw2;
+			} Dw;
+		} VendorResult;
 
+		int Dummy;
+		__cpuid(0, Dummy, VendorResult.Dw.dw0, VendorResult.Dw.dw2, VendorResult.Dw.dw1);
 
-	int32 Args[4];
-	asm( "cpuid" : "=a" (Args[0]), "=b" (Args[1]), "=c" (Args[2]), "=d" (Args[3]) : "a" (0));
+		VendorResult.Buffer[12] = 0;
 
-	VendorResult.Dw.dw0 = Args[1];
-	VendorResult.Dw.dw1 = Args[3];
-	VendorResult.Dw.dw2 = Args[2];
-	VendorResult.Buffer[12] = 0;
+		FCString::Strncpy(Result, UTF8_TO_TCHAR(VendorResult.Buffer), ARRAY_COUNT(Result));
+#else
+		// use /proc?
+#endif // PLATFORM_HAS_CPUID
 
-	return ANSI_TO_TCHAR(VendorResult.Buffer);
+		bHaveResult = true;
+	}
+
+	return FString(Result);
 }
 
 uint32 FLinuxPlatformMisc::GetCPUInfo()
 {
-	uint32 Args[4];
-	asm( "cpuid" : "=a" (Args[0]), "=b" (Args[1]), "=c" (Args[2]), "=d" (Args[3]) : "a" (1));
+	static uint32 Info = 0;
+	static bool bHaveResult = false;
 
-	return Args[0];
-}
+	if (!bHaveResult)
+	{
+#if PLATFORM_HAS_CPUID
+		int Dummy[3];
+		__cpuid(1, Info, Dummy[0], Dummy[1], Dummy[2]);
 #endif // PLATFORM_HAS_CPUID
+
+		bHaveResult = true;
+	}
+
+	return Info;
+}
+
+FString FLinuxPlatformMisc::GetCPUBrand()
+{
+	static TCHAR Result[64] = TEXT("NonX86CPUBrand");
+	static bool bHaveResult = false;
+
+	if (!bHaveResult)
+	{
+#if PLATFORM_HAS_CPUID
+		// @see for more information http://msdn.microsoft.com/en-us/library/vstudio/hskdteyh(v=vs.100).aspx
+		ANSICHAR BrandString[0x40] = { 0 };
+		int32 CPUInfo[4] = { -1 };
+		const SIZE_T CPUInfoSize = sizeof(CPUInfo);
+
+		__cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+		const uint32 MaxExtIDs = CPUInfo[0];
+
+		if (MaxExtIDs >= 0x80000004)
+		{
+			const uint32 FirstBrandString = 0x80000002;
+			const uint32 NumBrandStrings = 3;
+			for (uint32 Index = 0; Index < NumBrandStrings; ++Index)
+			{
+				__cpuid(FirstBrandString + Index, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+				FPlatformMemory::Memcpy(BrandString + CPUInfoSize * Index, CPUInfo, CPUInfoSize);
+			}
+		}
+
+		FCString::Strncpy(Result, UTF8_TO_TCHAR(BrandString), ARRAY_COUNT(Result));
+#else
+		// use /proc?
+#endif // PLATFORM_HAS_CPUID
+
+		bHaveResult = true;
+	}
+
+	return FString(Result);
+}
 
 #if !UE_BUILD_SHIPPING
 bool FLinuxPlatformMisc::IsDebuggerPresent()
@@ -829,7 +925,7 @@ FString FLinuxPlatformMisc::GetOperatingSystemId()
 
 			if (ReadBytes > 0)
 			{
-				CachedResult = ANSI_TO_TCHAR(Buffer);
+				CachedResult = UTF8_TO_TCHAR(Buffer);
 			}
 
 			close(OsGuidFile);
@@ -858,7 +954,7 @@ bool FLinuxPlatformMisc::GetDiskTotalAndFreeSpace(const FString& InPath, uint64&
 	else
 	{
 		int ErrNo = errno;
-		UE_LOG(LogLinux, Warning, TEXT("Unable to statfs('%s'): errno=%d (%s)"), *InPath, ErrNo, ANSI_TO_TCHAR(strerror(ErrNo)));
+		UE_LOG(LogLinux, Warning, TEXT("Unable to statfs('%s'): errno=%d (%s)"), *InPath, ErrNo, UTF8_TO_TCHAR(strerror(ErrNo)));
 	}
 	return (Err == 0);
 }

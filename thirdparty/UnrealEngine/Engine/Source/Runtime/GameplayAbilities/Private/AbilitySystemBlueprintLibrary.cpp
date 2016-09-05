@@ -38,6 +38,11 @@ void UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(AActor* Actor, FGa
 	}
 }
 
+bool UAbilitySystemBlueprintLibrary::IsValid(FGameplayAttribute Attribute)
+{
+	return Attribute.IsValid();
+}
+
 float UAbilitySystemBlueprintLibrary::GetFloatAttribute(const class AActor* Actor, FGameplayAttribute Attribute, bool& bSuccessfullyFoundAttribute)
 {
 	const UAbilitySystemComponent* const AbilitySystem = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Actor);
@@ -59,9 +64,87 @@ float UAbilitySystemBlueprintLibrary::GetFloatAttributeFromAbilitySystemComponen
 	return Result;
 }
 
-FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AppendTargetDataHandle(FGameplayAbilityTargetDataHandle TargetHandle, FGameplayAbilityTargetDataHandle HandleToAdd)
+float UAbilitySystemBlueprintLibrary::GetFloatAttributeBase(const AActor* Actor, FGameplayAttribute Attribute, bool& bSuccessfullyFoundAttribute)
 {
-	TargetHandle.Append(&HandleToAdd);
+	const UAbilitySystemComponent* const AbilitySystem = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Actor);
+	return GetFloatAttributeBaseFromAbilitySystemComponent(AbilitySystem, Attribute, bSuccessfullyFoundAttribute);
+}
+
+float UAbilitySystemBlueprintLibrary::GetFloatAttributeBaseFromAbilitySystemComponent(const UAbilitySystemComponent* AbilitySystemComponent, FGameplayAttribute Attribute, bool& bSuccessfullyFoundAttribute)
+{
+	float Result = 0.f;
+	bSuccessfullyFoundAttribute = false;
+
+	if (AbilitySystemComponent && AbilitySystemComponent->HasAttributeSetForAttribute(Attribute))
+	{
+		bSuccessfullyFoundAttribute = true;
+		Result = AbilitySystemComponent->GetNumericAttributeBase(Attribute);
+	}
+
+	return Result;
+}
+
+float UAbilitySystemBlueprintLibrary::EvaluateAttributeValueWithTags(UAbilitySystemComponent* AbilitySystem, FGameplayAttribute Attribute, const FGameplayTagContainer& SourceTags, const FGameplayTagContainer& TargetTags, bool& bSuccess)
+{
+	float RetVal = 0.f;
+	if (!AbilitySystem || !AbilitySystem->HasAttributeSetForAttribute(Attribute))
+	{
+		bSuccess = false;
+		return RetVal;
+	}
+
+	FGameplayEffectAttributeCaptureDefinition Capture(Attribute, EGameplayEffectAttributeCaptureSource::Source, true);
+
+	FGameplayEffectAttributeCaptureSpec CaptureSpec(Capture);
+	AbilitySystem->CaptureAttributeForGameplayEffect(CaptureSpec);
+
+	FAggregatorEvaluateParameters EvalParams;
+
+	EvalParams.SourceTags = &SourceTags;
+	EvalParams.TargetTags = &TargetTags;
+
+	bSuccess = CaptureSpec.AttemptCalculateAttributeMagnitude(EvalParams, RetVal);
+
+	return RetVal;
+}
+
+float UAbilitySystemBlueprintLibrary::EvaluateAttributeValueWithTagsAndBase(UAbilitySystemComponent* AbilitySystem, FGameplayAttribute Attribute, const FGameplayTagContainer& SourceTags, const FGameplayTagContainer& TargetTags, float BaseValue, bool& bSuccess)
+{
+	float RetVal = 0.f;
+	if (!AbilitySystem || !AbilitySystem->HasAttributeSetForAttribute(Attribute))
+	{
+		bSuccess = false;
+		return RetVal;
+	}
+
+	FGameplayEffectAttributeCaptureDefinition Capture(Attribute, EGameplayEffectAttributeCaptureSource::Source, true);
+
+	FGameplayEffectAttributeCaptureSpec CaptureSpec(Capture);
+	AbilitySystem->CaptureAttributeForGameplayEffect(CaptureSpec);
+
+	FAggregatorEvaluateParameters EvalParams;
+
+	EvalParams.SourceTags = &SourceTags;
+	EvalParams.TargetTags = &TargetTags;
+
+	bSuccess = CaptureSpec.AttemptCalculateAttributeMagnitudeWithBase(EvalParams, BaseValue, RetVal);
+
+	return RetVal;
+}
+
+bool UAbilitySystemBlueprintLibrary::EqualEqual_GameplayAttributeGameplayAttribute(FGameplayAttribute AttributeA, FGameplayAttribute AttributeB)
+{
+	return (AttributeA == AttributeB);
+}
+
+bool UAbilitySystemBlueprintLibrary::NotEqual_GameplayAttributeGameplayAttribute(FGameplayAttribute AttributeA, FGameplayAttribute AttributeB)
+{
+	return (AttributeA != AttributeB);
+}
+
+FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AppendTargetDataHandle(FGameplayAbilityTargetDataHandle TargetHandle, const FGameplayAbilityTargetDataHandle& HandleToAdd)
+{
+	TargetHandle.Append(HandleToAdd);
 	return TargetHandle;
 }
 
@@ -86,18 +169,18 @@ FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDa
 	FGameplayAbilityTargetDataHandle		Handle(NewData);
 	return Handle;
 }
-FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDataFromActorArray(TArray<AActor*> ActorArray, bool OneTargetPerHandle)
+FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDataFromActorArray(const TArray<AActor*>& ActorArray, bool OneTargetPerHandle)
 {
 	// Construct TargetData
 	if (OneTargetPerHandle)
 	{
-		FGameplayAbilityTargetDataHandle		Handle;
+		FGameplayAbilityTargetDataHandle Handle;
 		for (int32 i = 0; i < ActorArray.Num(); ++i)
 		{
-			if (IsValid(ActorArray[i]))
+			if (::IsValid(ActorArray[i]))
 			{
 				FGameplayAbilityTargetDataHandle TempHandle = AbilityTargetDataFromActor(ActorArray[i]);
-				Handle.Append(&TempHandle);
+				Handle.Append(TempHandle);
 			}
 		}
 		return Handle;
@@ -115,13 +198,13 @@ FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDa
 	}
 }
 
-FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::FilterTargetData(FGameplayAbilityTargetDataHandle TargetDataHandle, FGameplayTargetDataFilterHandle FilterHandle)
+FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::FilterTargetData(const FGameplayAbilityTargetDataHandle& TargetDataHandle, FGameplayTargetDataFilterHandle FilterHandle)
 {
 	FGameplayAbilityTargetDataHandle ReturnDataHandle;
 	
 	for (int32 i = 0; TargetDataHandle.IsValid(i); ++i)
 	{
-		FGameplayAbilityTargetData* UnfilteredData = TargetDataHandle.Get(i);
+		const FGameplayAbilityTargetData* UnfilteredData = TargetDataHandle.Get(i);
 		check(UnfilteredData);
 		if (UnfilteredData->GetActors().Num() > 0)
 		{
@@ -129,7 +212,7 @@ FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::FilterTargetDat
 			if (FilteredActors.Num() > 0)
 			{
 				//Copy the data first, since we don't understand the internals of it
-				UScriptStruct* ScriptStruct = UnfilteredData->GetScriptStruct();
+				const UScriptStruct* ScriptStruct = UnfilteredData->GetScriptStruct();
 				FGameplayAbilityTargetData* NewData = (FGameplayAbilityTargetData*)FMemory::Malloc(ScriptStruct->GetCppStructOps()->GetSize());
 				ScriptStruct->InitializeStruct(NewData);
 				ScriptStruct->CopyScriptStruct(NewData, UnfilteredData);
@@ -165,7 +248,7 @@ FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::MakeSpecHandle(UGamepl
 	return FGameplayEffectSpecHandle(new FGameplayEffectSpec(InGameplayEffect, FGameplayEffectContextHandle(EffectContext), InLevel));
 }
 
-FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDataFromHitResult(FHitResult HitResult)
+FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDataFromHitResult(const FHitResult& HitResult)
 {
 	// Construct TargetData
 	FGameplayAbilityTargetData_SingleTargetHit* TargetData = new FGameplayAbilityTargetData_SingleTargetHit(HitResult);
@@ -177,12 +260,12 @@ FGameplayAbilityTargetDataHandle UAbilitySystemBlueprintLibrary::AbilityTargetDa
 	return Handle;
 }
 
-int32 UAbilitySystemBlueprintLibrary::GetDataCountFromTargetData(FGameplayAbilityTargetDataHandle TargetData)
+int32 UAbilitySystemBlueprintLibrary::GetDataCountFromTargetData(const FGameplayAbilityTargetDataHandle& TargetData)
 {
 	return TargetData.Data.Num();
 }
 
-TArray<AActor*> UAbilitySystemBlueprintLibrary::GetActorsFromTargetData(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+TArray<AActor*> UAbilitySystemBlueprintLibrary::GetActorsFromTargetData(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -201,7 +284,7 @@ TArray<AActor*> UAbilitySystemBlueprintLibrary::GetActorsFromTargetData(FGamepla
 	return TArray<AActor*>();
 }
 
-bool UAbilitySystemBlueprintLibrary::DoesTargetDataContainActor(FGameplayAbilityTargetDataHandle TargetData, int32 Index, AActor* Actor)
+bool UAbilitySystemBlueprintLibrary::DoesTargetDataContainActor(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index, AActor* Actor)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -220,7 +303,7 @@ bool UAbilitySystemBlueprintLibrary::DoesTargetDataContainActor(FGameplayAbility
 	return false;
 }
 
-bool UAbilitySystemBlueprintLibrary::TargetDataHasActor(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+bool UAbilitySystemBlueprintLibrary::TargetDataHasActor(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -233,7 +316,7 @@ bool UAbilitySystemBlueprintLibrary::TargetDataHasActor(FGameplayAbilityTargetDa
 	return false;
 }
 
-bool UAbilitySystemBlueprintLibrary::TargetDataHasHitResult(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+bool UAbilitySystemBlueprintLibrary::TargetDataHasHitResult(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -246,7 +329,7 @@ bool UAbilitySystemBlueprintLibrary::TargetDataHasHitResult(FGameplayAbilityTarg
 	return false;
 }
 
-FHitResult UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+FHitResult UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -264,7 +347,7 @@ FHitResult UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(FGameplayA
 	return FHitResult();
 }
 
-bool UAbilitySystemBlueprintLibrary::TargetDataHasOrigin(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+bool UAbilitySystemBlueprintLibrary::TargetDataHasOrigin(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index) == false)
 	{
@@ -279,7 +362,7 @@ bool UAbilitySystemBlueprintLibrary::TargetDataHasOrigin(FGameplayAbilityTargetD
 	return false;
 }
 
-FTransform UAbilitySystemBlueprintLibrary::GetTargetDataOrigin(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+FTransform UAbilitySystemBlueprintLibrary::GetTargetDataOrigin(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index) == false)
 	{
@@ -306,7 +389,7 @@ FTransform UAbilitySystemBlueprintLibrary::GetTargetDataOrigin(FGameplayAbilityT
 	return FTransform::Identity;
 }
 
-bool UAbilitySystemBlueprintLibrary::TargetDataHasEndPoint(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+bool UAbilitySystemBlueprintLibrary::TargetDataHasEndPoint(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -319,7 +402,7 @@ bool UAbilitySystemBlueprintLibrary::TargetDataHasEndPoint(FGameplayAbilityTarge
 	return false;
 }
 
-FVector UAbilitySystemBlueprintLibrary::GetTargetDataEndPoint(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+FVector UAbilitySystemBlueprintLibrary::GetTargetDataEndPoint(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -341,7 +424,7 @@ FVector UAbilitySystemBlueprintLibrary::GetTargetDataEndPoint(FGameplayAbilityTa
 	return FVector::ZeroVector;
 }
 
-FTransform UAbilitySystemBlueprintLibrary::GetTargetDataEndPointTransform(FGameplayAbilityTargetDataHandle TargetData, int32 Index)
+FTransform UAbilitySystemBlueprintLibrary::GetTargetDataEndPointTransform(const FGameplayAbilityTargetDataHandle& TargetData, int32 Index)
 {
 	if (TargetData.Data.IsValidIndex(Index))
 	{
@@ -383,6 +466,11 @@ bool UAbilitySystemBlueprintLibrary::EffectContextHasHitResult(FGameplayEffectCo
 	return EffectContext.GetHitResult() != NULL;
 }
 
+void UAbilitySystemBlueprintLibrary::EffectContextAddHitResult(FGameplayEffectContextHandle EffectContext, FHitResult HitResult, bool bReset)
+{
+	EffectContext.AddHitResult(HitResult, bReset);
+}
+
 AActor*	UAbilitySystemBlueprintLibrary::EffectContextGetInstigatorActor(FGameplayEffectContextHandle EffectContext)
 {
 	return EffectContext.GetInstigator();
@@ -411,6 +499,11 @@ FVector UAbilitySystemBlueprintLibrary::EffectContextGetOrigin(FGameplayEffectCo
 	}
 
 	return FVector::ZeroVector;
+}
+
+void UAbilitySystemBlueprintLibrary::EffectContextSetOrigin(FGameplayEffectContextHandle EffectContext, FVector Origin)
+{
+	EffectContext.AddOrigin(Origin);
 }
 
 bool UAbilitySystemBlueprintLibrary::IsInstigatorLocallyControlled(FGameplayCueParameters Parameters)
@@ -516,7 +609,7 @@ bool UAbilitySystemBlueprintLibrary::GetGameplayCueDirection(AActor* TargetActor
 {
 	if (Parameters.Normal.IsNearlyZero() == false)
 	{
-		Direction = Parameters.Normal;
+		Direction = -Parameters.Normal;
 		return true;
 	}
 
@@ -690,6 +783,21 @@ FGameplayEffectSpecHandle UAbilitySystemBlueprintLibrary::SetStackCountToMax(FGa
 		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::AddLinkedGameplayEffectSpec called with invalid SpecHandle"));
 	}
 	return SpecHandle;
+}
+
+FGameplayEffectContextHandle UAbilitySystemBlueprintLibrary::GetEffectContext(FGameplayEffectSpecHandle SpecHandle)
+{
+	FGameplayEffectSpec* Spec = SpecHandle.Data.Get();
+	if (Spec)
+	{
+		return Spec->GetEffectContext();
+	}
+	else
+	{
+		ABILITY_LOG(Warning, TEXT("UAbilitySystemBlueprintLibrary::GetEffectContext called with invalid SpecHandle"));
+	}
+
+	return FGameplayEffectContextHandle();
 }
 
 int32 UAbilitySystemBlueprintLibrary::GetActiveGameplayEffectStackCount(FActiveGameplayEffectHandle ActiveHandle)

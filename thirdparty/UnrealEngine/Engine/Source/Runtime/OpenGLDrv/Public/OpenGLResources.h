@@ -31,7 +31,7 @@ namespace OpenGLConsoleVariables
 	extern int32 bBindlessTexture;
 };
 
-#if PLATFORM_WINDOWS || PLATFORM_ANDROIDES31
+#if PLATFORM_WINDOWS || PLATFORM_ANDROIDESDEFERRED
 #define RESTRICT_SUBDATA_SIZE 1
 #else 
 #define RESTRICT_SUBDATA_SIZE 0
@@ -65,13 +65,13 @@ class TOpenGLBuffer : public BaseType
 		{
 			while ( InSize > 0)
 			{
-				const uint32 Size = FMath::Min<uint32>( BlockSize, InSize);
+				const uint32 BufferSize = FMath::Min<uint32>( BlockSize, InSize);
 			
-				FOpenGL::BufferSubData( Type, InOffset, Size, Data);
+				FOpenGL::BufferSubData( Type, InOffset, BufferSize, Data);
 
-				InOffset += Size;
-				InSize -= Size;
-				Data += Size;
+				InOffset += BufferSize;
+				InSize -= BufferSize;
+				Data += BufferSize;
 			}
 		}
 		else
@@ -501,12 +501,6 @@ public:
 	/** Resource table containing RHI references. */
 	TArray<TRefCountPtr<FRHIResource> > ResourceTable;
 
-	/** Raw resource table, cached once per frame. */
-	TArray<void*> RawResourceTable;
-
-	/** The frame in which RawResourceTable was last cached. */
-	uint32 LastCachedFrame;
-
 	/** Emulated uniform data for ES2. */
 	FOpenGLEUniformBufferDataRef EmulatedBufferData;
 
@@ -521,20 +515,6 @@ public:
 
 	/** Destructor. */
 	~FOpenGLUniformBuffer();
-
-	/** Cache resources if needed. */
-	inline void CacheResources(uint32 InFrameCounter)
-	{
-		if (InFrameCounter == INDEX_NONE || LastCachedFrame != InFrameCounter)
-		{
-			CacheResourcesInternal();
-			LastCachedFrame = InFrameCounter;
-		}
-	}
-
-private:
-	/** Actually cache resources. */
-	void CacheResourcesInternal();
 };
 
 
@@ -797,6 +777,9 @@ public:
 
 	/** The OpenGL attachment point. This should always be GL_COLOR_ATTACHMENT0 in case of color buffer, but the actual texture may be attached on other color attachments. */
 	GLenum Attachment;
+	
+	/** OpenGL 3 Stencil/SRV workaround texture resource */
+	GLuint SRVResource;
 
 	/** Initialization constructor. */
 	FOpenGLTextureBase(
@@ -812,6 +795,7 @@ public:
 	, Target(InTarget)
 	, NumMips(InNumMips)
 	, Attachment(InAttachment)
+	, SRVResource( 0 )
 	, MemorySize( 0 )
 	, bIsPowerOfTwo(false)
 	{}
@@ -836,7 +820,7 @@ public:
 		return bIsPowerOfTwo != 0;
 	}
 
-#if PLATFORM_MAC || PLATFORM_ANDROIDES31 // Flithy hack to workaround radr://16011763
+#if PLATFORM_MAC || PLATFORM_ANDROIDESDEFERRED // Flithy hack to workaround radr://16011763
 	GLuint GetOpenGLFramebuffer(uint32 ArrayIndices, uint32 MipmapLevels);
 #endif
 
@@ -959,6 +943,10 @@ public:
 					{
 						InvalidateTextureResourceInCache();
 						FOpenGL::DeleteTextures(1, &Resource);
+						if (SRVResource)
+						{
+							FOpenGL::DeleteTextures(1, &SRVResource);
+						}
 						break;
 					}
 					case GL_RENDERBUFFER:
@@ -984,6 +972,11 @@ public:
 
 			ReleaseOpenGLFramebuffers(OpenGLRHI, this);
 		}
+	}
+	
+	virtual void* GetTextureBaseRHI() override final
+	{
+		return static_cast<FOpenGLTextureBase*>(this);
 	}
 
 	/**
@@ -1138,6 +1131,11 @@ public:
 
 	void SetReferencedTexture(FRHITexture* InTexture);
 	FOpenGLTextureBase* GetTexturePtr() const { return TexturePtr; }
+	
+	virtual void* GetTextureBaseRHI() override final
+	{
+		return TexturePtr;
+	}
 };
 
 /** Given a pointer to a RHI texture that was created by the OpenGL RHI, returns a pointer to the FOpenGLTextureBase it encapsulates. */
@@ -1147,30 +1145,9 @@ inline FOpenGLTextureBase* GetOpenGLTextureFromRHITexture(FRHITexture* Texture)
 	{
 		return NULL;
 	}
-	else if(Texture->GetTextureReference())
-	{
-		return ((FOpenGLTextureReference*)Texture)->GetTexturePtr();
-	}
-	else if(Texture->GetTexture2D())
-	{
-		return (FOpenGLTexture2D*)Texture;
-	}
-	else if(Texture->GetTexture2DArray())
-	{
-		return (FOpenGLTexture2DArray*)Texture;
-	}
-	else if(Texture->GetTexture3D())
-	{
-		return (FOpenGLTexture3D*)Texture;
-	}
-	else if(Texture->GetTextureCube())
-	{
-		return (FOpenGLTextureCube*)Texture;
-	}
 	else
 	{
-		UE_LOG(LogRHI,Fatal,TEXT("Unknown RHI texture type"));
-		return NULL;
+		return static_cast<FOpenGLTextureBase*>(Texture->GetTextureBaseRHI());
 	}
 }
 
@@ -1294,13 +1271,15 @@ class FOpenGLUnorderedAccessView : public FRHIUnorderedAccessView
 
 public:
 	FOpenGLUnorderedAccessView():
-	  Resource(0),
+		Resource(0),
+		BufferResource(0),
 		Format(0)
 	{
 
 	}
 	  
 	GLuint	Resource;
+	GLuint	BufferResource;
 	GLenum	Format;
 };
 
@@ -1339,6 +1318,9 @@ public:
 	/** OpenGL texture the buffer is bound with */
 	GLuint Resource;
 	GLenum Target;
+
+	/** Needed on GL <= 4.2 to copy stencil data out of combined depth-stencil surfaces. */
+	FTexture2DRHIRef Texture2D;
 
 	int32 LimitMip;
 	

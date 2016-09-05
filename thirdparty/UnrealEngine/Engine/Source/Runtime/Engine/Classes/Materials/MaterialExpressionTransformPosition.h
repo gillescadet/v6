@@ -22,7 +22,10 @@ enum EMaterialPositionTransformSource
 
 	/** Camera space */
 	TRANSFORMPOSSOURCE_Camera  UMETA(DisplayName="Camera Space"),
-	
+
+	/** Particle space */
+	TRANSFORMPOSSOURCE_Particle UMETA(DisplayName = "Mesh Particle Space"),
+
 	TRANSFORMPOSSOURCE_MAX,
 };
 
@@ -45,8 +48,10 @@ class UMaterialExpressionTransformPosition : public UMaterialExpression
 
 
 	//~ Begin UMaterialExpression Interface
+#if WITH_EDITOR
 	virtual int32 Compile(class FMaterialCompiler* Compiler, int32 OutputIndex, int32 MultiplexIndex) override;
 	virtual void GetCaption(TArray<FString>& OutCaptions) const override;
+#endif
 	//~ End UMaterialExpression Interface
 };
 

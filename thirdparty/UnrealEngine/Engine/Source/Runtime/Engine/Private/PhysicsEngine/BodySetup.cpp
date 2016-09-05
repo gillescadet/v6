@@ -7,6 +7,7 @@
 #include "EnginePrivate.h"
 #include "PhysicsPublic.h"
 #include "PhysicsEngine/BodySetup.h"
+#include "PhysicsEngine/PhysicsSettings.h"
 #include "TargetPlatform.h"
 #include "Animation/AnimStats.h"
 
@@ -17,6 +18,18 @@
 
 #include "PhysDerivedData.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
+#include "CookStats.h"
+
+#if ENABLE_COOK_STATS
+namespace PhysXBodySetupCookStats
+{
+	static FCookStats::FDDCResourceUsageStats UsageStats;
+	static FCookStatsManager::FAutoRegisterCallback RegisterCookStats([](FCookStatsManager::AddStatFuncRef AddStat)
+	{
+		UsageStats.LogStats(AddStat, TEXT("PhysX.Usage"), TEXT("BodySetup"));
+	});
+}
+#endif
 
 #if WITH_PHYSX
 	// Quaternion that converts Sphyls from UE space to PhysX space (negate Y, swap X & Z)
@@ -27,15 +40,32 @@
 // CVars
 static TAutoConsoleVariable<float> CVarContactOffsetFactor(
 	TEXT("p.ContactOffsetFactor"),
-	0.01f,
-	TEXT("Multiplied by min dimension of object to calculate how close objects get before generating contacts. Default: 0.01"),
+	-1.f,
+	TEXT("Multiplied by min dimension of object to calculate how close objects get before generating contacts. < 0 implies use project settings. Default: 0.01"),
 	ECVF_Default);
 
 static TAutoConsoleVariable<float> CVarMaxContactOffset(
 	TEXT("p.MaxContactOffset"),
-	1.f,
-	TEXT("Max value of contact offset, which controls how close objects get before generating contacts. Default: 1.0"),
+	-1.f,
+	TEXT("Max value of contact offset, which controls how close objects get before generating contacts. < 0 implies use project settings. Default: 1.0"),
 	ECVF_Default);
+
+
+SIZE_T FBodySetupUVInfo::GetResourceSize()
+{
+	SIZE_T Size = 0;
+	Size += IndexBuffer.GetAllocatedSize();
+	Size += VertPositions.GetAllocatedSize();
+
+	for (int32 ChannelIdx = 0; ChannelIdx < VertUVs.Num(); ChannelIdx++)
+	{
+		Size += VertUVs[ChannelIdx].GetAllocatedSize();
+	}
+
+	Size += VertUVs.GetAllocatedSize();
+	return Size;
+}
+
 
 DEFINE_LOG_CATEGORY(LogPhysics);
 UBodySetup::UBodySetup(const FObjectInitializer& ObjectInitializer)
@@ -72,6 +102,7 @@ void UBodySetup::CopyBodyPropertiesFrom(const UBodySetup* FromSetup)
 	PhysMaterial = FromSetup->PhysMaterial;
 	PhysicsType = FromSetup->PhysicsType;
 	bDoubleSidedGeometry = FromSetup->bDoubleSidedGeometry;
+	CollisionTraceFlag = FromSetup->CollisionTraceFlag;
 }
 
 void UBodySetup::AddCollisionFrom(const FKAggregateGeom& FromAggGeom)
@@ -130,7 +161,7 @@ void UBodySetup::CreatePhysicsMeshes()
 			return;
 		}
 
-		FPhysXFormatDataReader CookedDataReader(*FormatData);
+		FPhysXFormatDataReader CookedDataReader(*FormatData, &UVInfo);
 
 		if (GetCollisionTraceFlag() != CTF_UseComplexAsSimple)
 		{
@@ -276,7 +307,7 @@ bool CalcMeshNegScaleCompensation(const FVector& InScale3D, PxTransform& POutTra
 	return (InScale3D.X * InScale3D.Y * InScale3D.Z) < 0.f;
 }
 
-void SetupNonUniformHelper(FVector& Scale3D, float& MinScale, float& MinScaleAbs, FVector& Scale3DAbs)
+void SetupNonUniformHelper(FVector Scale3D, float& MinScale, float& MinScaleAbs, FVector& Scale3DAbs)
 {
 	// if almost zero, set min scale
 	// @todo fixme
@@ -299,11 +330,16 @@ void SetupNonUniformHelper(FVector& Scale3D, float& MinScale, float& MinScaleAbs
 	}
 }
 
-void GetContactOffsetParams(float& ContactOffsetFactor, float& MaxContactOffset)
+void GetContactOffsetParams(float& ContactOffsetFactor, float& MinContactOffset, float& MaxContactOffset)
 {
 	// Get contact offset params
 	ContactOffsetFactor = CVarContactOffsetFactor.GetValueOnGameThread();
 	MaxContactOffset = CVarMaxContactOffset.GetValueOnGameThread();
+
+	ContactOffsetFactor = ContactOffsetFactor < 0.f ? UPhysicsSettings::Get()->ContactOffsetMultiplier : ContactOffsetFactor;
+	MaxContactOffset = MaxContactOffset < 0.f ? UPhysicsSettings::Get()->MaxContactOffset : MaxContactOffset;
+
+	MinContactOffset = UPhysicsSettings::Get()->MinContactOffset;
 }
 
 PxMaterial* GetDefaultPhysMaterial()
@@ -348,7 +384,7 @@ struct FAddShapesHelper
 			ShapeScale3D.Z *= Scale3DAbsRelative.Z;
 		}
 
-		GetContactOffsetParams(ContactOffsetFactor, MaxContactOffset);
+		GetContactOffsetParams(ContactOffsetFactor, MinContactOffset, MaxContactOffset);
 	}
 
 	UBodySetup* BodySetup;
@@ -369,60 +405,56 @@ struct FAddShapesHelper
 	FVector ShapeScale3D;
 
 	float ContactOffsetFactor;
+	float MinContactOffset;
 	float MaxContactOffset;
 
 public:
-	FORCEINLINE_DEBUGGABLE void AddSpheresToRigidActor_AssumesLocked() const
+	void AddSpheresToRigidActor_AssumesLocked() const
 	{
 		for (int32 i = 0; i < BodySetup->AggGeom.SphereElems.Num(); i++)
 		{
 			const FKSphereElem& SphereElem = BodySetup->AggGeom.SphereElems[i];
+			const FKSphereElem ScaledSphereElem = SphereElem.GetFinalScaled(Scale3D, RelativeTM);
 
 			PxSphereGeometry PSphereGeom;
-			PSphereGeom.radius = (SphereElem.Radius * MinScaleAbs);
+			PSphereGeom.radius = ScaledSphereElem.Radius;
 
 			if (ensure(PSphereGeom.isValid()))
 			{
-				FVector LocalOrigin = RelativeTM.TransformPosition(SphereElem.Center);
-				PxTransform PLocalPose(U2PVector(LocalOrigin));
-				PLocalPose.p *= MinScale;
-
+				PxTransform PLocalPose(U2PVector(ScaledSphereElem.Center));
 				ensure(PLocalPose.isValid());
 				{
-					const float ContactOffset = FMath::Min(MaxContactOffset, ContactOffsetFactor * PSphereGeom.radius);
-					PxShape* PShape = AttachShape_AssumesLocked(PSphereGeom, PLocalPose, ContactOffset, &SphereElem);
+					const float ContactOffset = FMath::Clamp(ContactOffsetFactor * PSphereGeom.radius, MinContactOffset, MaxContactOffset);
+					PxShape* PShape = AttachShape_AssumesLocked(PSphereGeom, PLocalPose, ContactOffset, SphereElem.GetUserData());
 				}
 			}
 			else
 			{
-				UE_LOG(LogPhysics, Warning, TEXT("AddSpheresToRigidActor: [%s] SphereElem[%d] invalid"), *GetPathNameSafe(BodySetup->GetOuter()), i);
+				UE_LOG(LogPhysics, Warning, TEXT("AddSpheresToRigidActor: [%s] ScaledSphereElem[%d] invalid"), *GetPathNameSafe(BodySetup->GetOuter()), i);
 			}
 		}
 	}
 
-	FORCEINLINE_DEBUGGABLE void AddBoxesToRigidActor_AssumesLocked() const
+	void AddBoxesToRigidActor_AssumesLocked() const
 	{
 		for (int32 i = 0; i < BodySetup->AggGeom.BoxElems.Num(); i++)
 		{
 			const FKBoxElem& BoxElem = BodySetup->AggGeom.BoxElems[i];
-
+			const FKBoxElem ScaledBoxElem = BoxElem.GetFinalScaled(Scale3D, RelativeTM);
+			const FTransform& BoxTransform = ScaledBoxElem.GetTransform();
+			
 			PxBoxGeometry PBoxGeom;
-			PBoxGeom.halfExtents.x = (0.5f * BoxElem.X * ShapeScale3DAbs.X);
-			PBoxGeom.halfExtents.y = (0.5f * BoxElem.Y * ShapeScale3DAbs.Y);
-			PBoxGeom.halfExtents.z = (0.5f * BoxElem.Z * ShapeScale3DAbs.Z);
+			PBoxGeom.halfExtents.x = ScaledBoxElem.X * 0.5f;
+			PBoxGeom.halfExtents.y = ScaledBoxElem.Y * 0.5f;
+			PBoxGeom.halfExtents.z = ScaledBoxElem.Z * 0.5f;
 
-			FTransform BoxTransform = BoxElem.GetTransform() * RelativeTM;
 			if (PBoxGeom.isValid() && BoxTransform.IsValid())
 			{
 				PxTransform PLocalPose(U2PTransform(BoxTransform));
-				PLocalPose.p.x *= Scale3D.X;
-				PLocalPose.p.y *= Scale3D.Y;
-				PLocalPose.p.z *= Scale3D.Z;
-
 				ensure(PLocalPose.isValid());
 				{
-					const float ContactOffset = FMath::Min(MaxContactOffset, ContactOffsetFactor * PBoxGeom.halfExtents.minElement());
-					AttachShape_AssumesLocked(PBoxGeom, PLocalPose, ContactOffset, &BoxElem);
+					const float ContactOffset = FMath::Clamp(ContactOffsetFactor * PBoxGeom.halfExtents.minElement(), MinContactOffset, MaxContactOffset);
+					AttachShape_AssumesLocked(PBoxGeom, PLocalPose, ContactOffset, BoxElem.GetUserData());
 				}
 			}
 			else
@@ -432,7 +464,7 @@ public:
 		}
 	}
 
-	FORCEINLINE_DEBUGGABLE void AddSphylsToRigidActor_AssumesLocked() const
+	void AddSphylsToRigidActor_AssumesLocked() const
 	{
 		float ScaleRadius = FMath::Max(ShapeScale3DAbs.X, ShapeScale3DAbs.Y);
 		float ScaleLength = ShapeScale3DAbs.Z;
@@ -440,32 +472,21 @@ public:
 		for (int32 i = 0; i < BodySetup->AggGeom.SphylElems.Num(); i++)
 		{
 			const FKSphylElem& SphylElem = BodySetup->AggGeom.SphylElems[i];
-
-			// this is a bit confusing since radius and height is scaled
-			// first apply the scale first 
-			float Radius = FMath::Max(SphylElem.Radius * ScaleRadius, 0.1f);
-			float Length = SphylElem.Length + SphylElem.Radius * 2.f;
-			float HalfLength = FMath::Max(Length * ScaleLength * 0.5f, 0.1f);
-			Radius = FMath::Clamp(Radius, 0.1f, HalfLength);	//radius is capped by half length
-			float HalfHeight = HalfLength - Radius;
-			HalfHeight = FMath::Max(0.1f, HalfHeight);
+			const FKSphylElem ScaledSphylElem = SphylElem.GetFinalScaled(Scale3D, RelativeTM);
 
 			PxCapsuleGeometry PCapsuleGeom;
-			PCapsuleGeom.halfHeight = HalfHeight;
-			PCapsuleGeom.radius = Radius;
+			PCapsuleGeom.halfHeight = ScaledSphylElem.Length * 0.5f;
+			PCapsuleGeom.radius = ScaledSphylElem.Radius;
 
 			if (PCapsuleGeom.isValid())
 			{
 				// The stored sphyl transform assumes the sphyl axis is down Z. In PhysX, it points down X, so we twiddle the matrix a bit here (swap X and Z and negate Y).
-				PxTransform PLocalPose(U2PVector(RelativeTM.TransformPosition(SphylElem.Center)), U2PQuat(SphylElem.Orientation) * U2PSphylBasis);
-				PLocalPose.p.x *= Scale3D.X;
-				PLocalPose.p.y *= Scale3D.Y;
-				PLocalPose.p.z *= Scale3D.Z;
+				PxTransform PLocalPose(U2PVector(ScaledSphylElem.Center), U2PQuat(ScaledSphylElem.Orientation) * U2PSphylBasis);
 
 				ensure(PLocalPose.isValid());
 				{
-					const float ContactOffset = FMath::Min(MaxContactOffset, ContactOffsetFactor * PCapsuleGeom.radius);
-					AttachShape_AssumesLocked(PCapsuleGeom, PLocalPose, ContactOffset, &SphylElem);
+					const float ContactOffset = FMath::Clamp(ContactOffsetFactor * PCapsuleGeom.radius, MinContactOffset, MaxContactOffset);
+					AttachShape_AssumesLocked(PCapsuleGeom, PLocalPose, ContactOffset, SphylElem.GetUserData());
 				}
 			}
 			else
@@ -475,19 +496,20 @@ public:
 		}
 	}
 
-	FORCEINLINE_DEBUGGABLE void AddConvexElemsToRigidActor_AssumesLocked() const
+	void AddConvexElemsToRigidActor_AssumesLocked() const
 	{
 		for (int32 i = 0; i < BodySetup->AggGeom.ConvexElems.Num(); i++)
 		{
 			const FKConvexElem& ConvexElem = BodySetup->AggGeom.ConvexElems[i];
 
-			if (ConvexElem.ConvexMesh || ConvexElem.ConvexMeshNegX)
-			{
-				PxTransform PLocalPose;
-				bool bUseNegX = CalcMeshNegScaleCompensation(Scale3D, PLocalPose);
+			PxTransform PLocalPose;
+			bool bUseNegX = CalcMeshNegScaleCompensation(Scale3D, PLocalPose);
 
+			PxConvexMesh* UseConvexMesh = bUseNegX ? ConvexElem.ConvexMeshNegX : ConvexElem.ConvexMesh;
+			if (UseConvexMesh)
+			{
 				PxConvexMeshGeometry PConvexGeom;
-				PConvexGeom.convexMesh = bUseNegX ? ConvexElem.ConvexMeshNegX : ConvexElem.ConvexMesh;
+				PConvexGeom.convexMesh = UseConvexMesh;
 				PConvexGeom.scale.scale = U2PVector(ShapeScale3DAbs * ConvexElem.GetTransform().GetScale3D().GetAbs());	//scale shape about the origin
 				FTransform ConvexTransform = ConvexElem.GetTransform();
 				if (ConvexTransform.GetScale3D().X < 0 || ConvexTransform.GetScale3D().Y < 0 || ConvexTransform.GetScale3D().Z < 0)
@@ -510,8 +532,8 @@ public:
 
 						ensure(PLocalPose.isValid());
 						{
-							const float ContactOffset = FMath::Min(MaxContactOffset, ContactOffsetFactor * PBoundsExtents.minElement());
-							AttachShape_AssumesLocked(PConvexGeom, PLocalPose, ContactOffset, &ConvexElem);
+							const float ContactOffset = FMath::Clamp(ContactOffsetFactor * PBoundsExtents.minElement(), MinContactOffset, MaxContactOffset);
+							AttachShape_AssumesLocked(PConvexGeom, PLocalPose, ContactOffset, ConvexElem.GetUserData());
 						}
 					}
 					else
@@ -531,7 +553,7 @@ public:
 		}
 	}
 
-	FORCEINLINE_DEBUGGABLE void AddTriMeshToRigidActor_AssumesLocked() const
+	void AddTriMeshToRigidActor_AssumesLocked() const
 	{
 		for(PxTriangleMesh* TriMesh : BodySetup->TriMeshes)
 		{
@@ -567,14 +589,14 @@ public:
 
 private:
 
-	PxShape* AttachShape_AssumesLocked(const PxGeometry& PGeom, const PxTransform& PLocalPose, const float ContactOffset, const FKShapeElem* ShapeElem, PxShapeFlags PShapeFlags = PxShapeFlag::eVISUALIZATION | PxShapeFlag::eSCENE_QUERY_SHAPE | PxShapeFlag::eSIMULATION_SHAPE) const
+	PxShape* AttachShape_AssumesLocked(const PxGeometry& PGeom, const PxTransform& PLocalPose, const float ContactOffset, const FPhysxUserData* ShapeElemUserData, PxShapeFlags PShapeFlags = PxShapeFlag::eVISUALIZATION | PxShapeFlag::eSCENE_QUERY_SHAPE | PxShapeFlag::eSIMULATION_SHAPE) const
 	{
 		const PxMaterial* PMaterial = GetDefaultPhysMaterial(); 
 		PxShape* PNewShape = bShapeSharing ? GPhysXSDK->createShape(PGeom, *PMaterial, /*isExclusive =*/ false, PShapeFlags) : PDestActor->createShape(PGeom, *PMaterial, PShapeFlags);
 
 		if (PNewShape)
 		{
-			PNewShape->userData = ShapeElem ? ((void*) ShapeElem->GetUserData()) : nullptr;
+			PNewShape->userData = (void*) ShapeElemUserData;
 			PNewShape->setLocalPose(PLocalPose);
 
 			if (NewShapes)
@@ -614,6 +636,14 @@ void UBodySetup::AddShapesToRigidActor_AssumesLocked(FBodyInstance* OwningInstan
 	// in editor, there are a lot of things relying on body setup to create physics meshes
 	CreatePhysicsMeshes();
 #endif
+
+	// if almost zero, set min scale
+	// @todo fixme
+	if (Scale3D.IsNearlyZero())
+	{
+		// set min scale
+		Scale3D = FVector(0.1f);
+	}
 
 	FAddShapesHelper AddShapesHelper(this, OwningInstance, PDestActor, SceneType, Scale3D, SimpleMaterial, ComplexMaterials, ShapeData, RelativeTM, NewShapes, bShapeSharing);
 
@@ -761,27 +791,34 @@ void UBodySetup::Serialize(FArchive& Ar)
 	bool bCooked = Ar.IsCooking();
 	Ar << bCooked;
 
+#if !WITH_RUNTIME_PHYSICS_COOKING
 	if (FPlatformProperties::RequiresCookedData() && !bCooked && Ar.IsLoading())
 	{
 		UE_LOG(LogPhysics, Fatal, TEXT("This platform requires cooked packages, and physX data was not cooked into %s."), *GetFullName());
 	}
+#endif //!WITH_RUNTIME_PHYSICS_COOKING
 
 	if (bCooked)
 	{
+#if WITH_EDITOR
 		if (Ar.IsCooking())
 		{
 			// Make sure to reset bHasCookedCollision data to true before calling GetCookedData for cooking
 			bHasCookedCollisionData = true;
 			FName Format = Ar.CookingTarget()->GetPhysicsFormat(this);
-			bHasCookedCollisionData = GetCookedData(Format) != NULL; // Get the data from the DDC or build it
+			bool bUseRuntimeOnlyCookedData = !bSharedCookedData;	//For shared cook data we do not optimize for runtime only flags. This is only used by per poly skeletal mesh component at the moment. Might want to add support in future
+			bHasCookedCollisionData = GetCookedData(Format, bUseRuntimeOnlyCookedData) != NULL; // Get the data from the DDC or build it
 
 			TArray<FName> ActualFormatsToSave;
 			ActualFormatsToSave.Add(Format);
 
 			Ar << bHasCookedCollisionData;
-			CookedFormatData.Serialize(Ar, this, &ActualFormatsToSave, !bSharedCookedData);
+
+			FFormatContainer* UseCookedFormatData = bUseRuntimeOnlyCookedData ? &CookedFormatDataRuntimeOnlyOptimization : &CookedFormatData;
+			UseCookedFormatData->Serialize(Ar, this, &ActualFormatsToSave, !bSharedCookedData);
 		}
 		else
+#endif
 		{
 			if (Ar.UE4Ver() >= VER_UE4_STORE_HASCOOKEDDATA_FOR_BODYSETUP)
 			{
@@ -890,7 +927,149 @@ void UBodySetup::UpdateTriMeshVertices(const TArray<FVector> & NewPositions)
 #endif
 }
 
-FByteBulkData* UBodySetup::GetCookedData(FName Format)
+template <bool bPositionAndNormal>
+float GetClosestPointAndNormalImpl(const UBodySetup* BodySetup, const FVector& WorldPosition, const FTransform& LocalToWorld, FVector* ClosestWorldPosition, FVector* FeatureNormal)
+{
+	float ClosestDist = FLT_MAX;
+	FVector TmpPosition, TmpNormal;
+
+	//Note that this function is optimized for BodySetup with few elements. This is more common. If we want to optimize the case with many elements we should really return the element during the distance check to avoid pointless iteration
+	for (const FKSphereElem& SphereElem : BodySetup->AggGeom.SphereElems)
+	{
+		
+		if(bPositionAndNormal)
+		{
+			const float Dist = SphereElem.GetClosestPointAndNormal(WorldPosition, LocalToWorld, TmpPosition, TmpNormal);
+
+			if(Dist < ClosestDist)
+			{
+				*ClosestWorldPosition = TmpPosition;
+				*FeatureNormal = TmpNormal;
+				ClosestDist = Dist;
+			}
+		}
+		else
+		{
+			const float Dist = SphereElem.GetShortestDistanceToPoint(WorldPosition, LocalToWorld);
+			ClosestDist = Dist < ClosestDist ? Dist : ClosestDist;
+		}
+	}
+
+	for (const FKSphylElem& SphylElem : BodySetup->AggGeom.SphylElems)
+	{
+		if (bPositionAndNormal)
+		{
+			const float Dist = SphylElem.GetClosestPointAndNormal(WorldPosition, LocalToWorld, TmpPosition, TmpNormal);
+
+			if (Dist < ClosestDist)
+			{
+				*ClosestWorldPosition = TmpPosition;
+				*FeatureNormal = TmpNormal;
+				ClosestDist = Dist;
+			}
+		}
+		else
+		{
+			const float Dist = SphylElem.GetShortestDistanceToPoint(WorldPosition, LocalToWorld);
+			ClosestDist = Dist < ClosestDist ? Dist : ClosestDist;
+		}
+	}
+
+	for (const FKBoxElem& BoxElem : BodySetup->AggGeom.BoxElems)
+	{
+		if (bPositionAndNormal)
+		{
+			const float Dist = BoxElem.GetClosestPointAndNormal(WorldPosition, LocalToWorld, TmpPosition, TmpNormal);
+
+			if (Dist < ClosestDist)
+			{
+				*ClosestWorldPosition = TmpPosition;
+				*FeatureNormal = TmpNormal;
+				ClosestDist = Dist;
+			}
+		}
+		else
+		{
+			const float Dist =  BoxElem.GetShortestDistanceToPoint(WorldPosition, LocalToWorld);
+			ClosestDist = Dist < ClosestDist ? Dist : ClosestDist;
+		}
+	}
+
+	if (ClosestDist == FLT_MAX)
+	{
+		UE_LOG(LogPhysics, Warning, TEXT("GetClosestPointAndNormalImpl ClosestDist for BodySetup %s is coming back as FLT_MAX. WorldPosition = %s, LocalToWorld = %s"), *BodySetup->GetFullName(), *WorldPosition.ToString(), *LocalToWorld.ToHumanReadableString());
+	}
+
+	return ClosestDist;
+}
+
+float UBodySetup::GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& LocalToWorld) const
+{
+	return GetClosestPointAndNormalImpl<false>(this, WorldPosition, LocalToWorld, nullptr, nullptr);
+}
+
+float UBodySetup::GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& LocalToWorld, FVector& ClosestWorldPosition, FVector& FeatureNormal) const
+{
+	return GetClosestPointAndNormalImpl<true>(this, WorldPosition, LocalToWorld, &ClosestWorldPosition, &FeatureNormal);
+}
+
+#if WITH_EDITOR
+void UBodySetup::BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform)
+{
+	GetCookedData(TargetPlatform->GetPhysicsFormat(this), true);
+}
+
+void UBodySetup::ClearCachedCookedPlatformData( const ITargetPlatform* TargetPlatform )
+{
+	CookedFormatDataRuntimeOnlyOptimization.FlushData();
+}
+#endif
+
+int32 UBodySetup::GetRuntimeOnlyCookOptimizationFlags() const
+{
+	int32 RuntimeCookFlags = 0;
+#if WITH_PHYSX && (WITH_RUNTIME_PHYSICS_COOKING || WITH_EDITOR)
+	if(UPhysicsSettings::Get()->bSuppressFaceRemapTable)
+	{
+		RuntimeCookFlags |= ERuntimePhysxCookOptimizationFlags::SuppressFaceRemapTable;
+	}
+#endif
+
+	return RuntimeCookFlags;
+}
+
+bool UBodySetup::CalcUVAtLocation(const FVector& BodySpaceLocation, int32 FaceIndex, int32 UVChannel, FVector2D& UV) const
+{
+	bool bSuccess = false;
+
+	if (UVInfo.VertUVs.IsValidIndex(UVChannel) && UVInfo.IndexBuffer.IsValidIndex(FaceIndex * 3 + 2))
+	{
+		int32 Index0 = UVInfo.IndexBuffer[FaceIndex * 3 + 0];
+		int32 Index1 = UVInfo.IndexBuffer[FaceIndex * 3 + 1];
+		int32 Index2 = UVInfo.IndexBuffer[FaceIndex * 3 + 2];
+
+		FVector Pos0 = UVInfo.VertPositions[Index0];
+		FVector Pos1 = UVInfo.VertPositions[Index1];
+		FVector Pos2 = UVInfo.VertPositions[Index2];
+
+		FVector2D UV0 = UVInfo.VertUVs[UVChannel][Index0];
+		FVector2D UV1 = UVInfo.VertUVs[UVChannel][Index1];
+		FVector2D UV2 = UVInfo.VertUVs[UVChannel][Index2];
+
+		// Transform hit location from world to local space.
+		// Find barycentric coords
+		FVector BaryCoords = FMath::ComputeBaryCentric2D(BodySpaceLocation, Pos0, Pos1, Pos2);
+		// Use to blend UVs
+		UV = (BaryCoords.X * UV0) + (BaryCoords.Y * UV1) + (BaryCoords.Z * UV2);
+
+		bSuccess = true;
+	}
+
+	return bSuccess;
+}
+
+
+FByteBulkData* UBodySetup::GetCookedData(FName Format, bool bRuntimeOnlyOptimizedVersion)
 {
 	if (IsTemplate())
 	{
@@ -906,7 +1085,12 @@ FByteBulkData* UBodySetup::GetCookedData(FName Format)
 		return NULL;
 	}
 
+#if WITH_EDITOR
+	//We don't support runtime cook optimization for per poly skeletal mesh. This is an edge case we may want to support (only helps memory savings)
+	FFormatContainer* UseCookedData = CookedFormatDataOverride ? CookedFormatDataOverride : (bRuntimeOnlyOptimizedVersion ? &CookedFormatDataRuntimeOnlyOptimization : &CookedFormatData);
+#else
 	FFormatContainer* UseCookedData = CookedFormatDataOverride ? CookedFormatDataOverride : &CookedFormatData;
+#endif
 
 	bool bContainedData = UseCookedData->Contains(Format);
 	FByteBulkData* Result = &UseCookedData->GetFormat(Format);
@@ -925,16 +1109,27 @@ FByteBulkData* UBodySetup::GetCookedData(FName Format)
 			return NULL;
 		}
 
+#if WITH_EDITOR
+		const bool bEligibleForRuntimeOptimization = UseCookedData == &CookedFormatDataRuntimeOnlyOptimization;
+#else
+		const bool bEligibleForRuntimeOptimization = CookedFormatDataOverride == nullptr;	//We don't support runtime cook optimization for per poly skeletal mesh. This is an edge case we may want to support (only helps memory savings)
+#endif
+
 #if WITH_RUNTIME_PHYSICS_COOKING || WITH_EDITOR
 		TArray<uint8> OutData;
-		FDerivedDataPhysXCooker* DerivedPhysXData = new FDerivedDataPhysXCooker(Format, this);
+
+		const int32 CookingFlags = bEligibleForRuntimeOptimization ? GetRuntimeOnlyCookOptimizationFlags() : 0;
+		FDerivedDataPhysXCooker* DerivedPhysXData = new FDerivedDataPhysXCooker(Format, CookingFlags, this);
 		if (DerivedPhysXData->CanBuild())
 		{
 		#if WITH_EDITOR
-			GetDerivedDataCacheRef().GetSynchronous(DerivedPhysXData, OutData);
+			COOK_STAT(auto Timer = PhysXBodySetupCookStats::UsageStats.TimeSyncWork());
+			bool bDataWasBuilt = false;
+			bool DDCHit = GetDerivedDataCacheRef().GetSynchronous(DerivedPhysXData, OutData, &bDataWasBuilt);
 		#elif WITH_RUNTIME_PHYSICS_COOKING
 			DerivedPhysXData->Build(OutData);
 		#endif
+			COOK_STAT(Timer.AddHitOrMiss(!DDCHit || bDataWasBuilt ? FCookStats::CallStats::EHitOrMiss::Miss : FCookStats::CallStats::EHitOrMiss::Hit, OutData.Num()));
 			if (OutData.Num())
 			{
 				Result->Lock(LOCK_READ_WRITE);
@@ -975,11 +1170,30 @@ void UBodySetup::PostEditUndo()
 		CreatePhysicsMeshes();
 	}
 }
+
+void UBodySetup::CopyBodySetupProperty(const UBodySetup* Other)
+{
+	BoneName = Other->BoneName;
+	PhysicsType = Other->PhysicsType;
+	bConsiderForBounds = Other->bConsiderForBounds;
+	bMeshCollideAll = Other->bMeshCollideAll;
+	bDoubleSidedGeometry = Other->bDoubleSidedGeometry;
+	bGenerateNonMirroredCollision = Other->bGenerateNonMirroredCollision;
+	bSharedCookedData = Other->bSharedCookedData;
+	bGenerateMirroredCollision = Other->bGenerateMirroredCollision;
+	PhysMaterial = Other->PhysMaterial;
+	CollisionReponse = Other->CollisionReponse;
+	CollisionTraceFlag = Other->CollisionTraceFlag;
+	DefaultInstance = Other->DefaultInstance;
+	WalkableSlopeOverride = Other->WalkableSlopeOverride;
+	BuildScale3D = Other->BuildScale3D;
+}
+
 #endif // WITH_EDITOR
 
 SIZE_T UBodySetup::GetResourceSize( EResourceSizeMode::Type Mode )
 {
-	SIZE_T ResourceSize = 0;
+	SIZE_T ResourceSize = Super::GetResourceSize(Mode);
 
 #if WITH_PHYSX
 	// Count PhysX trimesh mem usage
@@ -1012,6 +1226,9 @@ SIZE_T UBodySetup::GetResourceSize( EResourceSizeMode::Type Mode )
 		ResourceSize += FmtData.GetElementSize() * FmtData.GetElementCount();
 	}
 	
+	// Count any UV info
+	ResourceSize += UVInfo.GetResourceSize();
+
 	return ResourceSize;
 }
 
@@ -1143,6 +1360,39 @@ void FKSphereElem::Serialize( const FArchive& Ar )
 	}
 }
 
+float FKSphereElem::GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& LocalToWorldTM) const
+{
+	FKSphereElem ScaledSphere = GetFinalScaled(LocalToWorldTM.GetScale3D(), FTransform::Identity);
+
+	const FVector Dir = LocalToWorldTM.TransformPositionNoScale(ScaledSphere.Center) - WorldPosition;
+	const float DistToCenter = Dir.Size();
+	const float DistToEdge = DistToCenter - ScaledSphere.Radius;
+	
+	return DistToEdge > SMALL_NUMBER ? DistToEdge : 0.f;
+}
+
+float FKSphereElem::GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& LocalToWorldTM, FVector& ClosestWorldPosition, FVector& Normal) const
+{
+	FKSphereElem ScaledSphere = GetFinalScaled(LocalToWorldTM.GetScale3D(), FTransform::Identity);
+
+	const FVector Dir = LocalToWorldTM.TransformPositionNoScale(ScaledSphere.Center) - WorldPosition;
+	const float DistToCenter = Dir.Size();
+	const float DistToEdge = FMath::Max(DistToCenter - ScaledSphere.Radius, 0.f);
+
+	if(DistToCenter > SMALL_NUMBER)
+	{
+		Normal = -Dir.GetUnsafeNormal();
+	}
+	else
+	{
+		Normal = FVector::ZeroVector;
+	}
+	
+	ClosestWorldPosition = WorldPosition - Normal*DistToEdge;
+
+	return DistToEdge;
+}
+
 void FKSphereElem::ScaleElem(FVector DeltaSize, float MinSize)
 {
 	// Find element with largest magnitude, btu preserve sign.
@@ -1153,6 +1403,22 @@ void FKSphereElem::ScaleElem(FVector DeltaSize, float MinSize)
 		DeltaRadius = DeltaSize.Z;
 
 	Radius = FMath::Max(Radius + DeltaRadius, MinSize);
+}
+
+FKSphereElem FKSphereElem::GetFinalScaled(const FVector& Scale3D, const FTransform& RelativeTM) const
+{
+	float MinScale, MinScaleAbs;
+	FVector Scale3DAbs;
+
+	SetupNonUniformHelper(Scale3D * RelativeTM.GetScale3D(), MinScale, MinScaleAbs, Scale3DAbs);
+
+	FKSphereElem ScaledSphere = *this;
+	ScaledSphere.Radius *= MinScaleAbs;
+
+	ScaledSphere.Center = RelativeTM.TransformPosition(Center) * Scale3D;
+
+
+	return ScaledSphere;
 }
 
 void FKBoxElem::Serialize( const FArchive& Ar )
@@ -1170,6 +1436,67 @@ void FKBoxElem::ScaleElem(FVector DeltaSize, float MinSize)
 	X = FMath::Max(X + 2 * DeltaSize.X, MinSize);
 	Y = FMath::Max(Y + 2 * DeltaSize.Y, MinSize);
 	Z = FMath::Max(Z + 2 * DeltaSize.Z, MinSize);
+}
+
+
+FKBoxElem FKBoxElem::GetFinalScaled(const FVector& Scale3D, const FTransform& RelativeTM) const
+{
+	float MinScale, MinScaleAbs;
+	FVector Scale3DAbs;
+
+	SetupNonUniformHelper(Scale3D * RelativeTM.GetScale3D(), MinScale, MinScaleAbs, Scale3DAbs);
+
+	FKBoxElem ScaledBox = *this;
+	ScaledBox.X *= Scale3DAbs.X;
+	ScaledBox.Y *= Scale3DAbs.Y;
+	ScaledBox.Z *= Scale3DAbs.Z;
+
+	FTransform BoxTransform = GetTransform() * RelativeTM;
+	BoxTransform.ScaleTranslation(Scale3D);
+	ScaledBox.SetTransform(BoxTransform);
+
+	return ScaledBox;
+}
+
+float FKBoxElem::GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& BoneToWorldTM) const
+{
+	const FKBoxElem& ScaledBox = GetFinalScaled(BoneToWorldTM.GetScale3D(), FTransform::Identity);
+	const FTransform LocalToWorldTM = GetTransform() * BoneToWorldTM;
+	const FVector LocalPosition = LocalToWorldTM.InverseTransformPositionNoScale(WorldPosition);
+	const FVector LocalPositionAbs = LocalPosition.GetAbs();
+
+	const FVector HalfPoint(ScaledBox.X*0.5f, ScaledBox.Y*0.5f, ScaledBox.Z*0.5f);
+	const FVector Delta = LocalPositionAbs - HalfPoint;
+	const FVector Errors = FVector(FMath::Max(Delta.X, 0.f), FMath::Max(Delta.Y, 0.f), FMath::Max(Delta.Z, 0.f));
+	const float Error = Errors.Size();
+
+	return Error > SMALL_NUMBER ? Error : 0.f;
+}
+
+float FKBoxElem::GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& BoneToWorldTM, FVector& ClosestWorldPosition, FVector& Normal) const
+{
+	const FKBoxElem& ScaledBox = GetFinalScaled(BoneToWorldTM.GetScale3D(), FTransform::Identity);
+	const FTransform LocalToWorldTM = GetTransform() * BoneToWorldTM;
+	const FVector LocalPosition = LocalToWorldTM.InverseTransformPositionNoScale(WorldPosition);
+
+	const float HalfX = ScaledBox.X * 0.5f;
+	const float HalfY = ScaledBox.Y * 0.5f;
+	const float HalfZ = ScaledBox.Z * 0.5f;
+	
+	const FVector ClosestLocalPosition(FMath::Clamp(LocalPosition.X, -HalfX, HalfX), FMath::Clamp(LocalPosition.Y, -HalfY, HalfY), FMath::Clamp(LocalPosition.Z, -HalfZ, HalfZ));
+	ClosestWorldPosition = LocalToWorldTM.TransformPositionNoScale(ClosestLocalPosition);
+
+	const FVector LocalDelta = LocalPosition - ClosestLocalPosition;
+	float Error = LocalDelta.Size();
+	
+	bool bIsOutside = Error > SMALL_NUMBER;
+	
+	const FVector LocalNormal = bIsOutside ? LocalDelta.GetUnsafeNormal() : FVector::ZeroVector;
+
+	ClosestWorldPosition = LocalToWorldTM.TransformPositionNoScale(ClosestLocalPosition);
+	Normal = LocalToWorldTM.TransformVectorNoScale(LocalNormal);
+	
+	return bIsOutside ? Error : 0.f;
 }
 
 void FKSphylElem::Serialize( const FArchive& Ar )
@@ -1200,6 +1527,80 @@ void FKSphylElem::ScaleElem(FVector DeltaSize, float MinSize)
 	Length = length;
 }
 
+FKSphylElem FKSphylElem::GetFinalScaled(const FVector& Scale3D, const FTransform& RelativeTM) const
+{
+	FKSphylElem ScaledSphylElem = *this;
+
+	float MinScale, MinScaleAbs;
+	FVector Scale3DAbs;
+
+	SetupNonUniformHelper(Scale3D * RelativeTM.GetScale3D(), MinScale, MinScaleAbs, Scale3DAbs);
+
+	float ScaleRadius = FMath::Max(Scale3DAbs.X, Scale3DAbs.Y);
+	float ScaleLength = Scale3DAbs.Z;
+	
+	// this is a bit confusing since radius and height is scaled
+	// first apply the scale first 
+	ScaledSphylElem.Radius = FMath::Max(Radius * ScaleRadius, 0.1f);
+	ScaledSphylElem.Length = Length + Radius * 2.f;
+	float HalfLength = FMath::Max(ScaledSphylElem.Length * ScaleLength * 0.5f, 0.1f);
+	ScaledSphylElem.Radius = FMath::Clamp(ScaledSphylElem.Radius, 0.1f, HalfLength);	//radius is capped by half length
+	ScaledSphylElem.Length = FMath::Max(0.1f, (HalfLength - ScaledSphylElem.Radius) * 2.f);
+
+	FVector LocalOrigin = RelativeTM.TransformPosition(Center) * Scale3D;
+	ScaledSphylElem.Center = LocalOrigin;
+	
+	return ScaledSphylElem;
+}
+
+float FKSphylElem::GetShortestDistanceToPoint(const FVector& WorldPosition, const FTransform& BoneToWorldTM) const
+{
+	const FKSphylElem ScaledSphyl = GetFinalScaled(BoneToWorldTM.GetScale3D(), FTransform::Identity);
+
+	const FTransform LocalToWorldTM = GetTransform() * BoneToWorldTM;
+	const FVector ErrorScale = LocalToWorldTM.GetScale3D();
+	const FVector LocalPosition = LocalToWorldTM.InverseTransformPositionNoScale(WorldPosition);
+	const FVector LocalPositionAbs = LocalPosition.GetAbs();
+	
+	
+	const FVector Target(LocalPositionAbs.X, LocalPositionAbs.Y, FMath::Max(LocalPositionAbs.Z - ScaledSphyl.Length * 0.5f, 0.f));	//If we are above half length find closest point to cap, otherwise to cylinder
+	const float Error = FMath::Max(Target.Size() - ScaledSphyl.Radius, 0.f);
+
+	return Error > SMALL_NUMBER ? Error : 0.f;
+}
+
+float FKSphylElem::GetClosestPointAndNormal(const FVector& WorldPosition, const FTransform& BoneToWorldTM, FVector& ClosestWorldPosition, FVector& Normal) const
+{
+	const FKSphylElem ScaledSphyl = GetFinalScaled(BoneToWorldTM.GetScale3D(), FTransform::Identity);
+
+	const FTransform LocalToWorldTM = GetTransform() * BoneToWorldTM;
+	const FVector ErrorScale = LocalToWorldTM.GetScale3D();
+	const FVector LocalPosition = LocalToWorldTM.InverseTransformPositionNoScale(WorldPosition);
+	
+	const float HalfLength = 0.5f * ScaledSphyl.Length;
+	const float TargetZ = FMath::Clamp(LocalPosition.Z, -HalfLength, HalfLength);	//We want to move to a sphere somewhere along the capsule axis
+
+	const FVector WorldSphere = LocalToWorldTM.TransformPositionNoScale(FVector(0.f, 0.f, TargetZ));
+	const FVector Dir = WorldSphere - WorldPosition;
+	const float DistToCenter = Dir.Size();
+	const float DistToEdge = FMath::Max(DistToCenter - ScaledSphyl.Radius, 0.f);
+
+	bool bIsOutside = DistToCenter > SMALL_NUMBER;
+	if (bIsOutside)
+	{
+		Normal = -Dir.GetUnsafeNormal();
+	}
+	else
+	{
+		Normal = FVector::ZeroVector;
+	}
+
+	ClosestWorldPosition = WorldPosition - Normal*DistToEdge;
+
+	return bIsOutside ? DistToEdge : 0.f;
+}
+
+
 class UPhysicalMaterial* UBodySetup::GetPhysMaterial() const
 {
 	UPhysicalMaterial* PhysMat = PhysMaterial;
@@ -1214,7 +1615,7 @@ class UPhysicalMaterial* UBodySetup::GetPhysMaterial() const
 float UBodySetup::CalculateMass(const UPrimitiveComponent* Component) const
 {
 	FVector ComponentScale(1.0f, 1.0f, 1.0f);
-	const FBodyInstance* BodyInstance = NULL;
+	const FBodyInstance* BodyInstance = &DefaultInstance;
 	float MassScale = DefaultInstance.MassScale;
 
 	const UPrimitiveComponent* OuterComp = Component != NULL ? Component : Cast<UPrimitiveComponent>(GetOuter());
@@ -1235,9 +1636,10 @@ float UBodySetup::CalculateMass(const UPrimitiveComponent* Component) const
 			}
 		}
 	}
-	else
+
+	if(BodyInstance->bOverrideMass)
 	{
-		BodyInstance = &DefaultInstance;
+		return BodyInstance->GetMassOverride();
 	}
 
 	UPhysicalMaterial* PhysMat = BodyInstance->GetSimplePhysicalMaterial();
@@ -1271,6 +1673,6 @@ float UBodySetup::GetVolume(const FVector& Scale) const
 
 TEnumAsByte<enum ECollisionTraceFlag> UBodySetup::GetCollisionTraceFlag() const
 {
-	TEnumAsByte<enum ECollisionTraceFlag> DefaultFlag = UPhysicsSettings::Get()->bDefaultHasComplexCollision ? ECollisionTraceFlag::CTF_UseDefault : ECollisionTraceFlag::CTF_UseSimpleAsComplex;
+	TEnumAsByte<enum ECollisionTraceFlag> DefaultFlag = UPhysicsSettings::Get()->DefaultShapeComplexity;
 	return CollisionTraceFlag == ECollisionTraceFlag::CTF_UseDefault ? DefaultFlag : CollisionTraceFlag;
 }
