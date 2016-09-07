@@ -380,6 +380,7 @@ enum ETranslucencyVolumeCascade
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector4, InvDeviceZToWorldZTransform) \
 	VIEW_UNIFORM_BUFFER_MEMBER_EX(FVector4, ScreenPositionScaleBias, EShaderPrecisionModifier::Half) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, WorldCameraOrigin) \
+	VIEW_UNIFORM_BUFFER_MEMBER(FVector, WorldEyeOrigin) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, TranslatedWorldCameraOrigin) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, WorldViewOrigin) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, PreViewTranslation) \
@@ -394,6 +395,7 @@ enum ETranslucencyVolumeCascade
 	VIEW_UNIFORM_BUFFER_MEMBER(FMatrix, PrevTranslatedWorldToCameraView) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FMatrix, PrevCameraViewToTranslatedWorld) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, PrevWorldCameraOrigin) \
+	VIEW_UNIFORM_BUFFER_MEMBER(FVector, PrevWorldEyeOrigin) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, PrevWorldViewOrigin) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FVector, PrevPreViewTranslation) \
 	VIEW_UNIFORM_BUFFER_MEMBER(FMatrix, PrevInvViewProj) \

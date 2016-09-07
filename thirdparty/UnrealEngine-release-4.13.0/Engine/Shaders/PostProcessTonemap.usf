@@ -157,6 +157,10 @@ void MainVS(
 	OutExposureScaleVignette.x = DefaultEyeExposure;
 #endif
 
+	// v6: hack
+	if ( OutExposureScaleVignette.x <= 1.0f )
+		OutExposureScaleVignette.x *= 4.0f;
+
 	// Scale vignette to always be a circle with consistent corner intensity.
 	OutExposureScaleVignette.yz = VignetteSpace(OutPosition.xy);
 

@@ -118,6 +118,11 @@ public:
                 return m_wrapped->RHICreateGeometryShaderWithStreamOutput( Code, ElementList, NumStrides, Strides, RasterizedStream );
         }
 
+        virtual void FlushPendingLogs(  ) final override
+        {
+                m_wrapped->FlushPendingLogs(  );
+        }
+
         virtual FComputeShaderRHIRef RHICreateComputeShader( const TArray<uint8>& Code ) final override
         {
                 return m_wrapped->RHICreateComputeShader( Code );
@@ -213,6 +218,11 @@ public:
                 return m_wrapped->RHICreateShaderResourceView( VertexBuffer, Stride, Format );
         }
 
+        virtual FShaderResourceViewRHIRef RHICreateShaderResourceView( FIndexBufferRHIParamRef Buffer ) final override
+        {
+                return m_wrapped->RHICreateShaderResourceView( Buffer );
+        }
+
         virtual uint64 RHICalcTexture2DPlatformSize( uint32 SizeX, uint32 SizeY, uint8 Format, uint32 NumMips, uint32 NumSamples, uint32 Flags, uint32& OutAlign ) final override
         {
                 return m_wrapped->RHICalcTexture2DPlatformSize( SizeX, SizeY, Format, NumMips, NumSamples, Flags, OutAlign );
@@ -246,6 +256,11 @@ public:
         virtual FTexture2DRHIRef RHICreateTexture2D( uint32 SizeX, uint32 SizeY, uint8 Format, uint32 NumMips, uint32 NumSamples, uint32 Flags, FRHIResourceCreateInfo& CreateInfo ) final override
         {
                 return m_wrapped->RHICreateTexture2D( SizeX, SizeY, Format, NumMips, NumSamples, Flags, CreateInfo );
+        }
+
+        virtual FStructuredBufferRHIRef RHICreateRTWriteMaskBuffer( FTexture2DRHIParamRef RenderTarget ) final override
+        {
+                return m_wrapped->RHICreateRTWriteMaskBuffer( RenderTarget );
         }
 
         virtual FTexture2DRHIRef RHIAsyncCreateTexture2D( uint32 SizeX, uint32 SizeY, uint8 Format, uint32 NumMips, uint32 Flags, void** InitialMipData, uint32 NumInitialMips ) final override
@@ -378,7 +393,17 @@ public:
                 m_wrapped->RHIBindDebugLabelName( Texture, Name );
         }
 
+        virtual void RHIBindDebugLabelName( FUnorderedAccessViewRHIParamRef UnorderedAccessViewRHI, const TCHAR* Name ) final override
+        {
+                m_wrapped->RHIBindDebugLabelName( UnorderedAccessViewRHI, Name );
+        }
+
         virtual void RHIReadSurfaceData( FTextureRHIParamRef Texture, FIntRect Rect, TArray<FColor>& OutData, FReadSurfaceDataFlags InFlags ) final override
+        {
+                m_wrapped->RHIReadSurfaceData( Texture, Rect, OutData, InFlags );
+        }
+
+        virtual void RHIReadSurfaceData( FTextureRHIParamRef Texture, FIntRect Rect, TArray<FLinearColor>& OutData, FReadSurfaceDataFlags InFlags ) final override
         {
                 m_wrapped->RHIReadSurfaceData( Texture, Rect, OutData, InFlags );
         }
@@ -488,6 +513,16 @@ public:
                 return m_wrapped->RHIIsRenderingSuspended(  );
         }
 
+        virtual bool RHIEnqueueDecompress( uint8_t* SrcBuffer, uint8_t* DestBuffer, int CompressedSize, void* ErrorCodeBuffer ) final override
+        {
+                return m_wrapped->RHIEnqueueDecompress( SrcBuffer, DestBuffer, CompressedSize, ErrorCodeBuffer );
+        }
+
+        virtual bool RHIEnqueueCompress( uint8_t* SrcBuffer, uint8_t* DestBuffer, int UnCompressedSize, void* ErrorCodeBuffer ) final override
+        {
+                return m_wrapped->RHIEnqueueCompress( SrcBuffer, DestBuffer, UnCompressedSize, ErrorCodeBuffer );
+        }
+
         virtual bool RHIGetAvailableResolutions( FScreenResolutionArray& Resolutions, bool bIgnoreRefreshRate ) final override
         {
                 return m_wrapped->RHIGetAvailableResolutions( Resolutions, bIgnoreRefreshRate );
@@ -551,6 +586,11 @@ public:
         virtual FShaderResourceViewRHIRef CreateShaderResourceView_RenderThread( class FRHICommandListImmediate& RHICmdList, FVertexBufferRHIParamRef VertexBuffer, uint32 Stride, uint8 Format ) final override
         {
                 return m_wrapped->CreateShaderResourceView_RenderThread( RHICmdList, VertexBuffer, Stride, Format );
+        }
+
+        virtual FShaderResourceViewRHIRef CreateShaderResourceView_RenderThread( class FRHICommandListImmediate& RHICmdList, FIndexBufferRHIParamRef Buffer ) final override
+        {
+                return m_wrapped->CreateShaderResourceView_RenderThread( RHICmdList, Buffer );
         }
 
         virtual void* LockVertexBuffer_RenderThread( class FRHICommandListImmediate& RHICmdList, FVertexBufferRHIParamRef VertexBuffer, uint32 Offset, uint32 SizeRHI, EResourceLockMode LockMode ) final override
@@ -673,6 +713,11 @@ public:
                 return m_wrapped->RHICreateShaderResourceView_RenderThread( RHICmdList, VertexBuffer, Stride, Format );
         }
 
+        virtual FShaderResourceViewRHIRef RHICreateShaderResourceView_RenderThread( class FRHICommandListImmediate& RHICmdList, FIndexBufferRHIParamRef Buffer ) final override
+        {
+                return m_wrapped->RHICreateShaderResourceView_RenderThread( RHICmdList, Buffer );
+        }
+
         virtual FShaderResourceViewRHIRef RHICreateShaderResourceView_RenderThread( class FRHICommandListImmediate& RHICmdList, FStructuredBufferRHIParamRef StructuredBuffer ) final override
         {
                 return m_wrapped->RHICreateShaderResourceView_RenderThread( RHICmdList, StructuredBuffer );
@@ -691,6 +736,16 @@ public:
         virtual FRenderQueryRHIRef RHICreateRenderQuery_RenderThread( class FRHICommandListImmediate& RHICmdList, ERenderQueryType QueryType ) final override
         {
                 return m_wrapped->RHICreateRenderQuery_RenderThread( RHICmdList, QueryType );
+        }
+
+        virtual void EnableIdealGPUCaptureOptions( bool bEnable ) final override
+        {
+                m_wrapped->EnableIdealGPUCaptureOptions( bEnable );
+        }
+
+        virtual bool RHICopySubTextureRegion( FTexture2DRHIParamRef SourceTexture, FTexture2DRHIParamRef DestinationTexture, FBox2D SourceBox, FBox2D DestinationBox ) final override
+        {
+                return m_wrapped->RHICopySubTextureRegion( SourceTexture, DestinationTexture, SourceBox, DestinationBox );
         }
 
 public:
@@ -723,6 +778,11 @@ public:
                 m_wrapped->RHIDispatchIndirectComputeShader( ArgumentBuffer, ArgumentOffset );
         }
 
+        virtual void RHISetAsyncComputeBudget( EAsyncComputeBudget Budget ) final override
+        {
+                m_wrapped->RHISetAsyncComputeBudget( Budget );
+        }
+
         virtual void RHIAutomaticCacheFlushAfterComputeShader( bool bEnable ) final override
         {
                 m_wrapped->RHIAutomaticCacheFlushAfterComputeShader( bEnable );
@@ -745,7 +805,7 @@ public:
 
         virtual void RHICopyToResolveTarget( FTextureRHIParamRef SourceTexture, FTextureRHIParamRef DestTexture, bool bKeepOriginalSurface, const FResolveParams& ResolveParams ) final override
         {
-			m_wrapped->RHICopyToResolveTarget( SourceTexture, DestTexture, bKeepOriginalSurface, ResolveParams );
+                m_wrapped->RHICopyToResolveTarget( SourceTexture, DestTexture, bKeepOriginalSurface, ResolveParams );
         }
 
         virtual void RHITransitionResources( EResourceTransitionAccess TransitionType, FTextureRHIParamRef* InTextures, int32 NumTextures ) final override
@@ -816,7 +876,7 @@ public:
 				m_endSceneCallback = nullptr;
 				m_setRenderTargetCallback = nullptr;
 			}
-            m_wrapped->RHIEndScene(  );
+                m_wrapped->RHIEndScene(  );
         }
 
         virtual void RHISetStreamSource( uint32 StreamIndex, FVertexBufferRHIParamRef VertexBuffer, uint32 Stride, uint32 Offset ) final override
@@ -832,6 +892,11 @@ public:
         virtual void RHISetViewport( uint32 MinX, uint32 MinY, float MinZ, uint32 MaxX, uint32 MaxY, float MaxZ ) final override
         {
                 m_wrapped->RHISetViewport( MinX, MinY, MinZ, MaxX, MaxY, MaxZ );
+        }
+
+        virtual void RHISetStereoViewport( uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ ) final override
+        {
+                m_wrapped->RHISetStereoViewport( LeftMinX, RightMinX, MinY, MinZ, LeftMaxX, RightMaxX, MaxY, MaxZ );
         }
 
         virtual void RHISetScissorRect( bool bEnable, uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY ) final override
@@ -1117,43 +1182,19 @@ public:
                 m_wrapped->RHIEnableDepthBoundsTest( bEnable, MinDepth, MaxDepth );
         }
 
-        virtual void RHIPushEvent( const TCHAR* Name ) final override
+        virtual void RHIPushEvent( const TCHAR* Name, FColor Color ) final override
         {
-			if ( FString( Name ) == TEXT( "PostProcessEyeAdaptation" ) )
-			{
-				m_wrapped->RHIPushEvent( TEXT( "*** PostProcessEyeAdaptation ***" ) );
-			}
-			else
-			{
-				//v6::GPU_BeginEventW( Name );
-                m_wrapped->RHIPushEvent( Name );
-			}
+                m_wrapped->RHIPushEvent( Name, Color );
         }
 
         virtual void RHIPopEvent(  ) final override
         {
-			//v6::GPU_EndEvent();
                 m_wrapped->RHIPopEvent(  );
         }
 
         virtual void RHIUpdateTextureReference( FTextureReferenceRHIParamRef TextureRef, FTextureRHIParamRef NewTexture ) final override
         {
                 m_wrapped->RHIUpdateTextureReference( TextureRef, NewTexture );
-        }
-
-        virtual void RHIBeginAsyncComputeJob_DrawThread( EAsyncComputePriority Priority ) final override
-        {
-                m_wrapped->RHIBeginAsyncComputeJob_DrawThread( Priority );
-        }
-
-        virtual void RHIEndAsyncComputeJob_DrawThread( uint32 FenceIndex ) final override
-        {
-                m_wrapped->RHIEndAsyncComputeJob_DrawThread( FenceIndex );
-        }
-
-        virtual void RHIGraphicsWaitOnAsyncComputeJob( uint32 FenceIndex ) final override
-        {
-                m_wrapped->RHIGraphicsWaitOnAsyncComputeJob( FenceIndex );
         }
 
 public:

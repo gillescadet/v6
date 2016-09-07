@@ -28,6 +28,10 @@ public:
 	virtual void RHIDispatchComputeShader(uint32 ThreadGroupCountX, uint32 ThreadGroupCountY, uint32 ThreadGroupCountZ) = 0;
 
 	virtual void RHIDispatchIndirectComputeShader(FVertexBufferRHIParamRef ArgumentBuffer, uint32 ArgumentOffset) = 0;
+	
+	virtual void RHISetAsyncComputeBudget(EAsyncComputeBudget Budget) override
+	{
+	}
 
 	virtual void RHIAutomaticCacheFlushAfterComputeShader(bool bEnable) = 0;
 
@@ -141,6 +145,8 @@ public:
 	// @param MaxX excluding like Win32 RECT
 	// @param MaxY excluding like Win32 RECT
 	virtual void RHISetViewport(uint32 MinX, uint32 MinY, float MinZ, uint32 MaxX, uint32 MaxY, float MaxZ) = 0;
+
+	virtual void RHISetStereoViewport(uint32 LeftMinX, uint32 RightMinX, uint32 MinY, float MinZ, uint32 LeftMaxX, uint32 RightMaxX, uint32 MaxY, float MaxZ) = 0;
 
 	// @param MinX including like Win32 RECT
 	// @param MinY including like Win32 RECT
@@ -353,19 +359,9 @@ public:
 	 */
 	virtual void RHIEnableDepthBoundsTest(bool bEnable, float MinDepth, float MaxDepth) = 0;
 
-	virtual void RHIPushEvent(const TCHAR* Name) = 0;
+	virtual void RHIPushEvent(const TCHAR* Name, FColor Color) = 0;
 
 	virtual void RHIPopEvent() = 0;
 
 	virtual void RHIUpdateTextureReference(FTextureReferenceRHIParamRef TextureRef, FTextureRHIParamRef NewTexture) = 0;
-
-	/** Start AsyncCompute command stream recording (no effect if not supported) */
-	virtual void RHIBeginAsyncComputeJob_DrawThread(EAsyncComputePriority Priority) = 0;
-
-	/** End AsyncCompute command stream recording (no effect if not supported) */
-	virtual void RHIEndAsyncComputeJob_DrawThread(uint32 FenceIndex) = 0;
-
-	/** Wait for AsyncCompute command stream to finish (no effect if not supported) */
-	virtual void RHIGraphicsWaitOnAsyncComputeJob(uint32 FenceIndex) = 0;
-
 };

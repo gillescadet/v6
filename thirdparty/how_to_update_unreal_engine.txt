@@ -1,0 +1,13 @@
+- update to head
+- delete last Unreal Engine folder
+- update to have a clean folder without ignored files
+- make a patch of modifications
+- branch to a new folder for the new version
+- update ( maybe not needed )
+- delete the new Unreal Engine folder ( maybe not needed )
+- copy the downloaded source to the new Unreal Engine folder
+- switch to the new folder
+- update the Video6DOF plugin
+- commit the new Unreal Engine folder
+- apply the patch of modifications
+- commit the new Unreal Engine folder

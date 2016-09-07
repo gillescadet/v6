@@ -463,10 +463,10 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, IAllocator*
 			}
 			else if ( separatorCount == 6 || separatorCount == 8 )
 			{
-				const u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
+				u32 n = sscanf_s( f, "%d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7, ids+8, ids+9, ids+10, ids+11 );
 				if ( n == 1 )
 				{
-					const u32 n = sscanf_s( f, "%d//%d %d//%d %d//%d %d//%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
+					n = sscanf_s( f, "%d//%d %d//%d %d//%d %d//%d", ids+0, ids+1, ids+2, ids+3, ids+4, ids+5, ids+6, ids+7 );
 					V6_ASSERT( n % 2 == 0 );
 					const u32 vertexCount = n / 2;
 					V6_ASSERT( vertexCount == 3 || vertexCount == 4 );

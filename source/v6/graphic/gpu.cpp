@@ -20,7 +20,7 @@ BEGIN_V6_NAMESPACE
 static const u32 EVENT_BUFFER_COUNT			= 3;
 static const u32 EVENT_MAX_COUNT			= 32;
 static const u32 EVENT_NAME_MAX_SIZE		= 64;
-static const u32 EVENT_STACK_MAX_SIZE		= 16;
+static const u32 EVENT_STACK_MAX_SIZE		= 32;
 static const u32 EVENT_TIMING_FRAME_COUNT	= 32;
 static const u32 VERTEX_INPUT_MAX_COUNT		= 6;
 

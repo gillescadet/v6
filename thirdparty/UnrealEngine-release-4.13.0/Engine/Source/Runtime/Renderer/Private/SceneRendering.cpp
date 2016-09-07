@@ -658,6 +658,8 @@ void FViewInfo::CreateUniformBuffer(
 	ViewUniformShaderParameters.PrevTranslatedWorldToCameraView = PrevViewMatrices.TranslatedViewMatrix;
 	ViewUniformShaderParameters.PrevCameraViewToTranslatedWorld = ViewUniformShaderParameters.PrevTranslatedWorldToCameraView.Inverse();
 	ViewUniformShaderParameters.PrevWorldCameraOrigin = PrevViewMatrices.ViewOrigin;
+	// v6
+	ViewUniformShaderParameters.PrevWorldEyeOrigin = PrevViewMatrices.ViewOriginForLighting != FVector( FLT_MAX ) ? PrevViewMatrices.ViewOriginForLighting : PrevViewMatrices.ViewOrigin;
 	// previous view world origin is going to be needed only in the base pass or shadow pass
 	// therefore is same as previous camera world origin.
 	ViewUniformShaderParameters.PrevWorldViewOrigin = ViewUniformShaderParameters.PrevWorldCameraOrigin;

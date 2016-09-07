@@ -1,13 +1,11 @@
 // Copyright 2016 Video6DOF.  All rights reserved.
 
-// command line:
-// -usefixedtimestep
-// -fps=25
-// -notexturestreaming
-// Edit -> EditorPreferences -> (General)Miscellaneous called "Use Less CPU when in Background"
-// #define DEPTH_32_BIT_CONVERSION 1
-// exposure 4x in tone mapping shader
-// added FViewMatrices::ViewOriginForLighting and used that in the shaders
+// Changes to UE4:
+// - command line -notexturestreaming
+// - Edit -> EditorPreferences -> (General)Miscellaneous called "Use Less CPU when in Background"
+// - #define DEPTH_32_BIT_CONVERSION 1
+// - exposure 4x in tone mapping shader
+// - added FViewMatrices::ViewOriginForLighting and used that in the shaders
 
 #include <v6/core/common.h>
 #include "Video6DOFPrivatePCH.h"
@@ -15,6 +13,7 @@
 #include "D3D11RHIPrivate.h"
 #include "EngineModule.h"
 #include "ImageWrapper.h"
+#include "RHICommandList.h"
 #include "RHIDefinitions.h"
 #include "SceneViewExtension.h"
 #include "ScenePrivate.h"
@@ -451,6 +450,7 @@ static void Device_Override()
 	s_dynamicRHIWrap.m_commandContext = &s_rhiCommandContextWrap;
 	s_dynamicRHIWrap.m_wrapped = GDynamicRHI;
 	GDynamicRHI = &s_dynamicRHIWrap;
+	GRHICommandList.GetImmediateCommandList().SetContext( GDynamicRHI->RHIGetDefaultContext() );
 
 	GEmitDrawEvents = true;
 }
@@ -461,8 +461,11 @@ static void Device_Restore()
 
 	v6::GPUDevice_Release();
 
+#if 0
 	GDynamicRHI = s_dynamicRHIOriginal;
+	GRHICommandList.GetImmediateCommandList().SetContext( GDynamicRHI->RHIGetDefaultContext() );
 	s_dynamicRHIOriginal = nullptr;
+#endif
 	
 	v6::g_deviceLogMemory = true;
 }
