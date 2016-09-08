@@ -23,6 +23,8 @@ bool	FileSystem_DeleteFile( const char* filename );
 bool	FileSystem_GetFileList(const char * pFilter, FileCallback pFileCallback, void * pCallbackData );
 int		FileSystem_ReadFile( const char* filename, void** data, IAllocator* allocator );
 
+bool	FileDialog_Open( char* filename, u32 maxSizeOfFilename, const char* extension );
+
 END_V6_NAMESPACE
 
 #endif // __V6_CORE_FILESYSTEM_H__

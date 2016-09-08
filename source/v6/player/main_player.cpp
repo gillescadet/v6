@@ -9,6 +9,7 @@
 #include <v6/core/windows_end.h>
 
 #include <v6/codec/decoder.h>
+#include <v6/core/filesystem.h>
 #include <v6/core/gamepad.h>
 #include <v6/core/memory.h>
 #include <v6/core/string.h>
@@ -26,7 +27,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -899,12 +900,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		break;
 	case 'L':
 		{
-			player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
-			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/media/obj/crytek-sponza/sponza.v6" );
-			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_512.v6" );
-			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_1024.v6" );
-			//strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue_test0/ue.v6" );
-			strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), "D:/tmp/v6/ue.v6" );
+			char filename[256];
+			if ( FileDialog_Open( filename, sizeof( filename ), "v6" ) )
+			{
+				player->commandBuffer.action = COMMAND_ACTION_LOAD_STREAM;
+				strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), filename );
+			}
 		}
 		break;
 	case 'M':

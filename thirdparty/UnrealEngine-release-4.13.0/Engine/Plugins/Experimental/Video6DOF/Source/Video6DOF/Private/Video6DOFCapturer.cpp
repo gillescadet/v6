@@ -3,7 +3,6 @@
 // Changes to UE4:
 // - command line -notexturestreaming
 // - Edit -> EditorPreferences -> (General)Miscellaneous called "Use Less CPU when in Background"
-// - #define DEPTH_32_BIT_CONVERSION 1
 // - exposure 4x in tone mapping shader
 // - added FViewMatrices::ViewOriginForLighting and used that in the shaders
 

@@ -224,4 +224,26 @@ bool FileSystem_DeleteFile( const char* filename )
 	return DeleteFileA( filename ) != 0;
 }
 
+bool FileDialog_Open( char* filename, u32 maxSizeOfFilename, const char* extension )
+{
+	char filter[256] = {};
+	sprintf_s( filter, "%s\0*.%s\0", extension );
+
+	char title[256] = {};
+	sprintf_s( title, "Open a %s file", extension );
+
+	OPENFILENAMEA openFileName = {};
+	openFileName.lStructSize = sizeof ( OPENFILENAME );
+	openFileName.lpstrFile = filename;
+	openFileName.nMaxFile = maxSizeOfFilename;
+	openFileName.lpstrFilter = filter;
+	openFileName.nFilterIndex = 1;
+	openFileName.lpstrFileTitle = title;
+	openFileName.nMaxFileTitle = 0;
+	openFileName.lpstrInitialDir = nullptr;
+	openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+	
+	return GetOpenFileNameA( &openFileName ) != 0;
+}
+
 END_V6_NAMESPACE
