@@ -226,6 +226,7 @@ bool FileSystem_DeleteFile( const char* filename )
 
 bool FileDialog_Open( char* filename, u32 maxSizeOfFilename, const char* extension )
 {
+#if V6_UE4_PLUGIN == 0
 	char filter[256] = {};
 	sprintf_s( filter, "%s\0*.%s\0", extension );
 
@@ -244,6 +245,9 @@ bool FileDialog_Open( char* filename, u32 maxSizeOfFilename, const char* extensi
 	openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 	
 	return GetOpenFileNameA( &openFileName ) != 0;
+#else
+	return false;
+#endif
 }
 
 END_V6_NAMESPACE

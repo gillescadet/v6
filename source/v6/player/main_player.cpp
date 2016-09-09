@@ -146,7 +146,7 @@ enum CommandAction_e
 
 	COMMAND_ACTION_PLAYER_OPTION_METRICS,
 	COMMAND_ACTION_PLAYER_OPTION_UI,
-	COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX,
+	COMMAND_ACTION_PLAYER_OPTION_DISABLE_FADE_TO_BLACK,
 	COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD,
 	COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD,
 };
@@ -161,7 +161,7 @@ struct PlayerOptions_s
 {
 	bool					showMetrics;
 	bool					showUI;
-	bool					lockBox;
+	bool					disableFadeToBlack;
 	bool					lockHMD;
 	u32						showHMDPerfHUD;
 };
@@ -449,20 +449,6 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 			return;
 		}
 
-		if ( strcmp( commandLine, "BOX_LOCK ON" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
-			commandBuffer->arg[0] = 1;
-			return;
-		}
-
-		if ( strcmp( commandLine, "BOX_LOCK OFF" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
-			commandBuffer->arg[0] = 0;
-			return;
-		}
-
 		break;
 
 	case 'C':
@@ -478,6 +464,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 		if ( strcmp( commandLine, "EXIT" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_EXIT;
+			return;
+		}
+
+		break;
+
+	case 'F':
+		if ( strcmp( commandLine, "FADE_TO_BLACK ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_DISABLE_FADE_TO_BLACK;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		if ( strcmp( commandLine, "FADE_TO_BLACK OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_DISABLE_FADE_TO_BLACK;
+			commandBuffer->arg[0] = 1;
 			return;
 		}
 
@@ -770,8 +773,8 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_PLAYER_OPTION_UI:
 		player->playerOptions.showUI = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.showUI;
 		break;
-	case COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX:
-		player->playerOptions.lockBox = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockBox;
+	case COMMAND_ACTION_PLAYER_OPTION_DISABLE_FADE_TO_BLACK:
+		player->playerOptions.disableFadeToBlack = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.disableFadeToBlack;
 		break;
 	case COMMAND_ACTION_PLAYER_OPTION_LOCK_HMD:
 		player->playerOptions.lockHMD = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 0) : !player->playerOptions.lockHMD;
@@ -875,8 +878,8 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 'C':
 		player->commandBuffer.action = COMMAND_ACTION_UNLOAD_STREAM;
 		break;
-	case 'D': 
-		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_LOCK_BOX;
+	case 'E': 
+		player->commandBuffer.action = COMMAND_ACTION_PLAYER_OPTION_DISABLE_FADE_TO_BLACK;
 		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'F':
@@ -1358,16 +1361,6 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	else
 #endif // #if V6_USE_HMD == 1
 	{
-		if ( player->playerOptions.lockBox )
-		{
-			float gridScaleMin = 50.0f;
-			if ( PlayerStream_IsValid( player ) )
-				gridScaleMin = player->stream.desc.gridScaleMin;
-			player->camera.pos.x = Clamp( player->camera.pos.x, -gridScaleMin, gridScaleMin );
-			player->camera.pos.y = Clamp( player->camera.pos.y, -gridScaleMin, gridScaleMin );
-			player->camera.pos.z = Clamp( player->camera.pos.z, -gridScaleMin, gridScaleMin );
-		}
-
 		Camera_SetStereoUsingIPD( &player->camera, IPD );
 		Camera_UpdateBasis( &player->camera );
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
@@ -1383,13 +1376,16 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (player->traceContext.stream->desc.gridScaleMin - 5.0f), 0.0f, 5.0f ) / 5.0f );
 	}
 
+	if ( player->playerOptions.disableFadeToBlack )
+		fadeToBlack = 0.0f;
+
 	// draw
 
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
 		if ( PlayerStream_IsValid( player ) )
-			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, 0.0f /*fadeToBlack*/ );
+			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, fadeToBlack );
 		else
 			PlayerScene_Draw( player, views );
 	}

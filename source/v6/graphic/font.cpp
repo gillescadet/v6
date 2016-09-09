@@ -101,11 +101,12 @@ void FontContext_Create( FontContext_s* fontContext )
 
 void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize )
 {
-	V6_ASSERT( str && *str && color.a > 0 );
+	V6_ASSERT( str && *str && color.a > 0 && strSize > 0 );
 
-	const u32 fontTextSize = sizeof( FontText_s ) + strSize;
+	const u32 characterCount = strSize + 1;
+	const u32 fontTextSize = sizeof( FontText_s ) + characterCount;
 
-	if ( fontContext->textBufferSize + fontTextSize + 1 > s_fontTextBufferMaxSize || fontContext->characterCount + strSize > s_gpuCharacterMaxCount )
+	if ( fontContext->textBufferSize + fontTextSize > s_fontTextBufferMaxSize || fontContext->characterCount + characterCount > s_gpuCharacterMaxCount )
 		return;
 
 	FontTextEx_s* fontText = (FontTextEx_s*)(fontContext->textBuffer + fontContext->textBufferSize);
@@ -119,7 +120,7 @@ void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Colo
 	fontContext->firstText = fontText;
 
 	fontContext->textBufferSize += fontTextSize;
-	fontContext->characterCount += strSize;
+	fontContext->characterCount += characterCount;
 }
 
 void FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str )

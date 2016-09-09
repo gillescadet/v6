@@ -10,7 +10,7 @@ RWBuffer< uint > sampleIndirectArgs				: REGISTER_UAV( HLSL_SAMPLE_INDIRECT_ARGS
 
 uint GetMip( float3 p )
 {
-	for ( uint mip = 0; mip < HLSL_MIP_MAX_COUNT; ++mip )
+	for ( uint mip = 0; mip < HLSL_MIP_MAX_COUNT-1; ++mip )
 	{
 		const float3 delta = p - c_sampleMipBoundaries[mip].xyz;
 		if ( all( abs( delta ) < c_sampleMipBoundaries[mip].w ) )
@@ -33,13 +33,33 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 	
 		const float2 scale = mad( pixelCoords.xy + 0.5f, c_sampleInvCubeSize * 2.0f, -1.0f );
 		const float3 dir = c_sampleForward.xyz + c_sampleRight.xyz * scale.x - c_sampleUp.xyz * scale.y;
-		const float3 pos = mad( dir, cubeDepth, c_samplePos );
-		const uint mip = GetMip( pos );
+		const float3 posFromDepthBuffer = mad( dir, cubeDepth, c_samplePos );
+		const uint mipFromDepthBuffer = GetMip( posFromDepthBuffer );
 
-		if ( mip < HLSL_MIP_MAX_COUNT )
+		float3 pos;
+		uint mip;
+
+		if ( mipFromDepthBuffer < c_sampleMipSky )
+		{
+			pos = posFromDepthBuffer;
+			mip = mipFromDepthBuffer;
+		}
+		else
+		{
+			const float3 invDir = rcp( dir );
+			const float3 t0 = c_sampleSkyboxMinRS * invDir;
+			const float3 t1 = c_sampleSkyboxMaxRS * invDir;
+			const float3 tMax = max( t0, t1 );
+			const float tSky = min( min( tMax.x, tMax.y ), tMax.z );
+
+			pos = mad( dir, tSky, c_samplePos );
+			mip = c_sampleMipSky;
+		}
+
+		// if ( mip < HLSL_MIP_MAX_COUNT )
 		{
 			const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
-			const float3 cellCoords = mad( posInMip, c_sampleInvGridScales[mip].x * gridHalfWidth, gridHalfWidth );
+			const float3 cellCoords = mad( posInMip, gridHalfWidth * c_sampleInvGridScales[mip].x, gridHalfWidth );
 			const int3 sampleCoords = int3( cellCoords );
 
 			uint sampleID;

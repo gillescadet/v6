@@ -87,13 +87,22 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 		float gridScales[CODEC_MIP_MAX_COUNT];
 		Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
 		float gridScale = captureContext->desc.gridScaleMin;
-		for ( u32 gridID = 0;  gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		u32 mipSky = 0;
+		for ( u32 mip = 0;  mip < CODEC_MIP_MAX_COUNT; ++mip )
 		{
-			gridScales[gridID] = gridScale;
-			gridCenters[gridID] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
+			gridScales[mip] = gridScale;
+			gridCenters[mip] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
 			if ( gridScale < captureContext->desc.gridScaleMax )
+			{
 				gridScale *= 2;
+				mipSky = Min( mip+1, CODEC_MIP_MAX_COUNT-1 );
+			}
 		}
+
+		const u32 mipBeforeSky = mipSky-1;
+		const float halfCellSize = gridScales[mipBeforeSky] / gridWidth;
+		const float skyDistance = gridScales[mipBeforeSky] + halfCellSize;
+		const Vec3 skyCenterRS = gridCenters[mipBeforeSky] - *samplePos;
 
 		hlsl::CBSample* cbSample = (hlsl::CBSample*)GPUConstantBuffer_MapWrite( &res->cbCollect );
 
@@ -106,10 +115,13 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 		cbSample->c_sampleGridOrigin = captureContext->frameState.origin;
 		cbSample->c_sampleGridWidth = gridWidth;
 		cbSample->c_samplePos = *samplePos;
-		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
-			cbSample->c_sampleMipBoundaries[gridID] = Vec4_Make( &gridCenters[gridID], gridScales[gridID] );
-		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
-			cbSample->c_sampleInvGridScales[gridID] = Vec4_Make( 1.0f / gridScales[gridID], 0.0f, 0.0f , 0.0f );
+		cbSample->c_sampleSkyboxMinRS = skyCenterRS - skyDistance;
+		cbSample->c_sampleSkyboxMaxRS = skyCenterRS + skyDistance;
+		cbSample->c_sampleMipSky = mipSky;
+		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
+			cbSample->c_sampleMipBoundaries[mip] = Vec4_Make( &gridCenters[mip], gridScales[mip] );
+		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
+			cbSample->c_sampleInvGridScales[mip] = Vec4_Make( 1.0f / gridScales[mip], 0.0f, 0.0f , 0.0f );
 
 		GPUConstantBuffer_UnmapWrite( &res->cbCollect );
 	}
@@ -167,11 +179,11 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 		float halfCellSizes[CODEC_MIP_MAX_COUNT];
 		Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
 		float gridScale = captureContext->desc.gridScaleMin;
-		for ( u32 gridID = 0;  gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		for ( u32 mip = 0;  mip < CODEC_MIP_MAX_COUNT; ++mip )
 		{
-			gridScales[gridID] = gridScale;
-			gridCenters[gridID] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
-			halfCellSizes[gridID] = gridScale / gridWidth;
+			gridScales[mip] = gridScale;
+			gridCenters[mip] = Codec_ComputeGridCenter( &captureContext->frameState.origin, gridScale, gridMacroHalfWidth );
+			halfCellSizes[mip] = gridScale / gridWidth;
 			if ( gridScale < captureContext->desc.gridScaleMax )
 				gridScale *= 2;
 		}

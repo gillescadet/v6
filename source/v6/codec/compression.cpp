@@ -11,6 +11,8 @@
 #include <v6/core/vec3.h>
 #include <v6/core/vec3i.h>
 
+#define COMPRESSION_USE_ALL_DIMS true
+
 BEGIN_V6_NAMESPACE
 
 static void EndColor_F32ToU8( Color_s* endColorU8, const Vec3* endColorF32 )
@@ -333,7 +335,7 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 		Optimization_FindBestFittingLine3DPrecentred( &colorDir, &covariance, centredColors, cellCount );
 
 		if ( covariance.m_row0.x < FLT_EPSILON && covariance.m_row1.y < FLT_EPSILON && covariance.m_row2.z < FLT_EPSILON )
-			return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+			return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
 	}
 
 	Vec3 bestEndColor0;
@@ -444,9 +446,9 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 
 	{
 		if ( minSumDistanceSQ == FLT_MAX )
-			return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+			return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
 
-		return Block_Encode_Refine< 1, false >( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1 );
+		return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1 );
 	}
 }
 

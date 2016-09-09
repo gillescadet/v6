@@ -55,6 +55,11 @@ CBUFFER( CBSample, 0 )
 	
 	float3				c_samplePos;
 	uint				c_samplePad2;
+
+	float3				c_sampleSkyboxMinRS;
+	float				c_samplePad3;
+	float3				c_sampleSkyboxMaxRS;
+	uint				c_sampleMipSky;
 	
 	float4				c_sampleMipBoundaries[HLSL_MIP_MAX_COUNT];
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];

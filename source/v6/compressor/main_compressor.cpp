@@ -21,6 +21,11 @@
 
 #define MAIN_COMPRESSOR_DEBUG 0
 
+#define TEST_BEST_LINE	0
+#define TEST_IMAGE		1
+#define TEST_BLOCK		0
+#define BENCH_BLOCK		0
+
 BEGIN_V6_NAMESPACE
 
 struct ImageBlock_s
@@ -948,7 +953,7 @@ static void TestImageCompression( const char* filenameSrc, IAllocator* allocator
 			sumMSE += blockMSE;
 		}
 
-		// V6_MSG( "Line %d/%d\n", y, imageSrc.height );
+		V6_MSG( "Line %d/%d\n", y, imageSrc.height );
 	}
 
 	const float avgMSE = sumMSE / (imageSrc.width * imageSrc.height);
@@ -1124,8 +1129,9 @@ static void TestImageCompressions( Stack* stack )
 	//const char* filenameSrcs[] = { "D:/media/image/plage.tga" };
 	//const char* filenameSrc = "D:/media/image/rgb.tga";
 	//const char* filenameSrcs[] = { "D:/media/image/sponza01.tga" };
-	const char* filenameSrcs[] = { "D:/media/image/sponza_512_v6.tga" };
+	//const char* filenameSrcs[] = { "D:/media/image/sponza_512_v6.tga" };
 	//const char* filenameSrcs[] = { "D:/media/image/sponza_1024_ss0.tga", "D:/media/image/sponza_1024_ss1.tga", "D:/media/image/sponza_1024_ss2.tga" };
+	const char* filenameSrcs[] = { "D:/media/image/ue_000000_S00_F1.tga" };
 
 	const u32 fileCount = sizeof( filenameSrcs ) / sizeof( filenameSrcs[0] );
 
@@ -1189,30 +1195,45 @@ int main()
 	{
 		v6::Stack stack( &heap, 500 * 1024 * 1024 );
 
+#if BENCH_BLOCK == 1
 		const v6::u32 blockCount = v6::LoadBlockForCompression( &blocks, &heap, &stack, "D:/tmp/v6/ue_000000.v6f" );
 		V6_MSG( "Loaded %d blocks\n", blockCount );
 		if ( blockCount == 0 )
 			return 1;
-		
+#endif
+
 		const v6::u64 startTick = v6::GetTickCount();
 
-		// v6::TextBestLineFitting( &stack );
-		// v6::TestImageCompressions( &stack );
-		// v6::TestBlockCompression( &stack );
+#if TEST_BEST_LINE == 1
+		v6::TextBestLineFitting( &stack );
+#endif
 
+#if TEST_IMAGE == 1
+		v6::TestImageCompressions( &stack );
+		v6::u32 itemCount = 1;
+#endif
+
+#if TEST_BLOCK == 1
+		v6::TestBlockCompression( &stack );
+#endif
+
+#if BENCH_BLOCK == 1
 		v6::EncodedBlockEx_s encodedBlockSum = {};
-		v6::u32 testBlockCount = v6::Min( blockCount, 100000u );
+		v6::u32 itemCount = v6::Min( blockCount, 100000u );
 		v6::BenchBlockCompression( &encodedBlockSum, blocks, testBlockCount );
+#endif
 
 		const v6::u64 endTick = v6::GetTickCount();
 
-		V6_MSG( "%.1fus/block\n", v6::ConvertTicksToSeconds( endTick - startTick ) * 1000000.0f / testBlockCount );
+		V6_MSG( "%.1fus/item\n", v6::ConvertTicksToSeconds( endTick - startTick ) * 1000000.0f / itemCount );
 
+#if BENCH_BLOCK == 1
 		V6_MSG( "\n" );
 		V6_MSG( "%x\n", encodedBlockSum.cellEndColors );
 		V6_MSG( "%llx\n", encodedBlockSum.cellPresence );
 		V6_MSG( "%llx\n", encodedBlockSum.cellColorIndices[0] );
 		V6_MSG( "%llx\n", encodedBlockSum.cellColorIndices[1] );
+#endif
 	}
 
 	heap.free( blocks );

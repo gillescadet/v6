@@ -207,7 +207,7 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		return false;
 	}
 
-	const int style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU| WS_MINIMIZEBOX;
+	const int style = WS_POPUP | WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 		
 	RECT rect = { 0, 0, width, height };
 	AdjustWindowRect( &rect, style, false );
@@ -232,6 +232,10 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 	
 	V6_ASSERT( win->hWnd == hWnd );
 	SetWindowPos( hWnd, nullptr, x - dim.x + width, y - dim.y + height, dim.x, dim.y, 0 );
+
+	RECT r;
+	GetClientRect( hWnd, &r );
+	V6_MSG( "win.resolution: %dx%d\n", r.right - r.left, r.bottom - r.top );
 
 	RAWINPUTDEVICE rid[2];
 
