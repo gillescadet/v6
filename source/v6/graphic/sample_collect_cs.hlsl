@@ -56,7 +56,6 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 			mip = c_sampleMipSky;
 		}
 
-		// if ( mip < HLSL_MIP_MAX_COUNT )
 		{
 			const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
 			const float3 cellCoords = mad( posInMip, gridHalfWidth * c_sampleInvGridScales[mip].x, gridHalfWidth );
