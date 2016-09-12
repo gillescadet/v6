@@ -14,12 +14,13 @@ struct GPUCaptureResources_s;
 
 struct CaptureDesc_s
 {
-	u32							sampleCount;;
+	u32							sampleCount;
 	u32							gridMacroShift;
 	float						gridScaleMin;
 	float						gridScaleMax;
 	float						depthLinearScale;
 	float						depthLinearBias;
+	bool						movingPointOfView;
 	bool						logReadBack;
 };
 
@@ -50,7 +51,7 @@ void	CaptureContext_Release( CaptureContext_s* captureContext );
 // render thread
 u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView );
 void	CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin );
-void	CaptureContext_End( CaptureContext_s* captureContext );
+u32		CaptureContext_End( CaptureContext_s* captureContext );
 void	CaptureContext_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );
 void	CaptureContext_UnmapBlocksForRead( CaptureContext_s* captureContext );
 

@@ -14,8 +14,8 @@ struct Color_s;
 
 struct Image_s
 {
-	IAllocator*		heap;
-	Color_s *	pixels;	
+	IAllocator*	heap;
+	Color_s *	pixels;
 	u32			width;
 	u32			height;
 };

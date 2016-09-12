@@ -10,6 +10,7 @@
 #include <v6/core/vec2.h>
 #include <v6/core/vec2i.h>
 #include <v6/core/vec3i.h>
+#include <v6/core/vec4i.h>
 
 #define V6_ASSERT_D3D11( EXP )	{ HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
 #define V6_RELEASE_D3D11( EXP )	{ V6_ASSERT( EXP ); EXP->Release(); EXP = nullptr; }
@@ -408,6 +409,11 @@ inline void ReadBack_Log( const char* res, Vec2u value, const char* name )
 inline void ReadBack_Log( const char* res, Vec3u value, const char* name )
 {
 	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u)\n", res, name, value.x, value.y, value.z );
+}
+
+inline void ReadBack_Log( const char* res, Vec4u value, const char* name )
+{
+	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u, %4u)\n", res, name, value.x, value.y, value.z, value.w );
 }
 
 inline void ReadBack_Log( const char* res, Vec2i value, const char* name )

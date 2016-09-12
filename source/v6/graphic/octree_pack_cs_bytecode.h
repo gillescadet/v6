@@ -42,7 +42,7 @@
 // blockPositions                        UAV    uint         buf    0        1
 // blockData                             UAV    uint         buf    1        1
 // blockIndirectArgs                     UAV    uint         buf    2        1
-// CBOctree                          cbuffer      NA          NA    1        1
+// CBOctree                          cbuffer      NA          NA    2        1
 //
 //
 //
@@ -65,7 +65,7 @@ dcl_immediateConstantBuffer { { 0, 0, 0, 0},
                               { 16, 0, 0, 0},
                               { 32, 0, 0, 0},
                               { 64, 0, 0, 0} }
-dcl_constantbuffer cb1[1], immediateIndexed
+dcl_constantbuffer cb2[1], immediateIndexed
 dcl_resource_buffer (uint,uint,uint,uint) t3
 dcl_resource_structured t4, 20 
 dcl_resource_buffer (uint,uint,uint,uint) t5
@@ -81,19 +81,19 @@ uge r0.x, vThreadID.x, r0.x
 if_nz r0.x
   ret 
 endif 
-iadd r0.xyzw, cb1[0].zzzy, l(23, 17, 29, -3)
+iadd r0.xyzw, cb2[0].zzzy, l(23, 17, 29, -3)
 ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r0.x, r0.xxxx, u2.xyzw
 ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r0.y, r0.yyyy, u2.yxzw
 iadd r0.x, r0.y, r0.x
 ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r0.z, r0.zzzz, u2.yzxw
-mov r1.x, cb1[0].z
+mov r1.x, cb2[0].z
 imad r0.y, r0.y, icb[r1.x + 0].x, r0.z
 if_z vThreadID.x
-  iadd r1.xy, cb1[0].zzzz, l(24, 30, 0, 0)
+  iadd r1.xy, cb2[0].zzzz, l(24, 30, 0, 0)
   store_uav_typed u2.xyzw, r1.xxxx, r0.xxxx
   store_uav_typed u2.xyzw, r1.yyyy, r0.yyyy
-  imul null, r0.z, cb1[0].z, l(3)
-  imad r1.xy, cb1[0].zzzz, l(3, 3, 0, 0), l(1, 2, 0, 0)
+  imul null, r0.z, cb2[0].z, l(3)
+  imad r1.xy, cb2[0].zzzz, l(3, 3, 0, 0), l(1, 2, 0, 0)
   store_uav_typed u2.xyzw, r1.xxxx, l(1,1,1,1)
   store_uav_typed u2.xyzw, r1.yyyy, l(1,1,1,1)
 endif 
@@ -110,7 +110,7 @@ mov r1.yz, l(0,0,0,0)
 loop 
   ult r1.w, r0.w, r1.z
   breakc_nz r1.w
-  iadd r1.w, -r1.z, cb1[0].y
+  iadd r1.w, -r1.z, cb2[0].y
   iadd r1.w, r1.w, l(-1)
   ushr r2.xyz, r3.xyzx, r1.wwww
   bfi r2.yz, l(0, 1, 1, 0), l(0, 2, 1, 0), r2.zzyz, l(0, 0, 0, 0)
@@ -127,9 +127,9 @@ loop
 endloop 
 ld_indexable(buffer)(uint,uint,uint,uint) r0.w, r1.yyyy, t3.yzwx
 and r0.w, r0.w, l(0x7fffffff)
-mov r1.x, cb1[0].z
+mov r1.x, cb2[0].z
 iadd r1.x, l(1), icb[r1.x + 0].x
-iadd r1.y, cb1[0].z, l(1)
+iadd r1.y, cb2[0].z, l(1)
 mov r1.zw, l(0,0,0,-1)
 mov r2.x, l(0)
 loop 
@@ -188,7 +188,7 @@ ult r0.w, r1.z, r1.x
 if_nz r0.w
   ret 
 endif 
-iadd r2.xyz, cb1[0].zzyz, l(35, 18, -2, 0)
+iadd r2.xyz, cb2[0].zzyz, l(35, 18, -2, 0)
 atomic_iadd u2, r2.x, r1.z
 imm_atomic_iadd r4.x, u2, r2.y, l(1)
 imad r0.y, r4.x, icb[r1.y + 0].x, r0.y
@@ -215,7 +215,7 @@ loop
 endloop 
 iadd r0.x, r4.x, l(64)
 ushr r0.x, r0.x, l(6)
-imul null, r0.y, cb1[0].z, l(3)
+imul null, r0.y, cb2[0].z, l(3)
 atomic_umax u2, r0.y, r0.x
 ret 
 // Approximately 142 instruction slots used
@@ -223,10 +223,10 @@ ret
 
 const BYTE g_main_octree_pack_cs[] =
 {
-     68,  88,  66,  67, 135, 233, 
-     50,  93,  11,  42,  49, 153, 
-     12, 190, 237, 108, 200,  30, 
-    254,  16,   1,   0,   0,   0, 
+     68,  88,  66,  67, 100,  40, 
+     19, 159,  59, 108,  43, 108, 
+     13, 119,  46,  74,  74,  72, 
+     84,  23,   1,   0,   0,   0, 
     200,  20,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
      52,   4,   0,   0,  68,   4, 
@@ -278,7 +278,7 @@ const BYTE g_main_octree_pack_cs[] =
     121,   1,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0,   1,   0,   0,   0, 
+      0,   0,   2,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
       0,   0, 102, 105, 114, 115, 
     116,  67, 104, 105, 108, 100, 
@@ -429,7 +429,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,  89,   0,   0,   4, 
-     70, 142,  32,   0,   1,   0, 
+     70, 142,  32,   0,   2,   0, 
       0,   0,   1,   0,   0,   0, 
      88,   8,   0,   4,   0, 112, 
      16,   0,   3,   0,   0,   0, 
@@ -473,7 +473,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   1,  30,   0,   0,  11, 
     242,   0,  16,   0,   0,   0, 
       0,   0, 166, 134,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,   2,  64,   0,   0, 
      23,   0,   0,   0,  17,   0, 
       0,   0,  29,   0,   0,   0, 
@@ -503,7 +503,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,  54,   0,   0,   6, 
      18,   0,  16,   0,   1,   0, 
       0,   0,  42, 128,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,  35,   0,   0,  10, 
      34,   0,  16,   0,   0,   0, 
       0,   0,  26,   0,  16,   0, 
@@ -515,7 +515,7 @@ const BYTE g_main_octree_pack_cs[] =
       2,   0,  30,   0,   0,  11, 
      50,   0,  16,   0,   1,   0, 
       0,   0, 166, 138,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,   2,  64,   0,   0, 
      24,   0,   0,   0,  30,   0, 
       0,   0,   0,   0,   0,   0, 
@@ -532,12 +532,12 @@ const BYTE g_main_octree_pack_cs[] =
      38,   0,   0,   9,   0, 208, 
       0,   0,  66,   0,  16,   0, 
       0,   0,   0,   0,  42, 128, 
-     32,   0,   1,   0,   0,   0, 
+     32,   0,   2,   0,   0,   0, 
       0,   0,   0,   0,   1,  64, 
       0,   0,   3,   0,   0,   0, 
      35,   0,   0,  16,  50,   0, 
      16,   0,   1,   0,   0,   0, 
-    166, 138,  32,   0,   1,   0, 
+    166, 138,  32,   0,   2,   0, 
       0,   0,   0,   0,   0,   0, 
       2,  64,   0,   0,   3,   0, 
       0,   0,   3,   0,   0,   0, 
@@ -635,7 +635,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,  42,   0,  16, 128, 
      65,   0,   0,   0,   1,   0, 
       0,   0,  26, 128,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,  30,   0,   0,   7, 
     130,   0,  16,   0,   1,   0, 
       0,   0,  58,   0,  16,   0, 
@@ -714,7 +714,7 @@ const BYTE g_main_octree_pack_cs[] =
     255, 255, 255, 127,  54,   0, 
       0,   6,  18,   0,  16,   0, 
       1,   0,   0,   0,  42, 128, 
-     32,   0,   1,   0,   0,   0, 
+     32,   0,   2,   0,   0,   0, 
       0,   0,   0,   0,  30,   0, 
       0,   8,  18,   0,  16,   0, 
       1,   0,   0,   0,   1,  64, 
@@ -723,7 +723,7 @@ const BYTE g_main_octree_pack_cs[] =
      16,   0,   1,   0,   0,   0, 
      30,   0,   0,   8,  34,   0, 
      16,   0,   1,   0,   0,   0, 
-     42, 128,  32,   0,   1,   0, 
+     42, 128,  32,   0,   2,   0, 
       0,   0,   0,   0,   0,   0, 
       1,  64,   0,   0,   1,   0, 
       0,   0,  54,   0,   0,   8, 
@@ -951,7 +951,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   1,  30,   0,   0,  11, 
     114,   0,  16,   0,   2,   0, 
       0,   0, 166, 137,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,   2,  64,   0,   0, 
      35,   0,   0,   0,  18,   0, 
       0,   0, 254, 255, 255, 255, 
@@ -1075,7 +1075,7 @@ const BYTE g_main_octree_pack_cs[] =
       0,   0,  38,   0,   0,   9, 
       0, 208,   0,   0,  34,   0, 
      16,   0,   0,   0,   0,   0, 
-     42, 128,  32,   0,   1,   0, 
+     42, 128,  32,   0,   2,   0, 
       0,   0,   0,   0,   0,   0, 
       1,  64,   0,   0,   3,   0, 
       0,   0, 176,   0,   0,   7, 

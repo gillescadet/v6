@@ -16,6 +16,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
+#define HLSL_ONION_MACROZ_BIT_COUNT					11
+
 // collect
 #define HLSL_CAPTURE_COLOR_SLOT						0
 #define HLSL_CAPTURE_DEPTH_SLOT						1
@@ -38,6 +40,9 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_BLOCK_POS_SLOT							0
 #define HLSL_BLOCK_DATA_SLOT						1
 #define HLSL_BLOCK_INDIRECT_ARGS_SLOT				2
+
+// debug
+#define HLSL_SAMPLE_DEBUG_SLOT						6
 
 CBUFFER( CBSample, 0 )
 {
@@ -65,14 +70,45 @@ CBUFFER( CBSample, 0 )
 	float4				c_sampleInvGridScales[HLSL_MIP_MAX_COUNT];
 };
 
-CBUFFER( CBOctree, 1 )
+CBUFFER( CBSampleOnion, 1 )
+{
+	float	c_sampleOnionDepthLinearScale;
+	float	c_sampleOnionDepthLinearBias;
+	float	c_sampleOnionInvCubeSize;
+	float	c_sampleOnionPad1;
+
+	float4	c_sampleOnionRight;
+	float4	c_sampleOnionUp;
+	float4	c_sampleOnionForward;
+
+	float4	c_sampleOnionSampleCenterWS;
+	float4	c_sampleOnionGridCenterWS;
+
+	float4	c_sampleOnionSkyboxMinRS;
+	float4	c_sampleOnionSkyboxMaxRS;
+	
+	float	c_sampleOnionGridMinScale;
+	float	c_sampleOnionGridMaxScale;
+	float	c_sampleOnionInvGridMinScale;
+	float	c_sampleOnionPad2;
+
+	float	c_sampleOnionMacroPeriodWidth;
+	float	c_sampleOnionInvMacroPeriodWidth;
+	float2	c_sampleOnionPad3;
+
+	float	c_sampleOnionMacroGridWidth;
+	float	c_sampleOnionHalfMacroGridWidth;
+	float	c_sampleOnionInvMacroGridWidth;
+	float	c_sampleOnionPad4;
+};
+
+CBUFFER( CBOctree, 2 )
 {
 	uint				c_octreeCurrentLevel;
 	uint				c_octreeLevelCount;
 	uint				c_octreeCurrentBucket;
 	uint				c_octreePad;
 };
-
 
 struct Sample
 {
@@ -87,6 +123,24 @@ struct OctreeLeaf
 	uint	r32;
 	uint	g32;
 	uint	b32;
+};
+
+struct OctreeLeafOnion
+{
+	uint	face3_x9_y9_z11;
+	uint	done1_x2y2z2_count25;
+	uint	r32;
+	uint	g32;
+	uint	b32;
+};
+
+struct SampleDebugOnion
+{
+	uint3	minBlockCoords;
+	uint3	maxBlockCoords;
+	uint	assertFailedBits;
+	uint4	assertDataU32[4];
+	float4	assertDataF32[4];
 };
 
 #define sample_groupCountX_offset							0

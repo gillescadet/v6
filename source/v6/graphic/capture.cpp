@@ -14,6 +14,8 @@
 
 #define CAPTURE_DEBUG 0
 
+V6_STATIC_ASSERT( CODEC_ONION_MACROZ_BIT_COUNT == HLSL_ONION_MACROZ_BIT_COUNT );
+
 BEGIN_V6_NAMESPACE
 
 struct GPUCaptureResources_s
@@ -31,8 +33,11 @@ struct GPUCaptureResources_s
 	GPUBuffer_s					blockPos;
 	GPUBuffer_s					blockData;
 	GPUBuffer_s					blockIndirectArgs;
+	
+	GPUBuffer_s					sampleDebug;
+	GPUBuffer_s					sampleDebugDefault;
 
-	GPUCompute_s				computeCollect;
+	GPUCompute_s				computeCollect[2];
 	GPUCompute_s				computeBuildInner;
 	GPUCompute_s				computeBuildLeaf;
 	GPUCompute_s				computeFillLeaf;
@@ -66,7 +71,7 @@ static void ClearNode( CaptureContext_s* captureContext )
 	g_deviceContext->ClearUnorderedAccessViewUint( res->firstChildOffsetsLimitedUAV, values );
 }
 
-static void Collect( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
+static void Collect_Mip( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
 {
 	GPUEvent_Begin( s_gpuEventCollect );
 
@@ -132,7 +137,7 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_DEPTH_SLOT, 1, &depthSRV );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &res->samples.uav, nullptr );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &res->sampleIndirectArgs.uav, nullptr );
-	g_deviceContext->CSSetShader( res->computeCollect.m_computeShader, nullptr, 0 );
+	g_deviceContext->CSSetShader( res->computeCollect[captureContext->desc.logReadBack].m_computeShader, nullptr, 0 );
 
 	// Dispatch
 	const u32 cubeGroupCount = gridWidth >> 3;
@@ -211,6 +216,145 @@ static void Collect( const CaptureContext_s* captureContext, const Vec3* sampleP
 #endif // #if CAPTURE_DEBUG == 1
 }
 
+static void Collect_Onion( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
+{
+	GPUEvent_Begin( s_gpuEventCollect );
+
+	GPUCaptureResources_s* res = captureContext->res;
+	
+	// Clear
+	u32 values[4] = {};
+	g_deviceContext->ClearUnorderedAccessViewUint( res->sampleIndirectArgs.uav, values );
+
+	if ( captureContext->desc.logReadBack )
+		g_deviceContext->CopyResource( res->sampleDebug.buf, res->sampleDebugDefault.buf );
+
+	// Update buffers
+
+	V6_ASSERT( captureContext->desc.gridMacroShift > 0 );
+	const u32 gridMacroWidth = 1 << captureContext->desc.gridMacroShift;
+	const u32 gridWidth = 1 << (captureContext->desc.gridMacroShift + 2);
+	const u32 cubeWidth = gridWidth;
+
+	{
+		const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
+		const float macroPeriodWidth = 1.0f / invMacroPeriodWidth;
+
+		const u32 wMax = (1 << CODEC_ONION_MACROZ_BIT_COUNT)-1;
+		const float zMax0 = captureContext->desc.gridScaleMin * exp2f( (wMax + 0.0f) * invMacroPeriodWidth );
+		const float zMax1 = captureContext->desc.gridScaleMin * exp2f( (wMax + 1.0f) * invMacroPeriodWidth );
+		const float zMax = (zMax0 + zMax1) * 0.5f;
+		const float gridScaleMax = Min( captureContext->desc.gridScaleMax, zMax );
+
+		const u32 wMax2 = Clamp( (u32)( log2f( gridScaleMax /captureContext->desc.gridScaleMin ) * macroPeriodWidth ), 0u, wMax );
+
+		const Vec3 skyboxCenterRS = captureContext->frameState.origin - *samplePos;
+		const Vec3 skyboxMinRS = skyboxCenterRS - gridScaleMax;
+		const Vec3 skyboxMaxRS = skyboxCenterRS + gridScaleMax;
+
+		hlsl::CBSampleOnion* cbSample = (hlsl::CBSampleOnion*)GPUConstantBuffer_MapWrite( &res->cbCollect );
+
+		cbSample->c_sampleOnionDepthLinearScale = captureContext->desc.depthLinearScale; // -1.0f / ZNEAR;
+		cbSample->c_sampleOnionDepthLinearBias = captureContext->desc.depthLinearBias; // 1.0f / ZNEAR;
+		cbSample->c_sampleOnionInvCubeSize = 1.0f / cubeWidth;
+
+		cbSample->c_sampleOnionRight = Vec4_Make( &basis[0], 0.0f );
+		cbSample->c_sampleOnionUp = Vec4_Make( &basis[1], 0.0f );
+		cbSample->c_sampleOnionForward = Vec4_Make( &basis[2], 0.0f );
+
+		cbSample->c_sampleOnionSampleCenterWS = Vec4_Make( samplePos, 0.0f );
+		cbSample->c_sampleOnionGridCenterWS = Vec4_Make( &captureContext->frameState.origin, 0.0f );
+
+		cbSample->c_sampleOnionSkyboxMinRS = Vec4_Make( &skyboxMinRS, 0.0f ); 
+		cbSample->c_sampleOnionSkyboxMaxRS = Vec4_Make( &skyboxMaxRS, 0.0f ); 
+
+		cbSample->c_sampleOnionGridMinScale = captureContext->desc.gridScaleMin;
+		cbSample->c_sampleOnionGridMaxScale = gridScaleMax;
+		cbSample->c_sampleOnionInvGridMinScale = 1.0f / captureContext->desc.gridScaleMin;
+
+		cbSample->c_sampleOnionMacroPeriodWidth = macroPeriodWidth;
+		cbSample->c_sampleOnionInvMacroPeriodWidth = invMacroPeriodWidth;
+
+		cbSample->c_sampleOnionMacroGridWidth = (float)gridMacroWidth;
+		cbSample->c_sampleOnionHalfMacroGridWidth = (float)(gridMacroWidth >> 1);
+		cbSample->c_sampleOnionInvMacroGridWidth = 1.0f / gridMacroWidth;
+
+		GPUConstantBuffer_UnmapWrite( &res->cbCollect );
+	}
+
+	// Set
+	g_deviceContext->CSSetConstantBuffers( hlsl::CBSampleOnionSlot, 1, &res->cbCollect.buf );
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_COLOR_SLOT, 1, &colorSRV );
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_DEPTH_SLOT, 1, &depthSRV );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, &res->samples.uav, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, &res->sampleIndirectArgs.uav, nullptr );
+	if ( captureContext->desc.logReadBack )
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_DEBUG_SLOT, 1, &res->sampleDebug.uav, nullptr );
+	g_deviceContext->CSSetShader( res->computeCollect[captureContext->desc.logReadBack].m_computeShader, nullptr, 0 );
+
+	// Dispatch
+	const u32 cubeGroupCount = gridWidth >> 3;
+	g_deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
+
+	// Unset
+	static const void* nulls[8] = {};
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_COLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetShaderResources( HLSL_CAPTURE_DEPTH_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_INDIRECT_ARGS_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+	if ( captureContext->desc.logReadBack )
+		g_deviceContext->CSSetUnorderedAccessViews( HLSL_SAMPLE_DEBUG_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
+
+	GPUEvent_End();
+
+	if ( captureContext->desc.logReadBack )
+	{
+		{
+			const u32* collectedIndirectArgs = (u32*)GPUBuffer_MapReadBack( &res->sampleIndirectArgs );
+			
+			V6_MSG( "\n" );
+			ReadBack_Log( "sample", collectedIndirectArgs[sample_groupCountX_offset], "groupCountX" );
+			V6_ASSERT( collectedIndirectArgs[sample_groupCountY_offset] == 1 );
+			V6_ASSERT( collectedIndirectArgs[sample_groupCountZ_offset] == 1 );
+			ReadBack_Log( "sample", collectedIndirectArgs[sample_count_offset], "count" );
+			V6_ASSERT( collectedIndirectArgs[sample_count_offset] <= captureContext->resSampleCount );
+
+			GPUBuffer_UnmapReadBack( &res->sampleIndirectArgs );
+		}
+	
+		{
+			const hlsl::SampleDebugOnion* sampleDebug = (hlsl::SampleDebugOnion*)GPUBuffer_MapReadBack( &res->sampleDebug );
+			
+			ReadBack_Log( "sampleDebug", sampleDebug->minBlockCoords, "blockMin" );
+			ReadBack_Log( "sampleDebug", sampleDebug->maxBlockCoords, "blockMax" );
+
+			if ( sampleDebug->assertFailedBits )
+			{
+				ReadBack_Log( "sampleDebug", hex32 { sampleDebug->assertFailedBits }, "assertFailedBits" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataU32[0], "assertDataU32[0]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataU32[1], "assertDataU32[1]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataU32[2], "assertDataU32[2]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataU32[3], "assertDataU32[3]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataF32[0], "assertDataF32[0]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataF32[1], "assertDataF32[1]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataF32[2], "assertDataF32[2]" );
+				ReadBack_Log( "sampleDebug", sampleDebug->assertDataF32[3], "assertDataF32[3]" );
+				V6_ASSERT_ALWAYS( "HLSL Assert" );
+			}
+
+			GPUBuffer_UnmapReadBack( &res->sampleDebug );
+		}
+	}
+}
+
+static void Collect( const CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], ID3D11ShaderResourceView* colorSRV, ID3D11ShaderResourceView* depthSRV )
+{
+	if ( captureContext->desc.movingPointOfView )
+		Collect_Mip( captureContext, samplePos, basis, colorSRV, depthSRV );
+	else
+		Collect_Onion( captureContext, samplePos, basis, colorSRV, depthSRV );
+}
+
 static u32 BuildNode( CaptureContext_s* captureContext )
 {
 	GPUEvent_Begin( s_gpuEventBuildNode );
@@ -227,7 +371,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &res->octreeIndirectArgs.uav, nullptr );
 	g_deviceContext->CSSetShader( res->computeBuildInner.m_computeShader, nullptr, 0 );
 
-	const u32 levelCount = captureContext->desc.gridMacroShift + 2;
+	const u32 levelCount = captureContext->desc.movingPointOfView ? (captureContext->desc.gridMacroShift + 2) : (CODEC_ONION_MACROZ_BIT_COUNT + 2);
 	for ( u32 level = 0; level < levelCount; ++level )
 	{
 		// Update buffers
@@ -270,12 +414,12 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 		ReadBack_Log( "octreeContext", octreeIndirectArgs[octree_leafCount_offset], "leafCount" );
 	}
 
-	const u32 addedLeafCount = octreeIndirectArgs[octree_leafCount_offset];
-	V6_ASSERT( addedLeafCount <= captureContext->resLeafCount );
+	const u32 leafCount = octreeIndirectArgs[octree_leafCount_offset];
+	V6_ASSERT( leafCount <= captureContext->resLeafCount );
 
 	GPUBuffer_UnmapReadBack( &res->octreeIndirectArgs );
 
-	return addedLeafCount;
+	return leafCount;
 }
 
 static void FillLeaf( CaptureContext_s* captureContext )
@@ -316,7 +460,7 @@ static void FillLeaf( CaptureContext_s* captureContext )
 	GPUEvent_End();
 }
 
-static void PackColor( CaptureContext_s* captureContext )
+static u32 PackColor( CaptureContext_s* captureContext )
 {
 	GPUEvent_Begin( s_gpuEventPack );
 
@@ -342,7 +486,7 @@ static void PackColor( CaptureContext_s* captureContext )
 		{
 			v6::hlsl::CBOctree* cbOctree = (v6::hlsl::CBOctree*)GPUConstantBuffer_MapWrite( &res->cbOctree );
 			cbOctree->c_octreeCurrentLevel = 0;
-			cbOctree->c_octreeLevelCount = captureContext->desc.gridMacroShift + 2;
+			cbOctree->c_octreeLevelCount = captureContext->desc.movingPointOfView ? (captureContext->desc.gridMacroShift + 2) : (CODEC_ONION_MACROZ_BIT_COUNT + 2);
 			cbOctree->c_octreeCurrentBucket = bucket;
 			GPUConstantBuffer_UnmapWrite( &res->cbOctree );
 		}
@@ -405,6 +549,8 @@ static void PackColor( CaptureContext_s* captureContext )
 	V6_ASSERT( allMaxCellCount <= captureContext->resBlockDataCount );
 
 	GPUBuffer_UnmapReadBack( &res->blockIndirectArgs );
+
+	return allBlockCount;
 }
 
 void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_s* desc )
@@ -449,7 +595,10 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 		}
 	}
 
-	GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSample ), "sample" );
+	if ( desc->movingPointOfView )
+		GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSample ), "sample" );
+	else
+		GPUConstantBuffer_Create( &res->cbCollect, sizeof( hlsl::CBSampleOnion ), "sample" );
 	GPUConstantBuffer_Create( &res->cbOctree, sizeof( hlsl::CBOctree ), "octree" );
 	
 #if CAPTURE_DEBUG == 1
@@ -471,17 +620,41 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 
 		V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( res->firstChildOffsets.buf, &uavDesc, &res->firstChildOffsetsLimitedUAV ) );
 	}
-	GPUBuffer_CreateStructured( &res->leaves, sizeof( hlsl::OctreeLeaf ), captureContext->resLeafCount, 0, "octreeLeaves" );
+	if ( desc->movingPointOfView )
+		GPUBuffer_CreateStructured( &res->leaves, sizeof( hlsl::OctreeLeaf ), captureContext->resLeafCount, 0, "octreeLeaves" );
+	else
+		GPUBuffer_CreateStructured( &res->leaves, sizeof( hlsl::OctreeLeafOnion ), captureContext->resLeafCount, 0, "octreeLeaves" );
 	GPUBuffer_CreateIndirectArgs( &res->octreeIndirectArgs, octree_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "octreeIndirectArgs" );
 	GPUBuffer_CreateTyped( &res->blockPos, DXGI_FORMAT_R32_UINT, captureContext->resBlockPosCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockPositions" );
 	GPUBuffer_CreateTyped( &res->blockData, DXGI_FORMAT_R32_UINT, captureContext->resBlockDataCount, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockData" );
 	GPUBuffer_CreateIndirectArgs( &res->blockIndirectArgs, block_all_offset, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockIndirectArgs" );
 
-	GPUCompute_CreateFromSource( &res->computeCollect, hlsl::g_main_sample_collect_cs, sizeof( hlsl::g_main_sample_collect_cs ) );
-	GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::g_main_octree_build_inner_cs, sizeof( hlsl::g_main_octree_build_inner_cs ) );
-	GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::g_main_octree_build_leaf_cs, sizeof( hlsl::g_main_octree_build_leaf_cs ) );
-	GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::g_main_octree_fill_leaf_cs, sizeof( hlsl::g_main_octree_fill_leaf_cs ) );
-	GPUCompute_CreateFromSource( &res->computePackColor, hlsl::g_main_octree_pack_cs, sizeof( hlsl::g_main_octree_pack_cs ) );
+	if ( !desc->movingPointOfView )
+	{
+		GPUBuffer_CreateStructured( &res->sampleDebug, sizeof( hlsl::SampleDebugOnion ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "sameplDebug" );
+		hlsl::SampleDebugOnion sampleDebugDefault = {};
+		sampleDebugDefault.minBlockCoords = Vec3u_Make( 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF );
+		GPUBuffer_CreateStructuredWithStaticData( &res->sampleDebugDefault, &sampleDebugDefault, sizeof( hlsl::SampleDebugOnion ), 1, 0, "sameplDebugDefault" );
+	}
+
+	if ( desc->movingPointOfView )
+	{
+		GPUCompute_CreateFromSource( &res->computeCollect[0], hlsl::g_main_sample_collect_cs, sizeof( hlsl::g_main_sample_collect_cs ) );
+		GPUCompute_CreateFromSource( &res->computeCollect[1], hlsl::g_main_sample_collect_cs, sizeof( hlsl::g_main_sample_collect_cs ) );
+		GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::g_main_octree_build_inner_cs, sizeof( hlsl::g_main_octree_build_inner_cs ) );
+		GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::g_main_octree_build_leaf_cs, sizeof( hlsl::g_main_octree_build_leaf_cs ) );
+		GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::g_main_octree_fill_leaf_cs, sizeof( hlsl::g_main_octree_fill_leaf_cs ) );
+		GPUCompute_CreateFromSource( &res->computePackColor, hlsl::g_main_octree_pack_cs, sizeof( hlsl::g_main_octree_pack_cs ) );
+	}
+	else
+	{
+		GPUCompute_CreateFromSource( &res->computeCollect[0], hlsl::g_main_sample_collect_onion_cs, sizeof( hlsl::g_main_sample_collect_onion_cs ) );
+		GPUCompute_CreateFromSource( &res->computeCollect[1], hlsl::g_main_sample_collect_onion_debug_cs, sizeof( hlsl::g_main_sample_collect_onion_debug_cs ) );
+		GPUCompute_CreateFromSource( &res->computeBuildInner, hlsl::g_main_octree_build_inner_onion_cs, sizeof( hlsl::g_main_octree_build_inner_onion_cs ) );
+		GPUCompute_CreateFromSource( &res->computeBuildLeaf, hlsl::g_main_octree_build_leaf_onion_cs, sizeof( hlsl::g_main_octree_build_leaf_onion_cs ) );
+		GPUCompute_CreateFromSource( &res->computeFillLeaf, hlsl::g_main_octree_fill_leaf_onion_cs, sizeof( hlsl::g_main_octree_fill_leaf_onion_cs ) );
+		GPUCompute_CreateFromSource( &res->computePackColor, hlsl::g_main_octree_pack_onion_cs, sizeof( hlsl::g_main_octree_pack_onion_cs ) );
+	}
 
 	s_gpuCaptureResourcesCreated = true;
 }
@@ -505,7 +678,14 @@ void CaptureContext_Release( CaptureContext_s* captureContext )
 	GPUBuffer_Release( &res->blockData );
 	GPUBuffer_Release( &res->blockIndirectArgs );
 
-	GPUCompute_Release( &res->computeCollect );
+	if ( !captureContext->desc.movingPointOfView )
+	{
+		GPUBuffer_Release( &res->sampleDebug );
+		GPUBuffer_Release( &res->sampleDebugDefault );
+	}
+
+	GPUCompute_Release( &res->computeCollect[0] );
+	GPUCompute_Release( &res->computeCollect[1] );
 	GPUCompute_Release( &res->computeBuildInner );
 	GPUCompute_Release( &res->computeBuildLeaf );
 	GPUCompute_Release( &res->computeFillLeaf );
@@ -524,9 +704,9 @@ void CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin 
 	captureContext->frameState.origin = *origin;
 }
 
-void CaptureContext_End( CaptureContext_s* captureContext )
+u32 CaptureContext_End( CaptureContext_s* captureContext )
 {
-	PackColor( captureContext );
+	return PackColor( captureContext );
 }
 
 Vec3 CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampleID )

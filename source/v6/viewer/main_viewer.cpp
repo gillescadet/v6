@@ -41,14 +41,15 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		0
-#define V6_SIMPLE_SCENE			1
+#define V6_LOAD_EXTERNAL		1
+#define V6_SIMPLE_SCENE			0
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			0
-#define V6_BENCH_CAPTURE		0
+#define V6_BENCH_CAPTURE		1
+#define V6_INFINITE_CAPTURE		0
 
 #if V6_USE_HMD == 1
 #include <v6/graphic/hmd.h>
@@ -59,7 +60,7 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 7;
+static const u32 GRID_MACRO_SHIFT				= 8;
 static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
 static const u32 CUBE_SIZE						= GRID_WIDTH;
 static const float GRID_MIN_SCALE				= 50.0f;
@@ -334,6 +335,7 @@ static bool g_showObjects			= false;
 static bool g_debugBlocks			= false;
 static bool g_transparentDebug		= false;
 static bool g_reloadShaders			= false;
+static bool g_movingPointOfView		= false;
 
 static float s_yaw					= 0.0f;
 static float s_pitch				= 0.0f;
@@ -689,6 +691,7 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'H': g_showHistory = keyEvent->pressed ? !g_showHistory: g_showHistory; break;
 		case 'I': if ( keyEvent->pressed ) { s_logReadBack = true; } break;
 		case 'J': g_noTSAA = keyEvent->pressed ? !g_noTSAA : g_noTSAA; break;
+		case 'K': g_movingPointOfView = keyEvent->pressed ? !g_movingPointOfView : g_movingPointOfView; break;
 		case 'L': g_limit = keyEvent->pressed ? !g_limit : g_limit; break;
 		case 'M': g_showMip = keyEvent->pressed ? !g_showMip : g_showMip; break;
 		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
@@ -1212,19 +1215,40 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 			const char* textureFilename = textureFilenames[textureSlot];
 			if ( !*textureFilename )
 				continue;
-
+			
 			Image_s image = {};
-			CFileReader fileReader;
-			if ( FilePath_HasExtension( textureFilename, "tga" ) && fileReader.Open( textureFilename, 0 ) && Image_ReadTga( &image, &fileReader, sceneContext->stack ) )
+			if ( FilePath_HasExtension( textureFilename, "tga" ) )
 			{
-				static const char* textureNames[TEXTURE_GENERIC_COUNT] = { "diffuse", "alpha", "bump" };
-				const u32 textureID = scene->textureCount;
-				GPUTexture2D_Create( &scene->textures[scene->textureCount], image.width, image.height, image.pixels, true, textureNames[textureSlot] );
-				++scene->textureCount;
+				ScopedStack scopedStack( sceneContext->stack );
 
-				Material_SetTexture( material, textureID, textureSlot );
+				x64 textureSize;
+				void* textureData = nullptr;
+
+				CFileReader fileReader;
+				if ( fileReader.Open( textureFilename, 0 ) )
+				{
+					textureSize = fileReader.GetSize();
+					textureData = sceneContext->stack->alloc( ToU64( textureSize ) );
+					fileReader.Read( ToX64( textureSize ), textureData );
+				}
+
+				if ( textureData )
+				{
+					CBufferReader bufferReader( textureData, textureSize );
+
+					if ( Image_ReadTga( &image, &bufferReader, sceneContext->stack ) )
+					{
+						static const char* textureNames[TEXTURE_GENERIC_COUNT] = { "diffuse", "alpha", "bump" };
+						const u32 textureID = scene->textureCount;
+						GPUTexture2D_Create( &scene->textures[scene->textureCount], image.width, image.height, image.pixels, true, textureNames[textureSlot] );
+						++scene->textureCount;
+
+						Material_SetTexture( material, textureID, textureSlot );
+					}
+				}
 			}
-			else
+			
+			if ( image.pixels == nullptr )
 				V6_WARNING( "Unable to load %s for material %s\n", textureFilename, objMaterial->name );
 		}
 
@@ -1896,6 +1920,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
 		captureDesc.depthLinearScale = -1.0f / ZNEAR;
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
+		captureDesc.movingPointOfView = g_movingPointOfView;
 		captureDesc.logReadBack = s_logReadBack;
 
 		const u32 renderTargetSize = GRID_WIDTH;
@@ -1929,7 +1954,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		basis[0] = Cross( basis[2], basis[1] );
 
 		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, basis );
-		sumLeafCount += CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
+		sumLeafCount = CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
@@ -1946,7 +1971,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 		V6_MSG( "Packing all samples..." );
 
-		CaptureContext_End( &m_captureContext );
+		const u32 blockCount = CaptureContext_End( &m_captureContext );
 
 		const u64 packingStopTickCount = GetTickCount();
 
@@ -1961,7 +1986,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 			return false;
 
 		V6_MSG( "\r" );
-		V6_MSG( "Packed  all samples: %13s cells added @ frame %d\n", String_FormatInteger( sumLeafCount ), frameID );
+		V6_MSG( "Packed all samples: %s cells (%s blocks)  added @ frame %d\n", String_FormatInteger( sumLeafCount ), String_FormatInteger( blockCount ), frameID );
 		V6_MSG( "Durations: %d captures in %.1fs, packing in %.1fs, writing in %.1fs => total of %.1fs\n",
 			SAMPLE_MAX_COUNT,
 			ConvertTicksToSeconds( captureStopTickCount - s_captureStartTickCount ),
@@ -1969,7 +1994,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 			ConvertTicksToSeconds( writeStopTickCount - packingStopTickCount ),
 			ConvertTicksToSeconds( writeStopTickCount - s_captureStartTickCount ) );
 		s_logReadBack = false;
-#if 0
+#if V6_INFINITE_CAPTURE == 1
 		g_sample = 0;
 #endif
 	}
@@ -2320,9 +2345,10 @@ int main()
 			ifps *= 1.0f / tMaxCount;
 
 			char text[1024];
-			sprintf_s( text, sizeof( text ), "%s | fps: %3u | %s | Hmd %d %s",
+			sprintf_s( text, sizeof( text ), "%s | fps: %3u | %s | %s | Hmd %d %s",
 				title, 
 				(int)(1.0f / ifps), 
+				v6::g_movingPointOfView ? "moving": "static",
 				v6::ModeToString( v6::g_drawMode ),
 				v6::s_hmdState,
 				v6::s_activeScene->info.dirty ? "| *" : "" );

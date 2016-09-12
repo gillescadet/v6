@@ -227,7 +227,7 @@ Vec4_INTEGER< INTEGER_TYPE > operator-(Vec4_INTEGER< INTEGER_TYPE > const & v1, 
 }
 
 typedef Vec4_INTEGER< int >			Vec4i;
-typedef Vec4_INTEGER< u32 >	Vec4u;
+typedef Vec4_INTEGER< u32 >			Vec4u;
 
 V6_INLINE Vec4i Vec4i_Zero()														{ return Vec4_INTEGER_Zero< int >(); }
 V6_INLINE Vec4i Vec4i_Make( int x, int y, int z, int w )							{ return Vec4_INTEGER_Make< int >( x, y, z, w ); }

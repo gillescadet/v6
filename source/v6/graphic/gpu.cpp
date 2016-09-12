@@ -774,21 +774,7 @@ void GPUBuffer_CreateStructuredWithStaticData( GPUBuffer_s* buffer, const void* 
 		dataDesc.SysMemPitch = 0;
 		dataDesc.SysMemSlicePitch = 0;
 
-		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->buf ) );
-		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
-	}
-
-	if ( (flags & GPUBUFFER_CREATION_FLAG_READ_BACK) != 0 )
-	{
-		D3D11_BUFFER_DESC bufferDesc = {};
-		bufferDesc.ByteWidth = buffer->size;
-		bufferDesc.Usage = D3D11_USAGE_STAGING;
-		bufferDesc.BindFlags = 0;
-		bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-		bufferDesc.StructureByteStride = elementSize;
-
-		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, nullptr, &buffer->staging ) );
+		V6_ASSERT_D3D11( g_device->CreateBuffer( &bufferDesc, &dataDesc, &buffer->buf ) );
 		GPUResource_LogMemory( "GPUBuffer", buffer->size, name );
 	}
 

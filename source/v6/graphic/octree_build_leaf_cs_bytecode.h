@@ -55,7 +55,7 @@
 // firstChildOffsets                     UAV    uint         buf    3        1
 // octreeLeaves                          UAV  struct         r/w    4        1
 // octreeIndirectArgs                    UAV    uint         buf    5        1
-// CBOctree                          cbuffer      NA          NA    1        1
+// CBOctree                          cbuffer      NA          NA    2        1
 //
 //
 //
@@ -72,7 +72,7 @@
 // no Output
 cs_5_0
 dcl_globalFlags refactoringAllowed
-dcl_constantbuffer cb1[1], immediateIndexed
+dcl_constantbuffer cb2[1], immediateIndexed
 dcl_resource_structured t0, 8 
 dcl_resource_buffer (uint,uint,uint,uint) t1
 dcl_uav_typed_buffer (uint,uint,uint,uint) u2
@@ -95,7 +95,7 @@ endif
 ld_structured_indexable(structured_buffer, stride=8)(mixed,mixed,mixed,mixed) r0.xy, vThreadID.x, l(0), t0.xyxx
 ubfe r1.y, l(12), l(8), r0.x
 ushr r1.xz, r0.xxyx, l(20, 0, 20, 0)
-iadd r0.z, -cb1[0].x, cb1[0].y
+iadd r0.z, -cb2[0].x, cb2[0].y
 iadd r0.z, r0.z, l(-1)
 ushr r2.xyz, r1.xyzx, r0.zzzz
 bfi r0.zw, l(0, 0, 1, 1), l(0, 0, 2, 1), r2.zzzy, l(0, 0, 0, 0)
@@ -107,7 +107,7 @@ ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r1.w, vThreadID.xxxx, u2.yzw
 ld_uav_typed_indexable(buffer)(uint,uint,uint,uint) r1.w, r1.wwww, u3.yzwx
 and r1.w, r1.w, l(0x7fffffff)
 iadd r0.z, r0.z, r1.w
-movc r0.z, cb1[0].x, r0.z, r0.w
+movc r0.z, cb2[0].x, r0.z, r0.w
 store_uav_typed u2.xyzw, vThreadID.xxxx, r0.zzzz
 imm_atomic_cmp_exch r2.x, u3, r0.z, l(0), l(0x80000000)
 if_nz r2.x
@@ -139,10 +139,10 @@ ret
 
 const BYTE g_main_octree_build_leaf_cs[] =
 {
-     68,  88,  66,  67, 143, 154, 
-    206, 255, 237, 174,  17, 246, 
-     83, 207, 181,  62,  12, 164, 
-    247, 206,   1,   0,   0,   0, 
+     68,  88,  66,  67, 116,  30, 
+     83, 191,  42,   4,  28,  52, 
+     36,  88, 171,  33,  15, 215, 
+    111, 103,   1,   0,   0,   0, 
     124,  12,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
     196,   4,   0,   0, 212,   4, 
@@ -194,7 +194,7 @@ const BYTE g_main_octree_build_leaf_cs[] =
     123,   1,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0,   1,   0,   0,   0, 
+      0,   0,   2,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
       0,   0, 115,  97, 109, 112, 
     108, 101, 115,   0, 115,  97, 
@@ -352,7 +352,7 @@ const BYTE g_main_octree_build_leaf_cs[] =
      80,   0,   5,   0, 189,   1, 
       0,   0, 106,   8,   0,   1, 
      89,   0,   0,   4,  70, 142, 
-     32,   0,   1,   0,   0,   0, 
+     32,   0,   2,   0,   0,   0, 
       1,   0,   0,   0, 162,   0, 
       0,   4,   0, 112,  16,   0, 
       0,   0,   0,   0,   8,   0, 
@@ -437,9 +437,9 @@ const BYTE g_main_octree_build_leaf_cs[] =
       0,  10,  66,   0,  16,   0, 
       0,   0,   0,   0,  10, 128, 
      32, 128,  65,   0,   0,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,  26, 128,  32,   0, 
-      1,   0,   0,   0,   0,   0, 
+      2,   0,   0,   0,   0,   0, 
       0,   0,  30,   0,   0,   7, 
      66,   0,  16,   0,   0,   0, 
       0,   0,  42,   0,  16,   0, 
@@ -510,7 +510,7 @@ const BYTE g_main_octree_build_leaf_cs[] =
       1,   0,   0,   0,  55,   0, 
       0,  10,  66,   0,  16,   0, 
       0,   0,   0,   0,  10, 128, 
-     32,   0,   1,   0,   0,   0, 
+     32,   0,   2,   0,   0,   0, 
       0,   0,   0,   0,  42,   0, 
      16,   0,   0,   0,   0,   0, 
      58,   0,  16,   0,   0,   0, 

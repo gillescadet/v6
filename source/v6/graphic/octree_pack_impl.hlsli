@@ -1,16 +1,20 @@
 #define HLSL
 #include "../graphic/capture_shared.h"
 
-Buffer< uint > firstChildOffsets				: REGISTER_SRV( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT );
-StructuredBuffer< OctreeLeaf > octreeLeaves		: REGISTER_SRV( HLSL_OCTREE_LEAF_SLOT );
-Buffer< uint > octreeIndirectArgs 				: REGISTER_SRV( HLSL_OCTREE_INDIRECT_ARGS_SLOT );
+Buffer< uint > firstChildOffsets					: REGISTER_SRV( HLSL_OCTREE_FIRST_CHILD_OFFSET_SLOT );
+#if ONION == 1
+StructuredBuffer< OctreeLeafOnion > octreeLeaves	: REGISTER_SRV( HLSL_OCTREE_LEAF_SLOT );
+#else
+StructuredBuffer< OctreeLeaf > octreeLeaves			: REGISTER_SRV( HLSL_OCTREE_LEAF_SLOT );
+#endif
+Buffer< uint > octreeIndirectArgs 					: REGISTER_SRV( HLSL_OCTREE_INDIRECT_ARGS_SLOT );
 
-RWBuffer< uint > blockPositions					: REGISTER_UAV( HLSL_BLOCK_POS_SLOT );
-RWBuffer< uint > blockData						: REGISTER_UAV( HLSL_BLOCK_DATA_SLOT );
-RWBuffer< uint > blockIndirectArgs 				: REGISTER_UAV( HLSL_BLOCK_INDIRECT_ARGS_SLOT );
+RWBuffer< uint > blockPositions						: REGISTER_UAV( HLSL_BLOCK_POS_SLOT );
+RWBuffer< uint > blockData							: REGISTER_UAV( HLSL_BLOCK_DATA_SLOT );
+RWBuffer< uint > blockIndirectArgs 					: REGISTER_UAV( HLSL_BLOCK_INDIRECT_ARGS_SLOT );
 
 [ numthreads( HLSL_OCTREE_THREAD_GROUP_SIZE, 1, 1 ) ]
-void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
+void main( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint leafID = DTid.x;
 	if ( leafID >= octree_leafCount )
@@ -33,11 +37,19 @@ void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 	}
 
 	uint3 coords;
+#if ONION == 1
+	coords.x = ((octreeLeaves[leafID].face3_x9_y9_z11 >> 18) & 0x07FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 29) & 0x3);
+	coords.y = ((octreeLeaves[leafID].face3_x9_y9_z11 >>  9) & 0x07FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 27) & 0x3);
+	coords.z = ((octreeLeaves[leafID].face3_x9_y9_z11 <<  2) & 0x1FFC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 25) & 0x3);
+
+	const uint face = (octreeLeaves[leafID].face3_x9_y9_z11 >> 29) & 7;
+#else
 	coords.x = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 >> 16) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 29) & 0x3);
 	coords.y = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 >>  7) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 27) & 0x3);
 	coords.z = ((octreeLeaves[leafID].mip4_none1_x9_y9_z9 <<  2) & 0x7FC) | ((octreeLeaves[leafID].done1_x2y2z2_count25 >> 25) & 0x3);
 
 	const uint mip = (octreeLeaves[leafID].mip4_none1_x9_y9_z9 >> 28) & 0xF;
+#endif
 
 	const uint packLevel = c_octreeLevelCount - 3;
 
@@ -51,7 +63,11 @@ void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 		int childOffset;
 		if ( level == 0 )
 		{
+#if ONION == 1
+			childOffset = face * 8 + cellOffset;
+#else
 			childOffset = mip * 8 + cellOffset;
+#endif
 		}
 		else
 		{
@@ -120,10 +136,15 @@ void main_octree_pack_cs( uint3 DTid : SV_DispatchThreadID )
 	const uint dataBaseID = dataOffset + blockID * dataSize;
 	const uint posBaseID = posOffset + blockID;	
 
-	const uint gridMacroShift = c_octreeLevelCount - 2;
 	const uint3 blockCoords = coords >> 2;
+#if ONION == 1
+	const uint blockPos = (blockCoords.z << 18) | (blockCoords.y << 9) | blockCoords.x;
+	const uint packedBlockPos = blockPositions[posBaseID] = (face << 29) | blockPos;
+#else
+	const uint gridMacroShift = c_octreeLevelCount - 2;
 	const uint blockPos = (blockCoords.z << (gridMacroShift * 2)) | (blockCoords.y << gridMacroShift) | blockCoords.x;
 	const uint packedBlockPos = blockPositions[posBaseID] = (mip << 28) | blockPos;
+#endif
 	blockPositions[posBaseID] = packedBlockPos;
 
 	for ( uint cellID = 0; cellID < cellMaxCount; ++cellID )
