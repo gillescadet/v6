@@ -154,7 +154,12 @@ struct Block_s
 	u32						thisBlockOrder;
 	u32						nextBlockOrder;
 	u64						key;
-	u32						mip4_none1_pos27;
+	union
+	{
+		u32					mip4_none1_pos27;
+		u32					sign1_axis2_z11_y9_x9;
+		u32					packedBlockPos;
+	};
 	u8						linked;
 	u8						frameRank;
 	u8						sharedFrameCount;
@@ -179,18 +184,18 @@ struct RawFrame_s
 	u32						refFrameRank;
 	Vec3					gridOrigin;
 	float					gridYaw;
-	Vec3i					gridMin[CODEC_MIP_MAX_COUNT];
-	Vec3i					gridMax[CODEC_MIP_MAX_COUNT];
-	u32						blockCountPerMip[CODEC_MIP_MAX_COUNT];
-	u32						blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
+	Vec3i					gridMin[CODEC_GRID_MAX_COUNT];
+	Vec3i					gridMax[CODEC_GRID_MAX_COUNT];
+	u32						blockCountPerGrid[CODEC_GRID_MAX_COUNT];
+	u32						blockOffsetPerGrid[CODEC_GRID_MAX_COUNT];
 
 	u32						sharedBlockCount;
 	struct Shared_s
 	{
 		u32					blockCount;
-		u32					rangeIDs[CODEC_MIP_MAX_COUNT];
-		u32					blockCountPerMip[CODEC_MIP_MAX_COUNT];
-		u32					blockOffsetPerMip[CODEC_MIP_MAX_COUNT];
+		u32					rangeIDs[CODEC_GRID_MAX_COUNT];
+		u32					blockCountPerGrid[CODEC_GRID_MAX_COUNT];
+		u32					blockOffsetPerGrid[CODEC_GRID_MAX_COUNT];
 	}						shareds[CODEC_FRAME_MAX_COUNT];
 
 	CFileReader				cacheFileReader;
@@ -211,7 +216,7 @@ struct ContextStream_s
 	CodecStreamDesc_s	desc;
 	u32					gridMacroWidth;
 	u32					gridMacroHalfWidth;
-	u32					mipCount;
+	u32					gridCount;
 };
 
 struct Context_s
@@ -228,6 +233,7 @@ struct Context_s
 	CodecRange_s		rangeDefs[CODEC_RANGE_MAX_COUNT];
 	u32					rangeDefCount;
 	u32					frameCount;
+	u32					compressionQuality;
 	u32					blockCountPerSequence;
 	u32					resolvedBlockPerSequence;
 	u32					unresolvedBlockPerSequence;
@@ -261,7 +267,7 @@ static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
 
 static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShift, Vec3i blockPosTranslation )
 {
-	V6_ASSERT( mip <= 0xF );
+	V6_ASSERT( mip < CODEC_MIP_MAX_COUNT );
 
 	const u32 gridMacroMask = (1 << gridMacroShift) - 1;
 	const u64 x = (u64)((blockPos >> (gridMacroShift * 0)) & gridMacroMask) + blockPosTranslation.x;
@@ -283,6 +289,31 @@ static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShi
 
 	return key;
 }
+
+static u64 ComputeKeyFromFaceAndBlockPos( u32 face, u32 blockPos )
+{
+	V6_ASSERT( face < CODEC_FACE_MAX_COUNT );
+
+	const u64 x = (blockPos >>  0) & 0x1FF;
+	const u64 y = (blockPos >>  9) & 0x1FF;
+	const u64 z = (blockPos >> 18) & 0x7FF;
+
+	const u32 maxValue = 0xFFFFF;
+	V6_ASSERT( x <= maxValue );
+	V6_ASSERT( y <= maxValue );
+	V6_ASSERT( z <= maxValue );
+
+	u64 key = (u64)face << 61;
+	for ( u32 shift = 0; shift < 20; ++shift )
+	{
+		key |= INTERLEAVE_X( x, shift );
+		key |= INTERLEAVE_Y( y, shift );
+		key |= INTERLEAVE_Z( z, shift );
+	}
+
+	return key;
+}
+
 
 static void BlockDataChunk_Write( IStreamWriter* streamWriter, BlockDataChunk_s* chunk, Context_s* context )
 {
@@ -406,14 +437,14 @@ static void Block_GetColors( const u32** cellRGBA, u64* cellPresence, const Bloc
 	*cellPresence = cache->lastBlockCellPresence;
 }
 
-static u32 Block_GetMip( const Block_s* block )
+static u32 Block_GetGrid( const Block_s* block, Context_s* context )
 {
-	return block->mip4_none1_pos27 >> 28;
+	return (context->stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 ? (block->mip4_none1_pos27 >> 28) : (block->sign1_axis2_z11_y9_x9 >> 29);
 }
 
-static u32 Block_GetPos( const Block_s* block )
+static u32 Block_GetPos( const Block_s* block, Context_s* context )
 {
-	return block->mip4_none1_pos27 & 0x07FFFFFF;
+	return (context->stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 ? (block->mip4_none1_pos27 & 0x07FFFFFF) : (block->sign1_axis2_z11_y9_x9 & 0x1FFFFFFF);
 }
 
 static Block_s* Block_GetLinkedBlock( const Block_s* block, Context_s* context )
@@ -516,7 +547,7 @@ static void BlockCluster_ResolveColors( const BlockCluster_s* cluster, Block_s* 
 
 	BlockClusterEncoded_s* clusterEncoded = (BlockClusterEncoded_s*)cluster; // reuse cluster memory
 	memset( &clusterEncoded->encodedData, 0, sizeof( EncodedBlockEx_s ) );
-	Block_Encode_Optimize( &clusterEncoded->encodedData, blockCellRGBA, blockCellCount );
+	Block_Encode_Optimize( &clusterEncoded->encodedData, blockCellRGBA, blockCellCount, context->compressionQuality );
 	clusterEncoded->isEncoded = true;
 
 	Atomic_Inc( &context->resolvedBlockPerSequence );
@@ -754,6 +785,16 @@ static void RawFrame_CompressedBlockDataChunk_Job( void* jobPointer, u32 threadI
 	job->success = true;
 }
 
+static void ContextStream_PostInitDesc( ContextStream_s* contextStream )
+{
+	contextStream->gridMacroWidth = 1 << contextStream->desc.gridMacroShift2;
+	contextStream->gridMacroHalfWidth = contextStream->gridMacroWidth >> 1;
+	if ( (contextStream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 )
+		contextStream->gridCount = Codec_GetMipCount( contextStream->desc.gridScaleMin, contextStream->desc.gridScaleMax );
+	else
+		contextStream->gridCount = CODEC_FACE_MAX_COUNT;
+}
+
 static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_s* context )
 {
 	RawFrame_s* frame = &context->frames[frameRank];
@@ -793,12 +834,13 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	{
 		streamDesc->frameRate = desc.frameRate;
 		streamDesc->sampleCount = desc.sampleCount;
-		streamDesc->gridMacroShift = desc.gridMacroShift;
+		streamDesc->gridMacroShift2 = desc.gridMacroShift2;
 		streamDesc->gridScaleMin = desc.gridScaleMin;
 		streamDesc->gridScaleMax = desc.gridScaleMax;
-		context->stream->gridMacroWidth = 1 << desc.gridMacroShift;
-		context->stream->gridMacroHalfWidth = context->stream->gridMacroWidth >> 1;
-		context->stream->mipCount = Codec_GetMipCount( desc.gridScaleMin, desc.gridScaleMax );
+		streamDesc->flags = desc.flags;
+		if ( (desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 )
+			streamDesc->gridOrigin = desc.gridOrigin;
+		ContextStream_PostInitDesc( context->stream );
 	}
 	else
 	{
@@ -816,7 +858,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		}
 #endif
 
-		if ( desc.gridMacroShift != streamDesc->gridMacroShift )
+		if ( desc.gridMacroShift2 != streamDesc->gridMacroShift2 )
 		{
 			V6_ERROR( "Incompatible grid resolution.\n" );
 			return false;
@@ -827,28 +869,43 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			V6_ERROR( "Incompatible grid scales.\n" );
 			return false;
 		}
+
+		if ( desc.flags != streamDesc->flags )
+		{
+			V6_ERROR( "Incompatible flags.\n" );
+			return false;
+		}
+
+		if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 && streamDesc->gridOrigin != desc.gridOrigin )
+		{
+			V6_ERROR( "Incompatible origin.\n" );
+			return false;
+		}
 	}
 
 	frame->gridOrigin = desc.gridOrigin;
 	frame->gridYaw = desc.gridYaw;
 	frame->refFrameRank = (u32)-1;
 
-	float gridScale = context->stream->desc.gridScaleMin;
-	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip, gridScale *= 2.0f )
+	if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 )
 	{
-		const Vec3i gridCoord = Codec_ComputeMacroGridCoords( &frame->gridOrigin, gridScale, context->stream->gridMacroHalfWidth );
-		frame->gridMin[mip] = gridCoord - (int)context->stream->gridMacroHalfWidth;
-		frame->gridMax[mip] = gridCoord + (int)context->stream->gridMacroHalfWidth;
+		float gridScale = context->stream->desc.gridScaleMin;
+		for ( u32 mip = 0; mip < context->stream->gridCount; ++mip, gridScale *= 2.0f )
+		{
+			const Vec3i gridCoord = Codec_ComputeMacroGridCoords( &frame->gridOrigin, gridScale, context->stream->gridMacroHalfWidth );
+			frame->gridMin[mip] = gridCoord - (int)context->stream->gridMacroHalfWidth;
+			frame->gridMax[mip] = gridCoord + (int)context->stream->gridMacroHalfWidth;
 
-		if ( frameRank == 0 )
-		{
-			context->gridMin[mip] = frame->gridMin[mip];
-			context->gridMax[mip] = frame->gridMax[mip];
-		}
-		else
-		{
-			context->gridMin[mip] = Min( context->gridMin[mip], frame->gridMin[mip] );
-			context->gridMax[mip] = Max( context->gridMin[mip], frame->gridMax[mip] );
+			if ( frameRank == 0 )
+			{
+				context->gridMin[mip] = frame->gridMin[mip];
+				context->gridMax[mip] = frame->gridMax[mip];
+			}
+			else
+			{
+				context->gridMin[mip] = Min( context->gridMin[mip], frame->gridMin[mip] );
+				context->gridMax[mip] = Max( context->gridMin[mip], frame->gridMax[mip] );
+			}
 		}
 	}
 
@@ -884,36 +941,37 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank, ++blockID )
 		{
 			Block_s* block = &frame->blocks[blockID];
-			const u32 mip4_none1_pos27 = ((u32*)data.blockPos)[blockID];
-			V6_ASSERT( ((mip4_none1_pos27 >> 27) & 1) == 0 );
-			block->mip4_none1_pos27 = mip4_none1_pos27;
-			const u32 mip = Block_GetMip( block );
-			block->key = ComputeKeyFromMipAndBlockPos( mip, Block_GetPos( block ), context->stream->desc.gridMacroShift, frame->gridMin[mip] - context->gridMin[mip] );
+			block->packedBlockPos = ((u32*)data.blockPos)[blockID];
+			const u32 grid = Block_GetGrid( block, context );
+			if ( desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+				block->key = ComputeKeyFromMipAndBlockPos( grid, Block_GetPos( block, context ), context->stream->desc.gridMacroShift2, frame->gridMin[grid] - context->gridMin[grid] );
+			else
+				block->key = ComputeKeyFromFaceAndBlockPos( grid, Block_GetPos( block, context ) );
 			V6_ASSERT( block->key != 0 );
 			block->frameRank = frameRank;
 			block->bucket = bucket;
 			
 			frame->blockIDs[blockID] = blockID;
 
-			++frame->blockCountPerMip[Block_GetMip( block )];
+			++frame->blockCountPerGrid[grid];
 		}
 	}
 
 	u32 blockOffset = 0;
-	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
+	for ( u32 grid = 0; grid < CODEC_GRID_MAX_COUNT; ++grid )
 	{
-		frame->blockOffsetPerMip[mip] = blockOffset;
-		blockOffset += frame->blockCountPerMip[mip];
+		frame->blockOffsetPerGrid[grid] = blockOffset;
+		blockOffset += frame->blockCountPerGrid[grid];
 	}
 
 	ShowProgress();
 
 	qsort_s( frame->blockIDs, frame->blockCount, sizeof( u32 ), Block_CompareKey, frame );
 
-	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
-		V6_ASSERT( frame->blockCountPerMip[mip] == 0 || (
-			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip]]] ) == mip && 
-			Block_GetMip( &frame->blocks[frame->blockIDs[frame->blockOffsetPerMip[mip] + frame->blockCountPerMip[mip] - 1]] ) == mip) );
+	for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
+		V6_ASSERT( frame->blockCountPerGrid[grid] == 0 || (
+			Block_GetGrid( &frame->blocks[frame->blockIDs[frame->blockOffsetPerGrid[grid]]], context ) == grid && 
+			Block_GetGrid( &frame->blocks[frame->blockIDs[frame->blockOffsetPerGrid[grid] + frame->blockCountPerGrid[grid] - 1]], context ) == grid) );
 
 	ShowProgress();
 
@@ -1069,33 +1127,36 @@ static u32 RawFrame_LinkBlocks( u32 frameRank, Context_s* context )
 
 	ScopedStack scopedStack( context->stack );
 
-	for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+	for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 	{
-		bool overlap = true; 
-		for ( u32 axis = 0; axis < 3; ++axis )
+		if ( context->stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 		{
-			if ( curFrame->gridMin[mip][axis] >= nextFrame->gridMax[mip][axis] || nextFrame->gridMin[mip][axis] >= curFrame->gridMax[mip][axis] )
+			bool overlap = true; 
+			for ( u32 axis = 0; axis < 3; ++axis )
 			{
-				overlap = false;
-				break;
+				if ( curFrame->gridMin[grid][axis] >= nextFrame->gridMax[grid][axis] || nextFrame->gridMin[grid][axis] >= curFrame->gridMax[grid][axis] )
+				{
+					overlap = false;
+					break;
+				}
 			}
-		}
 
-		if ( !overlap )
-			continue;
+			if ( !overlap )
+				continue;
+		}
 
 		u32 curBlockRank = 0;
 		u32 nextBlockRank = 0;
-		while ( curBlockRank < curFrame->blockCountPerMip[mip] && nextBlockRank < nextFrame->blockCountPerMip[mip] )
+		while ( curBlockRank < curFrame->blockCountPerGrid[grid] && nextBlockRank < nextFrame->blockCountPerGrid[grid] )
 		{
-			const u32 curBlockOrder = curFrame->blockOffsetPerMip[mip] + curBlockRank;
-			const u32 nextBlockOrder = nextFrame->blockOffsetPerMip[mip] + nextBlockRank;
+			const u32 curBlockOrder = curFrame->blockOffsetPerGrid[grid] + curBlockRank;
+			const u32 nextBlockOrder = nextFrame->blockOffsetPerGrid[grid] + nextBlockRank;
 			const u32 curBlockID = curFrame->blockIDs[curBlockOrder];
 			const u32 nextBlockID = nextFrame->blockIDs[nextBlockOrder];
 			Block_s* curBlock = &curFrame->blocks[curBlockID];
 			Block_s* nextBlock = &nextFrame->blocks[nextBlockID];
-			V6_ASSERT( Block_GetMip( curBlock ) == mip );
-			V6_ASSERT( Block_GetMip( nextBlock ) == mip );
+			V6_ASSERT( Block_GetGrid( curBlock, context ) == grid );
+			V6_ASSERT( Block_GetGrid( nextBlock, context ) == grid );
 			if ( curBlock->key == nextBlock->key )
 			{
 				curBlock->nextBlockOrder = nextBlockOrder;
@@ -1263,38 +1324,40 @@ static void RawFrame_SortByRange( u32 frameRank, Context_s* context )
 		const u32 blockID = frame->blockIDs[blockOrder];
 		const Block_s* block = &frame->blocks[blockID];
 		const u32 sharedFrameRank = block->sharedFrameCount;
-		++frame->shareds[sharedFrameRank].blockCountPerMip[Block_GetMip( block )];
+		++frame->shareds[sharedFrameRank].blockCountPerGrid[Block_GetGrid( block, context )];
 	}
 
 	u32 blockOffset = 0;
 	for ( u32 sharedFrameRank = 0; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
 	{
+		const u32 newBlockMask = sharedFrameRank == 0 ? (1 << 24) : 0;
+
 		RawFrame_s::Shared_s* shared = &frame->shareds[sharedFrameRank];
-		for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+		for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 		{
-			if ( shared->blockCountPerMip[mip] )
+			if ( shared->blockCountPerGrid[grid] )
 			{
 				V6_ASSERT( context->rangeDefCount < CODEC_RANGE_MAX_COUNT );
 
 				const u32 rangeID = context->rangeDefCount;
 				CodecRange_s* range = &context->rangeDefs[rangeID];
 				V6_ASSERT( frameRank <= 0x7F);
-				V6_ASSERT( mip <= 0xF );
-				V6_ASSERT( shared->blockCountPerMip[mip] <= 0x1FFFFF );
-				range->frameRank7_mip4_blockCount21 = (frameRank << 25) | (mip << 21) | shared->blockCountPerMip[mip];
+				V6_ASSERT( grid <= 0xF );
+				V6_ASSERT( shared->blockCountPerGrid[grid] <= 0xFFFFF );
+				range->frameRank7_newBlock1_grid4_blockCount20 = (frameRank << 25) | newBlockMask | (grid << 20) | shared->blockCountPerGrid[grid];
 
-				shared->rangeIDs[mip] = rangeID;
+				shared->rangeIDs[grid] = rangeID;
 				++context->rangeDefCount;
 
-				//V6_MSG( "F%02d: shared %d, mip %d, blocks %8d.\n", frameRank, sharedFrameRank, mip, shared->blockCountPerMip[mip] );
+				//V6_MSG( "F%02d: shared %d, grid %d, blocks %8d.\n", frameRank, sharedFrameRank, grid, shared->blockCountPerGrid[grid] );
 			}
 			else
 			{
-				shared->rangeIDs[mip] = ENCODER_EMPTY_RANGE;
+				shared->rangeIDs[grid] = ENCODER_EMPTY_RANGE;
 			}
-			shared->blockCount += shared->blockCountPerMip[mip];
-			shared->blockOffsetPerMip[mip] = blockOffset;
-			blockOffset += shared->blockCountPerMip[mip];
+			shared->blockCount += shared->blockCountPerGrid[grid];
+			shared->blockOffsetPerGrid[grid] = blockOffset;
+			blockOffset += shared->blockCountPerGrid[grid];
 		}
 
 		frame->sharedBlockCount += shared->blockCount;
@@ -1315,18 +1378,18 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 	{
 		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
 			
-		const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
+		const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
 		if ( rangeFrameRank != frameRank )
 			continue;
 			
-		const u32 blockCount = codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF;
+		const u32 blockCount = codecRange->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
 		frameUniqueBlockCount += blockCount;
 	}
 
 	for ( u32 rangeRank = 0; rangeRank < desc->blockRangeCount; ++rangeRank )
 	{
 		const u32 rangeID = rangeIDs[rangeRank];
-		const u32 blockCount = context->rangeDefs[rangeID].frameRank7_mip4_blockCount21 & 0x1FFFFF;
+		const u32 blockCount = context->rangeDefs[rangeID].frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
 		frameBlockGroupCount += (blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 	}
 
@@ -1355,18 +1418,15 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 		if ( shared->blockCount == 0 )
 			continue;
 
-		const u32 newMask = sharedFrameRank == 0 ? (1 << 27) : 0;
-
-		for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+		for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 		{
-			for ( u32 blockRank = 0; blockRank < shared->blockCountPerMip[mip]; ++blockRank )
+			for ( u32 blockRank = 0; blockRank < shared->blockCountPerGrid[grid]; ++blockRank )
 			{
-				const u32 blockOrder = shared->blockOffsetPerMip[mip] + blockRank;
+				const u32 blockOrder = shared->blockOffsetPerGrid[grid] + blockRank;
 				const u32 blockID = frame->blockIDs[blockOrder];
 				const Block_s* block = &frame->blocks[blockID];
-				V6_ASSERT( Block_GetMip( block ) == mip );
-				const u32 mip4_new1_pos27 = block->mip4_none1_pos27 | newMask;
-				blockPosWriter->Write( &mip4_new1_pos27, ToX64( sizeof( u32 ) ) );
+				V6_ASSERT( Block_GetGrid( block, context ) == grid );
+				blockPosWriter->Write( &block->packedBlockPos, ToX64( sizeof( u32 ) ) );
 				const EncodedBlockEx_s* encodedBlock = block->GetEncodedBlock();
 				V6_ASSERT( encodedBlock != nullptr );
 				const u32 cellPresence0 = (encodedBlock->cellPresence >>  0) & 0xFFFFFFFF;
@@ -1406,12 +1466,12 @@ static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWrite
 		if ( shared->blockCount == 0 )
 			continue;
 
-		for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+		for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 		{
-			if ( !shared->blockCountPerMip[mip] )
+			if ( !shared->blockCountPerGrid[grid] )
 				continue;
 
-			const u32 rangeID = shared->rangeIDs[mip];
+			const u32 rangeID = shared->rangeIDs[grid];
 
 			V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
 			V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
@@ -1449,10 +1509,11 @@ static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequen
 	for ( u32 rangeID = 0; rangeID < context->rangeDefCount; ++rangeID )
 	{
 		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
-		const u32 frameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
-		const u32 mip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
-		const u32 blockCount = (codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF);
-		V6_MSG( "Range %d: frame %d, mip %d, blockCount %d\n", rangeID, frameRank, mip, blockCount );
+		const u32 frameRank = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25) & 0x7F;
+		const u32 newBlock = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 24) & 1;
+		const u32 grid = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
+		const u32 blockCount = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 0) & 0xFFFFF;
+		V6_MSG( "Range %d: frame %d, newBlock %d, grid %d, blockCount %d\n", rangeID, frameRank, newBlock, grid, blockCount );
 	}
 #endif // #if ENCODER_DUMP_RANGES == 1
 
@@ -1478,12 +1539,12 @@ static void RawFrame_DumpRange( u32 frameRank, Context_s* context )
 				if ( shared->blockCount == 0 )
 					continue;
 
-				for ( u32 mip = 0; mip < context->stream->mipCount; ++mip )
+				for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 				{
-					if ( !shared->blockCountPerMip[mip] )
+					if ( !shared->blockCountPerGrid[grid] )
 						continue;
 
-					const u32 rangeID = shared->rangeIDs[mip];
+					const u32 rangeID = shared->rangeIDs[grid];
 
 					V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
 					V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
@@ -1578,7 +1639,7 @@ static void Context_UpdateLimits( Context_s* context )
 	context->stream->desc.maxBlockCountPerSequence = Max( context->stream->desc.maxBlockCountPerSequence, context->blockCountPerSequence );
 }
 
-static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, const u32 frameCount, ContextStream_s* streamContext )
+static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char* templateRawFilename, u32 sequenceID, u32 frameOffset, const u32 frameCount, u32 compressionQuality, ContextStream_s* streamContext )
 {
 	ScopedStack scopedStack( streamContext->stack );
 
@@ -1591,6 +1652,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 	context->stack = streamContext->stack;
 	context->frames = streamContext->stack->newArray< RawFrame_s >( frameCount );
 	context->frameCount = frameCount;
+	context->compressionQuality = compressionQuality;
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
 		WorkerThread_Create( &context->threads[threadID] );
@@ -1744,8 +1806,7 @@ cleanup:
 	return context->frameCount;
 }
 
-
-bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend, IAllocator* heap )
+bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend, IAllocator* heap )
 {
 	if ( frameCount == 0 || playRate == 0 || playRate > CODEC_FRAME_MAX_COUNT )
 	{
@@ -1788,9 +1849,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	if ( extend )
 	{
 		streamContext.desc = prevStreamDesc;
-		streamContext.gridMacroWidth = 1 << prevStreamDesc.gridMacroShift;
-		streamContext.gridMacroHalfWidth = streamContext.gridMacroWidth >> 1;
-		streamContext.mipCount = Codec_GetMipCount( prevStreamDesc.gridScaleMin, prevStreamDesc.gridScaleMax );
+		ContextStream_PostInitDesc( &streamContext );
 	}
 
 	streamContext.desc.sequenceCount = 0;
@@ -1816,7 +1875,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 
 		for (;;)
 		{
-			const u32 frameEncodedCount = ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, &streamContext );
+			const u32 frameEncodedCount = ContextStream_EncodeSequence( &fileWriter, templateRawFilename, sequenceID, frameOffset, sequenceFrameCount, compressionQuality, &streamContext );
 			
 			if ( frameEncodedCount == 0 )
 				return false;
@@ -1846,6 +1905,11 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	
 	V6_PRINT( "\n" );
 	V6_MSG( "Stream: %lld KB with %d sequences, avg of %lld KB/sequence\n", DivKB( streamSize ), streamContext.desc.sequenceCount, DivKB( streamSize / streamContext.desc.sequenceCount ) );
+	if ( streamContext.desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+		V6_MSG( "Moving point of view\n" );
+	else
+		V6_MSG( "Static point of view\n" );
+
 	V6_PRINT( "\n" );
 
 	return true;

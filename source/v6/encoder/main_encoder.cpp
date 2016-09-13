@@ -18,6 +18,7 @@ struct CommandArgs
 	u32				frameOffset;
 	u32				frameCount;
 	u32				playRate;
+	u32				compressionQuality;
 	bool			extend;
 };
 
@@ -45,13 +46,14 @@ void OutputMessage( const char * format, ... )
 
 static void CommandArgs_PrintUsage()
 {
-	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-e]\n");
+	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-q COMPRESSION_QUALITY] [-e]\n");
 	V6_MSG( "\n");
 	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
 	V6_MSG( " -t RAW_FILENAME_TEMPLATE: Raw filename template. Use a printf like format to describe the raw filename with a variable frame ID.\n");
 	V6_MSG( " -o FRAME_OFFSET:          Index of the first frame ID.\n");
 	V6_MSG( " -c FRAME_COUNT:           Number of frames to encode.\n");
 	V6_MSG( " -r PLAY_RATE:             Number of frames per second.\n");
+	V6_MSG( " -q COMPRESSION_QUALITY:   Compresion quality. 0: low, 1: high.\n");
 	V6_MSG( " -e:                       Extend (or create if it is not yet existing) the stream file.\n");
 	V6_MSG( "\n");
 }
@@ -59,13 +61,10 @@ static void CommandArgs_PrintUsage()
 static void CommandArgs_Init( CommandArgs* commandArgs )
 {
 	memset( commandArgs, 0, sizeof( *commandArgs ) );
-	commandArgs->streamFilename = nullptr;
-	commandArgs->templateFilename = nullptr;
-	commandArgs->frameOffset = 0;
 	commandArgs->frameCount = 1;
 	commandArgs->playRate = 75;
 
-#if 0
+#if 1
 	commandArgs->streamFilename = "D:/media/obj/crytek-sponza/sponza.v6";
 	commandArgs->templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 	commandArgs->frameOffset = 0;
@@ -137,6 +136,15 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 				commandArgs->frameOffset = atoi( argv[argID+1] );
 				++argID;
 				break;
+			case 'q':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -q should be followed by the compression quality.\n" );
+					return false;
+				}
+				commandArgs->compressionQuality = atoi( argv[argID+1] );
+				++argID;
+				break;
 			case 'r':
 				if ( isLast )
 				{
@@ -195,11 +203,18 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 		return false;
 	}
 
+	if ( commandArgs->compressionQuality > 1 )
+	{
+		V6_ERROR( "Compression quality of %d is not supported.\n", commandArgs->compressionQuality );
+		return false;
+	}
+
 	V6_MSG( "Stream filename: %s\n", commandArgs->streamFilename );
 	V6_MSG( "Raw filename template: %s\n", commandArgs->templateFilename );
 	V6_MSG( "Frame offset: %d\n", commandArgs->frameOffset );
 	V6_MSG( "Frame count: %d\n", commandArgs->frameCount );
 	V6_MSG( "Play rate: %d\n", commandArgs->playRate );
+	V6_MSG( "Compression quality: %d\n", commandArgs->compressionQuality );
 	V6_MSG( "Extend: %s\n", commandArgs->extend ? "yes" : "no" );
 
 	return true;
@@ -225,7 +240,7 @@ int main( int argc, const char** argv )
 
 	const v6::u64 startTick = v6::GetTickCount();
 
-	if ( !v6::VideoStream_Encode( commandArgs.streamFilename, commandArgs.templateFilename, commandArgs.frameOffset, commandArgs.frameCount, commandArgs.playRate, commandArgs.extend, &heap ) )
+	if ( !v6::VideoStream_Encode( commandArgs.streamFilename, commandArgs.templateFilename, commandArgs.frameOffset, commandArgs.frameCount, commandArgs.playRate, commandArgs.compressionQuality, commandArgs.extend, &heap ) )
 		return 1;
 
 	const v6::u64 endTick = v6::GetTickCount();

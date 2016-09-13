@@ -162,8 +162,8 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 
 		const VideoSequence_s* sequence = &stream->sequences[sequenceID];
 
-		const u32 gridMacroMask = (1 << stream->desc.gridMacroShift) - 1;
-		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift-1);
+		const u32 gridMacroMask = (1 << stream->desc.gridMacroShift2) - 1;
+		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift2-1);
 		float gridScales[CODEC_MIP_MAX_COUNT];
 		float gridScale = stream->desc.gridScaleMin;
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
@@ -185,7 +185,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 						break;
 
 					const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-					const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
+					const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
 					if ( frameRank != rangeFrameRank )
 						break;
 
@@ -234,7 +234,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 				return false;
 			}
 
-			if ( rawFrameDesc.gridMacroShift != stream->desc.gridMacroShift )
+			if ( rawFrameDesc.gridMacroShift2 != stream->desc.gridMacroShift2 )
 			{
 				V6_ERROR( "Incompatible grid resolution.\n" );
 				return false;
@@ -243,6 +243,12 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 			if ( rawFrameDesc.gridScaleMin != stream->desc.gridScaleMin || rawFrameDesc.gridScaleMax != stream->desc.gridScaleMax )
 			{
 				V6_ERROR( "Incompatible grid scales.\n" );
+				return false;
+			}
+
+			if ( rawFrameDesc.flags != stream->desc.flags )
+			{
+				V6_ERROR( "Incompatible flags.\n" );
 				return false;
 			}
 
@@ -302,9 +308,9 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 				{
 					const u32 rangeID = sequence->frameDataArray[frameRank].rangeIDs[rangeRank];
 					const CodecRange_s* range = &sequence->data.rangeDefs[rangeID];
-					const u32 rangeFrameRank = range->frameRank7_mip4_blockCount21 >> 25;
-					const u32 rangeMip = (range->frameRank7_mip4_blockCount21 >> 21) & 0xF;
-					const u32 rangeBlockCount = range->frameRank7_mip4_blockCount21 & 0x1FFFFF;
+					const u32 rangeFrameRank = range->frameRank7_newBlock1_grid4_blockCount20 >> 25;
+					const u32 rangeMip = (range->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
+					const u32 rangeBlockCount = range->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
 					const Vec3i gridOffset = 
 						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth ) -
 						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth );
@@ -314,9 +320,9 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 						const u32 blockID = blockOffset + blockRank;
 						const u32 sequencePackedBlockPos = sequence->frameDataArray[rangeFrameRank].blockPos[blockID];
 						const u32 mip = sequencePackedBlockPos >> 28;
-						const u32 x = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift * 0)) & gridMacroMask);
-						const u32 y = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift * 1)) & gridMacroMask);
-						const u32 z = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift * 2)) & gridMacroMask);
+						const u32 x = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 0)) & gridMacroMask);
+						const u32 y = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 1)) & gridMacroMask);
+						const u32 z = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 2)) & gridMacroMask);
 
 						if ( mip != rangeMip )
 						{
@@ -327,9 +333,9 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 						DecoderBlock_s* sequenceBlock = &sequenceBlocks[blockID];
 
 						sequenceBlock->pos = mip << 28;
-						sequenceBlock->pos |= (x + gridOffset.x) << (stream->desc.gridMacroShift * 0);
-						sequenceBlock->pos |= (y + gridOffset.y) << (stream->desc.gridMacroShift * 1);
-						sequenceBlock->pos |= (z + gridOffset.z) << (stream->desc.gridMacroShift * 2);
+						sequenceBlock->pos |= (x + gridOffset.x) << (stream->desc.gridMacroShift2 * 0);
+						sequenceBlock->pos |= (y + gridOffset.y) << (stream->desc.gridMacroShift2 * 1);
+						sequenceBlock->pos |= (z + gridOffset.z) << (stream->desc.gridMacroShift2 * 2);
 							
 						EncodedBlockEx_s encodedBlock;
 						encodedBlock.cellEndColors = sequence->frameDataArray[rangeFrameRank].blockCellEndColors[blockID];

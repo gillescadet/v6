@@ -23,7 +23,7 @@ struct EncodedBlockEx_s
 
 void	Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
 u32		Block_Encode_BoundingBox( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount );
-u32		Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount );
+u32		Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, u32 quality );
 
 END_V6_NAMESPACE
 

@@ -684,7 +684,7 @@ static u32 ImageBlock_EncodeBC1_EmulateBlock( ImageBlock_s* block, const Color_s
 	}
 
 	EncodedBlockEx_s encodedBlock;
-	const u32 error = Block_Encode_Optimize( &encodedBlock, cellRGBA, 16 );
+	const u32 error = Block_Encode_Optimize( &encodedBlock, cellRGBA, 16, 1 );
 
 	block->color0 = encodedBlock.cellEndColors & 0xFFFF;
 	block->color1 = encodedBlock.cellEndColors >> 16;
@@ -982,7 +982,7 @@ void BenchBlockCompression( EncodedBlockEx_s* sum, const RawBlock_s* blocks, u32
 	for ( u32 blockID = 0; blockID < blockCount; ++blockID )
 	{
 		EncodedBlockEx_s encodedBlock;
-		Block_Encode_Optimize( &encodedBlock, blocks[blockID].cellRGBA, blocks[blockID].cellCount );
+		Block_Encode_Optimize( &encodedBlock, blocks[blockID].cellRGBA, blocks[blockID].cellCount, 1 );
 		sum->cellEndColors += encodedBlock.cellEndColors;
 		sum->cellPresence += encodedBlock.cellPresence;
 		sum->cellColorIndices[0] += encodedBlock.cellColorIndices[0];
@@ -1091,7 +1091,7 @@ retry:
 		}
 
 		EncodedBlockEx_s encodedBlock;
-		Block_Encode_Optimize( &encodedBlock, cellRGBA, cellCount );
+		Block_Encode_Optimize( &encodedBlock, cellRGBA, cellCount, 1 );
 
 		u32 decodedCellRGBA[64] = {};
 		u32 decodedCellCount = 0;

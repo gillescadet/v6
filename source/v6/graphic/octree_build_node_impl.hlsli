@@ -75,11 +75,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 #if BUILD_INNER == 1
 	uint newChildOffset;
 	InterlockedAdd( octree_nodeCount, 8, newChildOffset );
-#if ONION == 1
-	newChildOffset += 8 * 8; // root offset
-#else
-	newChildOffset += HLSL_MIP_MAX_COUNT * 8; // root offset
-#endif
+	newChildOffset += HLSL_GRID_MAX_COUNT * 8; // root offset
 
 	firstChildOffsets[newChildOffset+0] = 0;
 	firstChildOffsets[newChildOffset+1] = 0;

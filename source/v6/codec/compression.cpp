@@ -136,7 +136,7 @@ static u32 Block_Encode_Build( EncodedBlockEx_s* encodedBlock, const u32 cellRGB
 }
 
 template < int RADIUS, bool USE_ALL_DIMS >
-static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, const Vec3* endColor0, const Vec3* endColor1 )
+static u32 Block_Encode_Refine_Guts( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, const Vec3* endColor0, const Vec3* endColor1 )
 {
 	// Converts to 8 bits
 	
@@ -295,7 +295,14 @@ static u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, const u32 cellRG
 	return minError;
 }
 
-u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount )
+u32 Block_Encode_Refine( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, const Vec3* endColor0, const Vec3* endColor1, u32 quality )
+{
+	if ( quality > 0 )
+		return Block_Encode_Refine_Guts< 1, true >( encodedBlock, cellRGBA, cellCount, endColor0, endColor1 );
+	return Block_Encode_Refine_Guts< 1, false >( encodedBlock, cellRGBA, cellCount, endColor0, endColor1 );
+}
+
+u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, u32 quality )
 {
 	// Compute centred colors
 
@@ -335,7 +342,7 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 		Optimization_FindBestFittingLine3DPrecentred( &colorDir, &covariance, centredColors, cellCount );
 
 		if ( covariance.m_row0.x < FLT_EPSILON && covariance.m_row1.y < FLT_EPSILON && covariance.m_row2.z < FLT_EPSILON )
-			return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+			return Block_Encode_Refine( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter, quality );
 	}
 
 	Vec3 bestEndColor0;
@@ -446,9 +453,9 @@ u32 Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64
 
 	{
 		if ( minSumDistanceSQ == FLT_MAX )
-			return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter );
+			return Block_Encode_Refine( encodedBlock, cellRGBA, cellCount, &colorCenter, &colorCenter, quality );
 
-		return Block_Encode_Refine< 1, COMPRESSION_USE_ALL_DIMS >( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1 );
+		return Block_Encode_Refine( encodedBlock, cellRGBA, cellCount, &bestEndColor0, &bestEndColor1, quality );
 	}
 }
 

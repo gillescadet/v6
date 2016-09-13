@@ -97,9 +97,9 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	// Update buffers
 
-	V6_ASSERT( traceContext->stream->desc.gridMacroShift > 0 );
-	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift-1);
-	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift + 2);
+	V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
+	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
+	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
 	const float invGridWidth = 1.0f / gridWidth;
 	const u32 leftEye = 0;
 	const u32 rightEye = traceContext->desc.stereo ? 1 : 0;
@@ -107,7 +107,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 	{
 		v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &traceRes->cbCull );
 
-		cbCull->c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift;
+		cbCull->c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbCull->c_cullInvGridWidth = invGridWidth;
 		cbCull->c_cullFrameChanged = traceContext->frameState.frameChanged || options->showHistory;
 		cbCull->c_cullIsFirstFrameOfSequence = traceContext->frameState.frameRank == 0;
@@ -216,9 +216,9 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 
 	// Update buffers
 
-	V6_ASSERT( traceContext->stream->desc.gridMacroShift > 0 );
-	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift-1);
-	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift + 2);
+	V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
+	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
+	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
 	const float invGridWidth = 1.0f / gridWidth;
 
 	{
@@ -227,7 +227,7 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 		cbProject->c_projectFrameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
 		cbProject->c_projectFrameTileSize = Vec2u_Make( traceContext->desc.screenWidth >> 3, traceContext->desc.screenHeight >> 3 );
 		
-		cbProject->c_projectGridMacroShift = traceContext->stream->desc.gridMacroShift;
+		cbProject->c_projectGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbProject->c_projectInvGridWidth = invGridWidth;
 
 		float gridScale = traceContext->stream->desc.gridScaleMin;
@@ -314,9 +314,9 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		g_deviceContext->ClearUnorderedAccessViewUint( traceRes->traceStats.uav, values );
 
 	{
-		V6_ASSERT( traceContext->stream->desc.gridMacroShift > 0 );
-		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift-1);
-		const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift + 2);
+		V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
+		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
+		const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
 		const float invGridWidth = 1.0f / gridWidth;
 		
 		const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
@@ -334,7 +334,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 				gridScale *= 2;
 		}
 
-		cbTrace->c_traceGridMacroShift = traceContext->stream->desc.gridMacroShift;
+		cbTrace->c_traceGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbTrace->c_traceEyeCount = eyeCount;
 
 		const Vec2 frameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
@@ -583,7 +583,7 @@ static void SequenceContext_Update( SequenceContext_s* sequenceContext, const Vi
 
 		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 		float gridScale = stream->desc.gridScaleMin;
-		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift-1);
+		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift2-1);
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
 			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].gridOrigin, gridScale, gridMacroHalfWidth );
 		
@@ -595,12 +595,12 @@ static void SequenceContext_Update( SequenceContext_s* sequenceContext, const Vi
 				break;
 			
 			const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-			u32 rangeFrameID = codecRange->frameRank7_mip4_blockCount21 >> 25;
+			u32 rangeFrameID = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
 			if ( frameID != rangeFrameID )
 				break;
 
-			const u32 blockCount = codecRange->frameRank7_mip4_blockCount21 & 0x1FFFFF;
-			const u32 mip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
+			const u32 blockCount = codecRange->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
+			const u32 mip = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
 
 			SequenceBlockRange_s* blockRange = &sequenceContext->blockRanges[rangeID];
 			
@@ -897,7 +897,7 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 
 		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
 		float gridScale = traceContext->stream->desc.gridScaleMin;
-		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift-1);
+		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
 			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScale, gridMacroHalfWidth ); // patched per frame
 
@@ -916,8 +916,8 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 			const u32 rangeID = rangeIDs[rangeRank];
 
 			const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-			const u32 rangeFrameRank = codecRange->frameRank7_mip4_blockCount21 >> 25;
-			const u32 rangeMip = (codecRange->frameRank7_mip4_blockCount21 >> 21) & 0xF;
+			const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
+			const u32 rangeMip = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
 			const SequenceBlockRange_s* srcBlockRange = &traceContext->sequenceContext.blockRanges[rangeID];
 			
 			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];

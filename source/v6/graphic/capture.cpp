@@ -615,7 +615,7 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 		uavDesc.Format = DXGI_FORMAT_R32_UINT;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = CODEC_MIP_MAX_COUNT * 8;
+		uavDesc.Buffer.NumElements = CODEC_GRID_MAX_COUNT * 8;
 		uavDesc.Buffer.Flags = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( res->firstChildOffsets.buf, &uavDesc, &res->firstChildOffsetsLimitedUAV ) );

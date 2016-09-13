@@ -12,7 +12,7 @@
 BEGIN_V6_NAMESPACE
 
 #define CODEC_RAWFRAME_MAGIC				"V6RF"
-#define CODEC_RAWFRAME_VERSION				6
+#define CODEC_RAWFRAME_VERSION				7
 
 #define CODEC_FRAME_MAGIC					"V6F"
 #define CODEC_FRAME_VERSION					5
@@ -26,6 +26,8 @@ BEGIN_V6_NAMESPACE
 #define CODEC_RAWFRAME_BUCKET_COUNT			5
 #define CODEC_CELL_MAX_COUNT				64u
 #define CODEC_MIP_MAX_COUNT					16u
+#define CODEC_FACE_MAX_COUNT				8u
+#define CODEC_GRID_MAX_COUNT				(CODEC_MIP_MAX_COUNT > CODEC_FACE_MAX_COUNT ? CODEC_MIP_MAX_COUNT : CODEC_FACE_MAX_COUNT)
 #define CODEC_RANGE_MAX_COUNT				65536
 #define CODEC_FRAME_MAX_COUNT				128
 #define CODEC_INVALID_FRAME_RANK			CODEC_FRAME_MAX_COUNT
@@ -52,24 +54,31 @@ class IStreamWriter;
 
 enum
 {
+	CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW = 1 << 0,
+};
+
+enum
+{
 	CODEC_FRAME_FLAG_MOTION = 1 << 0,
 };
 
 struct CodecRange_s
 {
-	u32				frameRank7_mip4_blockCount21;
+	u32				frameRank7_newBlock1_grid4_blockCount20;
 };
 
 struct CodecStreamDesc_s
 {
+	Vec3			gridOrigin;
 	u32				sequenceCount;
 	u32				frameCount;
 	u32				frameRate;
 	u32				playRate;
 	u32				sampleCount;
-	u32				gridMacroShift;
+	u32				gridMacroShift2;
 	float			gridScaleMin;
 	float			gridScaleMax;
+	u32				flags;
 	u32				maxBlockCountPerSequence;
 	u32				maxBlockRangeCountPerFrame;
 	u32				maxBlockGroupCountPerFrame;
@@ -94,9 +103,10 @@ struct CodecRawFrameDesc_s
 	u32				frameID;
 	u32				frameRate;
 	u32				sampleCount;
-	u32				gridMacroShift;
+	u32				gridMacroShift2;
 	float			gridScaleMin;
 	float			gridScaleMax;
+	u32				flags;
 	u32				blockCounts[CODEC_RAWFRAME_BUCKET_COUNT];
 };
 

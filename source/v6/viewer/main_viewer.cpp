@@ -336,6 +336,7 @@ static bool g_debugBlocks			= false;
 static bool g_transparentDebug		= false;
 static bool g_reloadShaders			= false;
 static bool g_movingPointOfView		= false;
+static u32 g_compressionQuality		= 0;
 
 static float s_yaw					= 0.0f;
 static float s_pitch				= 0.0f;
@@ -1693,7 +1694,7 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 		codecDesc.gridScaleMax != GRID_MAX_SCALE )
 #endif // #if V6_USE_CACHE == 1
 	{
-		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, false, m_heap ) )
+		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, g_compressionQuality, false, m_heap ) )
 			return false;
 	}
 		
@@ -1823,7 +1824,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 	
-	if ( frameDesc.gridMacroShift != GRID_MACRO_SHIFT )
+	if ( frameDesc.gridMacroShift2 != GRID_MACRO_SHIFT )
 	{
 		V6_ERROR( "Stream gridMacroShift is not compatible.\n" );
 		return false;
@@ -1838,6 +1839,12 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 	if ( frameDesc.gridScaleMax != GRID_MAX_SCALE )
 	{
 		V6_ERROR( "Stream gridScaleMax is not compatible.\n" );
+		return false;
+	}
+
+	if ( ((frameDesc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0) != g_movingPointOfView )
+	{
+		V6_ERROR( "Stream flags is not compatible.\n" );
 		return false;
 	}
 
@@ -1867,9 +1874,10 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 			frameDesc.frameID = frameID;
 			frameDesc.frameRate = VIDEO_FPS;
 			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
-			frameDesc.gridMacroShift = GRID_MACRO_SHIFT;
+			frameDesc.gridMacroShift2 = GRID_MACRO_SHIFT;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
+			frameDesc.flags = g_movingPointOfView ? CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW : 0;
 			
 			CodecRawFrameData_s frameData = {};
 

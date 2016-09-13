@@ -13,6 +13,8 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_GROUP_COUNT( C, S )					(((C) + (S) - 1)) / (S)
 
 #define	HLSL_MIP_MAX_COUNT							16
+#define HLSL_FACE_MAX_COUNT							8
+#define HLSL_GRID_MAX_COUNT							(HLSL_MIP_MAX_COUNT > HLSL_FACE_MAX_COUNT ? HLSL_MIP_MAX_COUNT : HLSL_FACE_MAX_COUNT)
 #define HLSL_BUCKET_COUNT							5
 
 #define REGISTER_SAMPLER( SLOT )					register( s ## SLOT )
