@@ -27,7 +27,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -139,7 +139,7 @@ enum CommandAction_e
 	COMMAND_ACTION_TRACE_OPTION_BLOCK,
 	COMMAND_ACTION_TRACE_OPTION_LOG,
 	COMMAND_ACTION_TRACE_OPTION_OVERDRAW,
-	COMMAND_ACTION_TRACE_OPTION_MIP,
+	COMMAND_ACTION_TRACE_OPTION_GRID,
 	COMMAND_ACTION_TRACE_OPTION_HISTORY,
 	COMMAND_ACTION_TRACE_OPTION_TSAA,
 	COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER,
@@ -486,6 +486,23 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 
 		break;
 
+	case 'G':
+		if ( strcmp( commandLine, "GRID ON" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_GRID;
+			commandBuffer->arg[0] = 1;
+			return;
+		}
+
+		if ( strcmp( commandLine, "GRID OFF" ) == 0 )
+		{
+			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_GRID;
+			commandBuffer->arg[0] = 0;
+			return;
+		}
+
+		break;
+
 	case 'H':
 		if ( strcmp( commandLine, "HISTORY ON" ) == 0 )
 		{
@@ -543,20 +560,6 @@ static void PlayerCommandBuffer_MakeFromCommandLine( CommandBuffer_s* commandBuf
 		if ( strcmp( commandLine, "METRICS OFF" ) == 0 )
 		{
 			commandBuffer->action = COMMAND_ACTION_PLAYER_OPTION_METRICS;
-			commandBuffer->arg[0] = 0;
-			return;
-		}
-
-		if ( strcmp( commandLine, "MIP ON" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_MIP;
-			commandBuffer->arg[0] = 1;
-			return;
-		}
-
-		if ( strcmp( commandLine, "MIP OFF" ) == 0 )
-		{
-			commandBuffer->action = COMMAND_ACTION_TRACE_OPTION_MIP;
 			commandBuffer->arg[0] = 0;
 			return;
 		}
@@ -751,8 +754,8 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	case COMMAND_ACTION_TRACE_OPTION_LOG:
 		player->traceOptions.logReadBack = true;
 		break;
-	case COMMAND_ACTION_TRACE_OPTION_MIP:
-		player->traceOptions.showMip = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showMip;
+	case COMMAND_ACTION_TRACE_OPTION_GRID:
+		player->traceOptions.showGrid = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showGrid;
 		break;
 	case COMMAND_ACTION_TRACE_OPTION_HISTORY:
 		player->traceOptions.showHistory = (commandBuffer.arg[0] < 2) ? (commandBuffer.arg[0] == 1) : !player->traceOptions.showHistory;
@@ -886,6 +889,10 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_SHARPEN_FILTER;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 'G':
+		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_GRID;
+		player->commandBuffer.arg[0] = 2;
+		break;
 	case 'H':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_HISTORY;
 		player->commandBuffer.arg[0] = 2;
@@ -910,10 +917,6 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 				strcpy_s( player->commandBuffer.arg, sizeof( player->commandBuffer.arg ), filename );
 			}
 		}
-		break;
-	case 'M':
-		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_MIP;
-		player->commandBuffer.arg[0] = 2;
 		break;
 	case 'O':
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
@@ -1373,7 +1376,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
 			centerEye += views[eye].org * (1.0f / EYE_COUNT);
 		const Vec3 eyeDistanceToOrigin = Abs( centerEye - player->traceContext.frameState.origin );
-		fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (player->traceContext.stream->desc.gridScaleMin - 5.0f), 0.0f, 5.0f ) / 5.0f );
+		fadeToBlack = Max( fadeToBlack, Clamp( eyeDistanceToOrigin.Max() - (CODEC_HEAD_ROOM_SIZE - 5.0f), 0.0f, 5.0f ) / 5.0f );
 	}
 
 	if ( player->playerOptions.disableFadeToBlack )

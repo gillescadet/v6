@@ -39,6 +39,7 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 		float3 pos;
 		uint mip;
 
+		bool rejected = false;
 		if ( mipFromDepthBuffer < c_sampleMipSky )
 		{
 			pos = posFromDepthBuffer;
@@ -46,6 +47,11 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 		}
 		else
 		{
+#if  0
+			pos = float3( 0.0f, 0.0f, 0.0f );
+			mip = HLSL_MIP_MAX_COUNT;
+			rejected = true;
+#else
 			const float3 invDir = rcp( dir );
 			const float3 t0 = c_sampleSkyboxMinRS * invDir;
 			const float3 t1 = c_sampleSkyboxMaxRS * invDir;
@@ -54,8 +60,10 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 
 			pos = mad( dir, tSky, c_samplePos );
 			mip = c_sampleMipSky;
+#endif
 		}
 
+		if ( !rejected )
 		{
 			const float3 posInMip = pos - c_sampleMipBoundaries[mip].xyz;
 			const float3 cellCoords = mad( posInMip, gridHalfWidth * c_sampleInvGridScales[mip].x, gridHalfWidth );

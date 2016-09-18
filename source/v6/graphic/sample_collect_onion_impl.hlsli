@@ -36,7 +36,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	const float3 cubeColor = colors.Load( textureCoords ).rgb;
 	const float cubeDepth = rcp( mad ( depths.Load( textureCoords ), c_sampleOnionDepthLinearScale, c_sampleOnionDepthLinearBias ) );
 	
-	const float2 scale = mad( pixelCoords.xy + 0.5f, c_sampleOnionInvCubeSize * 2.0f, -1.0f );
+	const float2 scale = mad( pixelCoords.xy + 0.5f, c_sampleOnionInvSamplingWidth * 2.0f, -1.0f );
 	const float3 dir = c_sampleOnionForward.xyz + c_sampleOnionRight.xyz * scale.x - c_sampleOnionUp.xyz * scale.y;
 	const float3 posFromDepthBuffer = mad( dir, cubeDepth, c_sampleOnionSampleCenterWS.xyz );
 
@@ -44,8 +44,13 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	float3 posRS;
 
+	bool rejected = false;
 	if ( any( (abs( posFromDepthBufferRS ) + 1.0f) > c_sampleOnionGridMaxScale ) )
 	{
+#if 0
+		posRS = float3( 0.0f, 0.0f, 0.0f );
+		rejected = true;
+#else
 		const float3 invDir = rcp( dir );
 		const float3 t0 = c_sampleOnionSkyboxMinRS.xyz * invDir;
 		const float3 t1 = c_sampleOnionSkyboxMaxRS.xyz * invDir;
@@ -54,6 +59,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 		const float3 posSky = mad( dir, tSky, c_sampleOnionSampleCenterWS.xyz );
 		posRS = posSky - c_sampleOnionGridCenterWS.xyz;
+#endif
 	}
 	else
 	{
@@ -94,7 +100,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	{
 		uint3 blockCoords;
 
-		blockCoords.z = clamp( uint( log2( posGS.z * c_sampleOnionInvGridMinScale ) * c_sampleOnionMacroPeriodWidth ), 0, (1u << HLSL_ONION_MACROZ_BIT_COUNT)-1 );
+		blockCoords.z = clamp( uint( log2( posGS.z * c_sampleOnionInvGridMinScale ) * c_sampleOnionMacroPeriodWidth ), 0, (1u << HLSL_ONION_MACRO_Z_BIT_COUNT)-1 );
 
 		float3 blockPosMin, blockPosMax;
 		blockPosMin.z = c_sampleOnionGridMinScale * exp2( (blockCoords.z + 0.0f) * c_sampleOnionInvMacroPeriodWidth );
@@ -104,7 +110,26 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		blockPosMin.xy = mad( blockCoords.xy + 0.0f, c_sampleOnionInvMacroGridWidth * 2.0f, -1.0f ) * blockPosMax.z;
 		blockPosMax.xy = mad( blockCoords.xy + 1.0f, c_sampleOnionInvMacroGridWidth * 2.0f, -1.0f ) * blockPosMax.z;
 
-		const uint3 cellCoords = clamp( uint3( (posGS - blockPosMin) * 4.0f / (blockPosMax - blockPosMin) ), 0, 3 );
+		const uint3 cellCoordsGS = clamp( uint3( (posGS - blockPosMin) * 4.0f / (blockPosMax - blockPosMin) ), 0, 3 );
+		uint3 cellCoordsWS;
+		if ( axis == 0 )
+		{
+			cellCoordsWS.x = sign ? (3 - cellCoordsGS.z) : cellCoordsGS.z;
+			cellCoordsWS.y = cellCoordsGS.x;
+			cellCoordsWS.z = cellCoordsGS.y;
+		}
+		else if ( axis == 1 )
+		{
+			cellCoordsWS.y = sign ? (3 - cellCoordsGS.z) : cellCoordsGS.z;
+			cellCoordsWS.z = cellCoordsGS.x;
+			cellCoordsWS.x = cellCoordsGS.y;
+		}
+		else
+		{
+			cellCoordsWS.z = sign ? (3 - cellCoordsGS.z) : cellCoordsGS.z;
+			cellCoordsWS.x = cellCoordsGS.x;
+			cellCoordsWS.y = cellCoordsGS.y;
+		}
 
 #if SAMPLE_DEBUG == 1
 		InterlockedMin( sampleDebug[0].minBlockCoords.x, blockCoords.x );
@@ -116,12 +141,15 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		InterlockedMax( sampleDebug[0].maxBlockCoords.z, blockCoords.z );
 #endif
 
-		uint sampleID;
-		InterlockedAdd( sample_count, 1, sampleID );
-		SampleOnion_Pack( collectedSamples[sampleID], axis, sign, blockCoords, cellCoords, uint3( mad( cubeColor.rgb, 255.0f, 0.5f ) ) );
+		if ( !rejected )
+		{
+			uint sampleID;
+			InterlockedAdd( sample_count, 1, sampleID );
+			SampleOnion_Pack( collectedSamples[sampleID], axis, sign, blockCoords, cellCoordsWS, uint3( mad( cubeColor.rgb, 255.0f, 0.5f ) ) );
 
-		const uint sampleCount = sampleID+1;
-		InterlockedMax( sample_groupCountX, HLSL_GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
+			const uint sampleCount = sampleID+1;
+			InterlockedMax( sample_groupCountX, HLSL_GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
+		}
 	}
 	
 	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )

@@ -23,7 +23,7 @@
 #include <lz4/lib/lz4.h>
 #include <lz4/lib/lz4hc.h>
 
-#define ENCODER_DEBUG					0
+#define ENCODER_DUMP_BLOCKS				0
 #define ENCODER_SKIP_WRITING			0
 #define ENCODER_DUMP_RANGES				0
 
@@ -252,7 +252,7 @@ static void HideProgress()
 	printf( "\r \r" );
 }
 
-static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
+static void ComputeCellCoords_Mip( Vec3* pMin, Vec3* pMax, u32 blockPos, u32 gridMacroShift, u32 cellPos, const Vec3* gridCenter, float cellSize, float gridScale )
 {
 	const u32 gridMacroMask = (1 << gridMacroShift) - 1;
 	const u32 blockX = (u32)((blockPos >> (gridMacroShift * 0)) & gridMacroMask);
@@ -262,17 +262,93 @@ static Vec3u ComputeCellCoords( u32 blockPos, u32 gridMacroShift, u32 cellPos )
 	const u32 cellY = (u32)((cellPos >> 2) & 3);
 	const u32 cellZ = (u32)((cellPos >> 4) & 3);
 
-	return Vec3u_Make( (blockX << 2) | cellX, (blockY << 2) | cellY, (blockZ << 2) | cellZ );
+	const Vec3u cellCoords = Vec3u_Make( (blockX << 2) | cellX, (blockY << 2) | cellY, (blockZ << 2) | cellZ );
+
+	pMin->x = gridCenter->x + (cellCoords.x * cellSize ) - gridScale;
+	pMin->y = gridCenter->y + (cellCoords.y * cellSize ) - gridScale;
+	pMin->z = gridCenter->z + (cellCoords.z * cellSize ) - gridScale;
+	
+	*pMax = *pMin + cellSize;
 }
 
-static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, u32 gridMacroShift, Vec3i blockPosTranslation )
+static void ComputeCellCoords_Onion( Vec3* pMin, Vec3* pMax, u32 sign1_axis2_z11_y9_x9, u32 gridMacroShift, u32 cellPos, const Vec3* gridCenter, float gridMinScale, float invMacroPeriodWidth, float invMacroGridWidth )
+{
+	const u32 sign = (sign1_axis2_z11_y9_x9 >> 31) & 1;
+	const u32 axis = (sign1_axis2_z11_y9_x9 >> 29) & 3;
+
+	Vec3u blockCoords;
+	blockCoords.x = (sign1_axis2_z11_y9_x9 >>  0) & 0x1FF;
+	blockCoords.y = (sign1_axis2_z11_y9_x9 >>  9) & 0x1FF;
+	blockCoords.z = (sign1_axis2_z11_y9_x9 >> 18) & 0x7FF;
+
+	Vec3 blockPosMinGS, blockPosMaxGS;
+
+	blockPosMinGS.z = gridMinScale * exp2f( (blockCoords.z + 0.0f) * invMacroPeriodWidth );
+	blockPosMaxGS.z = gridMinScale * exp2f( (blockCoords.z + 1.0f) * invMacroPeriodWidth );
+	
+	blockPosMinGS.x = ((blockCoords.x + 0.0f) * invMacroGridWidth * 2.0f - 1.0f) * blockPosMaxGS.z;
+	blockPosMaxGS.x = ((blockCoords.x + 1.0f) * invMacroGridWidth * 2.0f - 1.0f) * blockPosMaxGS.z;
+
+	blockPosMinGS.y = ((blockCoords.y + 0.0f) * invMacroGridWidth * 2.0f - 1.0f) * blockPosMaxGS.z;
+	blockPosMaxGS.y = ((blockCoords.y + 1.0f) * invMacroGridWidth * 2.0f - 1.0f) * blockPosMaxGS.z;
+
+	const float signedMinZ = sign ? -blockPosMaxGS.z : blockPosMinGS.z;
+	const float signedMaxZ = sign ? -blockPosMinGS.z : blockPosMaxGS.z;
+
+	Vec3 blockPosMinRS, blockPosMaxRS;
+
+	if ( axis == 0 )
+	{
+		blockPosMinRS.x = signedMinZ;
+		blockPosMinRS.y = blockPosMinGS.x;
+		blockPosMinRS.z = blockPosMinGS.y;
+
+		blockPosMaxRS.x = signedMaxZ;
+		blockPosMaxRS.y = blockPosMaxGS.x;
+		blockPosMaxRS.z = blockPosMaxGS.y;
+	}
+	else if ( axis == 1 )
+	{
+		blockPosMinRS.y = signedMinZ;
+		blockPosMinRS.z = blockPosMinGS.x;
+		blockPosMinRS.x = blockPosMinGS.y;
+
+		blockPosMaxRS.y = signedMaxZ;
+		blockPosMaxRS.z = blockPosMaxGS.x;
+		blockPosMaxRS.x = blockPosMaxGS.y;
+	}
+	else
+	{
+		blockPosMinRS.z = signedMinZ;
+		blockPosMinRS.x = blockPosMinGS.x;
+		blockPosMinRS.y = blockPosMinGS.y;
+
+		blockPosMaxRS.z = signedMaxZ;
+		blockPosMaxRS.x = blockPosMaxGS.x;
+		blockPosMaxRS.y = blockPosMaxGS.y;
+	}
+
+	const Vec3 cellSize = (blockPosMaxRS - blockPosMinRS) * 0.25f;
+	const Vec3 invCellSize = cellSize.Rcp();
+
+	const u32 cellX = (u32)((cellPos >> 0) & 3);
+	const u32 cellY = (u32)((cellPos >> 2) & 3);
+	const u32 cellZ = (u32)((cellPos >> 4) & 3);
+
+	pMin->x = gridCenter->x + blockPosMinRS.x + (cellX * cellSize.x);
+	pMin->y = gridCenter->y + blockPosMinRS.y + (cellY * cellSize.y);
+	pMin->z = gridCenter->z + blockPosMinRS.z + (cellZ * cellSize.z);
+
+	*pMax = *pMin + cellSize;
+}
+
+static u64 ComputeKeyFromMipAndBlockPos( u32 mip, u32 blockPos, Vec3i blockPosTranslation )
 {
 	V6_ASSERT( mip < CODEC_MIP_MAX_COUNT );
 
-	const u32 gridMacroMask = (1 << gridMacroShift) - 1;
-	const u64 x = (u64)((blockPos >> (gridMacroShift * 0)) & gridMacroMask) + blockPosTranslation.x;
-	const u64 y = (u64)((blockPos >> (gridMacroShift * 1)) & gridMacroMask) + blockPosTranslation.y;
-	const u64 z = (u64)((blockPos >> (gridMacroShift * 2)) & gridMacroMask) + blockPosTranslation.z;
+	const u64 x = (u64)((blockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 0)) & CODEC_MIP_MACRO_XYZ_BIT_MASK) + blockPosTranslation.x;
+	const u64 y = (u64)((blockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 1)) & CODEC_MIP_MACRO_XYZ_BIT_MASK) + blockPosTranslation.y;
+	const u64 z = (u64)((blockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 2)) & CODEC_MIP_MACRO_XYZ_BIT_MASK) + blockPosTranslation.z;
 
 	const u32 maxValue = 0xFFFFF;
 	V6_ASSERT( x <= maxValue );
@@ -787,8 +863,8 @@ static void RawFrame_CompressedBlockDataChunk_Job( void* jobPointer, u32 threadI
 
 static void ContextStream_PostInitDesc( ContextStream_s* contextStream )
 {
-	contextStream->gridMacroWidth = 1 << contextStream->desc.gridMacroShift2;
-	contextStream->gridMacroHalfWidth = contextStream->gridMacroWidth >> 1;
+	contextStream->gridMacroWidth = contextStream->desc.gridWidth >> 2;
+	contextStream->gridMacroHalfWidth = contextStream->desc.gridWidth >> 3;
 	if ( (contextStream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 )
 		contextStream->gridCount = Codec_GetMipCount( contextStream->desc.gridScaleMin, contextStream->desc.gridScaleMax );
 	else
@@ -833,8 +909,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	if ( streamDesc->frameRate == 0 )
 	{
 		streamDesc->frameRate = desc.frameRate;
-		streamDesc->sampleCount = desc.sampleCount;
-		streamDesc->gridMacroShift2 = desc.gridMacroShift2;
+		streamDesc->gridWidth = desc.gridWidth;
 		streamDesc->gridScaleMin = desc.gridScaleMin;
 		streamDesc->gridScaleMax = desc.gridScaleMax;
 		streamDesc->flags = desc.flags;
@@ -858,7 +933,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		}
 #endif
 
-		if ( desc.gridMacroShift2 != streamDesc->gridMacroShift2 )
+		if ( desc.gridWidth != streamDesc->gridWidth )
 		{
 			V6_ERROR( "Incompatible grid resolution.\n" );
 			return false;
@@ -887,6 +962,19 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	frame->gridYaw = desc.gridYaw;
 	frame->refFrameRank = (u32)-1;
 
+#if ENCODER_DUMP_BLOCKS == 1
+	Plot_s plot;
+	Plot_Create( &plot, String_Format( "d:/tmp/plot/rawframe%d", frameRank ) );
+	Vec3 gridCenters[CODEC_MIP_MAX_COUNT];
+	float gridScales[CODEC_MIP_MAX_COUNT];
+	float cellSizes[CODEC_MIP_MAX_COUNT];
+	const float invGridWidth = 1.0f / (1 << (context->stream->desc.gridMacroShift2 + 2));
+
+	const u32 gridMacroWidth = 1 << desc.gridMacroShift2;
+	const float invMacroGridWidth = 1.0f / gridMacroWidth;
+	const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
+#endif // #if ENCODER_DUMP_BLOCKS == 1
+
 	if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 )
 	{
 		float gridScale = context->stream->desc.gridScaleMin;
@@ -906,6 +994,12 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 				context->gridMin[mip] = Min( context->gridMin[mip], frame->gridMin[mip] );
 				context->gridMax[mip] = Max( context->gridMin[mip], frame->gridMax[mip] );
 			}
+
+#if ENCODER_DUMP_BLOCKS == 1
+			gridCenters[mip] = Codec_ComputeGridCenter( &frame->gridOrigin, gridScale, context->stream->gridMacroHalfWidth );
+			gridScales[mip] = gridScale;
+			cellSizes[mip] = 2.0f * gridScale * invGridWidth;
+#endif // #if ENCODER_DUMP_BLOCKS == 1
 		}
 	}
 
@@ -940,11 +1034,15 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 
 		for ( u32 blockRank = 0; blockRank < desc.blockCounts[bucket]; ++blockRank, ++blockID )
 		{
+#if ENCODER_DUMP_BLOCKS == 1
+			Plot_NewObject( &plot, Color_Make( 255, 0, 0, 50 ) );
+#endif // #if ENCODER_DUMP_BLOCKS == 1
+
 			Block_s* block = &frame->blocks[blockID];
 			block->packedBlockPos = ((u32*)data.blockPos)[blockID];
 			const u32 grid = Block_GetGrid( block, context );
 			if ( desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
-				block->key = ComputeKeyFromMipAndBlockPos( grid, Block_GetPos( block, context ), context->stream->desc.gridMacroShift2, frame->gridMin[grid] - context->gridMin[grid] );
+				block->key = ComputeKeyFromMipAndBlockPos( grid, Block_GetPos( block, context ), frame->gridMin[grid] - context->gridMin[grid] );
 			else
 				block->key = ComputeKeyFromFaceAndBlockPos( grid, Block_GetPos( block, context ) );
 			V6_ASSERT( block->key != 0 );
@@ -954,6 +1052,28 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			frame->blockIDs[blockID] = blockID;
 
 			++frame->blockCountPerGrid[grid];
+
+#if ENCODER_DUMP_BLOCKS == 1
+			const u32 blockDataID = blockDataOffsets[bucket] + blockRank * cellPerBucketCount;
+			for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
+			{
+				const u32 rgba = ((u32*)data.blockData)[blockDataID + cellID];
+				if ( rgba == ENCODER_EMPTY_CELL )
+					break;
+				
+				const u32 cellPos = rgba & 0xFF;
+				V6_ASSERT( cellPos < 64 );
+
+				Vec3 pMin, pMax;
+				if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0 )
+					ComputeCellCoords_Mip( &pMin, &pMax, block->packedBlockPos, context->stream->desc.gridMacroShift2, cellPos, &gridCenters[grid], cellSizes[grid], gridScales[grid] );
+				else
+					ComputeCellCoords_Onion( &pMin, &pMax, block->packedBlockPos, context->stream->desc.gridMacroShift2, cellPos, &desc.gridOrigin, desc.gridScaleMin, invMacroPeriodWidth, invMacroGridWidth );
+
+				Plot_AddBox( &plot, &pMin, &pMax, false );
+				Plot_AddBox( &plot, &pMin, &pMax, true );
+			}
+#endif // #if ENCODER_DUMP_BLOCKS == 1
 		}
 	}
 
@@ -963,6 +1083,10 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		frame->blockOffsetPerGrid[grid] = blockOffset;
 		blockOffset += frame->blockCountPerGrid[grid];
 	}
+
+#if ENCODER_DUMP_BLOCKS == 1
+	Plot_Release( &plot );
+#endif // #if ENCODER_DUMP_BLOCKS == 1
 
 	ShowProgress();
 
@@ -997,7 +1121,11 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	
 		chunk->offsets[chunk->blockCount] = (u32)(curRGBA - chunk->decompressedRGBA);
 		for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
-			curRGBA[cellID] = ((u32*)(data.blockData))[blockDataID + cellID];
+		{
+			const u32 rgba = ((u32*)(data.blockData))[blockDataID + cellID];
+			V6_ASSERT( rgba == 0xFFFFFFFF || (rgba & 0xFF) < 64 );
+			curRGBA[cellID] = rgba;
+		}
 		curRGBA += cellPerBucketCount;
 		++chunk->blockCount;
 
@@ -1814,7 +1942,7 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		return false;
 	}
 
-	Stack stack( heap, 500 * 1024 * 1024 );
+	Stack stack( heap, 700 * 1024 * 1024 );
 
 	ContextStream_s streamContext = {};
 	streamContext.heap = heap;
@@ -1926,15 +2054,16 @@ void VideoStream_CancelEncodingInSeparateProcess( Process_s* process )
 	Process_Cancel( process );
 }
 
-bool VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
+bool VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend )
 {
 	char cmd[256];
-	sprintf_s( cmd, sizeof( cmd ), "D:/dev/v6/trunk/bin/Release/v6_encoder_2015.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d %s", 
+	sprintf_s( cmd, sizeof( cmd ), "D:/dev/v6/trunk/bin/Release/v6_encoder_2015.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d -q %d %s", 
 		streamFilename, 
 		templateRawFilename, 
 		frameOffset, 
 		frameCount, 
 		playRate, 
+		compressionQuality,
 		extend ? "-e" : "" );
 
 	return Process_Launch( process, cmd );
@@ -1945,11 +2074,11 @@ bool VideoStream_WaitEncodingInSeparateProcess( Process_s* process )
 	return Process_Wait( process ) == 0;
 }
 
-bool VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, bool extend )
+bool VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend )
 {
 	Process_s process;
 
-	if ( !VideoStream_StartEncodingInSeparateProcess( &process, streamFilename, templateRawFilename, frameOffset, frameCount, playRate, extend ) )
+	if ( !VideoStream_StartEncodingInSeparateProcess( &process, streamFilename, templateRawFilename, frameOffset, frameCount, playRate, compressionQuality, extend ) )
 		return false;
 
 	return VideoStream_WaitEncodingInSeparateProcess( &process );

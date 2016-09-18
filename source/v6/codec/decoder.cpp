@@ -13,7 +13,7 @@ BEGIN_V6_NAMESPACE
 
 struct DecoderBlock_s
 {
-	u32			pos;
+	u32			packedBlockPos;
 	u32			cellRGBA[CODEC_CELL_MAX_COUNT];
 	u32			cellCount;
 };
@@ -24,7 +24,7 @@ static int Block_ComparePos( void* blockPointer, void const* blockIDPointer0, vo
 	const u32 blockID0 = *((u32*)blockIDPointer0);
 	const u32 blockID1 = *((u32*)blockIDPointer1);
 
-	return blocks[blockID0].pos < blocks[blockID1].pos ? -1 : 1;
+	return blocks[blockID0].packedBlockPos < blocks[blockID1].packedBlockPos ? -1 : 1;
 }
 
 static bool Block_CompareData( const DecoderBlock_s* rawBlock, const DecoderBlock_s* sequenceBlock )
@@ -162,8 +162,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 
 		const VideoSequence_s* sequence = &stream->sequences[sequenceID];
 
-		const u32 gridMacroMask = (1 << stream->desc.gridMacroShift2) - 1;
-		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift2-1);
+		const u32 gridMacroHalfWidth = stream->desc.gridWidth >> 3;
 		float gridScales[CODEC_MIP_MAX_COUNT];
 		float gridScale = stream->desc.gridScaleMin;
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
@@ -228,13 +227,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 				return false;
 			}
 
-			if ( rawFrameDesc.sampleCount != stream->desc.sampleCount )
-			{
-				V6_ERROR( "Incompatible sample count.\n" );
-				return false;
-			}
-
-			if ( rawFrameDesc.gridMacroShift2 != stream->desc.gridMacroShift2 )
+			if ( rawFrameDesc.gridWidth != stream->desc.gridWidth )
 			{
 				V6_ERROR( "Incompatible grid resolution.\n" );
 				return false;
@@ -281,7 +274,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 					for ( u32 blockRank = 0; blockRank < rawFrameDesc.blockCounts[bucket]; ++blockRank )
 					{
 						DecoderBlock_s* rawBlock = &rawBlocks[rawFrameBlockID];
-						rawBlock->pos = rawFrameBlockPos[rawFrameBlockID];
+						rawBlock->packedBlockPos = rawFrameBlockPos[rawFrameBlockID];
 						rawBlock->cellCount = 0;
 						for ( u32 cellID = 0; cellID < cellPerBucketCount; ++cellID )
 						{
@@ -309,33 +302,52 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 					const u32 rangeID = sequence->frameDataArray[frameRank].rangeIDs[rangeRank];
 					const CodecRange_s* range = &sequence->data.rangeDefs[rangeID];
 					const u32 rangeFrameRank = range->frameRank7_newBlock1_grid4_blockCount20 >> 25;
-					const u32 rangeMip = (range->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
+					const u32 rangeGrid = (range->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
 					const u32 rangeBlockCount = range->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
-					const Vec3i gridOffset = 
-						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth ) -
-						Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[rangeMip], gridMacroHalfWidth );
+					Vec3i gridOffset = Vec3i_Zero();
+					if ( stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+					{
+						gridOffset =
+							Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[rangeGrid], gridMacroHalfWidth ) -
+							Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[rangeGrid], gridMacroHalfWidth );
+					}
 
 					for ( u32 blockRank = 0; blockRank < rangeBlockCount; ++blockRank )
 					{
 						const u32 blockID = blockOffset + blockRank;
 						const u32 sequencePackedBlockPos = sequence->frameDataArray[rangeFrameRank].blockPos[blockID];
-						const u32 mip = sequencePackedBlockPos >> 28;
-						const u32 x = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 0)) & gridMacroMask);
-						const u32 y = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 1)) & gridMacroMask);
-						const u32 z = ((sequencePackedBlockPos >> (stream->desc.gridMacroShift2 * 2)) & gridMacroMask);
-
-						if ( mip != rangeMip )
-						{
-							V6_ERROR( "Incompatible block mip.\n" );
-							return false;
-						}
-
 						DecoderBlock_s* sequenceBlock = &sequenceBlocks[blockID];
 
-						sequenceBlock->pos = mip << 28;
-						sequenceBlock->pos |= (x + gridOffset.x) << (stream->desc.gridMacroShift2 * 0);
-						sequenceBlock->pos |= (y + gridOffset.y) << (stream->desc.gridMacroShift2 * 1);
-						sequenceBlock->pos |= (z + gridOffset.z) << (stream->desc.gridMacroShift2 * 2);
+						if ( stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+						{
+							const u32 mip = sequencePackedBlockPos >> 28;
+							const u32 x = ((sequencePackedBlockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 0)) & CODEC_MIP_MACRO_XYZ_BIT_MASK);
+							const u32 y = ((sequencePackedBlockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 1)) & CODEC_MIP_MACRO_XYZ_BIT_MASK);
+							const u32 z = ((sequencePackedBlockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 2)) & CODEC_MIP_MACRO_XYZ_BIT_MASK);
+
+							if ( mip != rangeGrid )
+							{
+								V6_ERROR( "Incompatible block mip.\n" );
+								return false;
+							}
+
+							sequenceBlock->packedBlockPos = mip << 28;
+							sequenceBlock->packedBlockPos |= (x + gridOffset.x) << (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 0);
+							sequenceBlock->packedBlockPos |= (y + gridOffset.y) << (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 1);
+							sequenceBlock->packedBlockPos |= (z + gridOffset.z) << (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 2);
+						}
+						else
+						{
+							const u32 face = sequencePackedBlockPos >> 29;
+
+							if ( face != rangeGrid )
+							{
+								V6_ERROR( "Incompatible block face.\n" );
+								return false;
+							}
+
+							sequenceBlock->packedBlockPos = sequencePackedBlockPos;
+						}
 							
 						EncodedBlockEx_s encodedBlock;
 						encodedBlock.cellEndColors = sequence->frameDataArray[rangeFrameRank].blockCellEndColors[blockID];
@@ -369,7 +381,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 					const DecoderBlock_s* rawBlock = &rawBlocks[rawFrameBlockID];
 					const DecoderBlock_s* sequenceBlock = &sequenceBlocks[sequenceBlockID];
 
-					if ( rawBlock->pos != sequenceBlock->pos )
+					if ( rawBlock->packedBlockPos != sequenceBlock->packedBlockPos )
 					{
 						V6_ERROR( "Incompatible block pos.\n" );
 						return false;

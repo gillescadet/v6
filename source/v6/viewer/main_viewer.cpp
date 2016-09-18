@@ -48,7 +48,7 @@
 #define V6_ENABLE_HMD			0
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_USE_CACHE			0
-#define V6_BENCH_CAPTURE		1
+#define V6_BENCH_CAPTURE		0
 #define V6_INFINITE_CAPTURE		0
 
 #if V6_USE_HMD == 1
@@ -60,11 +60,12 @@ BEGIN_V6_NAMESPACE
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
-static const u32 GRID_MACRO_SHIFT				= 8;
-static const u32 GRID_WIDTH						= 1 << (GRID_MACRO_SHIFT + 2);
-static const u32 CUBE_SIZE						= GRID_WIDTH;
-static const float GRID_MIN_SCALE				= 50.0f;
-static const float GRID_MAX_SCALE				= 2000.0f;
+static const u32	MOVING_POINT_OF_VIEW			= 0;
+static const u32	RENDERTARGET_WIDTH				= 1024;
+static const u32	SAMPLING_WIDTH					= RENDERTARGET_WIDTH << 1;
+static const u32	GRID_WIDTH						= 1200; // RENDERTARGET_WIDTH << MOVING_POINT_OF_VIEW;
+static const float	GRID_MIN_SCALE					= 20.0f;
+static const float	GRID_MAX_SCALE					= 2000.0f;
 
 static const u32 ANY_EYE						= 0;
 #if V6_STEREO == 1
@@ -85,8 +86,7 @@ static const float FOV							= DegToRad( 90.0f );
 #else
 static const float FOV							= DegToRad( 90.0f );
 #endif
-static const u32 GRID_COUNT						= Codec_GetMipCount( GRID_MIN_SCALE, GRID_MAX_SCALE );
-static const int SAMPLE_MAX_COUNT				= 9;
+static const int SAMPLE_MAX_COUNT				= 17;
 static const float FREE_SCALE					= 50.0f;
 static const u32 RANDOM_CUBE_COUNT				= 100;
 
@@ -321,7 +321,7 @@ static bool g_keyPath				= false;
 static bool g_showPath				= false;
 static int g_limit					= false; 
 static bool g_noTSAA				= false;
-static bool g_showMip				= false;
+static bool g_showGrid				= false;
 static bool g_showBucket			= false; 
 static bool g_showOverdraw			= false;
 static bool g_showHistory			= false;
@@ -335,7 +335,6 @@ static bool g_showObjects			= false;
 static bool g_debugBlocks			= false;
 static bool g_transparentDebug		= false;
 static bool g_reloadShaders			= false;
-static bool g_movingPointOfView		= false;
 static u32 g_compressionQuality		= 0;
 
 static float s_yaw					= 0.0f;
@@ -692,9 +691,8 @@ static void Viewer_OnKeyEvent( const KeyEvent_s* keyEvent )
 		case 'H': g_showHistory = keyEvent->pressed ? !g_showHistory: g_showHistory; break;
 		case 'I': if ( keyEvent->pressed ) { s_logReadBack = true; } break;
 		case 'J': g_noTSAA = keyEvent->pressed ? !g_noTSAA : g_noTSAA; break;
-		case 'K': g_movingPointOfView = keyEvent->pressed ? !g_movingPointOfView : g_movingPointOfView; break;
 		case 'L': g_limit = keyEvent->pressed ? !g_limit : g_limit; break;
-		case 'M': g_showMip = keyEvent->pressed ? !g_showMip : g_showMip; break;
+		case 'M': g_showGrid = keyEvent->pressed ? !g_showGrid : g_showGrid; break;
 		case 'N': g_showBucket = keyEvent->pressed ? !g_showBucket : g_showBucket; break;
 		case 'O': g_showOverdraw = keyEvent->pressed ? !g_showOverdraw : g_showOverdraw; break;
 		case 'P': g_pixelMode = keyEvent->pressed ? ((g_pixelMode+1)%6) : g_pixelMode; break;
@@ -1468,7 +1466,7 @@ void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 
 	Material_Create( &scene->materials[MATERIAL_DEFAULT_BASIC], Material_DrawBasic );
 	
-	const u32 screenWidth = GRID_WIDTH >> 1;
+	const u32 screenWidth = s_win.size.x;
 	// const float depth = -99.0001f;
 	const float depth = -100.0001f;
 	const float pixelRadius = 0.5f * (200.0f / screenWidth);
@@ -1480,7 +1478,7 @@ void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 			Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( x * pixelRadius, y * pixelRadius, depth * 2.0f ), pixelRadius * 16 );
 	}
 #else
-	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0.0f, 0.0f, depth ), pixelRadius * 16 );
+	Entity_Create( &scene->entities[scene->entityCount++], MATERIAL_DEFAULT_BASIC, MESH_SPHERE_RED, Vec3_Make( 0.0f, 0.0f, depth ), pixelRadius * 32 );
 #endif
 
 	Path_Load( s_paths, PATH_COUNT, scene );
@@ -1817,16 +1815,10 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		V6_ERROR( "Stream frame rate is not compatible.\n" );
 		return false;
 	}
-
-	if ( frameDesc.sampleCount != SAMPLE_MAX_COUNT )
-	{
-		V6_ERROR( "Stream sampleCount is not compatible.\n" );
-		return false;
-	}
 	
-	if ( frameDesc.gridMacroShift2 != GRID_MACRO_SHIFT )
+	if ( frameDesc.gridWidth != GRID_WIDTH )
 	{
-		V6_ERROR( "Stream gridMacroShift is not compatible.\n" );
+		V6_ERROR( "Stream gridWidth is not compatible.\n" );
 		return false;
 	}
 	
@@ -1842,7 +1834,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 
-	if ( ((frameDesc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0) != g_movingPointOfView )
+	if ( ((frameDesc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) != 0) != MOVING_POINT_OF_VIEW )
 	{
 		V6_ERROR( "Stream flags is not compatible.\n" );
 		return false;
@@ -1873,11 +1865,10 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 			frameDesc.gridYaw = 0.0f;
 			frameDesc.frameID = frameID;
 			frameDesc.frameRate = VIDEO_FPS;
-			frameDesc.sampleCount = SAMPLE_MAX_COUNT;
-			frameDesc.gridMacroShift2 = GRID_MACRO_SHIFT;
+			frameDesc.gridWidth = GRID_WIDTH;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
-			frameDesc.flags = g_movingPointOfView ? CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW : 0;
+			frameDesc.flags = MOVING_POINT_OF_VIEW ? CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW : 0;
 			
 			CodecRawFrameData_s frameData = {};
 
@@ -1923,20 +1914,19 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 		CaptureDesc_s captureDesc;
 		captureDesc.sampleCount = SAMPLE_MAX_COUNT;
-		captureDesc.gridMacroShift = GRID_MACRO_SHIFT;
+		captureDesc.samplingWidth = SAMPLING_WIDTH;
+		captureDesc.gridWidth = GRID_WIDTH;
 		captureDesc.gridScaleMin = GRID_MIN_SCALE;
 		captureDesc.gridScaleMax = GRID_MAX_SCALE;
 		captureDesc.depthLinearScale = -1.0f / ZNEAR;
 		captureDesc.depthLinearBias = 1.0f / ZNEAR;
-		captureDesc.movingPointOfView = g_movingPointOfView;
+		captureDesc.movingPointOfView = MOVING_POINT_OF_VIEW;
 		captureDesc.logReadBack = s_logReadBack;
-
-		const u32 renderTargetSize = GRID_WIDTH;
 
 		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
 		renderTargetSetCreationDesc.name = "cubeFace";
-		renderTargetSetCreationDesc.width = renderTargetSize;
-		renderTargetSetCreationDesc.height = renderTargetSize;
+		renderTargetSetCreationDesc.width = SAMPLING_WIDTH;
+		renderTargetSetCreationDesc.height = SAMPLING_WIDTH;
 		renderTargetSetCreationDesc.supportMSAA = false;
 		renderTargetSetCreationDesc.bindable = true;
 		renderTargetSetCreationDesc.writable = false;
@@ -2195,7 +2185,7 @@ void CRenderingDevice::Draw( float dt )
 					TraceOptions_s options = {};
 					options.logReadBack = s_logReadBack;
 					options.showHistory = g_showHistory;
-					options.showMip = g_showMip;
+					options.showGrid = g_showGrid;
 					options.showOverdraw = g_showOverdraw;
 					options.noTSAA = g_noTSAA;
 					TraceContext_DrawFrame( m_traceContext, renderTargetSet, views, &options, 0.0f );
@@ -2251,7 +2241,7 @@ int main()
 	V6_MSG( "Viewer 0.1\n" );
 
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 200 * 1024 * 1024 );
+	v6::Stack stack( &heap, 300 * 1024 * 1024 );
 
 #if V6_USE_HMD
 	if ( !v6::Hmd_Init() )
@@ -2261,12 +2251,12 @@ int main()
 	}
 
 	v6::Vec2 recommendedFOV = v6::Hmd_GetRecommendedFOV();
-	v6::u32 renderTargetHalfSize = v6::GRID_WIDTH >> 2;
+	v6::u32 renderTargetHalfSize = v6::RENDERTARGET_WIDTH >> 1;
 	v6::Vec2i renterTargerSize = v6::Vec2i_Make( (int)(renderTargetHalfSize * recommendedFOV.x), (int)(renderTargetHalfSize * recommendedFOV.y) );
 	renterTargerSize.x = (renterTargerSize.x + 7) & ~7;
 	renterTargerSize.y = (renterTargerSize.y + 7) & ~7;
 #else
-	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::GRID_WIDTH >> 1, v6::GRID_WIDTH >> 1 );
+	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::RENDERTARGET_WIDTH, v6::RENDERTARGET_WIDTH );
 #endif // #if V6_USE_HMD
 
 	const char* const title = "V6";
@@ -2356,7 +2346,7 @@ int main()
 			sprintf_s( text, sizeof( text ), "%s | fps: %3u | %s | %s | Hmd %d %s",
 				title, 
 				(int)(1.0f / ifps), 
-				v6::g_movingPointOfView ? "moving": "static",
+				v6::MOVING_POINT_OF_VIEW ? "moving": "static",
 				v6::ModeToString( v6::g_drawMode ),
 				v6::s_hmdState,
 				v6::s_activeScene->info.dirty ? "| *" : "" );

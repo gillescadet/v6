@@ -15,7 +15,8 @@ struct GPUCaptureResources_s;
 struct CaptureDesc_s
 {
 	u32							sampleCount;
-	u32							gridMacroShift;
+	u32							samplingWidth;
+	u32							gridWidth;
 	float						gridScaleMin;
 	float						gridScaleMax;
 	float						depthLinearScale;

@@ -23,6 +23,8 @@ BEGIN_V6_NAMESPACE
 #define CODEC_STREAM_MAGIC					"V6"
 #define CODEC_STREAM_VERSION				1
 
+#define CODEC_HEAD_ROOM_SIZE				50.0f
+
 #define CODEC_RAWFRAME_BUCKET_COUNT			5
 #define CODEC_CELL_MAX_COUNT				64u
 #define CODEC_MIP_MAX_COUNT					16u
@@ -34,7 +36,9 @@ BEGIN_V6_NAMESPACE
 #define CODEC_BLOCK_THREAD_GROUP_SIZE		64
 #define CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE	MulMB( 12u )
 
-#define CODEC_ONION_MACROZ_BIT_COUNT		11
+#define CODEC_MIP_MACRO_XYZ_BIT_COUNT		9
+#define CODEC_MIP_MACRO_XYZ_BIT_MASK		((1 << CODEC_MIP_MACRO_XYZ_BIT_COUNT) - 1)
+#define CODEC_ONION_MACRO_Z_BIT_COUNT		11
 
 #define CODEC_COLOR_ERROR_TOLERANCE			1
 #define CODEC_COLOR_COUNT_TOLERANCE			4
@@ -74,8 +78,7 @@ struct CodecStreamDesc_s
 	u32				frameCount;
 	u32				frameRate;
 	u32				playRate;
-	u32				sampleCount;
-	u32				gridMacroShift2;
+	u32				gridWidth;
 	float			gridScaleMin;
 	float			gridScaleMax;
 	u32				flags;
@@ -102,8 +105,7 @@ struct CodecRawFrameDesc_s
 	float			gridYaw;
 	u32				frameID;
 	u32				frameRate;
-	u32				sampleCount;
-	u32				gridMacroShift2;
+	u32				gridWidth;
 	float			gridScaleMin;
 	float			gridScaleMax;
 	u32				flags;

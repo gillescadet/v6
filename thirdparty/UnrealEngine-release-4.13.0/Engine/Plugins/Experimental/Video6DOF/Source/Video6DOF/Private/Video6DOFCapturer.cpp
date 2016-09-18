@@ -122,10 +122,10 @@ static void Scene_End()
 				frameDesc.gridYaw = s_captureYaw;
 				frameDesc.frameID = s_captureFrameID;
 				frameDesc.frameRate = s_captureSettings.m_targetFPS;
-				frameDesc.sampleCount = s_captureSettings.m_sampleID >= 0 ? 1 : s_captureSettings.m_sampleCount;
-				frameDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
+				frameDesc.gridWidth = s_captureSettings.m_gridWidth;
 				frameDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
 				frameDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
+				frameDesc.flags = s_captureSettings.m_movingPointOfView ? v6::CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW : 0;
 				
 				v6::CodecRawFrameData_s frameData = {};
 
@@ -357,7 +357,7 @@ static bool Scene_EnqueueFramesToEncode( uint32 frameID, uint32 frameCount )
 	if ( !Scene_WaitFramesToEncode() )
 		return false;
 
-	if ( !v6::VideoStream_StartEncodingInSeparateProcess( &s_frameToEncodeInfo.process, STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_captureSettings.m_targetFPS, frameID > 0 ) )
+	if ( !v6::VideoStream_StartEncodingInSeparateProcess( &s_frameToEncodeInfo.process, STREAM_FILEFRAME, RAW_FRAME_TEMPLATE, frameID, frameCount, s_captureSettings.m_targetFPS, s_captureSettings.m_compressionQuality, frameID > 0 ) )
 		return false;
 
 	s_frameToEncodeInfo.frameID = frameID;
@@ -370,23 +370,23 @@ static bool Scene_CaptureCube( const FVector& originUserSpace, const FVector& fo
 {
 	s_captureSettings = *captureSettings;
 	
-	const uint32 size = 1 << (s_captureSettings.m_gridMacroShift + 2);
-
 	UTextureRenderTarget2D* renderTargetTexture = NewObject< UTextureRenderTarget2D >();
 	renderTargetTexture->AddToRoot();
 	renderTargetTexture->ClearColor = FLinearColor::Black;
-	renderTargetTexture->InitCustomFormat( size, size, PF_B8G8R8A8, false );
-	//renderTargetTexture->InitCustomFormat( size, size, PF_A16B16G16R16, false );
+	renderTargetTexture->InitCustomFormat( s_captureSettings.m_samplingWidth, s_captureSettings.m_samplingWidth, PF_B8G8R8A8, false );
+	//renderTargetTexture->InitCustomFormat( s_captureSettings.m_samplingWidth, s_captureSettings.m_samplingWidth, PF_A16B16G16R16, false );
 	
 	FTextureRenderTargetResource* renderTargetResource = renderTargetTexture->GameThread_GetRenderTargetResource();
 
 	v6::CaptureDesc_s captureDesc;
 	captureDesc.sampleCount = s_captureSettings.m_sampleCount;
-	captureDesc.gridMacroShift = s_captureSettings.m_gridMacroShift;
+	captureDesc.samplingWidth = s_captureSettings.m_samplingWidth;
+	captureDesc.gridWidth = s_captureSettings.m_gridWidth;
 	captureDesc.gridScaleMin = s_captureSettings.m_gridMinScale;
 	captureDesc.gridScaleMax = s_captureSettings.m_gridMaxScale;
 	captureDesc.depthLinearScale = 1.0f / GNearClippingPlane;
 	captureDesc.depthLinearBias = 0.0f;
+	captureDesc.movingPointOfView = s_captureSettings.m_movingPointOfView;
 	captureDesc.logReadBack = false;
 	v6::CaptureContext_Create( &s_captureContext, &captureDesc );
 
@@ -544,9 +544,15 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 
 				if ( m_state != EVideo6DOFCapturerState::DONE )
 				{
-					Scene_WaitFramesToEncode();
-					UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded %d samples" ), m_captureSettings.m_sampleCount );
-					++m_captureFrameEncodedCount;
+					if ( Scene_WaitFramesToEncode() )
+					{
+						UE_LOG( LogVideo6DOF, Log, TEXT( "Encoded %d samples" ), m_captureSettings.m_sampleCount );
+						++m_captureFrameEncodedCount;
+					}
+					else
+					{
+						UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
+					}
 					m_state = EVideo6DOFCapturerState::DONE;
 				}
 			}
@@ -562,7 +568,11 @@ void UVideo6DOFCapturer::Tick( float DeltaTime )
 
 						if ( m_captureFrameID == m_captureFrameTotalCount )
 						{
-							Scene_WaitFramesToEncode();
+							if ( !Scene_WaitFramesToEncode() )
+							{
+								m_captureFrameTotalCount -= notEncodedFrameCount;
+								UE_LOG( LogVideo6DOF, Log, TEXT( "Capture stopped on error." ) );
+							}
 							m_state = EVideo6DOFCapturerState::DONE;
 						}
 					}

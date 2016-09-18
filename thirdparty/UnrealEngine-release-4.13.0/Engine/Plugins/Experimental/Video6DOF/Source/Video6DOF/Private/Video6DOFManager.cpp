@@ -28,18 +28,30 @@ FVideo6DOFManager::FVideo6DOFManager()
 		TEXT( "V6.sampleID" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_SampleID", "Set the unique sample ID used for the capture of a V6 sequence" ).ToString(),
 		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSampleID ) )
-	, m_gridMacroShiftCommand(
-		TEXT( "V6.gridMacroShift" ),
-		*NSLOCTEXT( "Video6DOF", "CommandText_SampleCount", "Set the power of 2 of the resolution of the macro grid used for the capture of a V6 sequence" ).ToString(),
-		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSetGridMacroShift ) )
+	, m_samplingWidthCommand(
+		TEXT( "V6.samplingWidth" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_SamplingWidth", "Set the resolution of the V6 capture" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSamplingWidth ) )
+	, m_gridWidthCommand(
+		TEXT( "V6.gridWidth" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_GridWidth", "Set the resolution of the grid used for the capture of a V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureGridWidth ) )
 	, m_gridMinScaleCommand(
 		TEXT( "V6.gridMinScale" ),
-		*NSLOCTEXT( "Video6DOF", "CommandText_SampleCount", "Set the minimum distance from the camera to capture a V6 sequence" ).ToString(),
-		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSetGridMinScale ) )
+		*NSLOCTEXT( "Video6DOF", "CommandText_MinScale", "Set the minimum distance from the camera to capture a V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureGridMinScale ) )
 	, m_gridMaxScaleCommand(
 		TEXT( "V6.gridMaxScale" ),
-		*NSLOCTEXT( "Video6DOF", "CommandText_SampleCount", "Set the maximum distance from the camera to capture a V6 sequence" ).ToString(),
-		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureSetGridMaxScale ) )
+		*NSLOCTEXT( "Video6DOF", "CommandText_MaxScale", "Set the maximum distance from the camera to capture a V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureGridMaxScale ) )
+	, m_compressionQualityCommand(
+		TEXT( "V6.compressionQuality" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_CompressionQuality", "Set the compression quality used to encode the V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureCompressionQuality ) )
+	, m_movingPointOfViewCommand(
+		TEXT( "V6.movingPointOfView" ),
+		*NSLOCTEXT( "Video6DOF", "CommandText_MovingPointOfView", "Allows the point of view to move while capturing a V6 sequence" ).ToString(),
+		FConsoleCommandWithArgsDelegate::CreateRaw( this, &FVideo6DOFManager::SetCaptureMovingPointOfView ) )
 	, m_useToneMappingCommand(
 		TEXT( "V6.useToneMapping" ),
 		*NSLOCTEXT( "Video6DOF", "CommandText_UseToneMapping", "Use tone mapping for the capture a V6 sequence" ).ToString(),
@@ -56,9 +68,12 @@ FVideo6DOFManager::FVideo6DOFManager()
 	, m_fps( 75 )
 	, m_sampleCount( 17 )
 	, m_sampleID( -1 )
-	, m_gridMacroShift( 9 )
-	, m_gridMinScale( 50.0f )
+	, m_samplingWidth( 2048 )
+	, m_gridWidth( 1200 )
+	, m_gridMinScale( 20.0f )
 	, m_gridMaxScale( 100000.0f )
+	, m_compressionQuality( 1 )
+	, m_movingPointOfView( false )
 	, m_useToneMapping( true )
 	, m_dumpRenderTarget( false )
 	, m_lockCameraForLighting( true )
@@ -134,9 +149,12 @@ bool FVideo6DOFManager::Capture( uint32 frameCount )
 	settings.m_targetFPS = m_fps;
 	settings.m_sampleCount = m_sampleCount;
 	settings.m_sampleID = m_sampleID;
-	settings.m_gridMacroShift = m_gridMacroShift;
+	settings.m_samplingWidth = m_samplingWidth;
+	settings.m_gridWidth = m_gridWidth;
 	settings.m_gridMinScale = m_gridMinScale;
 	settings.m_gridMaxScale = m_gridMaxScale;
+	settings.m_compressionQuality = m_compressionQuality;
+	settings.m_movingPointOfView = m_movingPointOfView;
 	settings.m_useToneMapping = m_useToneMapping;
 	settings.m_dumpRenderTarget = m_dumpRenderTarget;
 	settings.m_lockCameraForLighting = m_lockCameraForLighting;
@@ -236,26 +254,45 @@ void FVideo6DOFManager::SetCaptureSampleID( const TArray<FString>& Args )
 	m_sampleID = sampleID;
 }
 
-void FVideo6DOFManager::SetCaptureSetGridMacroShift( const TArray<FString>& Args )
+void FVideo6DOFManager::SetCaptureSamplingWidth( const TArray<FString>& Args )
 {
 	if ( Args.Num() < 1 )
 	{
-		UE_LOG( LogVideo6DOF, Error, TEXT( "Need grid macro shift as argument." ) );
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need sampling width as argument." ) );
 		return;
 	}
 
-	const int32 gridMacroShift = FCString::Atoi( *Args[0] );
+	const int32 samplingWidth = FCString::Atoi( *Args[0] );
 
-	if ( gridMacroShift < 1 || gridMacroShift > 9 )
+	if ( samplingWidth <= 0 || (samplingWidth & 7) != 0 )
 	{
-		UE_LOG( LogVideo6DOF, Error, TEXT( "Grid macro shift should be >= 1 and <= 9." ) );
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Sampling width should be >= 0 and a multiple of 8." ) );
 		return;
 	}
 
-	m_gridMacroShift = gridMacroShift;
+	m_samplingWidth = samplingWidth;
 }
 
-void FVideo6DOFManager::SetCaptureSetGridMinScale( const TArray<FString>& Args )
+void FVideo6DOFManager::SetCaptureGridWidth( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need grid width as argument." ) );
+		return;
+	}
+
+	const int32 gridWidth = FCString::Atoi( *Args[0] );
+
+	if ( gridWidth <= 0 || (gridWidth & 7) != 0 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Grid width should be >= 0 and a multiple of 8." ) );
+		return;
+	}
+
+	m_gridWidth = gridWidth;
+}
+
+void FVideo6DOFManager::SetCaptureGridMinScale( const TArray<FString>& Args )
 {
 	if ( Args.Num() < 1 )
 	{
@@ -274,7 +311,7 @@ void FVideo6DOFManager::SetCaptureSetGridMinScale( const TArray<FString>& Args )
 	m_gridMinScale = gridMinScale;
 }
 
-void FVideo6DOFManager::SetCaptureSetGridMaxScale( const TArray<FString>& Args )
+void FVideo6DOFManager::SetCaptureGridMaxScale( const TArray<FString>& Args )
 {
 	if ( Args.Num() < 1 )
 	{
@@ -291,6 +328,32 @@ void FVideo6DOFManager::SetCaptureSetGridMaxScale( const TArray<FString>& Args )
 	}
 
 	m_gridMaxScale = gridMaxScale;
+}
+
+void FVideo6DOFManager::SetCaptureCompressionQuality( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need 0 or 1 as argument." ) );
+		return;
+	}
+
+	const uint32 compressionQuality = FCString::Atoi( *Args[0] ) != 0;
+
+	m_compressionQuality = compressionQuality;
+}
+
+void FVideo6DOFManager::SetCaptureMovingPointOfView( const TArray<FString>& Args )
+{
+	if ( Args.Num() < 1 )
+	{
+		UE_LOG( LogVideo6DOF, Error, TEXT( "Need 0 or 1 as argument." ) );
+		return;
+	}
+
+	const bool movingPointOfView = FCString::Atoi( *Args[0] ) != 0;
+
+	m_movingPointOfView = movingPointOfView;
 }
 
 void FVideo6DOFManager::SetCaptureUseToneMapping( const TArray<FString>& Args )

@@ -1,22 +1,35 @@
 #define HLSL
 
 #include "trace_shared.h"
+#include "onion_impl.hlsli"
 
-StructuredBuffer< VisibleBlock > visibleBlocks				: REGISTER_SRV( HLSL_VISIBLE_BLOCK_SLOT );
+#if CULL_ONION == 1
+StructuredBuffer< VisibleBlockOnion > visibleBlocks			: REGISTER_SRV( HLSL_VISIBLE_BLOCK_SLOT );
+#else
+StructuredBuffer< VisibleBlockMip > visibleBlocks			: REGISTER_SRV( HLSL_VISIBLE_BLOCK_SLOT );
+#endif
 Buffer< uint > visibleBlockContext							: REGISTER_SRV( HLSL_VISIBLE_BLOCK_CONTEXT_SLOT );
 Buffer< uint > blockCellPresences0							: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE0_SLOT );
 Buffer< uint > blockCellPresences1							: REGISTER_SRV( HLSL_BLOCK_CELL_PRESENCE1_SLOT );
 
 RWBuffer< uint > blockPatchCounters							: REGISTER_UAV( HLSL_BLOCK_PATCH_COUNTERS_SLOT );
-RWStructuredBuffer< BlockPatch > blockPatches				: REGISTER_UAV( HLSL_BLOCK_PATCHES_SLOT );
+#if PROJECT_ONION == 1
+RWStructuredBuffer< BlockPatchOnion > blockPatches			: REGISTER_UAV( HLSL_BLOCK_PATCHES_SLOT );
+#else
+RWStructuredBuffer< BlockPatchMip > blockPatches			: REGISTER_UAV( HLSL_BLOCK_PATCHES_SLOT );
+#endif
 #if BLOCK_GET_STATS == 1
 RWStructuredBuffer< BlockProjectStats > blockProjectStats	: REGISTER_UAV( HLSL_PROJECT_STATS_SLOT );
 #endif // #if BLOCK_GET_STATS == 1
 
 struct BlockPatchHeader
 {
-	uint	blockPosID;
-	uint	mip4_newBlock1_blockPos27;
+	uint	newBlock1_blockPosID;
+#if PROJECT_ONION == 1
+	uint	sign1_axis2_z11_y9_x9;
+#else // #if PROJECT_ONION == 1
+	uint	mip4_none1_blockPos27;
+#endif // #if PROJECT_ONION == 0
 	uint	xtile10_ytile10_cellmin222_cellmax222;
 	uint	xdsp16_ydsp16;
 };
@@ -54,15 +67,22 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		InterlockedAdd( blockProjectStats[0].blockProcessedCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-		const VisibleBlock visibleBlock = visibleBlocks[DTid.x];
-		const uint blockPosID = visibleBlock.blockPosID;
-		const uint mip4_newBlock1_blockPos27 = visibleBlock.mip4_newBlock1_blockPos27;
+#if PROJECT_ONION == 1
+		const VisibleBlockOnion visibleBlock = visibleBlocks[DTid.x];
+		const uint sign1_axis2_z11_y9_x9 = visibleBlock.sign1_axis2_z11_y9_x9;
+#else // PROJECT_ONION == 1
+		const VisibleBlockMip visibleBlock = visibleBlocks[DTid.x];
+		const uint mip4_none1_blockPos27 = visibleBlock.mip4_none1_blockPos27;
+#endif // PROJECT_ONION == 0
+		const uint newBlock1_blockPosID = visibleBlock.newBlock1_blockPosID;
 
 		uint3 cellMinRange;
 		uint3 cellMaxRange;
 
 #if 1
 		{
+			const uint blockPosID = newBlock1_blockPosID & 0x7FFFFFFF;
+
 			uint64 blockCellPresence;
 			blockCellPresence.low = blockCellPresences0[blockPosID];
 			blockCellPresence.high = blockCellPresences1[blockPosID];
@@ -109,19 +129,35 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			cellMaxRange = uint3( 3, 3, 3 );
 		}
 #endif
-		const uint mip = mip4_newBlock1_blockPos27 >> 28;
-		const uint blockPos = mip4_newBlock1_blockPos27 & 0x07FFFFFF;
-		const uint gridMacroMask = (1 << c_projectGridMacroShift)-1;
-		const uint blockPosX = (blockPos >> (c_projectGridMacroShift*0)) & gridMacroMask;
-		const uint blockPosY = (blockPos >> (c_projectGridMacroShift*1)) & gridMacroMask;
-		const uint blockPosZ = (blockPos >> (c_projectGridMacroShift*2)) & gridMacroMask;
+#if PROJECT_ONION == 1
+		const uint sign = (sign1_axis2_z11_y9_x9 >> 31) & 1;
+		const uint axis = (sign1_axis2_z11_y9_x9 >> 29) & 3;
+		uint3 blockCoords;
+		blockCoords.x = (sign1_axis2_z11_y9_x9 >>  0) & 0x1FF;
+		blockCoords.y = (sign1_axis2_z11_y9_x9 >>  9) & 0x1FF;
+		blockCoords.z = (sign1_axis2_z11_y9_x9 >> 18) & 0x7FF;
+
+		float3 blockPosMinRS, blockPosMaxRS;
+		Onion_BlockCoordsToPos( blockPosMinRS, blockPosMaxRS, sign, axis, blockCoords, c_projectGridMinScale, c_projectInvMacroPeriodWidth, c_projectInvMacroGridWidth );
+
+		const float3 cellSize = (blockPosMaxRS - blockPosMinRS) * 0.25f;
+		const float3 blockPosMinWS = blockPosMinRS + c_projectGridCenter.xyz;
+		const float3 posMinWS = mad( cellMinRange, cellSize, blockPosMinWS );
+		const float3 posMaxWS = mad( float3( cellMaxRange + 1.0f ), cellSize, blockPosMinWS );
+#else // PROJECT_ONION == 1
+		const uint mip = mip4_none1_blockPos27 >> 28;
+		const uint blockPos = mip4_none1_blockPos27 & 0x07FFFFFF;
+		const uint blockPosX = (blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*0)) & HLSL_MIP_MACRO_XYZ_BIT_MASK;
+		const uint blockPosY = (blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*1)) & HLSL_MIP_MACRO_XYZ_BIT_MASK;
+		const uint blockPosZ = (blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*2)) & HLSL_MIP_MACRO_XYZ_BIT_MASK;
 
 		const float gridScale = c_projectCentersAndGridScales[mip].w;
 		const float cellSize = gridScale * 2.0f * c_projectInvGridWidth;
 		const uint3 cellCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
 		const uint3 cellMinCoords = cellCoords + cellMinRange;
 		const float3 posMinWS = mad( cellMinCoords, cellSize, -gridScale ) + c_projectCentersAndGridScales[mip].xyz;
-		const float3 posMaxWS = mad( float3( 1 + cellMaxRange - cellMinRange ), cellSize, posMinWS );
+		const float3 posMaxWS = mad( float3( cellMaxRange - cellMinRange + 1.0f ), cellSize, posMinWS );
+#endif // PROJECT_ONION == 0
 
 		float2 minBlockScreenPos;
 		float2 maxBlockScreenPos;
@@ -191,8 +227,12 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		{
 			BlockPatchHeader patchHeader;
-			patchHeader.blockPosID = blockPosID;
-			patchHeader.mip4_newBlock1_blockPos27 = mip4_newBlock1_blockPos27;
+#if PROJECT_ONION == 1
+			patchHeader.sign1_axis2_z11_y9_x9 = sign1_axis2_z11_y9_x9;
+#else // #if PROJECT_ONION == 1
+			patchHeader.mip4_none1_blockPos27 = mip4_none1_blockPos27;
+#endif // #if PROJECT_ONION == 0
+			patchHeader.newBlock1_blockPosID = newBlock1_blockPosID;
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 = (minBlockTileCoords.x << 22) | (minBlockTileCoords.y << 12);
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMinRange.x << 10) | (cellMinRange.y << 8) | (cellMinRange.z << 6);
 			patchHeader.xtile10_ytile10_cellmin222_cellmax222 |= (cellMaxRange.x <<  4) | (cellMaxRange.y << 2) | (cellMaxRange.z << 0);
@@ -255,9 +295,14 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 		if ( patchRank < HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE )
 		{
-			BlockPatch blockPatch;
-			blockPatch.blockPosID = patchHeader.blockPosID;
-			blockPatch.mip4_newBlock1_blockPos27 = patchHeader.mip4_newBlock1_blockPos27;
+#if PROJECT_ONION == 1
+			BlockPatchOnion blockPatch;
+			blockPatch.sign1_axis2_z11_y9_x9 = patchHeader.sign1_axis2_z11_y9_x9;
+#else // #if PROJECT_ONION == 1
+			BlockPatchMip blockPatch;
+			blockPatch.mip4_none1_blockPos27 = patchHeader.mip4_none1_blockPos27;
+#endif // #if PROJECT_ONION == 0
+			blockPatch.newBlock1_blockPosID = patchHeader.newBlock1_blockPosID;
 			blockPatch.none4_cellmin222_cellmax222_x4_y4_w4_h4 = (patchHeader.xtile10_ytile10_cellmin222_cellmax222 << 16) | (patchDetail.blockRank6_none6_itile2_jtile2_x4_y4_w4_h4 & 0xFFFF);
 			blockPatch.xdsp16_ydsp16 = patchHeader.xdsp16_ydsp16;
 

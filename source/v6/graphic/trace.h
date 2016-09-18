@@ -19,6 +19,7 @@ struct SequenceBlockRange_s
 	Vec3i					macroGridCoords;
 	u32						blockCount;
 	u32						blockPosOffset;
+	u32						isNewBlock;
 };
 
 struct SequenceContext_s
@@ -38,7 +39,7 @@ struct TraceOptions_s
 {
 	bool					logReadBack;
 	bool					showHistory;
-	bool					showMip;
+	bool					showGrid;
 	bool					showOverdraw;
 	bool					showBlock;
 	bool					noTSAA;

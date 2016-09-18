@@ -14,7 +14,8 @@
 
 #define CAPTURE_DEBUG 0
 
-V6_STATIC_ASSERT( CODEC_ONION_MACROZ_BIT_COUNT == HLSL_ONION_MACROZ_BIT_COUNT );
+V6_STATIC_ASSERT( CODEC_MIP_MACRO_XYZ_BIT_COUNT == HLSL_MIP_MACRO_XYZ_BIT_COUNT );
+V6_STATIC_ASSERT( CODEC_ONION_MACRO_Z_BIT_COUNT == HLSL_ONION_MACRO_Z_BIT_COUNT );
 
 BEGIN_V6_NAMESPACE
 
@@ -53,7 +54,7 @@ static const GPUEventID_t s_gpuEventPack			= GPUEvent_Register( "Pack", false );
 extern ID3D11Device*							g_device;
 extern ID3D11DeviceContext*						g_deviceContext;
 
-static const float AVERAGE_LAYER_COUNT			= 2.0f;
+static const float AVERAGE_LAYER_COUNT			= 3.0f;
 
 static GPUCaptureResources_s					s_gpuCaptureResources;
 static bool										s_gpuCaptureResourcesCreated = false;
@@ -83,10 +84,7 @@ static void Collect_Mip( const CaptureContext_s* captureContext, const Vec3* sam
 
 	// Update buffers
 
-	V6_ASSERT( captureContext->desc.gridMacroShift > 0 );
-	const u32 gridMacroHalfWidth = 1 << (captureContext->desc.gridMacroShift-1);
-	const u32 gridWidth = 1 << (captureContext->desc.gridMacroShift + 2);
-	const u32 cubeWidth = gridWidth;
+	const u32 gridMacroHalfWidth = captureContext->desc.gridWidth >> 3;
 
 	{
 		float gridScales[CODEC_MIP_MAX_COUNT];
@@ -105,7 +103,7 @@ static void Collect_Mip( const CaptureContext_s* captureContext, const Vec3* sam
 		}
 
 		const u32 mipBeforeSky = mipSky-1;
-		const float halfCellSize = gridScales[mipBeforeSky] / gridWidth;
+		const float halfCellSize = gridScales[mipBeforeSky] / captureContext->desc.gridWidth;
 		const float skyDistance = gridScales[mipBeforeSky] + halfCellSize;
 		const Vec3 skyCenterRS = gridCenters[mipBeforeSky] - *samplePos;
 
@@ -116,9 +114,9 @@ static void Collect_Mip( const CaptureContext_s* captureContext, const Vec3* sam
 		cbSample->c_sampleForward = Vec4_Make( &basis[2], 0.0f );
 		cbSample->c_sampleDepthLinearScale = captureContext->desc.depthLinearScale; // -1.0f / ZNEAR;
 		cbSample->c_sampleDepthLinearBias = captureContext->desc.depthLinearBias; // 1.0f / ZNEAR;
-		cbSample->c_sampleInvCubeSize = 1.0f / cubeWidth;
+		cbSample->c_sampleInvCubeSize = 1.0f / captureContext->desc.samplingWidth;
 		cbSample->c_sampleGridOrigin = captureContext->frameState.origin;
-		cbSample->c_sampleGridWidth = gridWidth;
+		cbSample->c_sampleGridWidth = captureContext->desc.gridWidth;
 		cbSample->c_samplePos = *samplePos;
 		cbSample->c_sampleSkyboxMinRS = skyCenterRS - skyDistance;
 		cbSample->c_sampleSkyboxMaxRS = skyCenterRS + skyDistance;
@@ -140,7 +138,8 @@ static void Collect_Mip( const CaptureContext_s* captureContext, const Vec3* sam
 	g_deviceContext->CSSetShader( res->computeCollect[captureContext->desc.logReadBack].m_computeShader, nullptr, 0 );
 
 	// Dispatch
-	const u32 cubeGroupCount = gridWidth >> 3;
+	V6_ASSERT( (captureContext->desc.samplingWidth & 7) == 0 ); 
+	const u32 cubeGroupCount = captureContext->desc.samplingWidth >> 3;
 	g_deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset
@@ -231,16 +230,13 @@ static void Collect_Onion( const CaptureContext_s* captureContext, const Vec3* s
 
 	// Update buffers
 
-	V6_ASSERT( captureContext->desc.gridMacroShift > 0 );
-	const u32 gridMacroWidth = 1 << captureContext->desc.gridMacroShift;
-	const u32 gridWidth = 1 << (captureContext->desc.gridMacroShift + 2);
-	const u32 cubeWidth = gridWidth;
+	const u32 gridMacroWidth = captureContext->desc.gridWidth >> 2;
 
 	{
 		const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
 		const float macroPeriodWidth = 1.0f / invMacroPeriodWidth;
 
-		const u32 wMax = (1 << CODEC_ONION_MACROZ_BIT_COUNT)-1;
+		const u32 wMax = (1 << CODEC_ONION_MACRO_Z_BIT_COUNT)-1;
 		const float zMax0 = captureContext->desc.gridScaleMin * exp2f( (wMax + 0.0f) * invMacroPeriodWidth );
 		const float zMax1 = captureContext->desc.gridScaleMin * exp2f( (wMax + 1.0f) * invMacroPeriodWidth );
 		const float zMax = (zMax0 + zMax1) * 0.5f;
@@ -256,7 +252,7 @@ static void Collect_Onion( const CaptureContext_s* captureContext, const Vec3* s
 
 		cbSample->c_sampleOnionDepthLinearScale = captureContext->desc.depthLinearScale; // -1.0f / ZNEAR;
 		cbSample->c_sampleOnionDepthLinearBias = captureContext->desc.depthLinearBias; // 1.0f / ZNEAR;
-		cbSample->c_sampleOnionInvCubeSize = 1.0f / cubeWidth;
+		cbSample->c_sampleOnionInvSamplingWidth = 1.0f / captureContext->desc.samplingWidth;
 
 		cbSample->c_sampleOnionRight = Vec4_Make( &basis[0], 0.0f );
 		cbSample->c_sampleOnionUp = Vec4_Make( &basis[1], 0.0f );
@@ -293,7 +289,8 @@ static void Collect_Onion( const CaptureContext_s* captureContext, const Vec3* s
 	g_deviceContext->CSSetShader( res->computeCollect[captureContext->desc.logReadBack].m_computeShader, nullptr, 0 );
 
 	// Dispatch
-	const u32 cubeGroupCount = gridWidth >> 3;
+	V6_ASSERT( (captureContext->desc.samplingWidth & 7) == 0 ); 
+	const u32 cubeGroupCount = captureContext->desc.samplingWidth >> 3;
 	g_deviceContext->Dispatch( cubeGroupCount, cubeGroupCount, 1 );
 
 	// Unset
@@ -371,7 +368,7 @@ static u32 BuildNode( CaptureContext_s* captureContext )
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_OCTREE_INDIRECT_ARGS_SLOT, 1, &res->octreeIndirectArgs.uav, nullptr );
 	g_deviceContext->CSSetShader( res->computeBuildInner.m_computeShader, nullptr, 0 );
 
-	const u32 levelCount = captureContext->desc.movingPointOfView ? (captureContext->desc.gridMacroShift + 2) : (CODEC_ONION_MACROZ_BIT_COUNT + 2);
+	const u32 levelCount = captureContext->desc.movingPointOfView ? (CODEC_MIP_MACRO_XYZ_BIT_COUNT + 2) : (CODEC_ONION_MACRO_Z_BIT_COUNT + 2);
 	for ( u32 level = 0; level < levelCount; ++level )
 	{
 		// Update buffers
@@ -486,7 +483,7 @@ static u32 PackColor( CaptureContext_s* captureContext )
 		{
 			v6::hlsl::CBOctree* cbOctree = (v6::hlsl::CBOctree*)GPUConstantBuffer_MapWrite( &res->cbOctree );
 			cbOctree->c_octreeCurrentLevel = 0;
-			cbOctree->c_octreeLevelCount = captureContext->desc.movingPointOfView ? (captureContext->desc.gridMacroShift + 2) : (CODEC_ONION_MACROZ_BIT_COUNT + 2);
+			cbOctree->c_octreeLevelCount = captureContext->desc.movingPointOfView ? (CODEC_MIP_MACRO_XYZ_BIT_COUNT + 2) : (CODEC_ONION_MACRO_Z_BIT_COUNT + 2);
 			cbOctree->c_octreeCurrentBucket = bucket;
 			GPUConstantBuffer_UnmapWrite( &res->cbOctree );
 		}
@@ -557,21 +554,18 @@ void CaptureContext_Create( CaptureContext_s* captureContext, const CaptureDesc_
 {
 	V6_ASSERT( s_gpuCaptureResourcesCreated == false );
 	V6_ASSERT( desc->sampleCount > 0 && desc->sampleCount <= CaptureContext_s::SAMPLE_MAX_COUNT );
+	V6_ASSERT( desc->gridWidth > 0 && (desc->gridWidth & 7) == 0 );
 	GPUCaptureResources_s* res = &s_gpuCaptureResources;
-
-	const u32 gridWidth = 1 << (desc->gridMacroShift + 2);
-	const u32 renderTargetSize = gridWidth;
 
 	captureContext->desc = *desc;
 	captureContext->res = res;
-	captureContext->resSampleCount = renderTargetSize * renderTargetSize;
-	captureContext->resLeafCount = (u32)(gridWidth * gridWidth * 6 * AVERAGE_LAYER_COUNT);
+	captureContext->resSampleCount = desc->samplingWidth * desc->samplingWidth;
+	captureContext->resLeafCount = (u32)(desc->gridWidth * desc->gridWidth * 6 * AVERAGE_LAYER_COUNT);
 	captureContext->resNodeCount = captureContext->resLeafCount * 3;
 	captureContext->resBlockDataCount = captureContext->resLeafCount * 33 / 16;
 	captureContext->resBlockPosCount = captureContext->resBlockDataCount / 8;
 	
-	const float cellScaleMin = desc->gridScaleMin / gridWidth;
-	const float freeScale = desc->gridScaleMin - cellScaleMin;
+	const float freeScale = CODEC_HEAD_ROOM_SIZE;
 	captureContext->sampleOffsets[0] = Vec3_Make( 0.0f, 0.0f, 0.0f );
 	for ( u32 sample = 1; sample < desc->sampleCount; ++sample )
 	{

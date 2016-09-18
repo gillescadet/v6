@@ -13,7 +13,7 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_TRACE_STATE_MISS_BLOCK					-1
 #define HLSL_TRACE_STATE_MISS_CELL					-2
 
-#define HLSL_BLOCK_SHOW_FLAG_MIPS					1
+#define HLSL_BLOCK_SHOW_FLAG_GRIDS					1
 #define HLSL_BLOCK_SHOW_FLAG_HISTORY				2
 #define HLSL_BLOCK_SHOW_FLAG_OVERDRAW				4
 #define HLSL_BLOCK_SHOW_FLAG_BLOCK					8
@@ -56,10 +56,16 @@ BEGIN_V6_HLSL_NAMESPACE
 
 CBUFFER( CBCull, 0 )
 {
-	uint				c_cullGridMacroShift;
 	float				c_cullInvGridWidth;
 	uint				c_cullFrameChanged;
-	uint				c_cullIsFirstFrameOfSequence;
+	uint2				c_cullPad0;
+
+	float				c_cullGridMinScale;
+	float				c_cullInvMacroPeriodWidth;
+	float				c_cullInvMacroGridWidth;
+	float				c_cullPad1;
+
+	float4				c_cullGridCenter;
 
 	float4				c_cullCentersAndGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_cullFrustumPlanes[4]; // w is pre-negated
@@ -70,9 +76,15 @@ CBUFFER( CBProject, 1 )
 	float2				c_projectFrameSize;
 	uint2				c_projectFrameTileSize;
 
-	uint				c_projectGridMacroShift;
 	float				c_projectInvGridWidth;
-	float2				c_projectUnused;
+	float3				c_projectPad0;
+
+	float				c_projectGridMinScale;
+	float				c_projectInvMacroPeriodWidth;
+	float				c_projectInvMacroGridWidth;
+	float				c_projectPad1;
+
+	float4				c_projectGridCenter;
 
 	float4				c_projectCentersAndGridScales[HLSL_MIP_MAX_COUNT];
 
@@ -86,10 +98,17 @@ CBUFFER( CBProject, 1 )
 
 CBUFFER( CBTrace, 2 )
 {	
+	float				c_traceGridMinScale;
+	float				c_traceInvMacroPeriodWidth;
+	float				c_traceInvMacroGridWidth;
+	float				c_tracePad0;
+
+	float4				c_traceGridCenter;
+
 	float4				c_traceGridScales[HLSL_MIP_MAX_COUNT];
 	float4				c_traceGridCenters[HLSL_MIP_MAX_COUNT];
 
-	uint				c_traceGridMacroShift;
+	uint				c_tracePad1;
 	uint				c_traceEyeCount;
 	float2				c_traceJitter;
 
@@ -103,7 +122,7 @@ CBUFFER( CBTrace, 2 )
 	
 	uint				c_traceGetStats;
 	uint				c_traceShowFlag;
-	uint2				c_traceUnused;
+	uint2				c_tracePad2;
 };
 
 CBUFFER( CBTSAA, 2 )
@@ -124,16 +143,22 @@ CBUFFER( CBPostProcess, 3 )
 struct BlockRange
 {
 	int3	macroGridOffset;
-	uint	frameDistance;
+	uint	isNewBlock;
 	uint	firstThreadID;
 	uint	blockCount;
 	uint	blockPosOffset;
 };
 
-struct VisibleBlock
+struct VisibleBlockMip
 {
-	uint blockPosID;
-	uint mip4_newBlock1_blockPos27;
+	uint newBlock1_blockPosID;
+	uint mip4_none1_blockPos27;
+};
+
+struct VisibleBlockOnion
+{
+	uint newBlock1_blockPosID;
+	uint sign1_axis2_z11_y9_x9;
 };
 
 struct VisibleBlockContext
@@ -146,10 +171,18 @@ struct VisibleBlockContext
 	float	fadeToBlack;
 };
 
-struct BlockPatch
+struct BlockPatchMip
 {
-	uint	blockPosID;
-	uint	mip4_newBlock1_blockPos27;
+	uint	newBlock1_blockPosID;
+	uint	mip4_none1_blockPos27;
+	uint	none4_cellmin222_cellmax222_x4_y4_w4_h4;
+	uint	xdsp16_ydsp16;
+};
+
+struct BlockPatchOnion
+{
+	uint	newBlock1_blockPosID;
+	uint	sign1_axis2_z11_y9_x9;
 	uint	none4_cellmin222_cellmax222_x4_y4_w4_h4;
 	uint	xdsp16_ydsp16;
 };
@@ -159,6 +192,9 @@ struct BlockCullStats
 	uint	blockInputCount;
 	uint	blockProcessedCount;
 	uint	blockPassedCount;
+	uint	assertFailedBits;
+	uint4	assertDataU32[4];
+	float4	assertDataF32[4];
 };
 
 struct BlockProjectStats 
@@ -192,7 +228,8 @@ struct BlockTraceStats
 	uint			pixelStepCount;
 	uint			pixelStepMaxCount;
 	uint			assertFailedBits;
-	uint			assertData[8];
+	uint4			assertDataU32[4];
+	float4			assertDataF32[4];
 	float3			debugRayDir;
 	uint			debugBoxCount;
 };

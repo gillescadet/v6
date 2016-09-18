@@ -16,8 +16,6 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_NODE_CREATED							0x80000000
 #define HLSL_GRID_BLOCK_CELL_EMPTY					0xFFFFFFFF
 
-#define HLSL_ONION_MACROZ_BIT_COUNT					11
-
 // collect
 #define HLSL_CAPTURE_COLOR_SLOT						0
 #define HLSL_CAPTURE_DEPTH_SLOT						1
@@ -74,7 +72,7 @@ CBUFFER( CBSampleOnion, 1 )
 {
 	float	c_sampleOnionDepthLinearScale;
 	float	c_sampleOnionDepthLinearBias;
-	float	c_sampleOnionInvCubeSize;
+	float	c_sampleOnionInvSamplingWidth;
 	float	c_sampleOnionPad1;
 
 	float4	c_sampleOnionRight;

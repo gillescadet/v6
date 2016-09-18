@@ -57,10 +57,10 @@ struct GPUTraceResources_s
 	GPUBuffer_s				traceStats;
 	GPUBuffer_s				traceDebugBoxes;
 
-	GPUCompute_s			computeCull[2];
+	GPUCompute_s			computeCull[4];
 	GPUCompute_s			computeCullPost;
-	GPUCompute_s			computeProject[2];
-	GPUCompute_s			computeTrace[2];
+	GPUCompute_s			computeProject[4];
+	GPUCompute_s			computeTrace[4];
 	GPUCompute_s			computeTSAA;
 	GPUCompute_s			computeSharpen;
 };
@@ -80,6 +80,14 @@ static bool										s_gpuTraceResourcesCreated = false;
 
 static const u32 SEQUENCE_BLOCK_GROUP_MAX_COUNT = 65536;
 
+static u32 GetShaderOption( TraceContext_s* traceContext, bool debug )
+{
+	u32 shaderOption = 0;
+	shaderOption += (traceContext->stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 ? 1 : 0;
+	shaderOption += debug ? 2 : 0;
+	return shaderOption;
+}
+
 static void CullBlock( TraceContext_s* traceContext, const View_s* views, const TraceOptions_s* options )
 {
 	static const void* nulls[8] = {};
@@ -97,28 +105,38 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 
 	// Update buffers
 
-	V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
-	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
-	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
-	const float invGridWidth = 1.0f / gridWidth;
+	const u32 gridMacroHalfWidth = traceContext->stream->desc.gridWidth >> 3;
+	const float invGridWidth = 1.0f / traceContext->stream->desc.gridWidth;
 	const u32 leftEye = 0;
 	const u32 rightEye = traceContext->desc.stereo ? 1 : 0;
 
 	{
 		v6::hlsl::CBCull* cbCull = (v6::hlsl::CBCull*)GPUConstantBuffer_MapWrite( &traceRes->cbCull );
 
-		cbCull->c_cullGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbCull->c_cullInvGridWidth = invGridWidth;
 		cbCull->c_cullFrameChanged = traceContext->frameState.frameChanged || options->showHistory;
-		cbCull->c_cullIsFirstFrameOfSequence = traceContext->frameState.frameRank == 0;
 
-		float gridScale = traceContext->stream->desc.gridScaleMin;
-		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		if ( traceContext->stream->desc.flags == CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 		{
-			const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
-			cbCull->c_cullCentersAndGridScales[gridID] = Vec4_Make( &center, gridScale );
-			if ( gridScale < traceContext->stream->desc.gridScaleMax )
-				gridScale *= 2;
+			float gridScale = traceContext->stream->desc.gridScaleMin;
+			for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+			{
+				const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
+				cbCull->c_cullCentersAndGridScales[gridID] = Vec4_Make( &center, gridScale );
+				if ( gridScale < traceContext->stream->desc.gridScaleMax )
+					gridScale *= 2;
+			}
+		}
+		else
+		{
+			const u32 gridMacroWidth = traceContext->stream->desc.gridWidth >> 2;
+			const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
+
+			cbCull->c_cullGridMinScale = traceContext->stream->desc.gridScaleMin;
+			cbCull->c_cullInvMacroPeriodWidth = invMacroPeriodWidth;
+			cbCull->c_cullInvMacroGridWidth = 1.0f / gridMacroWidth;
+
+			cbCull->c_cullGridCenter = Vec4_Make( &traceContext->stream->desc.gridOrigin, 0.0f );
 		}
 
 		V6_ASSERT( views[leftEye].forward == views[rightEye].forward );
@@ -155,7 +173,7 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_CULL_STATS_SLOT, 1, &traceRes->cullStats.uav, nullptr );
 
 	// dispach
-	const u32 shaderOption = (options->logReadBack) ? 1 : 0;
+	const u32 shaderOption = GetShaderOption( traceContext, options->logReadBack);
 	GPUCompute_Dispatch( &traceRes->computeCull[shaderOption], traceContext->frameState.groupCount, 1, 1 );
 	
 	// unset
@@ -192,6 +210,20 @@ static void CullBlock( TraceContext_s* traceContext, const View_s* views, const 
 			ReadBack_Log( "blockCull", blockCullStats->blockPassedCount, "blockPassedCount" );
 			V6_ASSERT( blockCullStats->blockPassedCount <= traceContext->resVisibleBlockMaxCount );
 
+			if ( blockCullStats->assertFailedBits )
+			{
+				ReadBack_Log( "blockCullDebug", hex32 { blockCullStats->assertFailedBits }, "assertFailedBits" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataU32[0], "assertDataU32[0]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataU32[1], "assertDataU32[1]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataU32[2], "assertDataU32[2]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataU32[3], "assertDataU32[3]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataF32[0], "assertDataF32[0]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataF32[1], "assertDataF32[1]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataF32[2], "assertDataF32[2]" );
+				ReadBack_Log( "blockCullDebug", blockCullStats->assertDataF32[3], "assertDataF32[3]" );
+				V6_ASSERT_ALWAYS( "HLSL Assert" );
+			}
+
 			GPUBuffer_UnmapReadBack( &traceRes->cullStats );
 		}
 	}
@@ -216,10 +248,8 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 
 	// Update buffers
 
-	V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
-	const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
-	const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
-	const float invGridWidth = 1.0f / gridWidth;
+	const u32 gridMacroHalfWidth = traceContext->stream->desc.gridWidth >> 3;
+	const float invGridWidth = 1.0f / traceContext->stream->desc.gridWidth;
 
 	{
 		v6::hlsl::CBProject* cbProject = (v6::hlsl::CBProject*)GPUConstantBuffer_MapWrite( &traceRes->cbProject );
@@ -227,16 +257,29 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 		cbProject->c_projectFrameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
 		cbProject->c_projectFrameTileSize = Vec2u_Make( traceContext->desc.screenWidth >> 3, traceContext->desc.screenHeight >> 3 );
 		
-		cbProject->c_projectGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbProject->c_projectInvGridWidth = invGridWidth;
 
-		float gridScale = traceContext->stream->desc.gridScaleMin;
-		for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+		if ( traceContext->stream->desc.flags == CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 		{
-			const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
-			cbProject->c_projectCentersAndGridScales[gridID] = Vec4_Make( &center, gridScale );
-			if ( gridScale < traceContext->stream->desc.gridScaleMax )
-				gridScale *= 2;
+			float gridScale = traceContext->stream->desc.gridScaleMin;
+			for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+			{
+				const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
+				cbProject->c_projectCentersAndGridScales[gridID] = Vec4_Make( &center, gridScale );
+				if ( gridScale < traceContext->stream->desc.gridScaleMax )
+					gridScale *= 2;
+			}
+		}
+		else
+		{
+			const u32 gridMacroWidth = traceContext->stream->desc.gridWidth >> 2;
+			const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
+
+			cbProject->c_projectGridMinScale = traceContext->stream->desc.gridScaleMin;
+			cbProject->c_projectInvMacroPeriodWidth = invMacroPeriodWidth;
+			cbProject->c_projectInvMacroGridWidth = 1.0f / gridMacroWidth;
+			
+			cbProject->c_projectGridCenter = Vec4_Make( &traceContext->stream->desc.gridOrigin, 0.0f );
 		}
 
 		cbProject->c_projectPrevWorldToProjX = traceContext->frameState.prevWorldToProjsX[eye];
@@ -262,8 +305,8 @@ static void ProjectBlock( TraceContext_s* traceContext, u32 eye, const TraceOpti
 		g_deviceContext->CSSetUnorderedAccessViews( HLSL_PROJECT_STATS_SLOT, 1, &traceRes->projectStats.uav, nullptr );
 
 	// dispach
-
-	const u32 shaderOption = options->logReadBack ? 1 : 0;
+	
+	const u32 shaderOption = GetShaderOption( traceContext, options->logReadBack);
 	GPUCompute_DispatchIndirect( &traceRes->computeProject[shaderOption], &traceRes->visibleBlockContext, offsetof( hlsl::VisibleBlockContext, groupCountX ) );
 	
 	// Unset
@@ -314,27 +357,39 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		g_deviceContext->ClearUnorderedAccessViewUint( traceRes->traceStats.uav, values );
 
 	{
-		V6_ASSERT( traceContext->stream->desc.gridMacroShift2 > 0 );
-		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
-		const u32 gridWidth = 1 << (traceContext->stream->desc.gridMacroShift2 + 2);
-		const float invGridWidth = 1.0f / gridWidth;
+		const u32 gridMacroHalfWidth = traceContext->stream->desc.gridWidth >> 3;
+		const float invGridWidth = 1.0f / traceContext->stream->desc.gridWidth;
 		
 		const u32 eyeCount = traceContext->desc.stereo ? 2 : 1;
 
 		v6::hlsl::CBTrace* cbTrace = (v6::hlsl::CBTrace*)GPUConstantBuffer_MapWrite( &traceRes->cbTrace );
 
-		float gridScale = traceContext->stream->desc.gridScaleMin;
-		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip )
+
+		if ( traceContext->stream->desc.flags == CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 		{
-			const float cellSize = gridScale * 2.0f * invGridWidth;
-			cbTrace->c_traceGridScales[mip] = Vec4_Make( gridScale, cellSize, 1.0f / cellSize, 0.0f );
-			const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
-			cbTrace->c_traceGridCenters[mip] = Vec4_Make( &center, 0.0f );
-			if ( gridScale < traceContext->stream->desc.gridScaleMax )
-				gridScale *= 2;
+			float gridScale = traceContext->stream->desc.gridScaleMin;
+			for ( u32 gridID = 0; gridID < CODEC_MIP_MAX_COUNT; ++gridID )
+			{
+				const float cellSize = gridScale * 2.0f * invGridWidth;
+				cbTrace->c_traceGridScales[gridID] = Vec4_Make( gridScale, cellSize, 1.0f / cellSize, 0.0f );
+				const Vec3 center = Codec_ComputeGridCenter( &traceContext->frameState.origin, gridScale, gridMacroHalfWidth );
+				cbTrace->c_traceGridCenters[gridID] = Vec4_Make( &center, 0.0f );
+				if ( gridScale < traceContext->stream->desc.gridScaleMax )
+					gridScale *= 2;
+			}
+		}
+		else
+		{
+			const u32 gridMacroWidth = traceContext->stream->desc.gridWidth >> 2;
+			const float invMacroPeriodWidth = log2f( 1.0f + 2.0f / gridMacroWidth );
+
+			cbTrace->c_traceGridMinScale = traceContext->stream->desc.gridScaleMin;
+			cbTrace->c_traceInvMacroPeriodWidth = invMacroPeriodWidth;
+			cbTrace->c_traceInvMacroGridWidth = 1.0f / gridMacroWidth;
+
+			cbTrace->c_traceGridCenter = Vec4_Make( &traceContext->stream->desc.gridOrigin, 0.0f );
 		}
 
-		cbTrace->c_traceGridMacroShift = traceContext->stream->desc.gridMacroShift2;
 		cbTrace->c_traceEyeCount = eyeCount;
 
 		const Vec2 frameSize = Vec2_Make( (float)traceContext->desc.screenWidth, (float)traceContext->desc.screenHeight );
@@ -355,7 +410,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 		cbTrace->c_traceRayDirRight = Vec4_Make( &right, 0.0f );
 
 		cbTrace->c_traceGetStats = options->logReadBack;
-		cbTrace->c_traceShowFlag = (options->showMip ? HLSL_BLOCK_SHOW_FLAG_MIPS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0) | (options->showOverdraw ? HLSL_BLOCK_SHOW_FLAG_OVERDRAW : 0) | (options->showBlock ? HLSL_BLOCK_SHOW_FLAG_BLOCK : 0);
+		cbTrace->c_traceShowFlag = (options->showGrid ? HLSL_BLOCK_SHOW_FLAG_GRIDS : 0) | (options->showHistory ? HLSL_BLOCK_SHOW_FLAG_HISTORY : 0) | (options->showOverdraw ? HLSL_BLOCK_SHOW_FLAG_OVERDRAW : 0) | (options->showBlock ? HLSL_BLOCK_SHOW_FLAG_BLOCK : 0);
 
 		cbTrace->c_traceJitter = traceContext->frameState.jitter;
 
@@ -384,7 +439,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 
 	// dispach
 	
-	const u32 shaderOption = ( options->logReadBack || options->showMip || options->showHistory || options->showOverdraw || options->showBlock) ? 1 : 0;
+	const u32 shaderOption = GetShaderOption( traceContext, options->logReadBack || options->showGrid || options->showHistory || options->showOverdraw || options->showBlock );
 	GPUCompute_Dispatch( &traceRes->computeTrace[shaderOption], frameTileSize.x, frameTileSize.y, 1 );
 
 	// Unset
@@ -439,14 +494,14 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 			if ( blockTraceStats->assertFailedBits )
 			{
 				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertFailedBits }, "assertFailedBits" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[0] }, "assertData[0]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[1] }, "assertData[1]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[2] }, "assertData[2]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[3] }, "assertData[3]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[4] }, "assertData[4]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[5] }, "assertData[5]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[6] }, "assertData[6]" );
-				ReadBack_Log( "blockTrace", hex32 { blockTraceStats->assertData[7] }, "assertData[7]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataU32[0], "assertDataU32[0]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataU32[1], "assertDataU32[1]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataU32[2], "assertDataU32[2]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataU32[3], "assertDataU32[3]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataF32[0], "assertDataF32[0]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataF32[1], "assertDataF32[1]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataF32[2], "assertDataF32[2]" );
+				ReadBack_Log( "blockTrace", blockTraceStats->assertDataF32[3], "assertDataF32[3]" );
 				V6_ASSERT_ALWAYS( "HLSL Assert" );
 			}
 
@@ -463,6 +518,7 @@ static void TraceBlock( TraceContext_s* traceContext, ID3D11UnorderedAccessView*
 					center += blockDebugBoxes[boxID].boxMinRS;
 					center += blockDebugBoxes[boxID].boxMaxRS;
 					Plot_AddBox( &plot, &blockDebugBoxes[boxID].boxMinRS, &blockDebugBoxes[boxID].boxMaxRS, false );
+					Plot_AddBox( &plot, &blockDebugBoxes[boxID].boxMinRS, &blockDebugBoxes[boxID].boxMaxRS, true );
 				}
 				center *= 1.0f / (blockTraceStats->debugBoxCount * 2.0f);
 
@@ -568,24 +624,30 @@ static void TSAAPixel( TraceContext_s* traceContext, GPURenderTargetSet_s* rende
 	}
 }
 
+static void Frame_ComputeMacroGridCoords( Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT], u32 frameRank, const VideoStream_s* stream, const VideoSequence_s* sequence )
+{
+	float gridScale = stream->desc.gridScaleMin;
+	const u32 gridMacroHalfWidth = stream->desc.gridWidth >> 3;
+	for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
+		macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScale, gridMacroHalfWidth );
+}
+
 static void SequenceContext_Update( SequenceContext_s* sequenceContext, const VideoStream_s* stream, const VideoSequence_s* sequence )
 {
 	memset( sequenceContext, 0, sizeof( *sequenceContext ) );
 
 	u32 nextRangeID = 0;
 	u32 blockPosCount = 0;
-	for ( u32 frameID = 0; frameID < sequence->desc.frameCount; ++frameID )
+	for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
 	{
-		if ( sequence->frameDescArray[frameID].flags & CODEC_FRAME_FLAG_MOTION )
+		if ( sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION )
 			continue;
 
-		sequenceContext->frameBlockPosOffsets[frameID] = blockPosCount;
+		sequenceContext->frameBlockPosOffsets[frameRank] = blockPosCount;
 
 		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
-		float gridScale = stream->desc.gridScaleMin;
-		const u32 gridMacroHalfWidth = 1 << (stream->desc.gridMacroShift2-1);
-		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameID].gridOrigin, gridScale, gridMacroHalfWidth );
+		if ( stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+			Frame_ComputeMacroGridCoords( macroGridCoords, frameRank, stream, sequence );
 		
 		for (;;)
 		{
@@ -595,18 +657,20 @@ static void SequenceContext_Update( SequenceContext_s* sequenceContext, const Vi
 				break;
 			
 			const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-			u32 rangeFrameID = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
-			if ( frameID != rangeFrameID )
+			const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
+			if ( frameRank != rangeFrameRank )
 				break;
 
+			const u32 isNewBlock = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 24) & 1;
+			const u32 grid = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
 			const u32 blockCount = codecRange->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
-			const u32 mip = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
 
 			SequenceBlockRange_s* blockRange = &sequenceContext->blockRanges[rangeID];
 			
-			blockRange->macroGridCoords = macroGridCoords[mip];
+			blockRange->macroGridCoords = macroGridCoords[grid];
 			blockRange->blockCount = blockCount;
 			blockRange->blockPosOffset = blockPosCount;
+			blockRange->isNewBlock = isNewBlock;
 
 			blockPosCount += blockCount;
 
@@ -666,11 +730,17 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 	GPUConstantBuffer_Create( &res->cbTSAA, sizeof( v6::hlsl::CBTSAA), "tsaa" );
 	GPUConstantBuffer_Create( &res->cbPostProcess, sizeof( v6::hlsl::CBTSAA), "postProcess" );
 
-	GPUBuffer_CreateStructured( &res->visibleBlocks, sizeof( hlsl::VisibleBlock ), traceContext->resVisibleBlockMaxCount, 0, "visibleBlocks" );
+	if ( stream->desc.flags == CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+		GPUBuffer_CreateStructured( &res->visibleBlocks, sizeof( hlsl::VisibleBlockMip ), traceContext->resVisibleBlockMaxCount, 0, "visibleBlocks" );
+	else
+		GPUBuffer_CreateStructured( &res->visibleBlocks, sizeof( hlsl::VisibleBlockOnion ), traceContext->resVisibleBlockMaxCount, 0, "visibleBlocks" );
 	GPUBuffer_CreateIndirectArgs( &res->visibleBlockContext, sizeof( hlsl::VisibleBlockContext ) / sizeof( u32 ), 0, "visibleBlockContext" );
 
 	GPUBuffer_CreateTyped( &res->blockPatchCounters, DXGI_FORMAT_R32_UINT, blockTileCountPerEye, 0, "blockPatchCounters" );
-	GPUBuffer_CreateStructured( &res->blockPatches, sizeof( hlsl::BlockPatch ), traceContext->resBlockPatchCountPerEye, 0, "blockPatches" );
+	if ( stream->desc.flags == CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+		GPUBuffer_CreateStructured( &res->blockPatches, sizeof( hlsl::BlockPatchMip ), traceContext->resBlockPatchCountPerEye, 0, "blockPatches" );
+	else
+		GPUBuffer_CreateStructured( &res->blockPatches, sizeof( hlsl::BlockPatchOnion ), traceContext->resBlockPatchCountPerEye, 0, "blockPatches" );
 	
 	GPUBuffer_CreateStructured( &res->cullStats, sizeof( hlsl::BlockCullStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockCullStats" );
 	GPUBuffer_CreateStructured( &res->projectStats, sizeof( hlsl::BlockProjectStats ), 1, GPUBUFFER_CREATION_FLAG_READ_BACK, "blockProjectStats" );
@@ -704,14 +774,14 @@ void TraceContext_Create( TraceContext_s* traceContext, const TraceDesc_s* trace
 		V6_ASSERT_D3D11( g_device->CreateSamplerState( &samplerDesc, &res->bilinearSamplerState ) );
 	}
 
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_CreateFromSource( &res->computeCull[option], hlsl::g_main_block_cull_cs[option], hlsl::g_sizeof_block_cull_cs[option] );
 	GPUCompute_CreateFromSource( &res->computeCullPost, hlsl::g_main_block_cull_post_cs, sizeof( hlsl::g_main_block_cull_post_cs ) );
 
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_CreateFromSource( &res->computeProject[option], hlsl::g_main_block_project_cs[option], hlsl::g_sizeof_block_project_cs[option] );
 
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_CreateFromSource( &res->computeTrace[option], hlsl::g_main_block_trace_cs[option], hlsl::g_sizeof_block_trace_cs[option] );
 
 	GPUCompute_CreateFromSource( &res->computeTSAA, hlsl::g_main_pixel_tsaa_cs, sizeof( hlsl::g_main_pixel_tsaa_cs ) );
@@ -767,12 +837,12 @@ void TraceContext_Release( TraceContext_s* traceContext )
 
 	V6_RELEASE_D3D11( res->bilinearSamplerState );
 
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_Release( &res->computeCull[option] );
 	GPUCompute_Release( &res->computeCullPost );
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_Release( &res->computeProject[option] );
-	for ( u32 option = 0; option < 2; ++option )
+	for ( u32 option = 0; option < 4; ++option )
 		GPUCompute_Release( &res->computeTrace[option] );
 	GPUCompute_Release( &res->computeTSAA );
 	GPUCompute_Release( &res->computeSharpen );
@@ -896,10 +966,8 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 		ScopedStack scopedStack( stack );
 
 		Vec3i macroGridCoords[CODEC_MIP_MAX_COUNT] = {};
-		float gridScale = traceContext->stream->desc.gridScaleMin;
-		const u32 gridMacroHalfWidth = 1 << (traceContext->stream->desc.gridMacroShift2-1);
-		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
-			macroGridCoords[mip] = Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScale, gridMacroHalfWidth ); // patched per frame
+		if ( traceContext->stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
+			Frame_ComputeMacroGridCoords( macroGridCoords, frameRank, traceContext->stream, sequence );
 
 		const u16* rangeIDs = sequence->frameDataArray[frameRank].rangeIDs;
 		hlsl::BlockRange* const blockRangeBuffer = stack->newArray< hlsl::BlockRange >( CODEC_RANGE_MAX_COUNT );
@@ -922,7 +990,7 @@ void TraceContext_UpdateFrame( TraceContext_s* traceContext, u32 frameID, IStack
 			
 			hlsl::BlockRange* dstBlockRange = &blockRanges[rangeRank];
 			dstBlockRange->macroGridOffset = srcBlockRange->macroGridCoords - macroGridCoords[rangeMip];
-			dstBlockRange->frameDistance = frameRank - rangeFrameRank;
+			dstBlockRange->isNewBlock = (frameRank > 0 && (frameRank - rangeFrameRank) == 0) ? 1 : srcBlockRange->isNewBlock;
 			dstBlockRange->firstThreadID = firstThreadID;
 			dstBlockRange->blockCount = srcBlockRange->blockCount;
 			dstBlockRange->blockPosOffset = srcBlockRange->blockPosOffset;

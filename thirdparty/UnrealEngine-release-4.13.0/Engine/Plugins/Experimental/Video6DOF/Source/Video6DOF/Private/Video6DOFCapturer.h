@@ -25,9 +25,12 @@ struct FVideo6DOFCaptureSettings
 	uint32	m_targetFPS;
 	uint32	m_sampleCount;
 	int32	m_sampleID;
-	uint32	m_gridMacroShift;
+	uint32	m_samplingWidth;
+	uint32	m_gridWidth;
 	float	m_gridMinScale;
 	float	m_gridMaxScale;
+	uint32	m_compressionQuality;
+	bool	m_movingPointOfView;
 	bool	m_useToneMapping;
 	bool	m_dumpRenderTarget;
 	bool	m_lockCameraForLighting;

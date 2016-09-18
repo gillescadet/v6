@@ -64,7 +64,7 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 	commandArgs->frameCount = 1;
 	commandArgs->playRate = 75;
 
-#if 1
+#if 0
 	commandArgs->streamFilename = "D:/media/obj/crytek-sponza/sponza.v6";
 	commandArgs->templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
 	commandArgs->frameOffset = 0;
