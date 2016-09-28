@@ -191,7 +191,7 @@ TEMPLATE HLSL_OuputBytecodeInHeaderFile		= TEXT( <HeaderFileOutput>%(RelativeDir
 
 TEMPLATE HLSL_DisableTreatWarningAsError	= TEXT( <TreatWarningAsError>false</TreatWarningAsError>\n );
 
-// Implemmentation
+// Implementation
 
 #define LIB_OVR_KERNEL	"$(OVRSDKROOT)LibOVRKernel/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVRKernel.lib"
 #define LIB_OVR			"$(OVRSDKROOT)LibOVR/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVR.lib"
@@ -255,8 +255,6 @@ static const Config_s s_configs[CONFIG_COUNT] =
 	{ "Release",	"x64",	commonRelease },
 };
 
-// https://www.guidgenerator.com/
-
 static const Project_s s_projects[PROJECT_COUNT] = 
 { 
 	{ PROJECT_BIN2H, 		"C1954BE7-8364-4327-BFFA-8F36057A2083", "bin2h" },
@@ -306,6 +304,16 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/compressor/main_compressor.cpp",				PROJECT_COMPRESSOR },
 	{ "thirdparty/lz4/lib/lz4.c",								PROJECT_COMPRESSOR },
 	{ "thirdparty/lz4/lib/lz4hc.c",								PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",			PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",			PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/common/xxhash.c",					PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",				PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",			PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",			PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",			PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",		PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",		PROJECT_COMPRESSOR },
+	{ "thirdparty/zstd/lib/zstd.h",								PROJECT_COMPRESSOR },
 
 	// doc
 	{ "source/v6/doc/bench.txt",								PROJECT_DOC },
@@ -330,6 +338,16 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/encoder/main_encoder.cpp",						PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4.c",								PROJECT_ENCODER },
 	{ "thirdparty/lz4/lib/lz4hc.c",								PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",			PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",			PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/common/xxhash.c",					PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",				PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",			PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",			PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",			PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",		PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",		PROJECT_ENCODER },
+	{ "thirdparty/zstd/lib/zstd.h",								PROJECT_ENCODER },
 	
 	// player
 	{ "source/v6/codec/codec.cpp",								PROJECT_PLAYER },
@@ -356,6 +374,16 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/player/main_player.cpp",						PROJECT_PLAYER },
 	{ "thirdparty/lz4/lib/lz4.c",								PROJECT_PLAYER },
 	{ "thirdparty/lz4/lib/lz4hc.c",								PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",			PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",			PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/common/xxhash.c",					PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",				PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",			PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",			PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",			PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",		PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",		PROJECT_PLAYER },
+	{ "thirdparty/zstd/lib/zstd.h",								PROJECT_PLAYER },
 
 	// player - HLSL
 	{ "source/v6/graphic/common_shared.h",						PROJECT_PLAYER },
@@ -408,6 +436,16 @@ static ProjectFile_s s_projectFiles[] =
 	{ "thirdparty/lz4/lib/lz4hc.c",								PROJECT_VIEWER },
 	{ "source/v6/viewer/main_viewer.cpp",						PROJECT_VIEWER },
 	{ "source/v6/viewer/scene_info.cpp",						PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/xxhash.c",					PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",		PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",		PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/zstd.h",								PROJECT_VIEWER },
 
 	// viewer - HLSL
 	{ "source/v6/graphic/block_cull_cs_impl.hlsli",				PROJECT_VIEWER },

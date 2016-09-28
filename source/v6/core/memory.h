@@ -13,7 +13,7 @@ public:
 	virtual void *	alloc( u64 nSize ) = 0;
 
 	template <typename T>
-	T *				newArray( u32 count )
+	T *				newArray( u64 count )
 	{
 		return (T*)alloc( sizeof(T) * count );
 	}

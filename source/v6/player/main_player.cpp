@@ -31,6 +31,7 @@
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
+#define V6_LIMIT_FRAME_RATE		1
 
 BEGIN_V6_NAMESPACE
 
@@ -242,7 +243,7 @@ static void FrameTimer_ComputeNewFrameInfo( FrameTimer_s* frameTimer, FrameInfo_
 	{
 		frameDelta = frameUpdatedTick - frameTimer->frameTickLast;
 		frameInfo->dt = Min( ConvertTicksToSeconds( frameDelta ), frameTimer->dtMax );
-#if V6_USE_HMD == 0
+#if V6_LIMIT_FRAME_RATE == 1 && V6_USE_HMD == 0
 		if ( frameInfo->dt + 0.0001f >= frameTimer->dtMin )
 #endif // #if V6_USE_HMD == 0
 			break;
@@ -1536,9 +1537,17 @@ int main( int argc, char** argv )
 	const v6::u32 defaultWidth = 1024;
 	const v6::u32 defaultHeight = 1024;
 #else
+
+#if 1
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
+#else
+	// DK2 / 2
+	const v6::u32 defaultWidth = 1104 / 2;
+	const v6::u32 defaultHeight = 680;
+#endif
+
 #endif
 
 #if V6_ENABLE_HMD == 1

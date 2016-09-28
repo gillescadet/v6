@@ -1461,3 +1461,24 @@ Frame      : 13232 us
     Metrics    :    25 us
     Copy       :   125 us
     Present    :  9105 us
+
+Bench: encoding ref (ENCODING_V0)
+Compression quality: 0
+F00: loaded 350596 blocks from D:/tmp/v6/ue_000000.v6f.
+LZ4 compression: 3728 KB / 10956 KB (34.03%)
+F00: pos 1369 KB, pres0 1369 KB, pres1 1369 KB, endcol 1369 KB, colind0 1369 KB, colind1 1369 KB, colind2 1369 KB, colind3 1369 KB, range IDs 0 KB.
+LZ4 compression of stream 0:     1354 KB /     1369 KB (98.93%)
+LZ4 compression of stream 1:      528 KB /     1369 KB (38.57%)
+LZ4 compression of stream 2:      524 KB /     1369 KB (38.33%)
+LZ4 compression of stream 3:      474 KB /     1369 KB (34.61%)
+LZ4 compression of stream 4:      647 KB /     1369 KB (47.30%)
+LZ4 compression of stream 5:      189 KB /     1369 KB (13.81%)
+LZ4 compression of stream 6:        6 KB /     1369 KB ( 0.46%)
+LZ4 compression of stream 7:        5 KB /     1369 KB ( 0.39%)
+LZ4 compression for all streams: 3730 KB
+F00: added 3728 KB.
+
+Bench: ENCODING_V0 + xor block pos + ZSTD (ENCODING_V1)
+Compression quality: 0
+F00: loaded 350596 blocks from D:/tmp/v6/ue_000000.v6f.
+F00: added 1856 KB.

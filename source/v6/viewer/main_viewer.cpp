@@ -63,7 +63,7 @@ extern ID3D11DeviceContext* g_deviceContext;
 static const u32	MOVING_POINT_OF_VIEW			= 0;
 static const u32	RENDERTARGET_WIDTH				= 1024;
 static const u32	SAMPLING_WIDTH					= RENDERTARGET_WIDTH << 1;
-static const u32	GRID_WIDTH						= 1200; // RENDERTARGET_WIDTH << MOVING_POINT_OF_VIEW;
+static const u32	GRID_WIDTH						= MOVING_POINT_OF_VIEW ? SAMPLING_WIDTH : ((u32)(RENDERTARGET_WIDTH * 1.2f) & ~7);
 static const float	GRID_MIN_SCALE					= 20.0f;
 static const float	GRID_MAX_SCALE					= 2000.0f;
 

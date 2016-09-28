@@ -70,6 +70,33 @@ inline u32 HashPointer( void* p )
 	return HashU64( (u64)p );
 }
 
+template < typename TYPE >
+inline u16 Hash_MakeU16( TYPE value )
+{
+	switch ( sizeof( TYPE ) )
+	{
+	case 1:
+	case 2:
+	case 4:
+		{
+			const u32 hash = HashU32( value );
+			const u32 hashl = (hash >>  0) & 0xFFFF;
+			const u32 hashh = (hash >> 16) & 0xFFFF;
+			return (u16)(hashl ^ hashh);
+		}
+		break;
+	case 8:
+		{
+			const u16 hashl = Hash_MakeU16( (u32)((value >>  0) & 0xFFFFFFFF ) );
+			const u16 hashh = Hash_MakeU16( (u32)((value >> 32) & 0xFFFFFFFF ) );
+			return hashl ^ hashh;
+		}
+		break;
+	default:
+		V6_STATIC_ASSERT( !"unsupported" );
+	}
+}
+
 inline u32 HashVector( Vec3 v )
 {
 	const u32 seedx = HashU32( (u32)v.x );

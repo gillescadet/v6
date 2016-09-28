@@ -88,6 +88,7 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 	commandArgs->frameOffset = 0;
 	commandArgs->frameCount = 1;
 	commandArgs->playRate = 75;
+	commandArgs->compressionQuality = 0;
 	commandArgs->extend = false;
 #endif
 

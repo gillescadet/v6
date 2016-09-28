@@ -3,6 +3,7 @@
 #include <v6/core/common.h>
 
 #include <v6/codec/compression.h>
+#include <v6/core/bit.h>
 #include <v6/core/color.h>
 #include <v6/core/mat3x3.h>
 #include <v6/core/math.h>
@@ -657,6 +658,88 @@ void Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* enc
 		const u32 colorID = (encodedBlock->cellColorIndices[cellRank >> 5] >> ((cellRank << 1) & 0x3F)) & 3;
 		cellRGBA[cellRank] = (rs[colorID] << 24) | (gs[colorID] << 16) | (bs[colorID] << 8) | cellID;
 		++(*cellCount);
+	}
+}
+
+u32 Block_ComputeBufferMaxSizeForPackingPositions( u32 blockCount )
+{
+	const u32 headerBitCount = 3;
+	const u32 bufferElementCount = ((blockCount * (headerBitCount + 32u)) + 63) / 64;
+	return bufferElementCount * 8;
+}
+
+void Block_PackPositions( BitStream_s* bitStreamWriter, const u32* blockPos, u32 blockCount )
+{
+	V6_ASSERT( BitStream_IsAligned( bitStreamWriter ) );
+
+	if ( blockCount == 0 )
+		return;
+
+	const u32 headerBitCount = 3;
+	const u32 selectBitCount = 5;
+
+	BitStream_Write< headerBitCount >( bitStreamWriter, 7u );
+	BitStream_Write< 32 >( bitStreamWriter, blockPos[0] );
+
+	for ( u32 blockID = 1; blockID < blockCount; ++blockID )
+	{
+		u32 bitDiff = blockPos[blockID-1] ^ blockPos[blockID];
+		const u32 bitCount = Bit_GetBitHighCount( bitDiff );
+
+		if ( bitCount > 6 )
+		{
+			BitStream_Write< headerBitCount >( bitStreamWriter, 7u );
+			BitStream_Write< 32 >( bitStreamWriter, blockPos[blockID] );
+		}
+		else
+		{
+			BitStream_Write< headerBitCount >( bitStreamWriter, bitCount );
+			while ( bitDiff )
+			{
+				const u32 bitID = Bit_GetFirstBitHigh( bitDiff );
+				bitDiff -= 1 << bitID;
+				BitStream_Write< selectBitCount >( bitStreamWriter, bitID );
+			}
+		}
+	}
+
+	BitStream_Align( bitStreamWriter );
+}
+
+void Block_UnpackPositions( BitStream_s* bitStreamReader, u32* blockPos, u32 blockCount )
+{
+	V6_ASSERT( BitStream_IsAligned( bitStreamReader ) );
+
+	if ( blockCount == 0 )
+		return;
+
+	const u32 headerBitCount = 3;
+	const u32 selectBitCount = 5;
+
+	for ( u32 blockID = 0; blockID < blockCount; ++blockID )
+	{
+		u32 value;
+
+		u32 bitCount;
+		BitStream_Read< headerBitCount >( &bitCount, bitStreamReader );
+		if ( bitCount == 7u )
+		{
+			BitStream_Read< 32 >( &value, bitStreamReader );
+		}
+		else
+		{
+			u32 bitDiff = 0;
+			while ( bitCount )
+			{
+				u32 bitID;
+				BitStream_Read< selectBitCount >( &bitID, bitStreamReader );
+				bitDiff |= 1 << bitID;
+				--bitCount;
+			}
+			value = bitDiff ^ blockPos[blockID-1];
+		}
+
+		blockPos[blockID] = value;
 	}
 }
 
