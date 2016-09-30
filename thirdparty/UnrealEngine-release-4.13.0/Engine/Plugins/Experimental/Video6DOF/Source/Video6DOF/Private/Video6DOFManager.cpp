@@ -94,7 +94,7 @@ void FVideo6DOFManager::CreateCapturer()
 		m_capturer = nullptr;
 	}
 
-	m_capturer = NewObject< UVideo6DOFCapturer >(UVideo6DOFCapturer::StaticClass());
+	m_capturer = NewObject< UVideo6DOFCapturer >( UVideo6DOFCapturer::StaticClass() );
 	m_capturer->AddToRoot();
 }
 

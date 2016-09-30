@@ -57,6 +57,7 @@ public:
 	//~ FTickableGameObject interface
 
 	virtual TStatId												GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT( UVideo6DOFCapturer, STATGROUP_Tickables ); }
+	virtual UWorld*												GetTickableGameObjectWorld() const override { return GWorld; }
 	virtual bool												IsTickable() const { return true; }
 	virtual bool												IsTickableWhenPaused() const { return false; }
 	virtual void												Tick( float DeltaTime ) override;

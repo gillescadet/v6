@@ -54,6 +54,7 @@ struct CodecFrameHeader_s
 	char					magic[4];
 	u32						version;
 	u32						size;
+	u32						uncompressedDataSize;
 	CodecFrameDesc_s		desc;
 };
 
@@ -514,17 +515,15 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	u8* chunk = buffer;
 
 #if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
-	u32 decompressedChunkSize;
-	streamReader->Read( ToX64( 4 ), &decompressedChunkSize );
-	V6_ASSERT( unpackedChunkSize >= decompressedChunkSize );
-	const u64 packedOffsetChunk = unpackedChunkSize - decompressedChunkSize;
+	V6_ASSERT( unpackedChunkSize >= frameHeader.uncompressedDataSize );
+	const u64 packedOffsetChunk = unpackedChunkSize - frameHeader.uncompressedDataSize;
 
-	const u64 compressedChunkSize = remainingChunkSize - 4u;
+	const u64 compressedChunkSize = remainingChunkSize;
 #if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_LZ4
 	{
 		u8* chunkLZ4 = (u8*)stack->alloc( compressedChunkSize );
 		streamReader->Read( ToX64( compressedChunkSize ), chunkLZ4 );
-		if ( LZ4_decompress_fast( (char*)chunkLZ4, (char*)(chunk + packedOffsetChunk), (int)decompressedChunkSize ) != compressedChunkSize )
+		if ( LZ4_decompress_fast( (char*)chunkLZ4, (char*)(chunk + packedOffsetChunk), (int)frameHeader.uncompressedDataSize ) != compressedChunkSize )
 		{
 			V6_ERROR( "LZ4 decompression failed.\n" );
 			allocator->free( buffer );
@@ -535,13 +534,13 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	{
 		u8* chunkZSTD = (u8*)stack->alloc( compressedChunkSize );
 		streamReader->Read( ToX64( compressedChunkSize ), chunkZSTD );
-		const u64 chunkZSTDSize = ZSTD_decompress( chunk + packedOffsetChunk, decompressedChunkSize, chunkZSTD, compressedChunkSize );
-		if ( chunkZSTDSize != decompressedChunkSize )
+		const u64 chunkZSTDSize = ZSTD_decompress( chunk + packedOffsetChunk, frameHeader.uncompressedDataSize, chunkZSTD, compressedChunkSize );
+		if ( chunkZSTDSize != frameHeader.uncompressedDataSize )
 		{
 			if ( ZSTD_isError( chunkZSTDSize ) )
 				V6_ERROR( "ZSTD decompression failed: %s\n", ZSTD_getErrorName( chunkZSTDSize ) );
 			else
-				V6_ERROR( "ZSTD decompression failed: %lld != %lld\n", chunkZSTDSize, decompressedChunkSize );
+				V6_ERROR( "ZSTD decompression failed: %lld != %lld\n", chunkZSTDSize, frameHeader.uncompressedDataSize );
 			allocator->free( buffer );
 			return nullptr;
 		}
@@ -553,6 +552,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 #endif
 
 #if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE && CODEC_FRAME_PACK_POSITIONS == 1
+	if ( packedOffsetChunk > 0 )
 	{
 		V6_ASSERT( blockPosSize >= packedOffsetChunk );
 		const u64 packedBlockPosSize = blockPosSize - packedOffsetChunk;
@@ -639,8 +639,10 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 
 	const u64 chunkUnpackedSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + rangeIDSize;
 
-#if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
-
+#if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_NONE
+	const u64 chunkUncompressedSize = chunkUnpackedSize;
+	const u64 chunkCompressedSize = chunkUnpackedSize;
+#else
 	CBufferWriter chunkWriter( stack->alloc( chunkUnpackedSize ), ToX64( chunkUnpackedSize ) );
 
 #if CODEC_FRAME_PACK_POSITIONS == 1
@@ -650,10 +652,15 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	BitStream_InitForWrite( &bitStreamWriter, packedBlockPos, (u32)(packedBlockPosMaxSize * 8) );
 	Block_PackPositions( &bitStreamWriter, data->blockPos, desc->blockCount );
 	const u32 packedBlockPosSize = BitStream_GetSize( &bitStreamWriter );
-	chunkWriter.Write( packedBlockPos, ToX64( packedBlockPosSize ) );
-#else
-	chunkWriter.Write( data->blockPos, ToX64( blockPosSize ) );
+	if ( packedBlockPosSize < blockPosSize )
+	{
+		chunkWriter.Write( packedBlockPos, ToX64( packedBlockPosSize ) );
+	}
+	else
 #endif
+	{
+		chunkWriter.Write( data->blockPos, ToX64( blockPosSize ) );
+	}
 
 	chunkWriter.Write( data->blockCellPresences0, ToX64( blockDataCellPresence0Size ) );
 	chunkWriter.Write( data->blockCellPresences1, ToX64( blockDataCellPresence1Size ) );
@@ -687,17 +694,13 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	CodecFrameHeader_s frameHeader = {};
 	memcpy( frameHeader.magic, CODEC_FRAME_MAGIC, 4 );
 	frameHeader.version = CODEC_FRAME_VERSION;
-#if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
-	frameHeader.size = (u32)(sizeof( CodecFrameHeader_s ) + 4 + chunkCompressedSize);
-#else
-	frameHeader.size = (u32)(sizeof( CodecFrameHeader_s ) + chunkUnpackedSize);
-#endif
+	frameHeader.size = (u32)(sizeof( CodecFrameHeader_s ) + chunkCompressedSize);
+	frameHeader.uncompressedDataSize = (u32)chunkUncompressedSize;
 	memcpy( &frameHeader.desc, desc, sizeof( frameHeader.desc ) );
 
 	streamWriter->Write( &frameHeader, ToX64( sizeof( CodecFrameHeader_s ) ) );
 
 #if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
-	streamWriter->Write( &chunkUncompressedSize, ToX64( 4 ) );
 	streamWriter->Write( chunkCompressed, ToX64( chunkCompressedSize ) );
 #else
 	streamWriter->Write( data->blockPos, ToX64( blockPosSize ) );
