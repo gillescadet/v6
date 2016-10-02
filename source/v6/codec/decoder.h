@@ -15,7 +15,6 @@ class IStack;
 struct VideoSequence_s
 {
 	CodecSequenceDesc_s		desc;
-	CodecSequenceData_s		data;
 	void*					buffer;
 	CodecFrameDesc_s*		frameDescArray;
 	CodecFrameData_s*		frameDataArray;

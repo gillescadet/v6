@@ -25,7 +25,6 @@
 
 #define ENCODER_DUMP_BLOCKS				0
 #define ENCODER_SKIP_WRITING			0
-#define ENCODER_DUMP_RANGES				0
 
 #define ENCODER_INVALID_ID				0xFFFFFFFF
 #define ENCODER_EMPTY_RANGE				0xFFFFFFFF
@@ -189,11 +188,11 @@ struct RawFrame_s
 	u32						blockCountPerGrid[CODEC_GRID_MAX_COUNT];
 	u32						blockOffsetPerGrid[CODEC_GRID_MAX_COUNT];
 
+	u32						sharedBlockOffset;
 	u32						sharedBlockCount;
 	struct Shared_s
 	{
 		u32					blockCount;
-		u32					rangeIDs[CODEC_GRID_MAX_COUNT];
 		u32					blockCountPerGrid[CODEC_GRID_MAX_COUNT];
 		u32					blockOffsetPerGrid[CODEC_GRID_MAX_COUNT];
 	}						shareds[CODEC_FRAME_MAX_COUNT];
@@ -230,8 +229,6 @@ struct Context_s
 	BlockAllocator_s	threadBlockAllocators[ENCODER_THREAD_COUNT];
 	Vec3i				gridMin[CODEC_MIP_MAX_COUNT];
 	Vec3i				gridMax[CODEC_MIP_MAX_COUNT];
-	CodecRange_s		rangeDefs[CODEC_RANGE_MAX_COUNT];
-	u32					rangeDefCount;
 	u32					frameCount;
 	u32					compressionQuality;
 	u32					blockCountPerSequence;
@@ -1458,31 +1455,9 @@ static void RawFrame_SortByRange( u32 frameRank, Context_s* context )
 	u32 blockOffset = 0;
 	for ( u32 sharedFrameRank = 0; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
 	{
-		const u32 newBlockMask = sharedFrameRank == 0 ? (1 << 24) : 0;
-
 		RawFrame_s::Shared_s* shared = &frame->shareds[sharedFrameRank];
 		for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
 		{
-			if ( shared->blockCountPerGrid[grid] )
-			{
-				V6_ASSERT( context->rangeDefCount < CODEC_RANGE_MAX_COUNT );
-
-				const u32 rangeID = context->rangeDefCount;
-				CodecRange_s* range = &context->rangeDefs[rangeID];
-				V6_ASSERT( frameRank <= 0x7F);
-				V6_ASSERT( grid <= 0xF );
-				V6_ASSERT( shared->blockCountPerGrid[grid] <= 0xFFFFF );
-				range->frameRank7_newBlock1_grid4_blockCount20 = (frameRank << 25) | newBlockMask | (grid << 20) | shared->blockCountPerGrid[grid];
-
-				shared->rangeIDs[grid] = rangeID;
-				++context->rangeDefCount;
-
-				//V6_MSG( "F%02d: shared %d, grid %d, blocks %8d.\n", frameRank, sharedFrameRank, grid, shared->blockCountPerGrid[grid] );
-			}
-			else
-			{
-				shared->rangeIDs[grid] = ENCODER_EMPTY_RANGE;
-			}
 			shared->blockCount += shared->blockCountPerGrid[grid];
 			shared->blockOffsetPerGrid[grid] = blockOffset;
 			blockOffset += shared->blockCountPerGrid[grid];
@@ -1496,38 +1471,14 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 {
 	V6_ASSERT( RawFrame_IsRefFrame( frameRank, context ) );
 
-	u32 frameUniqueBlockCount = 0;
-	u32 frameBlockRangeCount = 0;
 	u32 frameBlockGroupCount = 0;
+	for ( u32 rangeID = 0; rangeID < desc->blockRangeCount; ++rangeID )
+		frameBlockGroupCount += (data->blockRanges[rangeID].blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 
-	u16* rangeIDs = data->rangeIDs;
-		
-	for ( u32 rangeID = 0; rangeID < context->rangeDefCount; ++rangeID )
-	{
-		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
-			
-		const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
-		if ( rangeFrameRank != frameRank )
-			continue;
-			
-		const u32 blockCount = codecRange->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
-		frameUniqueBlockCount += blockCount;
-	}
-
-	for ( u32 rangeRank = 0; rangeRank < desc->blockRangeCount; ++rangeRank )
-	{
-		const u32 rangeID = rangeIDs[rangeRank];
-		const u32 blockCount = context->rangeDefs[rangeID].frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
-		frameBlockGroupCount += (blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
-	}
-
-	rangeIDs += desc->blockRangeCount;
-	frameBlockRangeCount += desc->blockRangeCount;
-
-	context->stream->desc.maxBlockRangeCountPerFrame = Max( context->stream->desc.maxBlockRangeCountPerFrame, frameBlockRangeCount );
+	context->stream->desc.maxBlockRangeCountPerFrame = Max( context->stream->desc.maxBlockRangeCountPerFrame, desc->blockRangeCount );
 	context->stream->desc.maxBlockGroupCountPerFrame = Max( context->stream->desc.maxBlockGroupCountPerFrame, frameBlockGroupCount );
 
-	context->blockCountPerSequence += frameUniqueBlockCount;
+	context->blockCountPerSequence += desc->blockCount;
 	V6_ASSERT( context->blockCountPerSequence <= CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
 }
 
@@ -1577,35 +1528,63 @@ static u32 RawFrame_WriteBlocks( u32 frameRank, IStreamWriter* blockPosWriter, I
 	return frame->sharedBlockCount;
 }
 
-static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
+static u32 RawFrame_WriteBlockRanges( u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
 {
-	V6_ASSERT( refFrameRank <= frameRank );
-	const RawFrame_s* refFrame = &context->frames[refFrameRank];
-
-	if ( refFrame->sharedBlockCount == 0 )
-		return 0;
-
 	u32 rangeCount = 0;
 
-	const u32 minSharedFrameRank = frameRank - refFrameRank;
-	for ( u32 sharedFrameRank = minSharedFrameRank; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
+	for ( u32 refFrameRank = 0; refFrameRank <= frameRank; ++refFrameRank )
 	{
-		const RawFrame_s::Shared_s* shared = &refFrame->shareds[sharedFrameRank];
-		if ( shared->blockCount == 0 )
-			continue;
+		const RawFrame_s* refFrame = &context->frames[refFrameRank];
 
-		for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
+		if ( refFrame->sharedBlockCount == 0 )
+			return 0;
+
+		const u32 minSharedFrameRank = frameRank - refFrameRank;
+		u32 frameRank7_none1_firstBlockID24 = ENCODER_INVALID_ID;
+		u32 lastBlockID;
+		
+		for ( u32 sharedFrameRank = minSharedFrameRank; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
 		{
-			if ( !shared->blockCountPerGrid[grid] )
+			const RawFrame_s::Shared_s* shared = &refFrame->shareds[sharedFrameRank];
+			if ( shared->blockCount == 0 )
 				continue;
 
-			const u32 rangeID = shared->rangeIDs[grid];
+			for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
+			{
+				if ( !shared->blockCountPerGrid[grid] )
+					continue;
 
-			V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
-			V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
+				const u32 sharedFirstBlockID = refFrame->sharedBlockOffset + shared->blockOffsetPerGrid[grid];
 
-			streamWriter->Write( &rangeID, ToX64( sizeof( u16 ) ) );
+				if ( frameRank7_none1_firstBlockID24 == ENCODER_INVALID_ID )
+				{
+					frameRank7_none1_firstBlockID24 = (refFrameRank << 25) | sharedFirstBlockID;
+				}
+				else
+				{
+					V6_ASSERT( lastBlockID + 1 == sharedFirstBlockID );
+				}
+				lastBlockID = sharedFirstBlockID + shared->blockCountPerGrid[grid] - 1;
+			}
 
+			if ( sharedFrameRank == 0 && frameRank7_none1_firstBlockID24 != ENCODER_INVALID_ID )
+			{
+				CodecBlockRange_s blockRange;
+				blockRange.frameRank7_newBlock1_firstBlockID24 = frameRank7_none1_firstBlockID24 | (1u << 24);
+				blockRange.blockCount = lastBlockID + 1 - (frameRank7_none1_firstBlockID24 & 0xFFFFFF);
+				streamWriter->Write( &blockRange, ToX64( sizeof( blockRange ) ) );
+				++rangeCount;
+
+				frameRank7_none1_firstBlockID24 = ENCODER_INVALID_ID;
+			}
+		}
+
+		if ( frameRank7_none1_firstBlockID24 != ENCODER_INVALID_ID )
+		{
+			CodecBlockRange_s blockRange;
+			blockRange.frameRank7_newBlock1_firstBlockID24 = frameRank7_none1_firstBlockID24;
+			blockRange.blockCount = lastBlockID + 1 - (frameRank7_none1_firstBlockID24 & 0xFFFFFF);
+			streamWriter->Write( &blockRange, ToX64( sizeof( blockRange ) ) );
 			++rangeCount;
 		}
 	}
@@ -1615,73 +1594,11 @@ static u32 RawFrame_WriteRangeIDs( u32 refFrameRank, u32 frameRank, IStreamWrite
 
 static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequenceID, Context_s* context )
 {
-	ScopedStack scopedStack( context->stack );
-	
-	CBufferWriter memoryRangeDefWriter(		context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(  1llu ) ) );
+	CodecSequenceDesc_s desc = {};
+	desc.sequenceID = sequenceID;
+	desc.frameCount = context->frameCount;
 
-	memoryRangeDefWriter.Write( context->rangeDefs, ToX64( context->rangeDefCount * sizeof( CodecRange_s ) ) );
-
-	{
-		CodecSequenceDesc_s desc = {};
-		desc.sequenceID = sequenceID;
-		desc.frameCount = context->frameCount;
-		desc.rangeDefCount = context->rangeDefCount;
-
-		CodecSequenceData_s data = {};
-		data.rangeDefs = (CodecRange_s*)memoryRangeDefWriter.GetBuffer();
-
-		Codec_WriteSequence( streamWriter, &desc, &data );
-	}
-
-#if ENCODER_DUMP_RANGES == 1
-	for ( u32 rangeID = 0; rangeID < context->rangeDefCount; ++rangeID )
-	{
-		const CodecRange_s* codecRange = &context->rangeDefs[rangeID];
-		const u32 frameRank = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25) & 0x7F;
-		const u32 newBlock = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 24) & 1;
-		const u32 grid = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
-		const u32 blockCount = (codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 0) & 0xFFFFF;
-		V6_MSG( "Range %d: frame %d, newBlock %d, grid %d, blockCount %d\n", rangeID, frameRank, newBlock, grid, blockCount );
-	}
-#endif // #if ENCODER_DUMP_RANGES == 1
-
-	V6_MSG( "Header: range defs %lld KB.\n", DivKB( ToU64( memoryRangeDefWriter.GetPos() ) ) );
-}
-
-static void RawFrame_DumpRange( u32 frameRank, Context_s* context ) 
-{
-	if ( RawFrame_IsRefFrame( frameRank, context ) )
-	{
-		for ( u32 refFrameRank = 0; refFrameRank <= frameRank; ++refFrameRank )
-		{
-			V6_ASSERT( refFrameRank <= frameRank );
-			const RawFrame_s* refFrame = &context->frames[refFrameRank];
-
-			if ( refFrame->sharedBlockCount == 0 )
-				continue;
-
-			const u32 minSharedFrameRank = frameRank - refFrameRank;
-			for ( u32 sharedFrameRank = minSharedFrameRank; sharedFrameRank < CODEC_FRAME_MAX_COUNT; ++sharedFrameRank )
-			{
-				const RawFrame_s::Shared_s* shared = &refFrame->shareds[sharedFrameRank];
-				if ( shared->blockCount == 0 )
-					continue;
-
-				for ( u32 grid = 0; grid < context->stream->gridCount; ++grid )
-				{
-					if ( !shared->blockCountPerGrid[grid] )
-						continue;
-
-					const u32 rangeID = shared->rangeIDs[grid];
-
-					V6_ASSERT( rangeID != ENCODER_EMPTY_RANGE );
-					V6_ASSERT( (rangeID & 0xFFFF) == rangeID );
-
-					V6_MSG( "Frame %d: range %d in ref frame %d\n", frameRank, rangeID, refFrameRank );
-				}
-			}
-		}
-	}
+	Codec_WriteSequence( streamWriter, &desc );
 }
 
 static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_s* context )
@@ -1701,7 +1618,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 
 	IStreamWriter* memoryBlockDataWriters[7] = { &memoryBlockCellPresences0, &memoryBlockCellPresences1, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1, &memoryBlockCellColorIndices2, &memoryBlockCellColorIndices3 };
 
-	CBufferWriter memoryRangeIDWriter(			context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(   1llu ) ) );
+	CBufferWriter memoryBlockRangeWriter(		context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(  1llu ) ) );\
 
 	u32 blockCount = 0;
 	u32 rangeCount = 0;
@@ -1711,9 +1628,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 	if ( refFrame )
 	{
 		blockCount = RawFrame_WriteBlocks( frameRank, &memoryBlockPosWriter, memoryBlockDataWriters, context );
-
-		for ( u32 refFrameRank = 0; refFrameRank <= frameRank; ++refFrameRank )
-			rangeCount += RawFrame_WriteRangeIDs( refFrameRank, frameRank, &memoryRangeIDWriter, context );
+		rangeCount = RawFrame_WriteBlockRanges( frameRank, &memoryBlockRangeWriter, context );
 	}
 
 	CodecFrameDesc_s frameDesc = {};
@@ -1735,7 +1650,7 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 		frameData.blockCellColorIndices1 = (u32*)memoryBlockCellColorIndices1.GetBuffer();
 		frameData.blockCellColorIndices2 = (u32*)memoryBlockCellColorIndices2.GetBuffer();
 		frameData.blockCellColorIndices3 = (u32*)memoryBlockCellColorIndices3.GetBuffer();
-		frameData.rangeIDs = (u16*)memoryRangeIDWriter.GetBuffer();
+		frameData.blockRanges = (CodecBlockRange_s*)memoryBlockRangeWriter.GetBuffer();
 
 		if ( !Codec_WriteFrame( streamWriter, &frameDesc, &frameData, context->stack ) )
 			return false;
@@ -1750,14 +1665,6 @@ static bool RawFrame_Write( u32 frameRank, IStreamWriter* streamWriter, Context_
 			return false;
 	}
 	
-#if 0
-	V6_MSG( "F%02d: blockPos %d KB, blockData %d KB, range IDs %d KB.\n", 
-		frameRank,
-		DivKB( memoryBlockPosWriter.GetSize() ),
-		DivKB( memoryBlockDataWriter.GetSize() ),
-		DivKB( memoryRangeIDWriter.GetSize() ) );
-#endif
-
 	return true;
 }
 
@@ -1880,12 +1787,17 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 	}
 
 	V6_MSG( "Sorting by ranges...\n" );
-	for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
 	{
-		if ( RawFrame_IsRefFrame( frameRank, context ) )
+		u32 sharedBlockOffset = 0;
+		for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
 		{
-			RawFrame_SortByRange( frameRank, context );
-			V6_MSG( "F%02d: sorted.\n", frameRank );
+			if ( RawFrame_IsRefFrame( frameRank, context ) )
+			{
+				context->frames[frameRank].sharedBlockOffset = sharedBlockOffset;
+				RawFrame_SortByRange( frameRank, context );
+				sharedBlockOffset += context->frames[frameRank].sharedBlockCount;
+				V6_MSG( "F%02d: sorted.\n", frameRank );
+			}
 		}
 	}
 
@@ -1905,10 +1817,6 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 			goto cleanup;
 		}
 #endif // #if ENCODER_SKIP_WRITING == 0
-
-#if ENCODER_DUMP_RANGES == 1
-		RawFrame_DumpRange( frameRank, context );
-#endif // #if ENCODER_DUMP_RANGES == 1
 
 		RawFrame_Release( frameRank, context );
 		V6_MSG( "F%02d: added %lld KB.\n", frameRank, DivKB( ToU64( streamWriter->GetPos() ) - prevFileSize ) );

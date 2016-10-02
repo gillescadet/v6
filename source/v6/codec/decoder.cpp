@@ -85,8 +85,7 @@ static bool Block_CompareData( const DecoderBlock_s* rawBlock, const DecoderBloc
 
 static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader* streamReader, u32 sequenceID, IAllocator* allocator, IStack* stack )
 {
-	sequence->buffer = Codec_ReadSequence( streamReader, &sequence->desc, &sequence->data, sequenceID, allocator );
-	if ( !sequence->buffer )
+	if ( !Codec_ReadSequence( streamReader, &sequence->desc, sequenceID, allocator ) )
 		return false;
 
 	sequence->frameDescArray = allocator->newArray< CodecFrameDesc_s >( sequence->desc.frameCount );
@@ -100,6 +99,19 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 			return false;
 		if ( (sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION) == 0 )
 			sequence->frameBufferArray[frameRank] = frameBuffer;
+#if 0
+		const CodecFrameDesc_s* frameDesc = &sequence->frameDescArray[frameRank];
+		const CodecFrameData_s* frameData = &sequence->frameDataArray[frameRank];
+		V6_MSG( "Frame %d: %d blocks, %d ranges\n", frameRank, frameDesc->blockCount, frameDesc->blockRangeCount );
+		for ( u32 rangeID = 0; rangeID < frameDesc->blockRangeCount; ++rangeID )
+		{
+			const CodecBlockRange_s* blockRange = &frameData->blockRanges[rangeID];
+			const u32 rangeFrameRank = blockRange->frameRank7_newBlock1_firstBlockID24 >> 25;
+			const u32 firstBlockID = blockRange->frameRank7_newBlock1_firstBlockID24 & 0xFFFFFF;
+			const u32 rangeBlockCount = blockRange->blockCount;
+			V6_MSG( " range frame %d: %d blocks starting from block %d\n", rangeFrameRank, rangeBlockCount, firstBlockID );
+		}
+#endif
 	}
 	
 	return true;
@@ -167,33 +179,6 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 		float gridScale = stream->desc.gridScaleMin;
 		for ( u32 mip = 0; mip < CODEC_MIP_MAX_COUNT; ++mip, gridScale *= 2.0f )
 			gridScales[mip] = gridScale;
-
-		{
-			u32 nextRangeID = 0;
-			for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
-			{
-				if ( sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION )
-					continue;
-
-				u32 blockPosOffet = 0;
-				for (;;)
-				{
-					const u32 rangeID = nextRangeID;
-
-					if ( rangeID == sequence->desc.rangeDefCount  )
-						break;
-
-					const CodecRange_s* codecRange = &sequence->data.rangeDefs[rangeID];
-					const u32 rangeFrameRank = codecRange->frameRank7_newBlock1_grid4_blockCount20 >> 25;
-					if ( frameRank != rangeFrameRank )
-						break;
-
-					++nextRangeID;
-				}
-			}
-
-			V6_ASSERT( nextRangeID == sequence->desc.rangeDefCount );
-		}
 
 		for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank, ++frameID )
 		{
@@ -295,26 +280,16 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 
 			// Load sequence blocks
 			{
-				u32 blockOffset = 0;
-
-				for ( u32 rangeRank = 0; rangeRank < sequence->frameDescArray[frameRank].blockRangeCount; ++rangeRank )
+				for ( u32 rangeID = 0; rangeID < sequence->frameDescArray[frameRank].blockRangeCount; ++rangeID )
 				{
-					const u32 rangeID = sequence->frameDataArray[frameRank].rangeIDs[rangeRank];
-					const CodecRange_s* range = &sequence->data.rangeDefs[rangeID];
-					const u32 rangeFrameRank = range->frameRank7_newBlock1_grid4_blockCount20 >> 25;
-					const u32 rangeGrid = (range->frameRank7_newBlock1_grid4_blockCount20 >> 20) & 0xF;
-					const u32 rangeBlockCount = range->frameRank7_newBlock1_grid4_blockCount20 & 0xFFFFF;
-					Vec3i gridOffset = Vec3i_Zero();
-					if ( stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
-					{
-						gridOffset =
-							Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[rangeGrid], gridMacroHalfWidth ) -
-							Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[rangeGrid], gridMacroHalfWidth );
-					}
+					const CodecBlockRange_s* blockRange = &sequence->frameDataArray[frameRank].blockRanges[rangeID];
+					const u32 rangeFrameRank = blockRange->frameRank7_newBlock1_firstBlockID24 >> 25;
+					const u32 firstBlockID = blockRange->frameRank7_newBlock1_firstBlockID24 & 0xFFFFFF;
+					const u32 rangeBlockCount = blockRange->blockCount;
 
 					for ( u32 blockRank = 0; blockRank < rangeBlockCount; ++blockRank )
 					{
-						const u32 blockID = blockOffset + blockRank;
+						const u32 blockID = firstBlockID + blockRank;
 						const u32 sequencePackedBlockPos = sequence->frameDataArray[rangeFrameRank].blockPos[blockID];
 						DecoderBlock_s* sequenceBlock = &sequenceBlocks[blockID];
 
@@ -325,10 +300,12 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 							const u32 y = ((sequencePackedBlockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 1)) & CODEC_MIP_MACRO_XYZ_BIT_MASK);
 							const u32 z = ((sequencePackedBlockPos >> (CODEC_MIP_MACRO_XYZ_BIT_COUNT * 2)) & CODEC_MIP_MACRO_XYZ_BIT_MASK);
 
-							if ( mip != rangeGrid )
+							Vec3i gridOffset = Vec3i_Zero();
+							if ( stream->desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 							{
-								V6_ERROR( "Incompatible block mip.\n" );
-								return false;
+								gridOffset =
+									Codec_ComputeMacroGridCoords( &sequence->frameDescArray[rangeFrameRank].gridOrigin, gridScales[mip], gridMacroHalfWidth ) -
+									Codec_ComputeMacroGridCoords( &sequence->frameDescArray[frameRank].gridOrigin, gridScales[mip], gridMacroHalfWidth );
 							}
 
 							sequenceBlock->packedBlockPos = mip << 28;
@@ -338,14 +315,6 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 						}
 						else
 						{
-							const u32 face = sequencePackedBlockPos >> 29;
-
-							if ( face != rangeGrid )
-							{
-								V6_ERROR( "Incompatible block face.\n" );
-								return false;
-							}
-
 							sequenceBlock->packedBlockPos = sequencePackedBlockPos;
 						}
 							
@@ -357,8 +326,6 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 
 						Block_Decode( sequenceBlock->cellRGBA, &sequenceBlock->cellCount, &encodedBlock );
 					}
-
-					blockOffset += rangeBlockCount;
 				}
 					
 				u32* rawFrameBlockIDs = stack.newArray< u32 >( blockCount );

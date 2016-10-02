@@ -50,15 +50,15 @@
 //
 // Name                                 Type  Format         Dim Slot Elements
 // ------------------------------ ---------- ------- ----------- ---- --------
-// blockCellPresences0               texture    uint         buf    1        1
-// blockCellPresences1               texture    uint         buf    2        1
-// blockCellEndColors                texture    uint         buf    3        1
-// blockCellColorIndices0            texture    uint         buf    4        1
-// blockCellColorIndices1            texture    uint         buf    5        1
-// blockCellColorIndices2            texture    uint         buf    6        1
-// blockCellColorIndices3            texture    uint         buf    7        1
-// blockPatchCounters                texture    uint         buf   12        1
-// blockPatches                      texture  struct         r/o   13        1
+// blockPatchCounters                texture    uint         buf    2        1
+// blockPatches                      texture  struct         r/o    3        1
+// blockCellPresences0               texture    uint         buf   11        1
+// blockCellPresences1               texture    uint         buf   12        1
+// blockCellEndColors                texture    uint         buf   13        1
+// blockCellColorIndices0            texture    uint         buf   14        1
+// blockCellColorIndices1            texture    uint         buf   15        1
+// blockCellColorIndices2            texture    uint         buf   16        1
+// blockCellColorIndices3            texture    uint         buf   17        1
 // outputColors                          UAV  float4          2d    0        1
 // outputDisplacements                   UAV    uint         buf    2        1
 // CBTrace                           cbuffer      NA          NA    2        1
@@ -79,15 +79,15 @@
 cs_5_0
 dcl_globalFlags refactoringAllowed
 dcl_constantbuffer cb2[40], dynamicIndexed
-dcl_resource_buffer (uint,uint,uint,uint) t1
 dcl_resource_buffer (uint,uint,uint,uint) t2
-dcl_resource_buffer (uint,uint,uint,uint) t3
-dcl_resource_buffer (uint,uint,uint,uint) t4
-dcl_resource_buffer (uint,uint,uint,uint) t5
-dcl_resource_buffer (uint,uint,uint,uint) t6
-dcl_resource_buffer (uint,uint,uint,uint) t7
+dcl_resource_structured t3, 16 
+dcl_resource_buffer (uint,uint,uint,uint) t11
 dcl_resource_buffer (uint,uint,uint,uint) t12
-dcl_resource_structured t13, 16 
+dcl_resource_buffer (uint,uint,uint,uint) t13
+dcl_resource_buffer (uint,uint,uint,uint) t14
+dcl_resource_buffer (uint,uint,uint,uint) t15
+dcl_resource_buffer (uint,uint,uint,uint) t16
+dcl_resource_buffer (uint,uint,uint,uint) t17
 dcl_uav_typed_texture2d (float,float,float,float) u0
 dcl_uav_typed_buffer (uint,uint,uint,uint) u2
 dcl_input vThreadGroupID.xy
@@ -103,7 +103,7 @@ imad r0.y, vThreadGroupID.y, cb2[35].z, vThreadGroupID.x
 ishl r0.zw, l(0, 0, 256, 1), vThreadIDInGroup.xxxy
 iadd r0.z, r0.z, r0.w
 if_z r0.x
-  ld_indexable(buffer)(uint,uint,uint,uint) r0.w, r0.yyyy, t12.yzwx
+  ld_indexable(buffer)(uint,uint,uint,uint) r0.w, r0.yyyy, t2.yzwx
   umin r0.w, r0.w, l(1024)
   store_raw g1.x, l(0), r0.w
   iadd r0.w, r0.w, l(63)
@@ -134,7 +134,7 @@ loop
   ult r5.w, r0.x, r2.w
   if_nz r5.w
     imad r5.w, r4.w, r1.x, r0.y
-    ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r8.xyzw, r5.w, l(0), t13.xyzw
+    ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r8.xyzw, r5.w, l(0), t3.xyzw
     ubfe r9.xyzw, l(2, 2, 2, 2), l(26, 24, 22, 20), r8.zzzz
     ubfe r10.xyzw, l(2, 2, 9, 4), l(18, 16, 18, 4), r8.zzyz
     mov r11.xy, r9.zwzz
@@ -153,7 +153,7 @@ loop
     add r10.xyz, r12.xyzx, l(1.000000, 1.000000, 1.000000, 0.000000)
     mad r12.xyz, r10.yzxy, cb2[r13.y + 2].yyyy, r15.yzxy
     ubfe r8.xz, l(4, 0, 4, 0), l(12, 0, 8, 0), r8.zzzz
-    ld_indexable(buffer)(uint,uint,uint,uint) r5.w, r14.xxxx, t3.yzwx
+    ld_indexable(buffer)(uint,uint,uint,uint) r5.w, r14.xxxx, t13.yzwx
     ushr r9.w, r5.w, l(16)
     ubfe r10.xyz, l(5, 11, 27, 0), l(11, 5, 29, 0), r5.wwww
     bfi r13.zw, l(0, 0, 6, 6), l(0, 0, 2, 18), r10.yyyy, l(0, 0, 0, 0)
@@ -196,8 +196,8 @@ loop
     iadd r8.x, r8.x, l(8)
     bfi r5.w, r10.w, r8.x, l(-1), r5.w
     bfi r14.y, r14.w, r8.z, l(-1), r5.w
-    ld_indexable(buffer)(uint,uint,uint,uint) r18.x, r14.xxxx, t1.xyzw
-    ld_indexable(buffer)(uint,uint,uint,uint) r18.y, r14.xxxx, t2.yxzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r18.x, r14.xxxx, t11.xyzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r18.y, r14.xxxx, t12.yxzw
     mov r14.zw, r9.xxxy
     mov r15.w, r12.z
     mov r12.zw, cb2[r13.y + 2].yyyz
@@ -516,11 +516,11 @@ lt r0.x, r7.y, l(340282346638528860000000000000000000000.000000)
 if_nz r0.x
   ult r0.x, r7.x, l(32)
   if_nz r0.x
-    ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r3.wwww, t4.xyzw
-    ld_indexable(buffer)(uint,uint,uint,uint) r0.y, r3.wwww, t5.yxzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r3.wwww, t14.xyzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r0.y, r3.wwww, t15.yxzw
   else 
-    ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r3.wwww, t6.xyzw
-    ld_indexable(buffer)(uint,uint,uint,uint) r0.y, r3.wwww, t7.yxzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r0.x, r3.wwww, t16.xyzw
+    ld_indexable(buffer)(uint,uint,uint,uint) r0.y, r3.wwww, t17.yxzw
   endif 
   ubfe r0.z, l(1), l(4), r7.x
   movc r0.x, r0.z, r0.y, r0.x
@@ -560,10 +560,10 @@ ret
 
 const BYTE g_main_block_trace_optim_mip_cs[] =
 {
-     68,  88,  66,  67, 242, 160, 
-    197,  28, 112, 219,   0,  15, 
-     31, 176, 109,  50, 251, 244, 
-    101, 201,   1,   0,   0,   0, 
+     68,  88,  66,  67,  32, 146, 
+    201,  71, 232,  73,  29,  34, 
+     60,  70, 235,  57, 200,  38, 
+    182, 175,   1,   0,   0,   0, 
     148,  63,   0,   0,   5,   0, 
       0,   0,  52,   0,   0,   0, 
     192,   9,   0,   0, 208,   9, 
@@ -583,50 +583,50 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
     188,   1,   0,   0,   2,   0, 
       0,   0,   4,   0,   0,   0, 
       1,   0,   0,   0, 255, 255, 
-    255, 255,   1,   0,   0,   0, 
+    255, 255,   2,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
-      0,   0, 208,   1,   0,   0, 
-      2,   0,   0,   0,   4,   0, 
+      0,   0, 207,   1,   0,   0, 
+      5,   0,   0,   0,   6,   0, 
       0,   0,   1,   0,   0,   0, 
-    255, 255, 255, 255,   2,   0, 
+     16,   0,   0,   0,   3,   0, 
       0,   0,   1,   0,   0,   0, 
-      1,   0,   0,   0, 228,   1, 
+      1,   0,   0,   0, 220,   1, 
       0,   0,   2,   0,   0,   0, 
       4,   0,   0,   0,   1,   0, 
       0,   0, 255, 255, 255, 255, 
-      3,   0,   0,   0,   1,   0, 
+     11,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
-    247,   1,   0,   0,   2,   0, 
+    240,   1,   0,   0,   2,   0, 
       0,   0,   4,   0,   0,   0, 
       1,   0,   0,   0, 255, 255, 
-    255, 255,   4,   0,   0,   0, 
+    255, 255,  12,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
-      0,   0,  14,   2,   0,   0, 
+      0,   0,   4,   2,   0,   0, 
       2,   0,   0,   0,   4,   0, 
       0,   0,   1,   0,   0,   0, 
-    255, 255, 255, 255,   5,   0, 
+    255, 255, 255, 255,  13,   0, 
       0,   0,   1,   0,   0,   0, 
-      1,   0,   0,   0,  37,   2, 
+      1,   0,   0,   0,  23,   2, 
       0,   0,   2,   0,   0,   0, 
       4,   0,   0,   0,   1,   0, 
       0,   0, 255, 255, 255, 255, 
-      6,   0,   0,   0,   1,   0, 
+     14,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
-     60,   2,   0,   0,   2,   0, 
+     46,   2,   0,   0,   2,   0, 
       0,   0,   4,   0,   0,   0, 
       1,   0,   0,   0, 255, 255, 
-    255, 255,   7,   0,   0,   0, 
+    255, 255,  15,   0,   0,   0, 
       1,   0,   0,   0,   1,   0, 
-      0,   0,  83,   2,   0,   0, 
+      0,   0,  69,   2,   0,   0, 
       2,   0,   0,   0,   4,   0, 
       0,   0,   1,   0,   0,   0, 
-    255, 255, 255, 255,  12,   0, 
+    255, 255, 255, 255,  16,   0, 
       0,   0,   1,   0,   0,   0, 
-      1,   0,   0,   0, 102,   2, 
-      0,   0,   5,   0,   0,   0, 
-      6,   0,   0,   0,   1,   0, 
-      0,   0,  16,   0,   0,   0, 
-     13,   0,   0,   0,   1,   0, 
+      1,   0,   0,   0,  92,   2, 
+      0,   0,   2,   0,   0,   0, 
+      4,   0,   0,   0,   1,   0, 
+      0,   0, 255, 255, 255, 255, 
+     17,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
     115,   2,   0,   0,   4,   0, 
       0,   0,   5,   0,   0,   0, 
@@ -644,37 +644,37 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
       0,   0,   0,   0,   0,   0, 
       2,   0,   0,   0,   1,   0, 
       0,   0,   1,   0,   0,   0, 
-     98, 108, 111,  99, 107,  67, 
-    101, 108, 108,  80, 114, 101, 
-    115, 101, 110,  99, 101, 115, 
-     48,   0,  98, 108, 111,  99, 
+     98, 108, 111,  99, 107,  80, 
+     97, 116,  99, 104,  67, 111, 
+    117, 110, 116, 101, 114, 115, 
+      0,  98, 108, 111,  99, 107, 
+     80,  97, 116,  99, 104, 101, 
+    115,   0,  98, 108, 111,  99, 
     107,  67, 101, 108, 108,  80, 
     114, 101, 115, 101, 110,  99, 
-    101, 115,  49,   0,  98, 108, 
+    101, 115,  48,   0,  98, 108, 
     111,  99, 107,  67, 101, 108, 
-    108,  69, 110, 100,  67, 111, 
-    108, 111, 114, 115,   0,  98, 
+    108,  80, 114, 101, 115, 101, 
+    110,  99, 101, 115,  49,   0, 
+     98, 108, 111,  99, 107,  67, 
+    101, 108, 108,  69, 110, 100, 
+     67, 111, 108, 111, 114, 115, 
+      0,  98, 108, 111,  99, 107, 
+     67, 101, 108, 108,  67, 111, 
+    108, 111, 114,  73, 110, 100, 
+    105,  99, 101, 115,  48,   0, 
+     98, 108, 111,  99, 107,  67, 
+    101, 108, 108,  67, 111, 108, 
+    111, 114,  73, 110, 100, 105, 
+     99, 101, 115,  49,   0,  98, 
     108, 111,  99, 107,  67, 101, 
     108, 108,  67, 111, 108, 111, 
     114,  73, 110, 100, 105,  99, 
-    101, 115,  48,   0,  98, 108, 
+    101, 115,  50,   0,  98, 108, 
     111,  99, 107,  67, 101, 108, 
     108,  67, 111, 108, 111, 114, 
      73, 110, 100, 105,  99, 101, 
-    115,  49,   0,  98, 108, 111, 
-     99, 107,  67, 101, 108, 108, 
-     67, 111, 108, 111, 114,  73, 
-    110, 100, 105,  99, 101, 115, 
-     50,   0,  98, 108, 111,  99, 
-    107,  67, 101, 108, 108,  67, 
-    111, 108, 111, 114,  73, 110, 
-    100, 105,  99, 101, 115,  51, 
-      0,  98, 108, 111,  99, 107, 
-     80,  97, 116,  99, 104,  67, 
-    111, 117, 110, 116, 101, 114, 
-    115,   0,  98, 108, 111,  99, 
-    107,  80,  97, 116,  99, 104, 
-    101, 115,   0, 111, 117, 116, 
+    115,  51,   0, 111, 117, 116, 
     112, 117, 116,  67, 111, 108, 
     111, 114, 115,   0, 111, 117, 
     116, 112, 117, 116,  68, 105, 
@@ -685,7 +685,7 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
      19,   0,   0,   0, 204,   2, 
       0,   0, 144,   2,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0, 102,   2,   0,   0, 
+      0,   0, 207,   1,   0,   0, 
       1,   0,   0,   0,  56,   8, 
       0,   0,  16,   0,   0,   0, 
       0,   0,   0,   0,   3,   0, 
@@ -988,29 +988,29 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
       0,   4,  70, 142,  32,   0, 
       2,   0,   0,   0,  40,   0, 
       0,   0,  88,   8,   0,   4, 
-      0, 112,  16,   0,   1,   0, 
+      0, 112,  16,   0,   2,   0, 
+      0,   0,  68,  68,   0,   0, 
+    162,   0,   0,   4,   0, 112, 
+     16,   0,   3,   0,   0,   0, 
+     16,   0,   0,   0,  88,   8, 
+      0,   4,   0, 112,  16,   0, 
+     11,   0,   0,   0,  68,  68, 
+      0,   0,  88,   8,   0,   4, 
+      0, 112,  16,   0,  12,   0, 
       0,   0,  68,  68,   0,   0, 
      88,   8,   0,   4,   0, 112, 
-     16,   0,   2,   0,   0,   0, 
+     16,   0,  13,   0,   0,   0, 
      68,  68,   0,   0,  88,   8, 
       0,   4,   0, 112,  16,   0, 
-      3,   0,   0,   0,  68,  68, 
+     14,   0,   0,   0,  68,  68, 
       0,   0,  88,   8,   0,   4, 
-      0, 112,  16,   0,   4,   0, 
+      0, 112,  16,   0,  15,   0, 
       0,   0,  68,  68,   0,   0, 
      88,   8,   0,   4,   0, 112, 
-     16,   0,   5,   0,   0,   0, 
+     16,   0,  16,   0,   0,   0, 
      68,  68,   0,   0,  88,   8, 
       0,   4,   0, 112,  16,   0, 
-      6,   0,   0,   0,  68,  68, 
-      0,   0,  88,   8,   0,   4, 
-      0, 112,  16,   0,   7,   0, 
-      0,   0,  68,  68,   0,   0, 
-     88,   8,   0,   4,   0, 112, 
-     16,   0,  12,   0,   0,   0, 
-     68,  68,   0,   0, 162,   0, 
-      0,   4,   0, 112,  16,   0, 
-     13,   0,   0,   0,  16,   0, 
+     17,   0,   0,   0,  68,  68, 
       0,   0, 156,  24,   0,   4, 
       0, 224,  17,   0,   0,   0, 
       0,   0,  85,  85,   0,   0, 
@@ -1061,7 +1061,7 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
     130,   0,  16,   0,   0,   0, 
       0,   0,  86,   5,  16,   0, 
       0,   0,   0,   0, 150, 115, 
-     16,   0,  12,   0,   0,   0, 
+     16,   0,   2,   0,   0,   0, 
      84,   0,   0,   7, 130,   0, 
      16,   0,   0,   0,   0,   0, 
      58,   0,  16,   0,   0,   0, 
@@ -1204,7 +1204,7 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
      16,   0,   5,   0,   0,   0, 
       1,  64,   0,   0,   0,   0, 
       0,   0,  70, 126,  16,   0, 
-     13,   0,   0,   0, 138,   0, 
+      3,   0,   0,   0, 138,   0, 
       0,  15, 242,   0,  16,   0, 
       9,   0,   0,   0,   2,  64, 
       0,   0,   2,   0,   0,   0, 
@@ -1327,7 +1327,7 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
     130,   0,  16,   0,   5,   0, 
       0,   0,   6,   0,  16,   0, 
      14,   0,   0,   0, 150, 115, 
-     16,   0,   3,   0,   0,   0, 
+     16,   0,  13,   0,   0,   0, 
      85,   0,   0,   7, 130,   0, 
      16,   0,   9,   0,   0,   0, 
      58,   0,  16,   0,   5,   0, 
@@ -1639,13 +1639,13 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
      18,   0,  16,   0,  18,   0, 
       0,   0,   6,   0,  16,   0, 
      14,   0,   0,   0,  70, 126, 
-     16,   0,   1,   0,   0,   0, 
+     16,   0,  11,   0,   0,   0, 
      45,   0,   0, 137,  66,   0, 
       0, 128,   3,  17,  17,   0, 
      34,   0,  16,   0,  18,   0, 
       0,   0,   6,   0,  16,   0, 
      14,   0,   0,   0,  22, 126, 
-     16,   0,   2,   0,   0,   0, 
+     16,   0,  12,   0,   0,   0, 
      54,   0,   0,   5, 194,   0, 
      16,   0,  14,   0,   0,   0, 
       6,   4,  16,   0,   9,   0, 
@@ -3073,26 +3073,26 @@ const BYTE g_main_block_trace_optim_mip_cs[] =
      18,   0,  16,   0,   0,   0, 
       0,   0, 246,  15,  16,   0, 
       3,   0,   0,   0,  70, 126, 
-     16,   0,   4,   0,   0,   0, 
+     16,   0,  14,   0,   0,   0, 
      45,   0,   0, 137,  66,   0, 
       0, 128,   3,  17,  17,   0, 
      34,   0,  16,   0,   0,   0, 
       0,   0, 246,  15,  16,   0, 
       3,   0,   0,   0,  22, 126, 
-     16,   0,   5,   0,   0,   0, 
+     16,   0,  15,   0,   0,   0, 
      18,   0,   0,   1,  45,   0, 
       0, 137,  66,   0,   0, 128, 
       3,  17,  17,   0,  18,   0, 
      16,   0,   0,   0,   0,   0, 
     246,  15,  16,   0,   3,   0, 
       0,   0,  70, 126,  16,   0, 
-      6,   0,   0,   0,  45,   0, 
+     16,   0,   0,   0,  45,   0, 
       0, 137,  66,   0,   0, 128, 
       3,  17,  17,   0,  34,   0, 
      16,   0,   0,   0,   0,   0, 
     246,  15,  16,   0,   3,   0, 
       0,   0,  22, 126,  16,   0, 
-      7,   0,   0,   0,  21,   0, 
+     17,   0,   0,   0,  21,   0, 
       0,   1, 138,   0,   0,   9, 
      66,   0,  16,   0,   0,   0, 
       0,   0,   1,  64,   0,   0, 

@@ -3,8 +3,11 @@
 #include "trace_shared.h"
 #include "onion_impl.hlsli"
 
-Buffer< uint > blockGroups										: REGISTER_SRV( HLSL_BLOCK_GROUP_SLOT );
+StructuredBuffer< BlockGroup > blockGroups						: REGISTER_SRV( HLSL_BLOCK_GROUP_SLOT );
 StructuredBuffer< BlockRange > blockRanges						: REGISTER_SRV( HLSL_BLOCK_RANGE_SLOT );
+#if CULL_ONION == 0
+StructuredBuffer< GridMacroOffset > gridMacroOffsets			: REGISTER_SRV( HLSL_BLOCK_GRID_MACRO_OFFSET_SLOT );
+#endif
 Buffer< uint > blockPositions									: REGISTER_SRV( HLSL_BLOCK_POS_SLOT );
 
 #if CULL_ONION == 1
@@ -48,10 +51,13 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		gs_visibleBlockCount = 0;
 
 	const uint blockGroupID = Gid.x;
-	const uint rangeID = blockGroups[blockGroupID];
+	const uint rangeID14_firstGroupID18 = blockGroups[blockGroupID].rangeID14_firstGroupID18;
+	const uint rangeID = (rangeID14_firstGroupID18 >> 18) & 0x3FFF;
+	const uint firstThreadID = (rangeID14_firstGroupID18 << 6) & 0xFFFFFF;
 
 	const BlockRange range = blockRanges[rangeID];
-	const uint blockRank = DTid.x - range.firstThreadID;
+	const uint blockRank = DTid.x - firstThreadID;
+	const uint firstBlockID = range.frameRank7_newBlock1_firstBlockID24 & 0xFFFFFF;
 
 #if BLOCK_GET_STATS == 1
 	InterlockedAdd( blockCullStats[0].blockInputCount, 1 );
@@ -65,8 +71,8 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		InterlockedAdd( blockCullStats[0].blockProcessedCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-		const uint blockPosID = range.blockPosOffset + blockRank;
-		const bool isNewBlock = range.isNewBlock & c_cullFrameChanged;
+		const uint blockPosID = firstBlockID + blockRank;
+		const bool isNewBlock = (range.frameRank7_newBlock1_firstBlockID24 >> 24) & c_cullFrameChanged;
 
 #if CULL_ONION == 1
 		const uint sign1_axis2_z11_y9_x9 = blockPositions[blockPosID];
@@ -85,11 +91,14 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint mip4_none1_blockPos27 = blockPositions[blockPosID];
 
 		const uint mip = mip4_none1_blockPos27 >> 28;
+
+		const uint refRameRank = range.frameRank7_newBlock1_firstBlockID24 >> 25;
+		const int3 macroGridOffset = gridMacroOffsets[refRameRank].offsets[mip] - gridMacroOffsets[c_cullFrameRank].offsets[mip];
 		
 		const uint blockPos = mip4_none1_blockPos27 & 0x07FFFFFF;
-		const uint blockPosX = range.macroGridOffset.x + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*0)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
-		const uint blockPosY = range.macroGridOffset.y + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*1)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
-		const uint blockPosZ = range.macroGridOffset.z + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*2)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
+		const uint blockPosX = macroGridOffset.x + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*0)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
+		const uint blockPosY = macroGridOffset.y + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*1)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
+		const uint blockPosZ = macroGridOffset.z + ((blockPos >> (HLSL_MIP_MACRO_XYZ_BIT_COUNT*2)) & HLSL_MIP_MACRO_XYZ_BIT_MASK);
 
 		const uint3 cellMinCoords = uint3( blockPosX, blockPosY, blockPosZ ) << 2;
 		const float gridScale = c_cullCentersAndGridScales[mip].w;

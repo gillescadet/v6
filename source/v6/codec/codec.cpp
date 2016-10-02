@@ -183,7 +183,7 @@ bool Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc 
 	return true;
 }
 
-void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* allocator )
+bool Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, u32 sequenceID, IAllocator* allocator )
 {	
 	const u64 beginPos = ToU64( streamReader->GetPos() );
 
@@ -211,34 +211,20 @@ void* Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc
 	if ( sequenceHeader.desc.sequenceID != sequenceID )
 	{
 		V6_ERROR( "Incompatible sequence ID %d for sequence desc.\n", sequenceHeader.desc.sequenceID );
-		return nullptr;
+		return false;
 	}
 
-	const u64 rangeDefSize = sequenceHeader.desc.rangeDefCount * sizeof( CodecRange_s );
-
-	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) + rangeDefSize )
+	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) )
 	{
 		V6_ERROR( "Bad file size of %d bytes for sequence header.\n", sequenceHeader.size );
 		return false;
 	}
 
-	if ( ToU64( streamReader->GetRemaining() ) < rangeDefSize )
-	{
-		V6_ERROR( "Bad stream size of %d bytes for sequence header.\n", streamReader->GetRemaining() );
-		return nullptr;
-	}
-
 	memcpy( desc, &sequenceHeader.desc, sizeof( sequenceHeader.desc ) );
-
-	// todo: aligned alloc
-	u8* buffer = (u8*)allocator->alloc( rangeDefSize );
-
-	data->rangeDefs = (CodecRange_s*)buffer;
-	streamReader->Read( ToX64( rangeDefSize ), buffer );
 
 	V6_ASSERT( ToU64( streamReader->GetPos() ) - beginPos == sequenceHeader.size );
 
-	return buffer;
+	return true;
 }
 
 void Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc )
@@ -256,20 +242,17 @@ void Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s
 	V6_ASSERT( ToU64( streamWriter->GetPos() ) - beginPos == streamHeader.size );
 }
 
-void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data )
+void Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc )
 {
 	const u64 beginPos = ToU64( streamWriter->GetPos() );
-
-	const u64 rangeDefSize = desc->rangeDefCount * sizeof( CodecRange_s );
 
 	CodecSequenceHeader_s sequenceHeader = {};
 	memcpy( sequenceHeader.magic, CODEC_SEQUENCE_MAGIC, 4 );
 	sequenceHeader.version = CODEC_SEQUENCE_VERSION;
-	sequenceHeader.size = (u32)(sizeof( CodecSequenceHeader_s ) + rangeDefSize);
+	sequenceHeader.size = (u32)sizeof( CodecSequenceHeader_s );
 	memcpy( &sequenceHeader.desc, desc, sizeof( sequenceHeader.desc ) );
 
 	streamWriter->Write( &sequenceHeader, ToX64( sizeof( CodecSequenceHeader_s ) ) );
-	streamWriter->Write( data->rangeDefs, ToX64( rangeDefSize ) );
 	
 	V6_ASSERT( ToU64( streamWriter->GetPos() ) - beginPos == sequenceHeader.size );
 }
@@ -496,7 +479,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	const u64 blockDataCellColorIndex1Size = frameHeader.desc.blockCount * 4;
 	const u64 blockDataCellColorIndex2Size = frameHeader.desc.blockCount * 4;
 	const u64 blockDataCellColorIndex3Size = frameHeader.desc.blockCount * 4;
-	const u64 rangeIDSize = frameHeader.desc.blockRangeCount * 2;
+	const u64 blockRangeSize = frameHeader.desc.blockRangeCount * sizeof( CodecBlockRange_s );
 
 	const u64 remainingChunkSize = frameHeader.size - sizeof( CodecFrameHeader_s );
 
@@ -508,7 +491,7 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 
 	memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
 
-	const u64 unpackedChunkSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + rangeIDSize;
+	const u64 unpackedChunkSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + blockRangeSize;
 
 	// todo: aligned alloc
 	u8* const buffer = (u8*)allocator->alloc( unpackedChunkSize );
@@ -591,8 +574,8 @@ void* Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, Code
 	data->blockCellColorIndices3 = (u32*)chunk;
 	chunk += blockDataCellColorIndex3Size;
 	
-	data->rangeIDs = (u16*)chunk;
-	chunk += rangeIDSize;
+	data->blockRanges = (CodecBlockRange_s*)chunk;
+	chunk += blockRangeSize;
 	
 	V6_ASSERT( ToU64( streamReader->GetPos() ) - beginPos == frameHeader.size );
 	V6_ASSERT( chunk - buffer == unpackedChunkSize );
@@ -635,9 +618,9 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	const u64 blockDataCellColorIndex2Size = desc->blockCount * 4;
 	const u64 blockDataCellColorIndex3Size = desc->blockCount * 4;
 	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT );
-	const u64 rangeIDSize = desc->blockRangeCount * 2;
+	const u64 blockRangeSize = desc->blockRangeCount * sizeof( CodecBlockRange_s );
 
-	const u64 chunkUnpackedSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + rangeIDSize;
+	const u64 chunkUnpackedSize = blockPosSize + blockDataCellPresence0Size + blockDataCellPresence1Size + blockDataCellEndColorSize + blockDataCellColorIndex0Size + blockDataCellColorIndex1Size + blockDataCellColorIndex2Size + blockDataCellColorIndex3Size + blockRangeSize;
 
 #if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_NONE
 	const u64 chunkUncompressedSize = chunkUnpackedSize;
@@ -669,7 +652,7 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	chunkWriter.Write( data->blockCellColorIndices1, ToX64( blockDataCellColorIndex1Size ) );
 	chunkWriter.Write( data->blockCellColorIndices2, ToX64( blockDataCellColorIndex2Size ) );
 	chunkWriter.Write( data->blockCellColorIndices3, ToX64( blockDataCellColorIndex3Size ) );
-	chunkWriter.Write( data->rangeIDs, ToX64( rangeIDSize ) );
+	chunkWriter.Write( data->blockRanges, ToX64( blockRangeSize ) );
 
 	const u64 chunkUncompressedSize = ToU64( chunkWriter.GetPos() );
 
@@ -711,7 +694,7 @@ bool Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc
 	streamWriter->Write( data->blockCellColorIndices1, ToX64( blockDataCellColorIndex1Size ) );
 	streamWriter->Write( data->blockCellColorIndices2, ToX64( blockDataCellColorIndex2Size ) );
 	streamWriter->Write( data->blockCellColorIndices3, ToX64( blockDataCellColorIndex3Size ) );
-	streamWriter->Write( data->rangeIDs, ToX64( rangeIDSize ) );
+	streamWriter->Write( data->blockRanges, ToX64( blockRangeSize ) );
 #endif
 
 	V6_ASSERT( ToU64( streamWriter->GetPos() ) - beginPos == frameHeader.size );

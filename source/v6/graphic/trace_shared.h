@@ -31,25 +31,27 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_DISPLACEMENT_SLOT						2
 #define HLSL_HISTORY_SLOT							3
 
-#define HLSL_BLOCK_POS_SLOT							0
-#define HLSL_BLOCK_CELL_PRESENCE0_SLOT				1
-#define HLSL_BLOCK_CELL_PRESENCE1_SLOT				2
-#define HLSL_BLOCK_CELL_END_COLOR_SLOT				3
-#define HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT			4
-#define HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT			5
-#define HLSL_BLOCK_CELL_COLOR_INDEX2_SLOT			6
-#define HLSL_BLOCK_CELL_COLOR_INDEX3_SLOT			7
-#define HLSL_BLOCK_RANGE_SLOT						8
-#define HLSL_BLOCK_GROUP_SLOT						9
-#define HLSL_VISIBLE_BLOCK_SLOT						10
-#define HLSL_VISIBLE_BLOCK_CONTEXT_SLOT				11
-#define HLSL_BLOCK_PATCH_COUNTERS_SLOT				12
-#define HLSL_BLOCK_PATCHES_SLOT						13
+#define HLSL_VISIBLE_BLOCK_SLOT						0
+#define HLSL_VISIBLE_BLOCK_CONTEXT_SLOT				1
+#define HLSL_BLOCK_PATCH_COUNTERS_SLOT				2
+#define HLSL_BLOCK_PATCHES_SLOT						3
 
-#define HLSL_CULL_STATS_SLOT						14
-#define HLSL_PROJECT_STATS_SLOT						14
-#define HLSL_TRACE_STATS_SLOT						14
-#define HLSL_TRACE_DEBUG_BOX_SLOT					15
+#define HLSL_CULL_STATS_SLOT						4
+#define HLSL_PROJECT_STATS_SLOT						4
+#define HLSL_TRACE_STATS_SLOT						4
+#define HLSL_TRACE_DEBUG_BOX_SLOT					5
+
+#define HLSL_BLOCK_POS_SLOT							10
+#define HLSL_BLOCK_CELL_PRESENCE0_SLOT				11
+#define HLSL_BLOCK_CELL_PRESENCE1_SLOT				12
+#define HLSL_BLOCK_CELL_END_COLOR_SLOT				13
+#define HLSL_BLOCK_CELL_COLOR_INDEX0_SLOT			14
+#define HLSL_BLOCK_CELL_COLOR_INDEX1_SLOT			15
+#define HLSL_BLOCK_CELL_COLOR_INDEX2_SLOT			16
+#define HLSL_BLOCK_CELL_COLOR_INDEX3_SLOT			17
+#define HLSL_BLOCK_RANGE_SLOT						18
+#define HLSL_BLOCK_GROUP_SLOT						19
+#define HLSL_BLOCK_GRID_MACRO_OFFSET_SLOT			20
 
 #define HLSL_BLOCK_PAGE_MAX_COUNT					16
 #define HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE			(64 * HLSL_BLOCK_PAGE_MAX_COUNT)
@@ -57,8 +59,9 @@ BEGIN_V6_HLSL_NAMESPACE
 CBUFFER( CBCull, 0 )
 {
 	float				c_cullInvGridWidth;
+	uint				c_cullFrameRank;
 	uint				c_cullFrameChanged;
-	uint2				c_cullPad0;
+	uint				c_cullPad0;
 
 	float				c_cullGridMinScale;
 	float				c_cullInvMacroPeriodWidth;
@@ -140,25 +143,32 @@ CBUFFER( CBPostProcess, 3 )
 	float3				c_postProcessPad;
 };
 
+struct BlockGroup
+{
+	uint	rangeID14_firstGroupID18;
+};
+
 struct BlockRange
 {
-	int3	macroGridOffset;
-	uint	isNewBlock;
-	uint	firstThreadID;
+	uint	frameRank7_newBlock1_firstBlockID24;
 	uint	blockCount;
-	uint	blockPosOffset;
+};
+
+struct GridMacroOffset
+{
+	int3	offsets[HLSL_GRID_MAX_COUNT];
 };
 
 struct VisibleBlockMip
 {
-	uint newBlock1_blockPosID;
-	uint mip4_none1_blockPos27;
+	uint	newBlock1_blockPosID;
+	uint	mip4_none1_blockPos27;
 };
 
 struct VisibleBlockOnion
 {
-	uint newBlock1_blockPosID;
-	uint sign1_axis2_z11_y9_x9;
+	uint	newBlock1_blockPosID;
+	uint	sign1_axis2_z11_y9_x9;
 };
 
 struct VisibleBlockContext

@@ -14,20 +14,6 @@ BEGIN_V6_NAMESPACE
 struct GPUTraceResources_s;
 struct View_s;
 
-struct SequenceBlockRange_s
-{
-	Vec3i					macroGridCoords;
-	u32						blockCount;
-	u32						blockPosOffset;
-	u32						isNewBlock;
-};
-
-struct SequenceContext_s
-{
-	SequenceBlockRange_s	blockRanges[CODEC_RANGE_MAX_COUNT];
-	u32						frameBlockPosOffsets[CODEC_FRAME_MAX_COUNT];
-};
-
 struct TraceDesc_s
 {
 	u32						screenWidth;
@@ -74,7 +60,6 @@ struct TraceContext_s
 	TraceDesc_s				desc;
 	const VideoStream_s*	stream;
 	GPUTraceResources_s*	res;
-	SequenceContext_s		sequenceContext;
 	TraceFrameState_s		frameState;
 	u32						resVisibleBlockMaxCount;
 	u32						resBlockPatchCountPerEye;

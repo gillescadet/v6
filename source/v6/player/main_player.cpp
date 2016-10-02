@@ -1538,14 +1538,18 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 1024;
 #else
 
-#if 1
+#if 0
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
-#else
+#elif 0
 	// DK2 / 2
 	const v6::u32 defaultWidth = 1104 / 2;
 	const v6::u32 defaultHeight = 680;
+#else
+	// DK2 / 4
+	const v6::u32 defaultWidth = 272;
+	const v6::u32 defaultHeight = 336;
 #endif
 
 #endif
@@ -1554,7 +1558,9 @@ int main( int argc, char** argv )
 	V6_STATIC_ASSERT( defaultHeight <= 1024 );
 #endif // #if V6_ENABLE_HMD == 1
 
-	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
+	// const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
+	// const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 512;
+	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 256;
 
 	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, defaultTanHalfFovPerPixel, &heap, &stack ) )
 		return -1;

@@ -30,7 +30,7 @@ BEGIN_V6_NAMESPACE
 #define CODEC_MIP_MAX_COUNT					16u
 #define CODEC_FACE_MAX_COUNT				8u
 #define CODEC_GRID_MAX_COUNT				(CODEC_MIP_MAX_COUNT > CODEC_FACE_MAX_COUNT ? CODEC_MIP_MAX_COUNT : CODEC_FACE_MAX_COUNT)
-#define CODEC_RANGE_MAX_COUNT				65536
+#define CODEC_RANGE_MAX_COUNT				(1u << 14)
 #define CODEC_FRAME_MAX_COUNT				128
 #define CODEC_INVALID_FRAME_RANK			CODEC_FRAME_MAX_COUNT
 #define CODEC_BLOCK_THREAD_GROUP_SIZE		64
@@ -71,11 +71,6 @@ enum
 	CODEC_FRAME_FLAG_MOTION = 1 << 0,
 };
 
-struct CodecRange_s
-{
-	u32				frameRank7_newBlock1_grid4_blockCount20;
-};
-
 struct CodecStreamDesc_s
 {
 	Vec3			gridOrigin;
@@ -96,12 +91,6 @@ struct CodecSequenceDesc_s
 {
 	u32				sequenceID;
 	u32				frameCount;
-	u32				rangeDefCount;
-};
-
-struct CodecSequenceData_s
-{
-	CodecRange_s*	rangeDefs;
 };
 
 struct CodecRawFrameDesc_s
@@ -139,17 +128,23 @@ struct CodecFrameDesc_s
 	u32				blockRangeCount;
 };
 
+struct CodecBlockRange_s
+{
+	u32				frameRank7_newBlock1_firstBlockID24;
+	u32				blockCount;
+};
+
 struct CodecFrameData_s
 {	
-	u32*			blockPos;
-	u32*			blockCellPresences0;
-	u32*			blockCellPresences1;
-	u32*			blockCellEndColors;
-	u32*			blockCellColorIndices0;
-	u32*			blockCellColorIndices1;
-	u32*			blockCellColorIndices2;
-	u32*			blockCellColorIndices3;
-	u16*			rangeIDs; // optim: this could replaced with firstRangeID and rangeCount
+	u32*				blockPos;
+	u32*				blockCellPresences0;
+	u32*				blockCellPresences1;
+	u32*				blockCellEndColors;
+	u32*				blockCellColorIndices0;
+	u32*				blockCellColorIndices1;
+	u32*				blockCellColorIndices2;
+	u32*				blockCellColorIndices3;
+	CodecBlockRange_s*	blockRanges;
 };
 
 u32		Codec_AlignToClusterSize( u32 size );
@@ -163,11 +158,11 @@ u32		Codec_GetMipCount( float gridScaleMin, float gridScaleMax );
 void*	Codec_ReadFrame( IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack );
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 bool	Codec_ReadRawFrameDesc( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
-void*	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, CodecSequenceData_s* data, u32 sequenceID, IAllocator* alllocator );
+bool	Codec_ReadSequence( IStreamReader* streamReader, CodecSequenceDesc_s* desc, u32 sequenceID, IAllocator* alllocator );
 bool	Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc );
 bool	Codec_WriteFrame( IStreamWriter* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
 void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
-void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc, const CodecSequenceData_s* data );
+void	Codec_WriteSequence( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc );
 void	Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc );
 
 END_V6_NAMESPACE
