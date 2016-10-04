@@ -44,6 +44,13 @@ V6_INLINE float DegToRad( float deg ) { return deg * (V6_PI / 180.0f); }
 
 V6_INLINE float RadToDeg( float rad ) { return rad * (180.0f / V6_PI); }
 
+template < u32 ALIGNMENT, typename T >
+V6_INLINE T PowOfTwoRoundUp( T size )
+{ 
+	V6_ASSERT( IsPowOfTwo( ALIGNMENT ) );
+	return (size + ALIGNMENT - 1) & ~((T)ALIGNMENT - 1);
+}
+
 template<typename T>
 V6_INLINE T Sin( T x ) { return sinf( x ); }
 

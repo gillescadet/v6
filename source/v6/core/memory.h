@@ -5,11 +5,27 @@
 #ifndef __V6_CORE_MEMORY_H__
 #define __V6_CORE_MEMORY_H__
 
+#include <v6/core/math.h>
+
 BEGIN_V6_NAMESPACE
 
 class IAllocator
 {
 public:
+	template< u32 ALIGNMENT >
+	void*			alloc_aligned( void** buffer, u64 size )
+	{
+		const u64 allocSize = PowOfTwoRoundUp< ALIGNMENT >( size );
+	
+		void* rawData = alloc( allocSize );
+		void* alignedData = (void*)(((uintptr_t)rawData + ALIGNMENT - 1) & ~((uintptr_t)ALIGNMENT - 1));
+
+		if ( buffer )
+			*buffer = rawData;
+
+		return alignedData;
+	}
+
 	virtual void *	alloc( u64 nSize ) = 0;
 
 	template <typename T>

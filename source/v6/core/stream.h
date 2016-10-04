@@ -21,6 +21,8 @@ public:
 	virtual x64		GetSize() const = 0;
 	virtual void	SetPos( x64 pos ) = 0;
 	virtual void	Write( const void * pData, x64 nSize ) = 0;
+	void			WriteAligned( const void * pData, x64 nSize, u32 alignment );
+	void			WriteZeroUntilAligned( u32 alignment );
 };
 
 class IStreamReader
@@ -30,8 +32,10 @@ public:
 	virtual x64		GetRemaining() const { return ToX64( ToU64( GetSize() ) - ToU64( GetPos() ) ); }
 	virtual x64		GetSize() const = 0;
 	virtual void	Read( x64 nSize, void * pData ) = 0;
+	void			ReadAligned( x64 nSize, void * pData, u32 alignment );
 	virtual void	SetPos( x64 pos ) = 0;
 	virtual void	Skip( x64 nSize ) = 0;
+	void			SkipUntilAligned( u32 alignment );
 };
 
 enum
@@ -83,6 +87,49 @@ public:
 private:
 	void*	m_file;
 	char	m_filename[256];
+};
+
+class CStreamReaderWithBuffering : public IStreamReader
+{
+public:
+	CStreamReaderWithBuffering( IStreamReader* backendStreamReader, u8* alignedBuffer, u32 bufferSize );
+	virtual ~CStreamReaderWithBuffering();
+
+public:
+	u32				GetBufferSize() const { return m_bufferSize; }
+	virtual x64		GetPos() const;
+	virtual x64		GetSize() const;
+	virtual void	Read( x64 nSize, void * pData );
+	virtual void	SetPos( x64 pos );
+	virtual void	Skip( x64 nSize );
+	void			SkipUnreadBuffer();
+
+private:
+	IStreamReader*	m_backendStreamReader;
+	u8*				m_alignedBuffer;
+	u32				m_bufferPos;
+	u32				m_bufferSize;
+};
+
+class CStreamWriterWithBuffering : public IStreamWriter
+{
+public:
+	CStreamWriterWithBuffering( IStreamWriter* backendStreamWriter, u8* alignedBuffer, u32 bufferSize );
+	virtual ~CStreamWriterWithBuffering();
+
+public:
+	void			FlushBufferAndPadWithZero();
+	u32				GetBufferSize() const { return m_bufferSize; }
+	virtual x64		GetPos() const;
+	virtual x64		GetSize() const;
+	virtual void	SetPos( x64 pos );
+	virtual void	Write( const void * pData, x64 nSize );
+
+private:
+	IStreamWriter*	m_backendStreamWriter;
+	u8*				m_alignedBuffer;
+	u32				m_bufferPos;
+	u32				m_bufferSize;
 };
 
 class CBufferReader : public IStreamReader

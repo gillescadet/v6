@@ -85,8 +85,11 @@ static bool Block_CompareData( const DecoderBlock_s* rawBlock, const DecoderBloc
 
 static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader* streamReader, u32 sequenceID, IAllocator* allocator, IStack* stack )
 {
-	if ( !Codec_ReadSequence( streamReader, &sequence->desc, sequenceID, allocator ) )
+	if ( !Codec_ReadSequenceDesc( streamReader, &sequence->desc, sequenceID ) )
 		return false;
+
+	V6_ALIGN( CODEC_CLUSTER_SIZE ) u8 streamReaderBuffer[CODEC_CLUSTER_SIZE];
+	CStreamReaderWithBuffering streamReaderWithBuffering( streamReader, streamReaderBuffer, sizeof( streamReaderBuffer ) );
 
 	sequence->frameDescArray = allocator->newArray< CodecFrameDesc_s >( sequence->desc.frameCount );
 	sequence->frameDataArray = allocator->newArray< CodecFrameData_s >( sequence->desc.frameCount );
@@ -94,9 +97,12 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 	memset( sequence->frameBufferArray, 0, sequence->desc.frameCount * sizeof( void* ) );
 	for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
 	{
-		void* frameBuffer = Codec_ReadFrame( streamReader, &sequence->frameDescArray[frameRank], &sequence->frameDataArray[frameRank], frameRank, allocator, stack );
+		void* frameBuffer = Codec_ReadFrame( &streamReaderWithBuffering, &sequence->frameDescArray[frameRank], &sequence->frameDataArray[frameRank], frameRank, allocator, stack );
 		if ( !frameBuffer )
+		{
+			streamReaderWithBuffering.SkipUnreadBuffer();
 			return false;
+		}
 		if ( (sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION) == 0 )
 			sequence->frameBufferArray[frameRank] = frameBuffer;
 #if 0
@@ -113,6 +119,8 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 		}
 #endif
 	}
+
+	streamReaderWithBuffering.SkipUnreadBuffer();
 	
 	return true;
 }
@@ -376,7 +384,7 @@ bool VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAlloc
 	memset( stream, 0, sizeof( *stream ) );
 
 	CFileReader fileReader;
-	if ( !fileReader.Open( streamFilename, 0 ) )
+	if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
 		V6_ERROR( "Unable to open file %s\n", streamFilename );
 		return false;

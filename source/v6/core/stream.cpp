@@ -19,6 +19,48 @@ V6_INLINE LARGE_INTEGER LARGE_INTEGER_MAKE( u64 v )
 	return li;
 }
 
+/// IStreamWriter
+
+void IStreamWriter::WriteZeroUntilAligned( u32 alignment )
+{
+	V6_ASSERT( IsPowOfTwo( alignment ) );
+	const u8 bufferOfZeros[256] = {};
+	V6_ASSERT( alignment <= sizeof( bufferOfZeros ) );
+	const u32 offset = ToU64( this->GetPos() ) & (alignment-1);
+	if ( offset == 0 )
+		return;
+	const u32 remaining = alignment - offset;
+	this->Write( bufferOfZeros, ToX64( remaining ) );
+}
+
+void IStreamWriter::WriteAligned( const void * pData, x64 nSize, u32 alignment )
+{
+	V6_ASSERT( (ToU64( this->GetPos() ) & (alignment-1)) == 0 );
+	this->Write( pData, nSize );
+	this->WriteZeroUntilAligned( alignment );
+}
+
+/// IStreamReader
+
+void IStreamReader::SkipUntilAligned( u32 alignment )
+{
+	V6_ASSERT( IsPowOfTwo( alignment ) );
+	u8 buffer[256] = {};
+	V6_ASSERT( alignment <= sizeof( buffer ) );
+	const u32 offset = ToU64( this->GetPos() ) & (alignment-1);
+	if ( offset == 0 )
+		return;
+	const u32 remaining = alignment - offset;
+	this->Read( ToX64( remaining ), buffer );
+}
+
+void IStreamReader::ReadAligned( x64 nSize, void * pData, u32 alignment )
+{
+	V6_ASSERT( (ToU64( this->GetPos() ) & (alignment-1)) == 0 );
+	this->Read( nSize, pData );
+	this->SkipUntilAligned( alignment );
+}
+
 /// CFileReader
 
 CFileReader::CFileReader()
@@ -181,6 +223,183 @@ x64 CFileWriter::GetSize() const
 	LARGE_INTEGER size = {};
 	GetFileSizeEx( (HANDLE)m_file, &size );
 	return ToX64( (u64)size.QuadPart );
+}
+
+/// CStreamReaderWithBuffering
+
+CStreamReaderWithBuffering::CStreamReaderWithBuffering( IStreamReader* backendStreamReader, u8* alignedBuffer, u32 bufferSize )
+	: m_backendStreamReader( backendStreamReader )
+	, m_alignedBuffer( alignedBuffer )
+	, m_bufferPos ( bufferSize )
+	, m_bufferSize ( bufferSize )
+{
+	V6_ASSERT( ((uintptr_t)alignedBuffer & ((uintptr_t)bufferSize-1)) == 0 );
+}
+
+CStreamReaderWithBuffering::~CStreamReaderWithBuffering()
+{
+	V6_ASSERT( m_bufferPos == m_bufferSize );
+}
+
+x64 CStreamReaderWithBuffering::GetPos() const
+{
+	return ToX64( ToU64( m_backendStreamReader->GetPos() ) + m_bufferPos - m_bufferSize );
+}
+
+x64 CStreamReaderWithBuffering::GetSize() const
+{
+	return m_backendStreamReader->GetSize();
+}
+
+void CStreamReaderWithBuffering::SetPos( x64 pos )
+{
+	V6_ASSERT( !"Not supported" );
+}
+
+void CStreamReaderWithBuffering::Skip( x64 nSize )
+{
+	V6_ASSERT( !"Not supported" );
+}
+
+void CStreamReaderWithBuffering::SkipUnreadBuffer()
+{
+	m_bufferPos = m_bufferSize;
+}
+
+void CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
+{
+	u8* curData = (u8*)pData;
+	u32 curSize = (u32)ToU64( nSize );
+
+	if ( curSize == 0 )
+		return;
+
+	if ( m_bufferPos == m_bufferSize )
+	{
+		m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		m_bufferPos = 0;
+	}
+
+	const u32 remainingToReadBuffer = m_bufferSize - m_bufferPos;
+	if ( curSize < remainingToReadBuffer )
+	{
+		memcpy( curData, m_alignedBuffer + m_bufferPos, curSize );
+		m_bufferPos += curSize;
+		return;
+	}
+
+	{
+		memcpy( curData, m_alignedBuffer + m_bufferPos, remainingToReadBuffer );
+		m_bufferPos = m_bufferSize;
+		curData += remainingToReadBuffer;
+		curSize -= remainingToReadBuffer;
+	}
+
+	const u32 remainingToExtendBuffer = curSize % m_bufferSize;
+	if ( curSize > remainingToExtendBuffer )
+	{
+		curSize -= remainingToExtendBuffer;
+		do 
+		{
+			m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+			memcpy( curData, m_alignedBuffer, m_bufferSize );
+			curData += m_bufferSize;
+			curSize -= m_bufferSize;
+		} while ( curSize > 0 );
+	}
+
+	if ( remainingToExtendBuffer > 0 )
+	{
+		m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		memcpy( curData, m_alignedBuffer, remainingToExtendBuffer );
+		m_bufferPos = remainingToExtendBuffer;
+	}
+}
+
+/// CStreamWriterWithBuffering
+
+CStreamWriterWithBuffering::CStreamWriterWithBuffering( IStreamWriter* backendStreamWriter, u8* alignedBuffer, u32 bufferSize )
+	: m_backendStreamWriter( backendStreamWriter )
+	, m_alignedBuffer( alignedBuffer )
+	, m_bufferPos ( 0 )
+	, m_bufferSize ( bufferSize )
+{
+	V6_ASSERT( ((uintptr_t)alignedBuffer & ((uintptr_t)bufferSize-1)) == 0 );
+}
+
+CStreamWriterWithBuffering::~CStreamWriterWithBuffering()
+{
+	V6_ASSERT( m_bufferPos == 0 );
+}
+
+void CStreamWriterWithBuffering::FlushBufferAndPadWithZero()
+{
+	if ( m_bufferPos == 0 )
+		return;
+	
+	memset( m_alignedBuffer + m_bufferPos, 0, m_bufferSize - m_bufferPos );
+	m_backendStreamWriter->Write( m_alignedBuffer, ToX64( m_bufferSize ) );
+	m_bufferPos = 0;
+}
+
+x64 CStreamWriterWithBuffering::GetPos() const
+{
+	return ToX64( ToU64( m_backendStreamWriter->GetPos() ) + m_bufferPos );
+}
+
+x64 CStreamWriterWithBuffering::GetSize() const
+{
+	return m_backendStreamWriter->GetSize();
+}
+
+void CStreamWriterWithBuffering::SetPos( x64 pos )
+{
+	V6_ASSERT( !"Not supported" );
+}
+
+void CStreamWriterWithBuffering::Write( const void * pData, x64 nSize )
+{
+	u8* curData = (u8*)pData;
+	u32 curSize = (u32)ToU64( nSize );
+	
+	if ( curSize == 0 )
+		return;
+
+	const u32 remainingToFillBuffer = m_bufferSize - m_bufferPos;
+	if ( curSize < remainingToFillBuffer )
+	{
+		memcpy( m_alignedBuffer + m_bufferPos, curData, curSize );
+		m_bufferPos += curSize;
+		return;
+	}
+
+	{
+		memcpy( m_alignedBuffer + m_bufferPos, curData, remainingToFillBuffer );
+		m_backendStreamWriter->Write( m_alignedBuffer, ToX64( m_bufferSize ) );
+		m_bufferPos = 0;
+		curData += remainingToFillBuffer;
+		curSize -= remainingToFillBuffer;
+	}
+
+	const u32 remainingToExtendBuffer = curSize % m_bufferSize;
+	if ( curSize > remainingToExtendBuffer )
+	{
+		curSize -= remainingToExtendBuffer;
+		do
+		{
+			memcpy( m_alignedBuffer, curData, m_bufferSize );
+			m_backendStreamWriter->Write( m_alignedBuffer, ToX64( m_bufferSize ) );
+			curData += m_bufferSize;
+			curSize -= m_bufferSize;
+		}
+		while ( curSize > 0 );
+	}
+
+	if ( remainingToExtendBuffer > 0 )
+	{
+		memcpy( m_alignedBuffer, curData, remainingToExtendBuffer );
+		m_bufferPos = remainingToExtendBuffer;
+	}
 }
 
 /// CBufferReader
