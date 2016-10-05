@@ -815,6 +815,7 @@ void GPUBuffer_UnmapReadBack( GPUBuffer_s* buffer )
 
 void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcData, u32 sizeOfSrcElem, u32 srcCount )
 {
+	V6_ASSERT( IsAligned< 16 >( srcData ) );
 	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
 	
 	const bool isCPUWrite = (dstBuffer->flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;

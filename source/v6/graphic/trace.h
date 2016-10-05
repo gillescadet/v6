@@ -47,7 +47,8 @@ struct TraceFrameState_s
 	u32						sequenceID;
 	u32						frameID;
 	u32						frameRank;
-	u32						bufferID;
+	u32						perFrameBufferID;
+	u32						perSequenceBufferID;
 	u32						jitterID;
 	u32						prevHistoryBufferID;
 	u32						curHistoryBufferID;

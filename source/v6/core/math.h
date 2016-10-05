@@ -25,6 +25,18 @@ V6_INLINE T Cos( T x ) { return cosf( x ); }
 template<typename T>
 V6_INLINE bool IsPowOfTwo( T x ) { return (x & (x-1)) == 0; }
 
+template<typename T>
+V6_INLINE constexpr bool IsPowOfTwo_ConstExpr( T x ) { return (x & (x-1)) == 0; }
+
+template < u32 ALIGNMENT >
+V6_INLINE bool IsAligned( u32 x ) { V6_STATIC_ASSERT( IsPowOfTwo_ConstExpr( ALIGNMENT ) ); return (x & (u32)(ALIGNMENT-1)) == 0; }
+
+template < u32 ALIGNMENT >
+V6_INLINE bool IsAligned( u64 x ) { V6_STATIC_ASSERT( IsPowOfTwo_ConstExpr( ALIGNMENT ) ); return (x & (u64)(ALIGNMENT-1)) == 0; }
+
+template < u32 ALIGNMENT, typename T >
+V6_INLINE bool IsAligned( const T* x ) { V6_STATIC_ASSERT( IsPowOfTwo_ConstExpr( ALIGNMENT ) ); return ((uintptr_t)x & (uintptr_t)(ALIGNMENT-1)) == 0; }
+
 template<typename T1, typename T2>
 V6_INLINE T1 Lerp(T1 v0, T1 v1, T2 t) { return (1-t) * v0 + t * v1; }
 

@@ -15,7 +15,7 @@ public:
 	template< u32 ALIGNMENT >
 	void*			alloc_aligned( void** buffer, u64 size )
 	{
-		const u64 allocSize = PowOfTwoRoundUp< ALIGNMENT >( size );
+		const u64 allocSize = size + ALIGNMENT - 1;
 	
 		void* rawData = alloc( allocSize );
 		void* alignedData = (void*)(((uintptr_t)rawData + ALIGNMENT - 1) & ~((uintptr_t)ALIGNMENT - 1));
