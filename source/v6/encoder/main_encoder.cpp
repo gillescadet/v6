@@ -82,13 +82,13 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 	commandArgs->extend = false;
 #endif
 
-#if 1
+#if 0
 	commandArgs->streamFilename = "D:/tmp/v6/ue.v6";
 	commandArgs->templateFilename = "D:/tmp/v6/ue_%06d.v6f";
 	commandArgs->frameOffset = 0;
-	commandArgs->frameCount = 75;
+	commandArgs->frameCount = 2;
 	commandArgs->playRate = 75;
-	commandArgs->compressionQuality = 0;
+	commandArgs->compressionQuality = 1;
 	commandArgs->extend = false;
 #endif
 
@@ -229,6 +229,7 @@ int main( int argc, const char** argv )
 {
 	V6_MSG( "Encoder 0.0\n\n" );
 
+#if 1
 	v6::CHeap heap;
 
 	v6::CommandArgs commandArgs;
@@ -274,4 +275,7 @@ int main( int argc, const char** argv )
 #endif // #if VALIDATE
 
 	return 0;
+#else
+	return 1;
+#endif
 }

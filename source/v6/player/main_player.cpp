@@ -27,7 +27,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -115,7 +115,8 @@ struct FrameMetrics_s
 {
 	static const u32		WIDTH = HLSL_FRAME_METRICS_WIDTH;
 	u32						frameID;
-	hlsl::FrameMetrics_s	data[WIDTH];
+	void*					dataBuffer;
+	hlsl::FrameMetrics_s*	data;
 };
 
 enum CommandAction_e
@@ -387,11 +388,16 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 	}
 
 	FontContext_Create( &player->fontContext );
+
+	player->frameMetrics.data = (hlsl::FrameMetrics_s*)player->heap->alloc_aligned< 16 >( &player->frameMetrics.dataBuffer, player->frameMetrics.WIDTH * sizeof( hlsl::FrameMetrics_s ) );
+	memset( player->frameMetrics.data, 0, player->frameMetrics.WIDTH * sizeof( hlsl::FrameMetrics_s ) );
 }
 
 static void PlayerDevice_Release( Player_s* player )
 {
 	FontContext_Release( &player->fontContext );
+
+	player->heap->free( player->frameMetrics.dataBuffer );
 
 	GPURenderTargetSet_Release( &player->createdRenderTargetSet );
 
@@ -1198,7 +1204,7 @@ static void Player_DrawMetrics( Player_s* player )
 	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_FRAMEMETRICS].m_computeShader, nullptr, 0 );
 
 	const Vec2u frameMetricsRTSize = Vec2u_Make( player->mainRenderTargetSet.width - 16, 200 );
-	const Vec2u frameMetricsRTOffset = Vec2u_Make( 8, player->mainRenderTargetSet.height - frameMetricsRTSize.y - 100 - 8 );
+	const Vec2u frameMetricsRTOffset = Vec2u_Make( 8, player->mainRenderTargetSet.height - frameMetricsRTSize.y - 300 - 8 );
 
 	{
 		hlsl::CBFrameMetrics* cbFrameMetrics = (hlsl::CBFrameMetrics*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
@@ -1538,7 +1544,7 @@ int main( int argc, char** argv )
 	const v6::u32 defaultHeight = 1024;
 #else
 
-#if 0
+#if 1
 	// DK2
 	const v6::u32 defaultWidth = 1104;
 	const v6::u32 defaultHeight = 1368;
@@ -1558,9 +1564,9 @@ int main( int argc, char** argv )
 	V6_STATIC_ASSERT( defaultHeight <= 1024 );
 #endif // #if V6_ENABLE_HMD == 1
 
-	// const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
+	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 1024;
 	// const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 512;
-	const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 256;
+	// const float defaultTanHalfFovPerPixel = v6::Tan( v6::DegToRad( 45.0f ) ) / 256;
 
 	if ( !v6::Player_Create( player, defaultWidth, defaultHeight, defaultTanHalfFovPerPixel, &heap, &stack ) )
 		return -1;
