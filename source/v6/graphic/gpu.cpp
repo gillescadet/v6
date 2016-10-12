@@ -1858,6 +1858,25 @@ void GPUShaderContext_CreateEmpty()
 
 	{
 		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MINIMUM_MIN_MAG_LINEAR_MIP_POINT;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.MipLODBias = 0.0f;
+		samplerDesc.MaxAnisotropy = 0;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+		samplerDesc.BorderColor[0] = 0;
+		samplerDesc.BorderColor[1] = 0;
+		samplerDesc.BorderColor[2] = 0;
+		samplerDesc.BorderColor[3] = 0;
+		samplerDesc.MinLOD = 0;
+		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		V6_ASSERT_D3D11( g_device->CreateSamplerState( &samplerDesc, &s_shaderContext.bilinearSamplerState ) );
+	}
+
+	{
+		D3D11_SAMPLER_DESC samplerDesc = {};
 		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
 		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
 		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
@@ -1900,9 +1919,28 @@ void GPUShaderContext_Release()
 		if ( s_shaderContext.buffers[bufferID].buf )
 			GPUBuffer_Release( &s_shaderContext.buffers[bufferID] );
 
+	V6_RELEASE_D3D11( s_shaderContext.bilinearSamplerState );
 	V6_RELEASE_D3D11( s_shaderContext.trilinearSamplerState );
 
 	memset( &s_shaderContext, 0, sizeof( GPUShaderContext_s ) );
+}
+
+static void GPUSurfaceContext_CreateFrontBuffers()
+{
+	V6_ASSERT( s_surfaceContext.initialized );
+
+	V6_ASSERT_D3D11( s_surfaceContext.swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&s_surfaceContext.surface.tex ) );
+	V6_ASSERT_D3D11( g_device->CreateRenderTargetView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.rtv ) );
+	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
+}
+
+static void GPUSurfaceContext_ReleaseFrontBuffers()
+{
+	V6_ASSERT( s_surfaceContext.initialized );
+
+	V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
+	V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
+	V6_RELEASE_D3D11( s_surfaceContext.surface.uav );
 }
 
 GPUShaderContext_s* GPUShaderContext_Get()
@@ -1921,6 +1959,17 @@ void GPUSurfaceContext_Present()
 {
 	V6_ASSERT( s_surfaceContext.initialized );
 	s_surfaceContext.swapChain->Present( 0, 0 );
+}
+
+void GPUSurfaceContext_Resize( u32 width, u32 height )
+{
+	V6_ASSERT( s_surfaceContext.initialized );
+	
+	GPUSurfaceContext_ReleaseFrontBuffers();
+	
+	V6_ASSERT_D3D11( s_surfaceContext.swapChain->ResizeBuffers( 0, width, height, DXGI_FORMAT_UNKNOWN, 0 ) );
+
+	GPUSurfaceContext_CreateFrontBuffers();
 }
 
 ID3D11Device* GPUDevice_Get()
@@ -1999,11 +2048,9 @@ void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool
 	}
 #endif
 
-	V6_ASSERT_D3D11( s_surfaceContext.swapChain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&s_surfaceContext.surface.tex ) );
-
-	V6_ASSERT_D3D11( g_device->CreateRenderTargetView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.rtv ) );
-	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
 	s_surfaceContext.initialized = true;
+
+	GPUSurfaceContext_CreateFrontBuffers();
 }
 
 void GPUDevice_Release()
@@ -2014,9 +2061,7 @@ void GPUDevice_Release()
 	{
 		g_deviceContext->ClearState();
 
-		V6_RELEASE_D3D11( s_surfaceContext.surface.tex );
-		V6_RELEASE_D3D11( s_surfaceContext.surface.rtv );
-		V6_RELEASE_D3D11( s_surfaceContext.surface.uav );
+		GPUSurfaceContext_ReleaseFrontBuffers();
 		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
 		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
 	}

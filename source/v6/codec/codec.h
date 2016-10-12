@@ -14,16 +14,19 @@ BEGIN_V6_NAMESPACE
 #define CODEC_RAWFRAME_MAGIC				"V6RF"
 #define CODEC_RAWFRAME_VERSION				7
 
-#define CODEC_FRAME_MAGIC					"V6F"
+#define CODEC_FRAME_MAGIC					"V6F\0"
 #define CODEC_FRAME_VERSION					6
 
-#define CODEC_SEQUENCE_MAGIC				"V6S"
+#define CODEC_SEQUENCE_MAGIC				"V6S\0"
 #define CODEC_SEQUENCE_VERSION				2
 
-#define CODEC_STREAM_MAGIC					"V6"
-#define CODEC_STREAM_VERSION				1
+#define CODEC_STREAM_MAGIC					"V6\0\0"
+#define CODEC_STREAM_VERSION				2
+#define CODEC_STREAM_KEY_MAX_COUNT			32
+#define CODEC_STREAM_HEADER_SIZE			MulKB( 72u )
 
 #define CODEC_HEAD_ROOM_SIZE				50.0f
+#define CODEC_ICON_WIDTH					256
 
 #define CODEC_RAWFRAME_BUCKET_COUNT			5
 #define CODEC_CELL_MAX_COUNT				64u
@@ -56,6 +59,9 @@ BEGIN_V6_NAMESPACE
 #define CODEC_FRAME_COMPRESS				CODEC_FRAME_COMPRESS_TYPE_ZSTD
 #endif
 #define CODEC_FRAME_PACK_POSITIONS			1
+
+#define	CODEC_ICON_KEY						"icon"
+#define	CODEC_ICON_MAGIC					"BC1\0"
 
 #include <v6/core/mat4x4.h>
 
@@ -90,6 +96,15 @@ struct CodecStreamDesc_s
 	u32				maxBlockCountPerSequence;
 	u32				maxBlockRangeCountPerFrame;
 	u32				maxBlockGroupCountPerFrame;
+	u32				keyCount;
+	u32				keySizes[CODEC_STREAM_KEY_MAX_COUNT];
+	u32				valueSizes[CODEC_STREAM_KEY_MAX_COUNT];
+};
+
+struct CodecStreamData_s
+{
+	char*			keys;
+	u8*				values;
 };
 
 struct CodecSequenceDesc_s
@@ -164,11 +179,11 @@ void*	Codec_ReadFrame( CStreamReaderWithBuffering* streamReader, CodecFrameDesc_
 bool	Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc, CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 bool	Codec_ReadRawFrameDesc( IStreamReader* streamReader, CodecRawFrameDesc_s* desc );
 bool	Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* desc, u32 sequenceID );
-bool	Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc );
+void*	Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator );
 bool	Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack );
 void	Codec_WriteRawFrame( IStreamWriter* streamWriter, const CodecRawFrameDesc_s* desc, const CodecRawFrameData_s* data, CodecRawFrameBuffer_s* buffer, IAllocator* allocator );
 void	Codec_WriteSequenceDesc( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc );
-void	Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc );
+bool	Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data, IStack* stack );
 
 END_V6_NAMESPACE
 

@@ -1710,7 +1710,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 			for( ; frameRank > 0; --frameRank )
 				RawFrame_Release( frameRank-1, context );
 			context->frameCount = 0;
-			goto cleanup;
+			goto clean_up;
 		}
 
 		V6_MSG( "F%02d: loaded %d blocks from %s.\n", frameRank, context->frames[frameRank].blockCount, filename );
@@ -1768,7 +1768,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 						for ( ; context->frameCount > 0 ; --context->frameCount )
 							RawFrame_Release( context->frameCount-1, context );
 						context->frameCount = newFrameCount;
-						goto cleanup;
+						goto clean_up;
 					}
 				}
 				else
@@ -1818,7 +1818,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 				for( ; frameRank < context->frameCount; ++frameRank )
 					RawFrame_Release( frameRank-1, context );
 				context->frameCount = 0;
-				goto cleanup;
+				goto clean_up;
 			}
 #endif // #if ENCODER_SKIP_WRITING == 0
 
@@ -1837,7 +1837,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 	V6_MSG( "Sequence %d: %lld KB, avg of %lld KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
 	V6_PRINT( "\n" );
 
-cleanup:
+clean_up:
 
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
@@ -1857,6 +1857,8 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		return false;
 	}
 
+	bool success = false;
+
 	Stack stack( heap, 700 * 1024 * 1024 );
 
 	ContextStream_s streamContext = {};
@@ -1864,17 +1866,21 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	streamContext.stack = &stack;
 
 	CodecStreamDesc_s prevStreamDesc = {};
+	CodecStreamData_s prevStreamData = {};
+
+	CFileWriter fileWriter;
 
 	if ( extend )
 	{
 		CFileReader fileReader;
-		if ( !fileReader.Open( streamFilename, 0 ) )
+		if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
 		{
 			extend = false;
 		}
 		else
 		{
-			Codec_ReadStreamDesc( &fileReader, &prevStreamDesc );
+			if ( Codec_ReadStreamDesc( &fileReader, &prevStreamDesc, &prevStreamData, &stack ) == nullptr )
+				return false;
 			if ( prevStreamDesc.playRate != playRate )
 			{
 				V6_ERROR( "Incompatible play rate.\n" );
@@ -1899,7 +1905,6 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	streamContext.desc.frameCount = frameCount;
 	streamContext.desc.playRate = playRate;
 
-	CFileWriter fileWriter;
 	if ( !fileWriter.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED | (extend ? FILE_OPEN_FLAG_EXTEND : 0) ) )
 	{
 		V6_ERROR( "Unable to open %s.\n", streamFilename );
@@ -1909,7 +1914,8 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	if ( !extend )
 	{
 		V6_ASSERT( ToU64( fileWriter.GetPos() ) == 0 );
-		Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
+		if ( !Codec_WriteStreamDesc( &fileWriter, &streamContext.desc, nullptr, &stack ) )
+			return false;
 	}
 
 	for ( u32 sequenceID = prevStreamDesc.sequenceCount; frameCount > 0; ++sequenceID )
@@ -1942,7 +1948,8 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 	}
 
 	fileWriter.SetPos( ToX64( 0 ) );
-	Codec_WriteStreamDesc( &fileWriter, &streamContext.desc );
+	if ( !Codec_WriteStreamDesc( &fileWriter, &streamContext.desc, &prevStreamData, &stack ) )
+		return false;
 	
 	const u64 streamSize = ToU64( fileWriter.GetSize() );
 	
@@ -2009,6 +2016,223 @@ void VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frame
 
 		FileSystem_DeleteFile( filename );
 	}
+}
+
+u32 VideoStream_GetKeyCount( const char* streamFilename )
+{
+	CFileReader fileReader;
+	if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", streamFilename );
+		return 0;
+	}
+
+	CodecStreamDesc_s streamDesc = {};
+	if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, nullptr, nullptr ) == nullptr )
+	{
+		V6_ERROR( "Unable to read %s.\n", streamFilename );
+		return 0;
+	}
+
+	return streamDesc.keyCount;
+}
+
+u8* VideoStream_GetKeyValue( u32* valueSize, const char* streamFilename, const char* key, IAllocator* allocator )
+{
+	CFileReader fileReader;
+	if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", streamFilename );
+		return nullptr;
+	}
+
+	Stack stack( allocator, MulMB( 1 ) );
+
+	CodecStreamDesc_s streamDesc = {};
+	CodecStreamData_s streamData = {};
+	if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, &streamData, &stack ) == nullptr )
+	{
+		V6_ERROR( "Unable to read %s.\n", streamFilename );
+		return nullptr;
+	}
+
+	u32 keyOffet = 0;
+	u32 valueOffet = 0;
+	for ( u32 keyID = 0; keyID < streamDesc.keyCount; ++keyID )
+	{
+		if ( _stricmp( key, streamData.keys + keyOffet ) == 0 )
+		{
+			if ( streamDesc.valueSizes[keyID] == 0 )
+				return nullptr;
+
+			u8* value = (u8*)allocator->alloc( streamDesc.valueSizes[keyID] );
+			memcpy( value, streamData.values + valueOffet, streamDesc.valueSizes[keyID] );
+			*valueSize = streamDesc.valueSizes[keyID];
+			return value;
+		}
+		keyOffet += streamDesc.keySizes[keyID];
+		valueOffet += streamDesc.valueSizes[keyID];
+	}
+
+	V6_MSG( "Key %s not found.\n", key );
+	return nullptr;
+}
+
+bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, const u8* newValue, u32 newValueSize, IStack* stack )
+{
+	ScopedStack scopedStack( stack );
+
+	if ( _stricmp( newKey, CODEC_ICON_KEY ) == 0 )
+	{
+		V6_ASSERT( newValueSize <= 256 );
+		const char* filename = (const char*)newValue;
+		if ( !FilePath_HasExtension( filename, "tga" ) )
+		{
+			V6_ERROR( "%s must be a TGA file.\n", filename );
+			return false;
+		}
+
+		void* tgaFile;
+		const int tgaFileSize = FileSystem_ReadFile( filename, &tgaFile, stack );
+		if ( tgaFileSize == -1 )
+		{
+			V6_ERROR( "Unable to load %s.\n", filename );
+			return false;
+		}
+
+		CBufferReader bufferReader( tgaFile, ToX64( (u64)tgaFileSize ) );
+		Image_s image;
+		if ( !Image_ReadTga( &image, &bufferReader, stack ) )
+		{
+			V6_ERROR( "Unable to read %s.\n", filename );
+			return false;
+		}
+
+		if ( image.width != 256 || image.height != 256 )
+		{
+			V6_ERROR( "%s must have a dimension of %dx%d.\n", CODEC_ICON_WIDTH, CODEC_ICON_WIDTH );
+			return false;
+		}
+
+		newValueSize = 0;
+		{
+			u32 width = CODEC_ICON_WIDTH;
+			u32 mipCount = 0;
+			do 
+			{
+				newValueSize += ImageBC1_GetSizeFromDimension( width, width );
+				++mipCount;
+				width >>= 1;
+			} while ( width >= 4 );
+		}
+
+		u8* chunk = (u8*)stack->alloc( 4 + newValueSize );
+		newValue = chunk;
+
+		memcpy( chunk, CODEC_ICON_MAGIC, 4 );
+		chunk += 4;
+		
+		{
+			Image_s imageUp;
+			Image_s imageDown = image;
+
+			ImageBlockBC1_s* blocks = (ImageBlockBC1_s*)chunk;
+			u32 width = CODEC_ICON_WIDTH;
+			u32 mipCount = 0;
+			do 
+			{
+				if ( mipCount > 0 )
+				{
+					Image_Create( &imageDown, stack, width, width );
+					Image_DownScaleBy2( &imageDown, &imageUp );
+				}
+
+				ImageBC1_s imageBC1;
+				ImageBC1_CreateWithData( &imageBC1, blocks, width, width );
+				blocks += ImageBC1_GetBlockCountFromDimension( width, width );
+
+				ImageBC1_Encode( &imageBC1, &imageDown );
+				imageUp = imageDown;
+
+				++mipCount;
+				width >>= 1;
+			} while ( width >= 4 );
+		}
+	}
+
+	CodecStreamDesc_s streamDesc = {};
+	CodecStreamData_s streamData = {};
+
+	{
+		CFileReader fileReader;
+		if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+		{
+			V6_ERROR( "Unable to open %s.\n", streamFilename );
+			return false;
+		}
+
+		if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, &streamData, stack ) == nullptr )
+		{
+			V6_ERROR( "Unable to read %s.\n", streamFilename );
+			return false;
+		}
+	}
+
+	u32 keySize = 0;
+	u32 valueSize = 0;
+	u32 oldKeyID = (u32)-1;
+	u32 oldKeyOffset = 0;
+	u32 oldValueOffset = 0;
+	for ( u32 keyID = 0; keyID < streamDesc.keyCount; ++keyID )
+	{
+		if ( _stricmp( newKey, streamData.keys + keySize ) == 0 )
+		{
+			V6_ASSERT( oldKeyID == (u32)-1 );
+			oldKeyID = keyID;
+			oldKeyOffset = keySize;
+			oldValueOffset = valueSize;
+		}
+
+		keySize += streamDesc.keySizes[keyID];
+		valueSize += streamDesc.valueSizes[keyID];
+	}
+
+	if ( oldKeyID != (u32)-1 )
+	{
+		keySize -= streamDesc.keySizes[oldKeyID];
+		valueSize -= streamDesc.valueSizes[oldKeyID];
+		memcpy( streamData.keys + oldKeyOffset, streamData.keys + oldKeyOffset + streamDesc.keySizes[oldKeyID], keySize - oldKeyOffset );
+		memcpy( streamData.values + oldValueOffset, streamData.values + oldValueOffset + streamDesc.valueSizes[oldKeyID], valueSize - oldValueOffset );
+			
+		--streamDesc.keyCount;
+		memcpy( streamDesc.keySizes + oldKeyID, streamDesc.keySizes + oldKeyID + 1, streamDesc.keyCount - oldKeyID );
+		memcpy( streamDesc.valueSizes + oldKeyID, streamDesc.valueSizes + oldKeyID + 1, streamDesc.keyCount - oldKeyID );
+	}
+
+	const u32 newKeySize = (u32)strlen( newKey ) + 1u;
+	CodecStreamData_s newStreamData = {};
+	newStreamData.keys = (char*)stack->alloc( keySize + newKeySize );
+	newStreamData.values = (u8*)stack->alloc( valueSize + newValueSize );
+
+	CodecStreamDesc_s newStreamDesc = streamDesc;
+	const u32 newKeyID = streamDesc.keyCount;
+	newStreamDesc.keySizes[newKeyID] = newKeySize;
+	memcpy( newStreamData.keys, streamData.keys, keySize );
+	memcpy( newStreamData.keys + keySize, newKey, newKeySize );
+	newStreamDesc.valueSizes[newKeyID] = newValueSize;
+	memcpy( newStreamData.values, streamData.values, valueSize );
+	memcpy( newStreamData.values + valueSize, newValue, newValueSize );
+	++newStreamDesc.keyCount;
+	
+	CFileWriter fileWriter;
+	if ( !fileWriter.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED | FILE_OPEN_FLAG_EXTEND ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", streamFilename );
+		return false;
+	}
+
+	fileWriter.SetPos( ToX64( 0 ) );
+	return Codec_WriteStreamDesc( &fileWriter, &newStreamDesc, &newStreamData, stack );
 }
 
 END_V6_NAMESPACE

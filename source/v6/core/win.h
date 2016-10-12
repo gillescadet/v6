@@ -11,6 +11,12 @@ BEGIN_V6_NAMESPACE
 
 struct Win_s;
 
+enum WinFlag_e
+{
+	WIN_FLAG_IS_MAIN	= 1 << 0,
+	WIN_FLAG_RESIZABLE	= 1 << 1,
+};
+
 struct KeyEvent_s
 {
 	Win_s*	win;
@@ -36,24 +42,27 @@ struct MouseEvent_s
 
 typedef void (*OnKeyEvent_f)( const KeyEvent_s* keyEvent );
 typedef void (*OnMouseEvent_f)( const MouseEvent_s* mouseEvent );
+typedef void (*OnWindowResized_f)( Win_s* win );
 
 struct Win_s
 {
-	void*			owner;
-	void*			hWnd;
-	OnKeyEvent_f	onKeyEvent;
-	OnMouseEvent_f	onMouseEvent;
-	Vec2i			size;
-	bool			isMain;
-	Vec2i			mouseCursorPos;
-	bool			mouseCaptured;
+	void*				owner;
+	void*				hWnd;
+	OnKeyEvent_f		onKeyEvent;
+	OnMouseEvent_f		onMouseEvent;
+	OnWindowResized_f	onWindowResized;
+	Vec2i				size;
+	bool				isMain;
+	Vec2i				mouseCursorPos;
+	bool				mouseCaptured;
 };
 
 void Win_CaptureMouse( Win_s* win );
-bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int width, int height, bool isMain );
+bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int width, int height, u32 winFlags );
 bool Win_ProcessMessagesAndShouldQuit( Win_s* win );
 void Win_RegisterKeyEvent( Win_s* win, OnKeyEvent_f onKeyEvent );
 void Win_RegisterMouseEvent( Win_s* win, OnMouseEvent_f onMouseEvent );
+void Win_RegisterResizeEvent( Win_s* win, OnWindowResized_f onWindowResized );
 void Win_Release( Win_s* win );
 void Win_ReleaseMouse( Win_s* win );
 void Win_SetTitle( Win_s* win, const char* title );

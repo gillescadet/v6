@@ -15,6 +15,8 @@ struct CommandArgs
 {
 	const char*		streamFilename;
 	const char*		templateFilename;
+	const char*		key;
+	const char*		value;
 	u32				frameOffset;
 	u32				frameCount;
 	u32				playRate;
@@ -46,7 +48,7 @@ void OutputMessage( const char * format, ... )
 
 static void CommandArgs_PrintUsage()
 {
-	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-q COMPRESSION_QUALITY] [-e]\n");
+	V6_MSG( "USAGE1: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-q COMPRESSION_QUALITY] [-e]\n");
 	V6_MSG( "\n");
 	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
 	V6_MSG( " -t RAW_FILENAME_TEMPLATE: Raw filename template. Use a printf like format to describe the raw filename with a variable frame ID.\n");
@@ -55,6 +57,14 @@ static void CommandArgs_PrintUsage()
 	V6_MSG( " -r PLAY_RATE:             Number of frames per second.\n");
 	V6_MSG( " -q COMPRESSION_QUALITY:   Compresion quality. 0: low, 1: high.\n");
 	V6_MSG( " -e:                       Extend (or create if it is not yet existing) the stream file.\n");
+	V6_MSG( "\n");
+	V6_MSG( "\n");
+
+	V6_MSG( "USAGE2: encoder -s STREAM_FILENAME -k KEY_NAME [-v KEY_VALUE]\n");
+	V6_MSG( "\n");
+	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
+	V6_MSG( " -k KEY_NAME:				Name of the key.\n");
+	V6_MSG( " -v VALUE_NAME:			Value of the key to update.\n");
 	V6_MSG( "\n");
 }
 
@@ -95,6 +105,40 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 #if 0
 	commandArgs->extend = true;
 #endif
+
+#if 0
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->key = "title";
+	commandArgs->value = "Les vacances a la plage a St-Tropez";
+#endif
+
+#if 0
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->key = "title2";
+	commandArgs->value = "Les vacances a la plage a Maurice";
+#endif
+
+#if 0
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->key = "title3";
+	commandArgs->value = "Les vacances a la plage a Paris";
+#endif
+
+#if 0
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->key = "icon";
+	commandArgs->value = "D:/media/image/test.tga";
+#endif
+
+#if 0
+	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
+	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
+	commandArgs->key = "title";
+#endif
 }
 
 static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** argv )
@@ -127,6 +171,15 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 				break;
 			case 'e':
 				commandArgs->extend = true;
+				break;
+			case 'k':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -k should be followed by the key.\n" );
+					return false;
+				}
+				commandArgs->key = argv[argID+1];
+				++argID;
 				break;
 			case 'o':
 				if ( isLast )
@@ -167,10 +220,19 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 			case 't':
 				if ( isLast )
 				{
-					V6_ERROR( "Command -t should be followed by the raw filename template .\n" );
+					V6_ERROR( "Command -t should be followed by the raw filename template.\n" );
 					return false;
 				}
 				commandArgs->templateFilename = argv[argID+1];
+				++argID;
+				break;
+			case 'v':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -v should be followed by the value.\n" );
+					return false;
+				}
+				commandArgs->value = argv[argID+1];
 				++argID;
 				break;
 			default:
@@ -184,6 +246,15 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 	{
 		V6_ERROR( "Missing -s command to specify a stream filename.\n" );
 		return false;
+	}
+
+	if ( commandArgs->key != nullptr )
+	{
+		V6_MSG( "Stream filename: %s\n", commandArgs->streamFilename );
+		V6_MSG( "Key: %s\n", commandArgs->key );
+		if ( commandArgs->value )
+			V6_MSG( "Value: %s\n", commandArgs->value );
+		return true;
 	}
 
 	if ( commandArgs->templateFilename == nullptr )
@@ -221,33 +292,39 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 	return true;
 }
 
-//----------------------------------------------------------------------------------------------------
-
-END_V6_NAMESPACE
-
-int main( int argc, const char** argv )
+int Main_HandleKey( const CommandArgs* commandArgs, IAllocator* heap )
 {
-	V6_MSG( "Encoder 0.0\n\n" );
-
-#if 1
-	v6::CHeap heap;
-
-	v6::CommandArgs commandArgs;
-	v6::CommandArgs_Init( &commandArgs );
-	if ( !v6::CommandArgs_Read( &commandArgs, argc, argv ) )
+	if ( commandArgs->value )
 	{
-		v6::CommandArgs_PrintUsage();
-		return 1;
+		Stack stack( heap, MulMB( 1 ) );
+		if ( !VideoStream_SetKeyValue( commandArgs->streamFilename, commandArgs->key, (u8*)commandArgs->value, (u32)strlen( commandArgs->value ) + 1u, &stack ) )
+			return 1;;
+	}
+	else
+	{
+		u32 valueSize;
+		u8* value = VideoStream_GetKeyValue( &valueSize, commandArgs->streamFilename, commandArgs->key, heap );
+		if ( !value )
+			return 1;
+
+		V6_MSG( "Value: %s\n", value );
+
+		heap->free( value );
 	}
 
-	const v6::u64 startTick = v6::GetTickCount();
+	return 0;
+}
 
-	if ( !v6::VideoStream_Encode( commandArgs.streamFilename, commandArgs.templateFilename, commandArgs.frameOffset, commandArgs.frameCount, commandArgs.playRate, commandArgs.compressionQuality, commandArgs.extend, &heap ) )
+int Main_HandleSequence( const CommandArgs* commandArgs, IAllocator* heap )
+{
+	u64 startTick = GetTickCount();
+
+	if ( !VideoStream_Encode( commandArgs->streamFilename, commandArgs->templateFilename, commandArgs->frameOffset, commandArgs->frameCount, commandArgs->playRate, commandArgs->compressionQuality, commandArgs->extend, heap ) )
 		return 1;
 
-	const v6::u64 endTick = v6::GetTickCount();
+	const u64 endTick = GetTickCount();
 
-	V6_MSG( "Duration: %5.3fs\n", v6::ConvertTicksToSeconds( endTick - startTick ) );
+	V6_MSG( "Duration: %5.3fs\n", ConvertTicksToSeconds( endTick - startTick ) );
 
 #if VALIDATE
 
@@ -255,16 +332,16 @@ int main( int argc, const char** argv )
 
 	V6_MSG( "Validating...\n" );
 
-	v6::VideoStream_s videoStream = {};
+	VideoStream_s videoStream = {};
 	{
-		v6::Stack stack( &heap, v6::MulMB( 50 ) );
-		if ( !v6::VideoStream_Load( &videoStream, streamFilename, &heap, &stack ) )
+		Stack stack( heap, MulMB( 50 ) );
+		if ( !VideoStream_Load( &videoStream, commandArgs->streamFilename, heap, &stack ) )
 			return 1;
 	}
 
-	const bool validated = v6::VideoStream_Validate( &videoStream, templateFilename, frameOffset, &heap );
+	const bool validated = VideoStream_Validate( &videoStream, commandArgs->templateFilename, commandArgs->frameOffset, heap );
 
-	v6::VideoStream_Release( &videoStream, &heap );
+	VideoStream_Release( &videoStream, heap );
 
 	if ( !validated )
 	{
@@ -275,7 +352,28 @@ int main( int argc, const char** argv )
 #endif // #if VALIDATE
 
 	return 0;
-#else
-	return 1;
-#endif
+}
+
+//----------------------------------------------------------------------------------------------------
+
+END_V6_NAMESPACE
+
+int main( int argc, const char** argv )
+{
+	V6_MSG( "Encoder 0.0\n\n" );
+
+	v6::CHeap heap;
+
+	v6::CommandArgs commandArgs;
+	v6::CommandArgs_Init( &commandArgs );
+	if ( !v6::CommandArgs_Read( &commandArgs, argc, argv ) )
+	{
+		v6::CommandArgs_PrintUsage();
+		return 1;
+	}
+
+	if ( commandArgs.key )
+		return Main_HandleKey( &commandArgs, &heap );
+
+	return Main_HandleSequence( &commandArgs, &heap );
 }

@@ -27,7 +27,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -968,6 +968,11 @@ static void Player_OnMouseEvent( const MouseEvent_s* mouseEvent )
 	}
 }
 
+static void Player_OnResizeEvent( Win_s* win )
+{
+	GPUSurfaceContext_Resize( win->size.x, win->size.y );
+}
+
 static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButtons_s leftButtonIsChanged, GamepadButtons_s rightButtonIsChanged )
 {
 	Player_s* player = (Player_s*)gamepad->owner;
@@ -1204,7 +1209,7 @@ static void Player_DrawMetrics( Player_s* player )
 	g_deviceContext->CSSetShader( shaderContext->computes[COMPUTE_FRAMEMETRICS].m_computeShader, nullptr, 0 );
 
 	const Vec2u frameMetricsRTSize = Vec2u_Make( player->mainRenderTargetSet.width - 16, 200 );
-	const Vec2u frameMetricsRTOffset = Vec2u_Make( 8, player->mainRenderTargetSet.height - frameMetricsRTSize.y - 300 - 8 );
+	const Vec2u frameMetricsRTOffset = Vec2u_Make( 8, player->mainRenderTargetSet.height - frameMetricsRTSize.y - 100 - 8 );
 
 	{
 		hlsl::CBFrameMetrics* cbFrameMetrics = (hlsl::CBFrameMetrics*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS] );
@@ -1239,13 +1244,13 @@ static void Player_CopyToSurface( Player_s* player )
 {
 	GPUSurfaceContext_s* surfaceContext = GPUSurfaceContext_Get();
 
-#if V6_STEREO == 1 && V6_ENABLE_MIRRORING == 2
-
 	// set
 
 	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
 
 	g_deviceContext->CSSetConstantBuffers( hlsl::CBComposeSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE].buf );
+
+	g_deviceContext->PSSetSamplers( HLSL_BILINEAR_SLOT, 1, &shaderContext->bilinearSamplerState );
 
 	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[0].srv );
 	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, &player->mainRenderTargetSet.colorBuffers[1].srv );
@@ -1256,16 +1261,31 @@ static void Player_CopyToSurface( Player_s* player )
 	{
 		hlsl::CBCompose* cbCompose = (hlsl::CBCompose*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 		
-		cbCompose->c_composeFrameWidth = player->mainRenderTargetSet.width;
-		cbCompose->c_composeFrameInvSize = Vec2_Make( 1.0f / player->mainRenderTargetSet.width, 1.0f / player->mainRenderTargetSet.height );
+		cbCompose->c_composeSurfaceWidth = player->win.size.x;
+		const float surfaceWoH = (float)player->win.size.x / player->win.size.y;
+		const float frameWoH = (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height;
+		if ( frameWoH > surfaceWoH )
+		{
+			const float scale = (float)player->win.size.x / player->mainRenderTargetSet.width;
+			const float norm = 1.0f / (scale * player->mainRenderTargetSet.height);
+			const float bias = player->win.size.y * norm * 0.5f - 0.5f;
+			cbCompose->c_composeFrameUVBias = Vec2_Make( 0.0f, -bias );
+			cbCompose->c_composeFrameUVScale = Vec2_Make( 1.0f / player->win.size.x, norm );
+		}
+		else
+		{
+			const float scale = (float)player->win.size.y / player->mainRenderTargetSet.height;
+			const float norm = 1.0f / (scale * player->mainRenderTargetSet.width);
+			const float bias = player->win.size.x * norm * 0.5f - 0.5f;
+			cbCompose->c_composeFrameUVBias = Vec2_Make( -bias, 0.0f );
+			cbCompose->c_composeFrameUVScale = Vec2_Make( norm, 1.0f / player->win.size.y );
+		}
 
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 	}
 
-	V6_ASSERT( (player->mainRenderTargetSet.width & 0x7) == 0 );
-	V6_ASSERT( (player->mainRenderTargetSet.height & 0x7) == 0 );
-	const u32 pixelGroupWidth = (player->mainRenderTargetSet.width >> 3) * 2;
-	const u32 pixelGroupHeight = player->mainRenderTargetSet.height >> 3;
+	const u32 pixelGroupWidth = HLSL_GROUP_COUNT( player->win.size.x, 8 ) * EYE_COUNT;
+	const u32 pixelGroupHeight = HLSL_GROUP_COUNT( player->win.size.y, 8 );
 	g_deviceContext->Dispatch( pixelGroupWidth, pixelGroupHeight, 1 );
 
 	// unset
@@ -1273,12 +1293,6 @@ static void Player_CopyToSurface( Player_s* player )
 	g_deviceContext->CSSetShaderResources( HLSL_LCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetShaderResources( HLSL_RCOLOR_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 	g_deviceContext->CSSetUnorderedAccessViews( HLSL_SURFACE_SLOT, 1, (ID3D11UnorderedAccessView**)nulls, nullptr );
-
-#else
-
-	GPUColorRenderTarget_Copy( &surfaceContext->surface, &player->mainRenderTargetSet.colorBuffers[0] );
-
-#endif
 }
 
 static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float averageFPS )
@@ -1475,26 +1489,22 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	V6_MSG( "rt.resolution: %dx%d\n", width, height );
 #endif // #if V6_USE_HMD == 1
 
+	u32 windowWidth = 1280;
 #if V6_ENABLE_MIRRORING == 2
-	const u32 windowWidth = width * EYE_COUNT;
-	const u32 windowHeight = height;
-#elif V6_ENABLE_MIRRORING == 1
-	const u32 windowWidth = width;
-	const u32 windowHeight = height;
-#else
-	const u32 windowWidth = 800;
-	const u32 windowHeight = 600;
+	windowWidth *= EYE_COUNT;
 #endif
+	const u32 windowHeight = 720;
 
 	player->commandLineSize = (u32)-1;
 	player->heap = heap;
 	player->stack = stack;
 
-	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, windowWidth, windowHeight, true ) )
+	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, windowWidth, windowHeight, WIN_FLAG_IS_MAIN | WIN_FLAG_RESIZABLE ) )
 		return false;
 
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
 	Win_RegisterMouseEvent( &player->win, Player_OnMouseEvent );
+	Win_RegisterResizeEvent( &player->win, Player_OnResizeEvent );
 
 	Gamepad_Init( &player->gamepad, 0, player );
 	Gamepad_RegisterButtonEvent( &player->gamepad, Player_OnGamepadButtonEvent );

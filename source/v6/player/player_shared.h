@@ -7,6 +7,8 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
+#define HLSL_BILINEAR_SLOT							0
+
 #define HLSL_FRAME_METRICS_WIDTH					(30 * 75)
 
 #define HLSL_SURFACE_SLOT							0
@@ -22,9 +24,11 @@ CBUFFER( CBBasic, 0 )
 
 CBUFFER( CBCompose, 2 )
 {
-	uint				c_composeFrameWidth;
-	float2				c_composeFrameInvSize;
-	uint				c_composeunused;
+	uint				c_composeSurfaceWidth;
+	uint3				c_composeunused;
+
+	float2				c_composeFrameUVScale;
+	float2				c_composeFrameUVBias;
 };
 
 CBUFFER( CBFrameMetrics, 3 )

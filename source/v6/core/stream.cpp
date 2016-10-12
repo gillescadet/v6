@@ -21,6 +21,21 @@ V6_INLINE LARGE_INTEGER LARGE_INTEGER_MAKE( u64 v )
 
 /// IStreamWriter
 
+void IStreamWriter::WriteZero( u32 count )
+{
+	const u8 bufferOfZeros[256] = {};
+
+	u32 remainingCount = count;
+	while ( remainingCount >= sizeof( bufferOfZeros ) )
+	{
+		this->Write( bufferOfZeros, ToX64( sizeof( bufferOfZeros ) ) );
+		remainingCount -= sizeof( bufferOfZeros );
+	}
+
+	if ( remainingCount )
+		this->Write( bufferOfZeros, ToX64( remainingCount ) );
+}
+
 void IStreamWriter::WriteZeroUntilAligned( u32 alignment )
 {
 	V6_ASSERT( IsPowOfTwo( alignment ) );
@@ -38,6 +53,13 @@ void IStreamWriter::WriteAligned( const void * pData, x64 nSize, u32 alignment )
 	V6_ASSERT( (ToU64( this->GetPos() ) & (alignment-1)) == 0 );
 	this->Write( pData, nSize );
 	this->WriteZeroUntilAligned( alignment );
+}
+
+void IStreamWriter::WriteString( const char* str )
+{
+	this->Write( str, ToX64( strlen( str ) ) );
+	const u8 zero = 0;
+	this->Write( &zero, ToX64( 1 ) );
 }
 
 /// IStreamReader

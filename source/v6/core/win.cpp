@@ -70,6 +70,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 			Win_ReleaseMouse( win );
 		}
 		break;
+
 	case WM_CREATE:
 		{
 			V6_ASSERT( s_windowToRegister );
@@ -80,6 +81,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 			s_windowToRegister = nullptr;
 		}
 		break;
+
 	case WM_DESTROY:
 		{
 			V6_ASSERT( win ); 
@@ -97,6 +99,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 				PostQuitMessage( 0 );
 		}
 		break;
+
 	case WM_INPUT: 
 		{
 			V6_ASSERT( win );
@@ -166,7 +169,16 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 #endif
 				}
 			}
-		} 
+		}
+		break;
+
+	case WM_SIZE:
+		if ( wParam != SIZE_MINIMIZED && win->onWindowResized )
+		{
+			win->size.x = LOWORD( lParam );
+			win->size.y = HIWORD( lParam );
+			win->onWindowResized( win );
+		}
 		break;
 
 	default:
@@ -176,7 +188,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 	return 0;
 }
 
-bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int width, int height, bool isMain )
+bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int width, int height, u32 winFlags )
 {
 	if ( s_windowCount == WINDOW_MAX_COUNT )
 	{
@@ -207,7 +219,9 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		return false;
 	}
 
-	const int style = WS_POPUP | WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	int style = WS_POPUP | WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	if ( winFlags & WIN_FLAG_RESIZABLE )
+		style |= WS_SIZEBOX | WS_MAXIMIZEBOX;
 		
 	RECT rect = { 0, 0, width, height };
 	AdjustWindowRect( &rect, style, false );
@@ -215,7 +229,7 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 
 	win->owner = owner;
 	win->size = Vec2i_Make( width, height );
-	win->isMain = isMain;
+	win->isMain = (winFlags & WIN_FLAG_IS_MAIN) != 0;
 	s_windowToRegister = win;
 
 	HWND hWnd = CreateWindowA(
@@ -273,6 +287,11 @@ void Win_RegisterKeyEvent( Win_s* win, OnKeyEvent_f onKeyEvent )
 void Win_RegisterMouseEvent( Win_s* win, OnMouseEvent_f onMouseEvent )
 {
 	win->onMouseEvent = onMouseEvent;
+}
+
+void Win_RegisterResizeEvent( Win_s* win, OnWindowResized_f onWindowResized )
+{
+	win->onWindowResized = onWindowResized;
 }
 
 void Win_Show( Win_s* win, bool show )

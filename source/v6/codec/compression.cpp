@@ -743,4 +743,80 @@ void Block_UnpackPositions( BitStream_s* bitStreamReader, u32* blockPos, u32 blo
 	}
 }
 
+u32 ImageBlock_Encode_BC1( ImageBlockBC1_s* block, const Color_s* pixels, u32 lineStride )
+{
+	u32 cellRGBA[16];
+	u32 colorID = 0;
+	for ( u32 y = 0; y < 4; ++y )
+	{
+		const u32 xOffset = y * lineStride;
+		for ( u32 x = 0; x < 4; ++x, ++colorID )
+		{
+			const Color_s* pixel = &pixels[xOffset + x];
+			cellRGBA[colorID] = (pixel->r << 24) | (pixel->g << 16) | (pixel->b << 8) | colorID;
+		}
+	}
+
+	EncodedBlockEx_s encodedBlock;
+	const u32 error = Block_Encode_Optimize( &encodedBlock, cellRGBA, 16, 1 );
+
+	block->color0 = encodedBlock.cellEndColors & 0xFFFF;
+	block->color1 = encodedBlock.cellEndColors >> 16;
+	block->bits = (u32)encodedBlock.cellColorIndices[0];
+
+	return error;
+}
+
+void ImageBlock_Decode_BC1( Color_s* pixels, u32 lineStride, const ImageBlockBC1_s* block )
+{
+	// Decode min/max
+
+	Color_s min = {};
+	Color_s max = {};
+
+	max.r = ((block->color0 >> 11) & 0x1F) << 3;
+	max.g = ((block->color0 >>  5) & 0x3F) << 2;
+	max.b = ((block->color0 >>  0) & 0x1F) << 3;
+
+	min.r = ((block->color1 >> 11) & 0x1F) << 3;
+	min.g = ((block->color1 >>  5) & 0x3F) << 2;
+	min.b = ((block->color1 >>  0) & 0x1F) << 3;
+	
+	// Make palette
+
+	Color_s colors[4] = {};
+	
+	colors[0].r = max.r | (max.r >> 5);
+	colors[0].g = max.g | (max.g >> 6);
+	colors[0].b = max.b | (max.b >> 5);
+	
+	colors[1].r = min.r | (min.r >> 5);
+	colors[1].g = min.g | (min.g >> 6);
+	colors[1].b = min.b | (min.b >> 5);
+	
+	colors[2].r = (170 * colors[0].r + 85 * colors[1].r) >> 8;
+	colors[2].g = (170 * colors[0].g + 85 * colors[1].g) >> 8;
+	colors[2].b = (170 * colors[0].b + 85 * colors[1].b) >> 8;
+	
+	colors[3].r = (85 * colors[0].r + 170 * colors[1].r) >> 8;
+	colors[3].g = (85 * colors[0].g + 170 * colors[1].g) >> 8;
+	colors[3].b = (85 * colors[0].b + 170 * colors[1].b) >> 8;
+
+	// Decode bits
+
+	u32 shift = 0;
+	
+	for ( u32 y = 0; y < 4; ++y )
+	{
+		const u32 xOffset = y * lineStride;
+		for ( u32 x = 0; x < 4; ++x )
+		{
+			const u32 colorID = (block->bits >> shift) & 3;
+			pixels[xOffset + x] = colors[colorID];
+			shift += 2;
+		}
+	}
+}
+
+
 END_V6_NAMESPACE

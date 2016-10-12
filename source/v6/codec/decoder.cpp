@@ -127,7 +127,8 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 
 static bool VideoStream_LoadInternal( VideoStream_s* stream, IStreamReader* streamReader, IAllocator* allocator, IStack* stack )
 {
-	if ( !Codec_ReadStreamDesc( streamReader, &stream->desc ) )
+	stream->buffer = Codec_ReadStreamDesc( streamReader, &stream->desc, &stream->data, allocator );
+	if ( !stream->buffer )
 		return false;
 
 	stream->sequences = allocator->newArray< VideoSequence_s >( stream->desc.sequenceCount );
@@ -410,10 +411,10 @@ bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* stream
 	if ( !fileReader.Open( streamFilename, 0 ) )
 	{
 		V6_ERROR( "Unable to open file %s\n", streamFilename );
-		return false;
+		return nullptr;
 	}
 
-	return Codec_ReadStreamDesc( &fileReader, streamDesc );
+	return Codec_ReadStreamDesc( &fileReader, streamDesc, nullptr, nullptr ) != nullptr;
 }
 
 void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator )
@@ -422,6 +423,7 @@ void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator )
 		VideoSequence_Release( &stream->sequences[sequenceID], allocator );
 	allocator->deleteArray( stream->sequences );
 	allocator->deleteArray( stream->frameOffets );
+	allocator->free( stream->buffer );
 	memset( stream, 0, sizeof( *stream ) );
 }
 

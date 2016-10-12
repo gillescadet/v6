@@ -22,6 +22,8 @@ public:
 	virtual void	SetPos( x64 pos ) = 0;
 	virtual void	Write( const void * pData, x64 nSize ) = 0;
 	void			WriteAligned( const void * pData, x64 nSize, u32 alignment );
+	void			WriteString( const char* str );
+	void			WriteZero( u32 count );
 	void			WriteZeroUntilAligned( u32 alignment );
 };
 

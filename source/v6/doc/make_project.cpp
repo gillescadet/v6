@@ -327,6 +327,7 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/codec/decoder.cpp",							PROJECT_ENCODER },
 	{ "source/v6/codec/encoder.cpp",							PROJECT_ENCODER },
 	{ "source/v6/core/filesystem.cpp",							PROJECT_ENCODER },
+	{ "source/v6/core/image.cpp",								PROJECT_ENCODER },
 	{ "source/v6/core/memory.cpp",								PROJECT_ENCODER },
 	{ "source/v6/core/optimization.cpp",						PROJECT_ENCODER },
 	{ "source/v6/core/plot.cpp",								PROJECT_ENCODER },

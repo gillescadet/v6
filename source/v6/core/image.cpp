@@ -2,6 +2,7 @@
 
 #include <v6/core/common.h>
 
+#include <v6/codec/compression.h>
 #include <v6/core/color.h>
 #include <v6/core/image.h>
 #include <v6/core/memory.h>
@@ -73,17 +74,45 @@ struct TgaHeader_s
 
 #pragma pack(pop)
 
-void Image_Create( Image_s* image, IAllocator* heap, u32 width, u32 height )
+void Image_Create( Image_s* image, IAllocator* allocator, u32 width, u32 height )
 {
-	image->heap = heap;
+	image->allocator = allocator;
 	image->width = width;
 	image->height = height;
-	image->pixels = heap->newArray< Color_s >( width * height );
+	image->pixels = allocator->newArray< Color_s >( width * height );
 }
 
 void Image_Clear( Image_s* image )
 {
 	memset( image->pixels, 0, Image_GetSize( image ) );
+}
+
+void Image_DownScaleBy2( Image_s* imageDown, const Image_s* imageUp )
+{
+	V6_ASSERT( imageDown->width * 2 == imageUp->width );
+	V6_ASSERT( imageDown->height * 2 == imageUp->height );
+
+	for ( u32 yDown = 0; yDown < imageDown->height; ++yDown )
+	{
+		const u32 xOffsetDown = yDown * imageDown->width;
+		const u32 xOffsetUp0 = (yDown * 2) * imageUp->width;
+		const u32 xOffsetUp1 = xOffsetUp0 + imageUp->width;
+		for ( u32 xDown = 0; xDown < imageDown->width; ++xDown )
+		{
+			const u32 xUp = xDown * 2;
+			const Color_s sample00 = imageUp->pixels[xOffsetUp0 + xUp + 0];
+			const Color_s sample01 = imageUp->pixels[xOffsetUp0 + xUp + 1];
+			const Color_s sample10 = imageUp->pixels[xOffsetUp1 + xUp + 0];
+			const Color_s sample11 = imageUp->pixels[xOffsetUp1 + xUp + 1];
+			
+			Color_s colorDown;
+			colorDown.r = (sample00.r + sample01.r + sample10.r + sample11.r) >> 2;
+			colorDown.g = (sample00.g + sample01.g + sample10.g + sample11.g) >> 2;
+			colorDown.b = (sample00.b + sample01.b + sample10.b + sample11.b) >> 2;
+			colorDown.a = (sample00.a + sample01.a + sample10.a + sample11.a) >> 2;
+			imageDown->pixels[xOffsetDown + xDown] = colorDown;
+		}
+	}
 }
 
 u32	Image_GetSize( Image_s* image )
@@ -93,7 +122,7 @@ u32	Image_GetSize( Image_s* image )
 
 void Image_Release( Image_s* image )
 {
-	image->heap->free( image->pixels );
+	image->allocator->free( image->pixels );
 }
 
 void Image_WriteBitmap( Image_s* image, IStreamWriter* stream )
@@ -248,15 +277,15 @@ bool Image_ReadTga( Image_s* image, IStreamReader* reader, IAllocator* allocator
 
 CImage::CImage(IAllocator & oHeap, int nWidth, int nHeight)
 {
-	heap = &oHeap;
+	allocator = &oHeap;
 	width = nWidth;
 	height = nHeight;
-	pixels = (Color_s *)heap->alloc(GetSize());
+	pixels = (Color_s *)allocator->alloc(GetSize());
 }
 
 CImage::~CImage()
 {
-	heap->free( pixels );
+	allocator->free( pixels );
 }
 
 void CImage::WriteBitmap( IStreamWriter& oStream )
@@ -289,6 +318,73 @@ void CImage::WriteBitmap( IStreamWriter& oStream )
 	oStream.Write(&bfh, ToX64( sizeof( SBitmapFileHeader ) ) );
 	oStream.Write(&bh, ToX64( sizeof( SBitmapHeader ) ) );
 	oStream.Write( pixels, ToX64( bh.SizeImage ) );
+}
+
+void ImageBC1_CreateWithData( ImageBC1_s* imageBC1, ImageBlockBC1_s* blocks, u32 width, u32 height )
+{
+	V6_ASSERT( width > 0 && (width & 3) == 0 );
+	V6_ASSERT( height > 0 && (height & 3) == 0 );
+	
+	imageBC1->allocator = nullptr;
+	imageBC1->width = width;
+	imageBC1->height = height;
+	imageBC1->blocks = blocks;
+}
+
+void ImageBC1_Create( ImageBC1_s* imageBC1, IAllocator* allocator, u32 width, u32 height )
+{
+	ImageBlockBC1_s* blocks = allocator->newArray< ImageBlockBC1_s >( (width>>2) * (height>>2) );
+	ImageBC1_CreateWithData( imageBC1, blocks, width, height );
+	imageBC1->allocator = allocator;
+}
+
+void ImageBC1_Encode( ImageBC1_s* imageBC1, const Image_s* image )
+{
+	V6_ASSERT( imageBC1->width == image->width );
+	V6_ASSERT( imageBC1->height == image->height );
+
+	ImageBlockBC1_s* block = imageBC1->blocks;
+	for ( u32 y = 0; y < image->height; y += 4 )
+	{
+		const u32 xOffset = y * image->width;
+		for ( u32 x = 0; x < image->width; x += 4, ++block )
+			ImageBlock_Encode_BC1( block, &image->pixels[xOffset + x], image->width );
+	}
+}
+
+void ImageBC1_Decode( Image_s* image, const ImageBC1_s* imageBC1 )
+{
+	V6_ASSERT( imageBC1->width == image->width );
+	V6_ASSERT( imageBC1->height == image->height );
+
+	const ImageBlockBC1_s* block = imageBC1->blocks;
+	for ( u32 y = 0; y < image->height; y += 4 )
+	{
+		const u32 xOffset = y * image->width;
+		for ( u32 x = 0; x < image->width; x += 4, ++block )
+			ImageBlock_Decode_BC1( &image->pixels[xOffset + x], image->width, block );
+	}
+}
+
+void ImageBC1_Release( ImageBC1_s* imageBC1 )
+{
+	if ( imageBC1->allocator )
+		imageBC1->allocator->free( imageBC1->blocks );
+}
+
+u32	ImageBC1_GetBlockCountFromDimension( u32 w, u32 h )
+{
+	return (w >> 2) * (h >> 2);
+}
+
+u32	ImageBC1_GetSizeFromDimension( u32 w, u32 h )
+{
+	return ImageBC1_GetBlockCountFromDimension( w, h ) * 8;
+}
+
+u32 ImageBC1_GetSize( const ImageBC1_s* imageBC1 )
+{
+	return ImageBC1_GetSizeFromDimension( imageBC1->width, imageBC1->height );
 }
 
 END_V6_NAMESPACE

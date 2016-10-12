@@ -243,6 +243,7 @@ struct GPUShaderContext_s
 	GPUShader_s						shaders[SHADER_MAX_COUNT];
 	GPUBuffer_s						buffers[BUFFER_MAX_COUNT];
 
+	ID3D11SamplerState*				bilinearSamplerState;
 	ID3D11SamplerState*				trilinearSamplerState;
 
 	bool							initialized;
@@ -349,6 +350,7 @@ void						GPUShaderContext_Release();
 
 GPUSurfaceContext_s*		GPUSurfaceContext_Get();
 void						GPUSurfaceContext_Present();
+void						GPUSurfaceContext_Resize( u32 width, u32 height );
 
 void						GPUTexture2D_Create( GPUTexture2D_s* tex, u32 width, u32 height, Color_s* pixels, bool mipmap, const char* name );
 void						GPUTexture2D_CreateCompressed( GPUTexture2D_s* tex, u32 width, u32 height, void* compressedData, bool mipmap, const char* name );

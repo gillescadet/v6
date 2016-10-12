@@ -8,6 +8,7 @@
 BEGIN_V6_NAMESPACE
 
 struct BitStream_s;
+struct Color_s;
 
 struct EncodedBlock_s
 {
@@ -23,6 +24,13 @@ struct EncodedBlockEx_s
 	u64	cellColorIndices[2];
 };
 
+struct ImageBlockBC1_s
+{
+	u16 color0;
+	u16 color1;
+	u32 bits;
+};
+
 void	Block_Decode( u32 cellRGBA[64], u32* cellCount, const EncodedBlockEx_s* encodedBlock );
 u32		Block_Encode_BoundingBox( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount );
 u32		Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[64], u32 cellCount, u32 quality );
@@ -30,6 +38,9 @@ u32		Block_Encode_Optimize( EncodedBlockEx_s* encodedBlock, const u32 cellRGBA[6
 u32		Block_ComputeBufferMaxSizeForPackingPositions( u32 blockCount );
 void	Block_PackPositions( BitStream_s* bitStreamWriter, const u32* blockPos, u32 blockCount );
 void	Block_UnpackPositions( BitStream_s* bitStreamReader, u32* blockPos, u32 blockCount );
+
+void	ImageBlock_Decode_BC1( Color_s* pixels, u32 lineStride, const ImageBlockBC1_s* block );
+u32		ImageBlock_Encode_BC1( ImageBlockBC1_s* block, const Color_s* pixels, u32 lineStride );
 
 #if 0
 

@@ -19,17 +19,12 @@
 
 BEGIN_V6_NAMESPACE
 
-struct __CodecStreamHeader_s
+struct CodecStreamHeader_s
 {
 	char					magic[4];
 	u32						version;
 	u64						size;
 	CodecStreamDesc_s		desc;
-};
-
-V6_ALIGN( CODEC_CLUSTER_SIZE ) struct CodecStreamHeader_s : __CodecStreamHeader_s
-{
-	char					pad[CODEC_CLUSTER_SIZE - sizeof( __CodecStreamHeader_s ) ];
 };
 
 struct __CodecSequenceHeader_s
@@ -165,44 +160,95 @@ u32 Codec_GetMipCount( float gridScaleMin, float gridScaleMax )
 	return 1 + u32( ceil( log2f( gridScaleMax / gridScaleMin ) ) );
 }
 
-bool Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc )
+void* Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc, CodecStreamData_s* data, IAllocator* allocator )
 {
 	const u64 beginPos = ToU64( streamReader->GetPos() );
 	V6_ASSERT( Codec_IsAlignedToClusterSize( beginPos ) );
 
-	CodecStreamHeader_s streamHeader = {};
-
-	if ( ToU64( streamReader->GetRemaining() ) < sizeof( streamHeader ) )
+	if ( ToU64( streamReader->GetRemaining() ) < CODEC_STREAM_HEADER_SIZE )
 	{
 		V6_ERROR( "Stream is too small to contain the stream header.\n" );
-		return false;
+		return nullptr;
 	}
 
-	Codec_AlignedRead( streamReader, sizeof( streamHeader ), &streamHeader );
+	V6_ASSERT( sizeof( CodecStreamHeader_s ) <= CODEC_CLUSTER_SIZE );
+
+	V6_ALIGN( CODEC_CLUSTER_SIZE ) u8 bufferStack[CODEC_CLUSTER_SIZE];
+	void* buffer = nullptr;
+	u8* chunkBegin;
+	
+	if ( data )
+	{
+		chunkBegin = (u8*)Codec_AllocToClusterSizeAndFillPaddingWithZero( &buffer, CODEC_STREAM_HEADER_SIZE, allocator );
+		Codec_AlignedRead( streamReader, CODEC_STREAM_HEADER_SIZE, chunkBegin );
+	}
+	else
+	{
+		chunkBegin = bufferStack;
+		Codec_AlignedRead( streamReader, CODEC_CLUSTER_SIZE, chunkBegin );
+	}
+
+	u8* chunk = chunkBegin;
+
+	CodecStreamHeader_s streamHeader = {};
+
+	memcpy( &streamHeader, chunk, sizeof( streamHeader ) );
+	chunk += sizeof( streamHeader );
 
 	if ( memcmp( streamHeader.magic, CODEC_STREAM_MAGIC, 4 ) != 0 )
 	{
 		V6_ERROR( "Invalid magic '%c%c%c%c' for stream header.\n", streamHeader.magic[0], streamHeader.magic[1], streamHeader.magic[2], streamHeader.magic[3] );
-		return false;
+		goto clean_up;
 	}
 
 	if ( streamHeader.version != CODEC_STREAM_VERSION )
 	{
 		V6_ERROR( "Incompatible version %d for stream header.\n", streamHeader.version );
-		return false;
+		goto clean_up;
 	}
 
-	if ( streamHeader.size != sizeof( streamHeader ) )
+	if ( streamHeader.size != CODEC_STREAM_HEADER_SIZE )
 	{
 		V6_ERROR( "Bad file size of %d bytes for stream header.\n", streamHeader.size );
-		return false;
+		goto clean_up;
 	}
-
-	memcpy( desc, &streamHeader.desc, sizeof( streamHeader.desc ) );
 
 	V6_ASSERT( ToU64( streamReader->GetPos() ) - beginPos == streamHeader.size );
 
-	return true;
+	memcpy( desc, &streamHeader.desc, sizeof( streamHeader.desc ) );
+
+	if ( !data )
+		return (void*)1;
+
+	u32 keySize = 0;
+	u32 valueSize = 0;
+	for ( u32 keyID = 0; keyID < desc->keyCount; ++keyID )
+	{
+		keySize += desc->keySizes[keyID];
+		valueSize += desc->valueSizes[keyID];
+	}
+
+	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + keySize + valueSize;
+
+	if ( bufferSize > CODEC_STREAM_HEADER_SIZE )
+	{
+		V6_ERROR( "Stream header size of %d KB is bigger than the limit of %d KB.\n", DivKB( bufferSize ), DivKB( CODEC_STREAM_HEADER_SIZE ) );
+		goto clean_up;
+	}
+
+	data->keys = (char*)chunk;
+	chunk += keySize;
+	
+	data->values = chunk;
+	chunk += valueSize;
+
+	V6_ASSERT( chunk - chunkBegin == bufferSize );
+
+	return buffer;
+
+clean_up:
+	allocator->free( buffer );
+	return nullptr;
 }
 
 bool Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* desc, u32 sequenceID )
@@ -250,21 +296,56 @@ bool Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* d
 	return true;
 }
 
-void Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc )
+bool Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s* desc, const CodecStreamData_s* data, IStack* stack )
 {
 	const u64 beginPos = ToU64( streamWriter->GetPos() );
 	V6_ASSERT( Codec_IsAlignedToClusterSize( beginPos ) );
 
+	u32 keySize = 0;
+	u32 valueSize = 0;
+	for ( u32 keyID = 0; keyID < desc->keyCount; ++keyID )
+	{
+		keySize += desc->keySizes[keyID];
+		valueSize += desc->valueSizes[keyID];
+	}
+
+	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + keySize + valueSize;
+
+	if ( bufferSize > CODEC_STREAM_HEADER_SIZE )
+	{
+		V6_ERROR( "Stream header size of %d KB is bigger than the limit of %d KB.\n", DivKB( bufferSize ), DivKB( CODEC_STREAM_HEADER_SIZE ) );
+		return false;
+	}
+
 	CodecStreamHeader_s streamHeader = {};
 	memcpy( streamHeader.magic, CODEC_STREAM_MAGIC, 4 );
 	streamHeader.version = CODEC_STREAM_VERSION;
-	streamHeader.size = sizeof( streamHeader );
+	streamHeader.size = CODEC_STREAM_HEADER_SIZE;
 	V6_ASSERT( Codec_IsAlignedToClusterSize( streamHeader.size ) );
 	memcpy( &streamHeader.desc, desc, sizeof( streamHeader.desc ) );
 
-	Codec_AlignedWrite( streamWriter, &streamHeader, sizeof( streamHeader ) );
+	ScopedStack scopedStack( stack );
+
+	CBufferWriter chunkWriter( Codec_AllocToClusterSizeAndFillPaddingWithZero( nullptr, CODEC_STREAM_HEADER_SIZE, stack ), ToX64( CODEC_STREAM_HEADER_SIZE ) );
+
+	chunkWriter.Write( &streamHeader, ToX64( sizeof( CodecStreamHeader_s ) ) );
+	if ( data )
+	{
+		chunkWriter.Write( data->keys, ToX64( keySize ) );
+		chunkWriter.Write( data->values, ToX64( valueSize ) );
+	}
+
+	V6_ASSERT( ToU64( chunkWriter.GetPos() ) == bufferSize );
+
+	chunkWriter.WriteZero( CODEC_STREAM_HEADER_SIZE - bufferSize );
+
+	V6_ASSERT( ToU64( chunkWriter.GetPos() ) == CODEC_STREAM_HEADER_SIZE );
+
+	Codec_AlignedWrite( streamWriter, chunkWriter.GetBuffer(), CODEC_STREAM_HEADER_SIZE );
 
 	V6_ASSERT( ToU64( streamWriter->GetPos() ) - beginPos == streamHeader.size );
+
+	return true;
 }
 
 void Codec_WriteSequenceDesc( IStreamWriter* streamWriter, const CodecSequenceDesc_s* desc )

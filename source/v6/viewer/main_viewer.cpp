@@ -41,8 +41,8 @@
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
-#define V6_LOAD_EXTERNAL		1
-#define V6_SIMPLE_SCENE			0
+#define V6_LOAD_EXTERNAL		0
+#define V6_SIMPLE_SCENE			1
 #define V6_USE_ALPHA_COVERAGE	1
 #define V6_STEREO				0
 #define V6_ENABLE_HMD			0
@@ -61,7 +61,7 @@ extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_deviceContext;
 
 static const u32	MOVING_POINT_OF_VIEW			= 0;
-static const u32	RENDERTARGET_WIDTH				= 1024;
+static const u32	RENDERTARGET_WIDTH				= 256;
 static const u32	SAMPLING_WIDTH					= RENDERTARGET_WIDTH << 1;
 static const u32	GRID_WIDTH						= MOVING_POINT_OF_VIEW ? SAMPLING_WIDTH : ((u32)(RENDERTARGET_WIDTH * 1.2f) & ~7);
 static const float	GRID_MIN_SCALE					= 20.0f;
@@ -2261,7 +2261,7 @@ int main()
 
 	const char* const title = "V6";
 
-	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, true ) )
+	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, v6::WIN_FLAG_IS_MAIN ) )
 		return 1;
 
 	v6::CRenderingDevice oRenderingDevice;
