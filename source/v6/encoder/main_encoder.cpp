@@ -294,22 +294,27 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 
 int Main_HandleKey( const CommandArgs* commandArgs, IAllocator* heap )
 {
+	Stack stack( heap, MulMB( 1 ) );
+
 	if ( commandArgs->value )
 	{
-		Stack stack( heap, MulMB( 1 ) );
 		if ( !VideoStream_SetKeyValue( commandArgs->streamFilename, commandArgs->key, (u8*)commandArgs->value, (u32)strlen( commandArgs->value ) + 1u, &stack ) )
 			return 1;;
 	}
 	else
 	{
+		CodecStreamDesc_s streamDesc;
+		CodecStreamData_s streamData;
+
+		if ( !VideoStream_LoadDescAndData( commandArgs->streamFilename, &streamDesc, &streamData, &stack ) )
+			return 1;
+
 		u32 valueSize;
-		u8* value = VideoStream_GetKeyValue( &valueSize, commandArgs->streamFilename, commandArgs->key, heap );
+		u8* value = VideoStream_GetKeyValue( &valueSize, &streamDesc, &streamData, commandArgs->key, &stack );
 		if ( !value )
 			return 1;
 
 		V6_MSG( "Value: %s\n", value );
-
-		heap->free( value );
 	}
 
 	return 0;

@@ -17,8 +17,6 @@ void	VideoStream_CancelEncodingInSeparateProcess( Process_s* process );
 bool	VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend, IAllocator* heap );
 bool	VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend );
 void	VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frameOffset, u32 frameCount );
-u8*		VideoStream_GetKeyValue( u32* valueSize, const char* streamFilename, const char* key, IAllocator* allocator );
-u32		VideoStream_GetKeyCount( const char* streamFilename );
 bool	VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend );
 bool	VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, const u8* newValue, u32 newValueSize, IStack* stack );
 bool	VideoStream_WaitEncodingInSeparateProcess( Process_s* process );

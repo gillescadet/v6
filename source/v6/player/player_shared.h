@@ -8,6 +8,7 @@
 BEGIN_V6_HLSL_NAMESPACE
 
 #define HLSL_BILINEAR_SLOT							0
+#define HLSL_TRILINEAR_SLOT							1
 
 #define HLSL_FRAME_METRICS_WIDTH					(30 * 75)
 
@@ -16,10 +17,20 @@ BEGIN_V6_HLSL_NAMESPACE
 #define HLSL_RCOLOR_SLOT							2
 #define HLSL_FRAME_METRICS_SLOT						4
 
+#define HLSL_LIST_ALBEDO_SLOT						0
+
 CBUFFER( CBBasic, 0 )
 {
 	row_major	matrix	c_basicObjectToView;
 	row_major	matrix	c_basicViewToProj;
+};
+
+CBUFFER( CBList, 1 )
+{
+	float2				c_listScreenInvSize;
+	float2				c_listUnused;
+	float4				c_listPosAndScale;
+	float4				c_listColor;
 };
 
 CBUFFER( CBCompose, 2 )
@@ -29,6 +40,9 @@ CBUFFER( CBCompose, 2 )
 
 	float2				c_composeFrameUVScale;
 	float2				c_composeFrameUVBias;
+
+	float4				c_composeBackColor;
+	float4				c_composeBorderColor;
 };
 
 CBUFFER( CBFrameMetrics, 3 )

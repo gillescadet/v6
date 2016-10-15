@@ -1488,7 +1488,7 @@ void GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCoun
 
 void GPUMesh_CreateQuad( GPUMesh_s* mesh, const Color_s color )
 {
-	const BasicVertex_s vertices[8] = 
+	const BasicVertex_s vertices[4] = 
 	{
 		{ Vec3_Make( -1.0f, -1.0f, 0.0f ), color },
 		{ Vec3_Make(  1.0f, -1.0f, 0.0f ), color },
@@ -1641,13 +1641,30 @@ void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPU
 {
 	memset( renderTargetSet, 0, sizeof(*renderTargetSet) );
 
-	GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[0], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( desc->stereo ? "%sLeftColor" : "%sColor", desc->name ) );
+	if ( desc->reuseColorRenderTargets[0].tex )
+	{
+		renderTargetSet->colorBuffers[0] = desc->reuseColorRenderTargets[0];
+	}
+	else
+	{
+		GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[0], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( desc->stereo ? "%sLeftColor" : "%sColor", desc->name ) );
+		renderTargetSet->ownColors[0] = true;
+	}
+
 	renderTargetSet->width = desc->width;
 	renderTargetSet->height = desc->height;
 
 	if ( desc->stereo )
 	{
-		GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[1], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( "%sRightColor", desc->name ) );
+		if ( desc->reuseColorRenderTargets[1].tex )
+		{
+			renderTargetSet->colorBuffers[1] = desc->reuseColorRenderTargets[1];
+		}
+		else
+		{
+			GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[1], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( "%sRightColor", desc->name ) );
+			renderTargetSet->ownColors[1] = true;
+		}
 		renderTargetSet->stereo = true;
 	}
 
@@ -1804,7 +1821,8 @@ void GPURenderTargetSet_Bind( GPURenderTargetSet_s* renderTargetSet, const GPURe
 	// Clear
 	if ( desc->clear )
 	{
-		float const pRGBA[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		const float inv255 = 1.0f / 255.0f;;
+		float const pRGBA[] = { desc->clearColor.r * inv255, desc->clearColor.g * inv255, desc->clearColor.b * inv255, desc->clearColor.a * inv255 };
 		if ( desc->useMSAA )
 		{
 			g_deviceContext->ClearRenderTargetView( renderTargetSet->colorBufferMSAA.rtv, pRGBA );
@@ -1831,8 +1849,9 @@ void GPURenderTargetSet_Unbind( GPURenderTargetSet_s* renderTargetSet )
 
 void GPURenderTargetSet_Release( GPURenderTargetSet_s* renderTargetSet )
 {
+	if ( renderTargetSet->ownColors[0] )
 	GPUColorRenderTarget_Release( &renderTargetSet->colorBuffers[0] );
-	if ( renderTargetSet->stereo )
+	if ( renderTargetSet->stereo && renderTargetSet->ownColors[1] )
 		GPUColorRenderTarget_Release( &renderTargetSet->colorBuffers[1] );
 	GPUDepthRenderTarget_Release( &renderTargetSet->depthBuffer );
 
@@ -1925,7 +1944,7 @@ void GPUShaderContext_Release()
 	memset( &s_shaderContext, 0, sizeof( GPUShaderContext_s ) );
 }
 
-static void GPUSurfaceContext_CreateFrontBuffers()
+static void GPUSurfaceContext_CreateColorRenderTarget()
 {
 	V6_ASSERT( s_surfaceContext.initialized );
 
@@ -1934,7 +1953,7 @@ static void GPUSurfaceContext_CreateFrontBuffers()
 	V6_ASSERT_D3D11( g_device->CreateUnorderedAccessView( s_surfaceContext.surface.tex, 0, &s_surfaceContext.surface.uav ) );
 }
 
-static void GPUSurfaceContext_ReleaseFrontBuffers()
+static void GPUSurfaceContext_ReleaseColorRenderTarget()
 {
 	V6_ASSERT( s_surfaceContext.initialized );
 
@@ -1965,11 +1984,11 @@ void GPUSurfaceContext_Resize( u32 width, u32 height )
 {
 	V6_ASSERT( s_surfaceContext.initialized );
 	
-	GPUSurfaceContext_ReleaseFrontBuffers();
+	GPUSurfaceContext_ReleaseColorRenderTarget();
 	
 	V6_ASSERT_D3D11( s_surfaceContext.swapChain->ResizeBuffers( 0, width, height, DXGI_FORMAT_UNKNOWN, 0 ) );
 
-	GPUSurfaceContext_CreateFrontBuffers();
+	GPUSurfaceContext_CreateColorRenderTarget();
 }
 
 ID3D11Device* GPUDevice_Get()
@@ -2050,7 +2069,7 @@ void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool
 
 	s_surfaceContext.initialized = true;
 
-	GPUSurfaceContext_CreateFrontBuffers();
+	GPUSurfaceContext_CreateColorRenderTarget();
 }
 
 void GPUDevice_Release()
@@ -2061,7 +2080,7 @@ void GPUDevice_Release()
 	{
 		g_deviceContext->ClearState();
 
-		GPUSurfaceContext_ReleaseFrontBuffers();
+		GPUSurfaceContext_ReleaseColorRenderTarget();
 		V6_RELEASE_D3D11( s_surfaceContext.swapChain );
 		memset( &s_surfaceContext, 0, sizeof( s_surfaceContext ) );
 	}

@@ -2018,66 +2018,6 @@ void VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frame
 	}
 }
 
-u32 VideoStream_GetKeyCount( const char* streamFilename )
-{
-	CFileReader fileReader;
-	if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
-	{
-		V6_ERROR( "Unable to open %s.\n", streamFilename );
-		return 0;
-	}
-
-	CodecStreamDesc_s streamDesc = {};
-	if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, nullptr, nullptr ) == nullptr )
-	{
-		V6_ERROR( "Unable to read %s.\n", streamFilename );
-		return 0;
-	}
-
-	return streamDesc.keyCount;
-}
-
-u8* VideoStream_GetKeyValue( u32* valueSize, const char* streamFilename, const char* key, IAllocator* allocator )
-{
-	CFileReader fileReader;
-	if ( !fileReader.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
-	{
-		V6_ERROR( "Unable to open %s.\n", streamFilename );
-		return nullptr;
-	}
-
-	Stack stack( allocator, MulMB( 1 ) );
-
-	CodecStreamDesc_s streamDesc = {};
-	CodecStreamData_s streamData = {};
-	if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, &streamData, &stack ) == nullptr )
-	{
-		V6_ERROR( "Unable to read %s.\n", streamFilename );
-		return nullptr;
-	}
-
-	u32 keyOffet = 0;
-	u32 valueOffet = 0;
-	for ( u32 keyID = 0; keyID < streamDesc.keyCount; ++keyID )
-	{
-		if ( _stricmp( key, streamData.keys + keyOffet ) == 0 )
-		{
-			if ( streamDesc.valueSizes[keyID] == 0 )
-				return nullptr;
-
-			u8* value = (u8*)allocator->alloc( streamDesc.valueSizes[keyID] );
-			memcpy( value, streamData.values + valueOffet, streamDesc.valueSizes[keyID] );
-			*valueSize = streamDesc.valueSizes[keyID];
-			return value;
-		}
-		keyOffet += streamDesc.keySizes[keyID];
-		valueOffet += streamDesc.valueSizes[keyID];
-	}
-
-	V6_MSG( "Key %s not found.\n", key );
-	return nullptr;
-}
-
 bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, const u8* newValue, u32 newValueSize, IStack* stack )
 {
 	ScopedStack scopedStack( stack );
@@ -2108,7 +2048,7 @@ bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, co
 			return false;
 		}
 
-		if ( image.width != 256 || image.height != 256 )
+		if ( image.width != CODEC_ICON_WIDTH || image.height != CODEC_ICON_WIDTH )
 		{
 			V6_ERROR( "%s must have a dimension of %dx%d.\n", CODEC_ICON_WIDTH, CODEC_ICON_WIDTH );
 			return false;

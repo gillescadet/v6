@@ -35,7 +35,9 @@ bool	VideoSequence_Load( VideoSequence_s* sequence, IStreamReader* streamReader,
 void	VideoSequence_Release( VideoSequence_s* sequence, IAllocator* allocator );
 
 u32		VideoStream_FindSequenceIDFromFrameID( const VideoStream_s* stream, u32 frameID );
+u8*		VideoStream_GetKeyValue( u32* valueSize, const CodecStreamDesc_s* streamDesc, const CodecStreamData_s* streamData, const char* key, IAllocator* allocator );
 bool	VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* streamDesc );
+void*	VideoStream_LoadDescAndData( const char* streamFilename, CodecStreamDesc_s* streamDesc, CodecStreamData_s* streamData, IAllocator* allocator );
 bool	VideoStream_Load( VideoStream_s* stream, const char* streamFilename, IAllocator* allocator, IStack* stack );
 void	VideoStream_Release( VideoStream_s* stream, IAllocator* allocator );
 bool	VideoStream_Validate( const VideoStream_s* stream, const char* templateFilename, u32 frameOffset, IAllocator* allocator );

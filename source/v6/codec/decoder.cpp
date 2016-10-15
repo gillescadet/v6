@@ -417,6 +417,42 @@ bool VideoStream_LoadDesc( const char* streamFilename, CodecStreamDesc_s* stream
 	return Codec_ReadStreamDesc( &fileReader, streamDesc, nullptr, nullptr ) != nullptr;
 }
 
+void* VideoStream_LoadDescAndData( const char* streamFilename, CodecStreamDesc_s* streamDesc, CodecStreamData_s* streamData, IAllocator* allocator )
+{	
+	CFileReader fileReader;
+	if ( !fileReader.Open( streamFilename, 0 ) )
+	{
+		V6_ERROR( "Unable to open file %s\n", streamFilename );
+		return nullptr;
+	}
+
+	return Codec_ReadStreamDesc( &fileReader, streamDesc, streamData, allocator );
+}
+
+u8* VideoStream_GetKeyValue( u32* valueSize, const CodecStreamDesc_s* streamDesc, const CodecStreamData_s* streamData, const char* key, IAllocator* allocator )
+{
+	u32 keyOffet = 0;
+	u32 valueOffet = 0;
+	for ( u32 keyID = 0; keyID < streamDesc->keyCount; ++keyID )
+	{
+		if ( _stricmp( key, streamData->keys + keyOffet ) == 0 )
+		{
+			if ( streamDesc->valueSizes[keyID] == 0 )
+				return nullptr;
+
+			u8* value = (u8*)allocator->alloc( streamDesc->valueSizes[keyID] );
+			memcpy( value, streamData->values + valueOffet, streamDesc->valueSizes[keyID] );
+			*valueSize = streamDesc->valueSizes[keyID];
+			return value;
+		}
+		keyOffet += streamDesc->keySizes[keyID];
+		valueOffet += streamDesc->valueSizes[keyID];
+	}
+
+	V6_MSG( "Key %s not found.\n", key );
+	return nullptr;
+}
+
 void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator )
 {
 	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )

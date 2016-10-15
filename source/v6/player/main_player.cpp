@@ -40,6 +40,7 @@ static const GPUEventID_t s_gpuEventDraw		= GPUEvent_Register( "Draw", true );
 static const GPUEventID_t s_gpuEventMetrics		= GPUEvent_Register( "Metrics", true );
 static const GPUEventID_t s_gpuEventHMD			= GPUEvent_Register( "HMD", true );
 static const GPUEventID_t s_gpuEventCopy		= GPUEvent_Register( "Copy", true );
+static const GPUEventID_t s_gpuEventList		= GPUEvent_Register( "List", true );
 static const GPUEventID_t s_gpuEventPresent		= GPUEvent_Register( "Present", true );
 
 extern ID3D11Device* g_device;
@@ -57,6 +58,11 @@ static const float IPD						= 6.5f;
 static const u32 EYE_COUNT					= 1;
 static const float IPD						= 0.0f;
 #endif
+static const char* PLAYER_STREAM_ITEM_FOLDER = "media";
+
+static const Color_s V6_DARK_GRAY			= Color_Make(  41,  41,  41, 0 );
+static const Color_s V6_LIGHT_GRAY			= Color_Make( 204, 204, 204, 0 );
+static const Color_s V6_ORANGE				= Color_Make( 226,  73,  27, 0 );
 
 static const u32 s_ouputMessageBufferCount = 3;
 static char s_ouputMessageBuffers[s_ouputMessageBufferCount][4096] = {};
@@ -65,6 +71,7 @@ static u32 s_ouputMessageCount = 0;
 enum
 {
 	CONSTANT_BUFFER_BASIC,
+	CONSTANT_BUFFER_LIST_ITEM,
 	CONSTANT_BUFFER_COMPOSE,
 	CONSTANT_BUFFER_FRAMEMETRICS,
 
@@ -81,6 +88,7 @@ enum
 enum
 {
 	SHADER_BASIC,
+	SHADER_LIST,
 
 	SHADER_COUNT
 };
@@ -91,6 +99,19 @@ enum
 	COMPUTE_FRAMEMETRICS,
 
 	COMPUTE_COUNT
+};
+
+struct StreamItem_s
+{
+	char			filename[256];
+	char			title[256];
+	StreamItem_s*	prev;
+	StreamItem_s*	next;
+	u8*				iconTextureData;
+	u32				iconTextureSize;
+	float			duration;
+	u32				entityID;
+	u32				textureID;
 };
 
 struct FrameInfo_s
@@ -130,6 +151,9 @@ enum CommandAction_e
 	COMMAND_ACTION_LOAD_STREAM,
 	COMMAND_ACTION_UNLOAD_STREAM,
 	
+	COMMAND_ACTION_PREV_ITEM,
+	COMMAND_ACTION_NEXT_ITEM,
+
 	COMMAND_ACTION_PLAY_PAUSE,
 	COMMAND_ACTION_BEGIN_FRAME,
 	COMMAND_ACTION_END_FRAME,
@@ -153,6 +177,12 @@ enum CommandAction_e
 	COMMAND_ACTION_PLAYER_OPTION_SHOW_HMD_PERF_HUD,
 };
 
+enum PlayerState_e
+{
+	PLAYER_STATE_LIST,
+	PLAYER_STATE_STREAM
+};
+
 struct CommandBuffer_s
 {
 	CommandAction_e			action;
@@ -168,17 +198,29 @@ struct PlayerOptions_s
 	u32						showHMDPerfHUD;
 };
 
+struct Player_s;
+
+struct PlayerScene_s : public Scene_s
+{
+	Player_s*				player;
+};
+
 struct Player_s
 {
 	IAllocator*				heap;
 	IStack*					stack;
+	StreamItem_s*			firstStreamItem;
+	StreamItem_s*			selectedStreamItem;
+	BlockAllocator_s		streamItemAllocator;
 	CommandBuffer_s			commandBuffer;
 	Win_s					win;
 	Gamepad_s				gamepad;
-	GPURenderTargetSet_s	mainRenderTargetSet;
+	GPURenderTargetSet_s	winRenderTargetSet;
 	GPURenderTargetSet_s	createdRenderTargetSet;
+	GPURenderTargetSet_s	mainRenderTargetSet;
 	Camera_s				camera;
-	Scene_s					scene;
+	PlayerScene_s			sceneGrid;
+	PlayerScene_s			sceneListView;
 	VideoStream_s			stream;
 	FontContext_s			fontContext;
 	TraceContext_s			traceContext;
@@ -187,6 +229,7 @@ struct Player_s
 	FrameMetrics_s			frameMetrics;
 	float					curFrameID;
 	u32						targetFrameID;
+	PlayerState_e			playerState;
 #if V6_USE_HMD == 1
 	u32						hmdState;
 #endif // #if V6_USE_HMD == 1
@@ -305,28 +348,111 @@ static void PlayerMaterial_DrawBasic( Material_s* material, Entity_s* entity, Sc
 
 //----------------------------------------------------------------------------------------------------
 
+static void PlayerMaterial_DrawList( Material_s* material, Entity_s* entity, Scene_s* scene, const View_s* view, u32 flags )
+{
+	Player_s* player = ((PlayerScene_s*)scene)->player;
+	
+	GPUShaderContext_s* shaderContext = GPUShaderContext_Get();
+
+	hlsl::CBList* cbList = (hlsl::CBList*)GPUConstantBuffer_MapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_LIST_ITEM] );
+
+	const Color_s color = (player->selectedStreamItem && &player->sceneListView.entities[player->selectedStreamItem->entityID] == entity) ? V6_ORANGE : V6_LIGHT_GRAY;
+	const float inv255 = 1.0f / 255.0f;
+
+	cbList->c_listScreenInvSize = Vec2_Make( 1.0f / player->win.size.x, 1.0f / player->win.size.y );
+	cbList->c_listPosAndScale = Vec4_Make( &entity->pos, entity->scale );
+	cbList->c_listColor = Vec4_Make( color.r * inv255, color.g * inv255, color.b * inv255, color.a * inv255 );
+
+	GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_LIST_ITEM] );
+	
+	static const void* nulls[8] = {};
+
+	g_deviceContext->VSSetConstantBuffers( hlsl::CBListSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_LIST_ITEM].buf );
+	g_deviceContext->PSSetConstantBuffers( hlsl::CBListSlot, 1, &shaderContext->constantBuffers[CONSTANT_BUFFER_LIST_ITEM].buf );
+
+	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &shaderContext->trilinearSamplerState );
+
+	if ( material->textureIDs[0] != Material_s::TEXTURE_INVALID )
+	{
+		GPUTexture2D_s* texture = &scene->textures[material->textureIDs[0]];
+		g_deviceContext->PSSetShaderResources( HLSL_LIST_ALBEDO_SLOT, 1, &texture->srv );
+	}
+	else
+	{
+		g_deviceContext->PSSetShaderResources( HLSL_LIST_ALBEDO_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	}
+	
+	GPUMesh_s* mesh = &scene->meshes[entity->meshID];
+	GPUShader_s* shader = &shaderContext->shaders[SHADER_LIST];
+	GPUMesh_Draw( mesh, 1, shader );
+
+	g_deviceContext->PSSetShaderResources( HLSL_LIST_ALBEDO_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+}
+
+//----------------------------------------------------------------------------------------------------
+
 static void PlayerScene_Create( Player_s* player, float tanHalfFovPerPixel )
 {
 	Camera_Create( &player->camera, ZNEAR_DEFAULT, ZFAR_DEFAULT, tanHalfFovPerPixel * player->mainRenderTargetSet.height, (float)player->mainRenderTargetSet.width / player->mainRenderTargetSet.height );
 	
-	Scene_Create( &player->scene );
+	{
+		Scene_Create( &player->sceneGrid );
+		player->sceneGrid.player = player;
 
-	const u32 meshWireFrameBoxID = Scene_GetNewMeshID( &player->scene );
-	GPUMesh_CreateBox( &player->scene.meshes[meshWireFrameBoxID], Color_Make( 255, 255, 255, 255 ), true );
+		const u32 meshWireFrameBoxID = Scene_GetNewMeshID( &player->sceneGrid );
+		GPUMesh_CreateBox( &player->sceneGrid.meshes[meshWireFrameBoxID], Color_Make( 255, 255, 255, 255 ), true );
 
-	const u32 materialBasicID = Scene_GetNewMaterialID( &player->scene );
-	Material_Create( &player->scene.materials[materialBasicID], PlayerMaterial_DrawBasic );
-		
-	const u32 mainBoxID = Scene_GetNewEntityID( &player->scene );
-	Entity_Create( &player->scene.entities[mainBoxID], materialBasicID, meshWireFrameBoxID, Vec3_Make( 0.0f, 0.0f, 0.0f), ZNEAR_DEFAULT * 2.0f );
+		const u32 materialBasicID = Scene_GetNewMaterialID( &player->sceneGrid );
+		Material_Create( &player->sceneGrid.materials[materialBasicID], PlayerMaterial_DrawBasic );
+			
+		const u32 mainBoxID = Scene_GetNewEntityID( &player->sceneGrid );
+		Entity_Create( &player->sceneGrid.entities[mainBoxID], materialBasicID, meshWireFrameBoxID, Vec3_Make( 0.0f, 0.0f, 0.0f), ZNEAR_DEFAULT * 2.0f );
+	}
+
+	{
+		Scene_Create( &player->sceneListView );
+		player->sceneListView.player = player;
+
+		const u32 meshQuadID = Scene_GetNewMeshID( &player->sceneListView );
+	
+		{
+			const struct ItemVertex_s { Vec3 pos; Vec2 uv; } vertices[4] = 
+			{
+				{ Vec3_Make( -1.0f, -1.0f, 0.0f ), Vec2_Make( -0.01f,  1.01f ) },
+				{ Vec3_Make(  1.0f, -1.0f, 0.0f ), Vec2_Make(  1.01f,  1.01f ) },
+				{ Vec3_Make( -1.0f,  1.0f, 0.0f ), Vec2_Make( -0.01f, -0.01f ) },
+				{ Vec3_Make(  1.0f,  1.0f, 0.0f ), Vec2_Make(  1.01f, -0.01f ) },
+			};
+
+			const u16 indices[4] = { 0, 2, 1, 3 };
+
+			GPUMesh_Create( &player->sceneListView.meshes[meshQuadID], vertices, 4, sizeof( ItemVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, indices, 4, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
+		}
+
+		for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
+		{
+			const u32 textureID = Scene_GetNewTextureID( &player->sceneListView );
+			GPUTexture2D_CreateCompressed( &player->sceneListView.textures[textureID], CODEC_ICON_WIDTH, CODEC_ICON_WIDTH, item->iconTextureData, true, "icon" );
+
+			const u32 materialID = Scene_GetNewMaterialID( &player->sceneListView );
+			Material_Create( &player->sceneListView.materials[materialID], PlayerMaterial_DrawList );
+			Material_SetTexture( &player->sceneListView.materials[materialID], textureID, 0 );
+
+			const u32 entityID = Scene_GetNewEntityID( &player->sceneListView );
+			Entity_Create( &player->sceneListView.entities[entityID], materialID, meshQuadID, Vec3_Zero(), CODEC_ICON_WIDTH * 0.5f );
+			item->entityID = entityID;
+		}
+	}
 }
 
 static void PlayerScene_Release( Player_s* player )
 {
-	Scene_Release( &player->scene );
+	Scene_Release( &player->sceneGrid );
+
+	Scene_Release( &player->sceneListView );
 }
 
-static void PlayerScene_Draw( Player_s* player, View_s* views )
+static void PlayerScene_DrawGrid( Player_s* player, View_s* views )
 {
 	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
 	renderTargetSetBindingDesc.clear = true;
@@ -336,11 +462,36 @@ static void PlayerScene_Draw( Player_s* player, View_s* views )
 	{
 		GPURenderTargetSet_Bind( &player->mainRenderTargetSet, &renderTargetSetBindingDesc, eye );
 
-		Scene_Draw( &player->scene, &views[eye], eye );
+		Scene_Draw( &player->sceneGrid, &views[eye], eye );
 
 		GPURenderTargetSet_Unbind( &player->mainRenderTargetSet );
 	}
 }
+
+static void PlayerScene_DrawList( Player_s* player )
+{
+	const float margin = 60.0f;
+	const float base = margin + CODEC_ICON_WIDTH * 0.5f;
+	float x = base;
+
+	for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
+	{
+		player->sceneListView.entities[item->entityID].pos = Vec3_Make( x, base, 0.0f );
+		x += CODEC_ICON_WIDTH + margin;
+	}
+
+	GPURenderTargetSetBindingDesc_s renderTargetSetBindingDesc = {};
+	renderTargetSetBindingDesc.clearColor = Color_Make( 41, 41, 41, 0 );
+	renderTargetSetBindingDesc.clear = true;
+	renderTargetSetBindingDesc.useMSAA = true;
+
+	GPURenderTargetSet_Bind( &player->winRenderTargetSet, &renderTargetSetBindingDesc, 0 );
+
+	Scene_Draw( &player->sceneListView, nullptr, 0 );
+
+	GPURenderTargetSet_Unbind( &player->winRenderTargetSet );
+}
+
 
 //----------------------------------------------------------------------------------------------------
 
@@ -352,17 +503,33 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 #endif
 	GPUDevice_CreateWithSurfaceContext( player->win.size.x, player->win.size.y, player->win.hWnd, debugDevice );
 	
-	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
-	renderTargetSetCreationDesc.name = "main";
-	renderTargetSetCreationDesc.width = width;
-	renderTargetSetCreationDesc.height = height;
-	renderTargetSetCreationDesc.supportMSAA = true;
-	renderTargetSetCreationDesc.bindable = true;
-	renderTargetSetCreationDesc.writable = true;
-	renderTargetSetCreationDesc.stereo = V6_STEREO;
+	{
+		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
+		renderTargetSetCreationDesc.reuseColorRenderTargets[0] = GPUSurfaceContext_Get()->surface;
+		renderTargetSetCreationDesc.name = "win";
+		renderTargetSetCreationDesc.width = player->win.size.x;
+		renderTargetSetCreationDesc.height = player->win.size.y;
+		renderTargetSetCreationDesc.supportMSAA = true;
+		renderTargetSetCreationDesc.bindable = true;
+		renderTargetSetCreationDesc.writable = true;
+		renderTargetSetCreationDesc.stereo = false;
 
-	GPURenderTargetSet_Create( &player->createdRenderTargetSet, &renderTargetSetCreationDesc );
-	player->mainRenderTargetSet = player->createdRenderTargetSet;
+		GPURenderTargetSet_Create( &player->winRenderTargetSet, &renderTargetSetCreationDesc );
+	}
+
+	{
+		GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
+		renderTargetSetCreationDesc.name = "main";
+		renderTargetSetCreationDesc.width = width;
+		renderTargetSetCreationDesc.height = height;
+		renderTargetSetCreationDesc.supportMSAA = true;
+		renderTargetSetCreationDesc.bindable = true;
+		renderTargetSetCreationDesc.writable = true;
+		renderTargetSetCreationDesc.stereo = V6_STEREO;
+
+		GPURenderTargetSet_Create( &player->createdRenderTargetSet, &renderTargetSetCreationDesc );
+		player->mainRenderTargetSet = player->createdRenderTargetSet;
+	}
 
 	GPUShaderContext_CreateEmpty();
 
@@ -370,6 +537,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 
 	static_assert( CONSTANT_BUFFER_COUNT <= GPUShaderContext_s::CONSTANT_BUFFER_MAX_COUNT, "Out of constant buffer" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_BASIC], sizeof( hlsl::CBBasic ), "basic" );
+	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_LIST_ITEM], sizeof( hlsl::CBList ), "list" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( hlsl::CBCompose ), "compose" );
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS], sizeof( hlsl::CBFrameMetrics ), "frameMetrics" );
 
@@ -381,6 +549,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 		
 		static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
 		GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "player_basic_vs.cso", "player_basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, player->stack );
+		GPUShader_Create( &shaderContext->shaders[SHADER_LIST], "player_list_vs.cso", "player_list_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, player->stack );
 
 		static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
 		GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", player->stack );
@@ -400,8 +569,93 @@ static void PlayerDevice_Release( Player_s* player )
 	player->heap->free( player->frameMetrics.dataBuffer );
 
 	GPURenderTargetSet_Release( &player->createdRenderTargetSet );
+	GPURenderTargetSet_Release( &player->winRenderTargetSet );
 
 	GPUDevice_Release();
+}
+
+//----------------------------------------------------------------------------------------------------
+
+static void PlayerStreamItem_Add( const char* pFileName, void* pCallbackData )
+{
+	Player_s* player = (Player_s*)pCallbackData;
+
+	char streamFilename[256];
+	sprintf_s( streamFilename, sizeof( streamFilename ), "%s/%s", PLAYER_STREAM_ITEM_FOLDER, pFileName );
+
+	ScopedStack scopedStack( player->stack );
+
+	CodecStreamDesc_s streamDesc;
+	CodecStreamData_s streamData;
+
+	if ( VideoStream_LoadDescAndData( streamFilename, &streamDesc, &streamData, player->stack ) == nullptr )
+	{
+		V6_ERROR( "Unable to read stream desc for %s\n", streamFilename );
+		return;
+	}
+
+	u32 titleSize;
+	const char* title = (const char*)VideoStream_GetKeyValue( &titleSize, &streamDesc, &streamData, "title", player->stack );
+
+	u32 iconSize;
+	u8* iconData = VideoStream_GetKeyValue( &iconSize, &streamDesc, &streamData, "icon", player->stack );
+
+	StreamItem_s* newItem = BlockAllocator_Add< StreamItem_s >( &player->streamItemAllocator, 1 );
+	memset( newItem, 0, sizeof( StreamItem_s ) );
+
+	strcpy_s( newItem->filename, sizeof( newItem->filename ), streamFilename );
+
+	if ( title )
+		memcpy( newItem->title, title, Min( titleSize, (u32)sizeof( newItem->title )-1u ) );
+	else
+		strcpy_s( newItem->title, sizeof( newItem->title ), "unknown" );
+
+	if ( iconData && iconSize > 4 && memcmp( iconData, CODEC_ICON_MAGIC, 4 ) == 0 )
+	{
+		newItem->iconTextureSize = iconSize-4;
+		newItem->iconTextureData = (u8*)BlockAllocator_Alloc( &player->streamItemAllocator, newItem->iconTextureSize );
+			
+		memcpy( newItem->iconTextureData, iconData+4, newItem->iconTextureSize );
+	}
+
+	StreamItem_s* prevItem = nullptr;
+	for ( StreamItem_s* item = player->firstStreamItem; item; prevItem = item, item = item->next )
+	{
+		if ( strcmp( item->filename, newItem->title ) <= 0 )
+			break;
+	}
+
+	if ( prevItem == nullptr )
+	{
+		newItem->next = player->firstStreamItem;
+		if ( player->firstStreamItem )
+			player->firstStreamItem->prev = newItem;
+		player->firstStreamItem = newItem;
+		player->selectedStreamItem = player->firstStreamItem;
+	}
+	else
+	{
+		newItem->prev = prevItem;
+		if ( prevItem->next )
+			prevItem->next->prev = newItem;
+		newItem->next = prevItem->next;
+		prevItem->next = newItem;
+	}
+}
+
+static void PlayerStreamItem_Create( Player_s* player )
+{
+	BlockAllocator_Create( &player->streamItemAllocator, player->heap, MulMB( 1 ) );
+
+	char filter[256];
+	sprintf_s( filter, sizeof( filter ), "%s/*.v6", PLAYER_STREAM_ITEM_FOLDER );
+	FileSystem_GetFileList( filter, PlayerStreamItem_Add, player );
+}
+
+static void PlayerStreamItem_Release( Player_s* player )
+{
+	player->selectedStreamItem = nullptr;
+	BlockAllocator_Release( &player->streamItemAllocator );
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -430,9 +684,37 @@ static void PlayerStream_Release( Player_s* player )
 	VideoStream_Release( &player->stream, player->heap );
 }
 
-static bool PlayerStream_IsValid( Player_s* player )
+static void PlayerStream_Load( Player_s* player, const char* streamFileName )
 {
-	return player->stream.desc.sequenceCount > 0;
+	if ( player->playerState == PLAYER_STATE_STREAM )
+		PlayerStream_Release( player );
+
+	player->playerState = PLAYER_STATE_LIST;
+
+	if ( !PlayerStream_Create( player, streamFileName ) )
+	{
+		V6_ERROR( "Unable to load stream %s\n", streamFileName );
+	}
+	else
+	{
+		PlayerCamera_Recenter( player );
+#if V6_ENABLE_HMD == 1
+		Hmd_Recenter();
+#endif // #if V6_ENABLE_HMD == 1
+		V6_MSG( "Loaded stream %s\n", streamFileName );
+
+		player->playerState = PLAYER_STATE_STREAM;
+	}
+}
+
+static void PlayerStream_Unload( Player_s* player )
+{
+	if ( player->playerState == PLAYER_STATE_STREAM )
+		PlayerStream_Release( player );
+
+	PlayerCamera_Recenter( player );
+
+	player->playerState = PLAYER_STATE_LIST;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -655,38 +937,59 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 	switch ( commandBuffer.action )
 	{
 	case COMMAND_ACTION_EXIT:
-		Win_Release( &player->win );
+		if ( player->playerState == PLAYER_STATE_STREAM )
+			PlayerStream_Unload( player );
+		else
+			Win_Release( &player->win );
 		break;
 	case COMMAND_ACTION_COMMAND_LINE:
 		V6_ASSERT_NOT_SUPPORTED();
 		break;
 	case COMMAND_ACTION_LOAD_STREAM:
-		{
-			if ( PlayerStream_IsValid( player ) )
-				PlayerStream_Release( player );
-			if ( !PlayerStream_Create( player, commandBuffer.arg ) )
-			{
-				V6_ERROR( "Unable to load stream %s\n", commandBuffer.arg );
-			}
-			else
-			{
-				PlayerCamera_Recenter( player );
-#if V6_ENABLE_HMD == 1
-				Hmd_Recenter();
-#endif // #if V6_ENABLE_HMD == 1
-				V6_MSG( "Loaded stream %s\n", commandBuffer.arg );
-			}
-		}
+		PlayerStream_Load( player, commandBuffer.arg );
 		break;
 	case COMMAND_ACTION_UNLOAD_STREAM:
 		{
-			if ( PlayerStream_IsValid( player ) )
+			if ( player->playerState == PLAYER_STATE_STREAM )
 				PlayerStream_Release( player );
+
 			PlayerCamera_Recenter( player );
+
+			player->playerState = PLAYER_STATE_LIST;
+		}
+		break;
+	case COMMAND_ACTION_PREV_ITEM:
+		if ( player->playerState == PLAYER_STATE_LIST )
+		{
+			if ( player->selectedStreamItem )
+			{
+				player->selectedStreamItem = player->selectedStreamItem->prev;
+				if ( player->selectedStreamItem == nullptr )
+				{
+					for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
+						player->selectedStreamItem = item;
+				}
+			}
+		}
+		break;
+	case COMMAND_ACTION_NEXT_ITEM:
+		if ( player->playerState == PLAYER_STATE_LIST )
+		{
+			if ( player->selectedStreamItem )
+			{
+				player->selectedStreamItem = player->selectedStreamItem->next;
+				if ( player->selectedStreamItem == nullptr )
+					player->selectedStreamItem = player->firstStreamItem;
+			}
 		}
 		break;
 	case COMMAND_ACTION_PLAY_PAUSE:
-		if ( PlayerStream_IsValid( player ) )
+		if ( player->playerState == PLAYER_STATE_LIST )
+		{
+			if ( player->selectedStreamItem )
+				PlayerStream_Load( player, player->selectedStreamItem->filename );
+		}
+		else if ( player->playerState == PLAYER_STATE_STREAM )
 		{
 			if ( player->targetFrameID == (u32)-1 || (u32)player->curFrameID < player->targetFrameID )
 			{
@@ -702,21 +1005,21 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		}
 		break;
 	case COMMAND_ACTION_BEGIN_FRAME:
-		if ( PlayerStream_IsValid( player ) && player->targetFrameID > 0 )
+		if ( player->playerState == PLAYER_STATE_STREAM && player->targetFrameID > 0 )
 		{
 			player->targetFrameID = 0;
 			V6_MSG( "Target frame %d\n", player->targetFrameID );
 		}
 		break;
 	case COMMAND_ACTION_END_FRAME:
-		if ( PlayerStream_IsValid( player ) && (player->targetFrameID < player->stream.desc.frameCount-1 || player->targetFrameID == (u32)-1) )
+		if ( player->playerState == PLAYER_STATE_STREAM && (player->targetFrameID < player->stream.desc.frameCount-1 || player->targetFrameID == (u32)-1) )
 		{
 			player->targetFrameID = player->stream.desc.frameCount-1;
 			V6_MSG( "Target frame %d\n", player->targetFrameID );
 		}
 		break;
 	case COMMAND_ACTION_PREV_FRAME:
-		if ( PlayerStream_IsValid( player ) )
+		if ( player->playerState == PLAYER_STATE_STREAM )
 		{
 			if ( player->targetFrameID == (u32)-1 )
 			{
@@ -731,7 +1034,7 @@ static void PlayerCommandBuffer_Process( Player_s* player )
 		}
 		break;
 	case COMMAND_ACTION_NEXT_FRAME:
-		if ( PlayerStream_IsValid( player ) )
+		if ( player->playerState == PLAYER_STATE_STREAM )
 		{
 			if ( player->targetFrameID == (u32)-1 )
 			{
@@ -877,6 +1180,12 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 	case 0x24:
 		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
 		break;
+	case 0x25:
+		player->commandBuffer.action = COMMAND_ACTION_PREV_ITEM;
+		break;
+	case 0x27:
+		player->commandBuffer.action = COMMAND_ACTION_NEXT_ITEM;
+		break;
 	case 0xC0:
 		player->commandLineSize = 0;
 		V6_MSG( "~" );
@@ -970,7 +1279,23 @@ static void Player_OnMouseEvent( const MouseEvent_s* mouseEvent )
 
 static void Player_OnResizeEvent( Win_s* win )
 {
+	Player_s* player = (Player_s*)win->owner;
+
+	GPURenderTargetSet_Release( &player->winRenderTargetSet );
+	
 	GPUSurfaceContext_Resize( win->size.x, win->size.y );
+
+	GPURenderTargetSetCreationDesc_s renderTargetSetCreationDesc = {};
+	renderTargetSetCreationDesc.reuseColorRenderTargets[0] = GPUSurfaceContext_Get()->surface;
+	renderTargetSetCreationDesc.name = "win";
+	renderTargetSetCreationDesc.width = player->win.size.x;
+	renderTargetSetCreationDesc.height = player->win.size.y;
+	renderTargetSetCreationDesc.supportMSAA = true;
+	renderTargetSetCreationDesc.bindable = true;
+	renderTargetSetCreationDesc.writable = true;
+	renderTargetSetCreationDesc.stereo = false;
+
+	GPURenderTargetSet_Create( &player->winRenderTargetSet, &renderTargetSetCreationDesc );
 }
 
 static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButtons_s leftButtonIsChanged, GamepadButtons_s rightButtonIsChanged )
@@ -987,25 +1312,25 @@ static void Player_OnGamepadButtonEvent( const Gamepad_s* gamepad, GamepadButton
 		player->commandBuffer.action = COMMAND_ACTION_EXIT;
 
 	if ( leftButtonIsPressed.L )
-		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
+		player->commandBuffer.action = COMMAND_ACTION_PREV_ITEM;
 
 	if ( leftButtonIsPressed.R )
-		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
+		player->commandBuffer.action = COMMAND_ACTION_NEXT_ITEM;
 
-	if ( leftButtonIsPressed.B )
-		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
-
-	if ( leftButtonIsPressed.T )
-		player->commandBuffer.action = COMMAND_ACTION_END_FRAME;
-
-	if ( rightButtonIsPressed.O )
-		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
+	if ( rightButtonIsPressed.L )
+		player->commandBuffer.action = COMMAND_ACTION_PREV_FRAME;
 
 	if ( rightButtonIsPressed.R )
-		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
+		player->commandBuffer.action = COMMAND_ACTION_NEXT_FRAME;
 
 	if ( rightButtonIsPressed.B )
 		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
+
+	if ( rightButtonIsPressed.T )
+		player->commandBuffer.action = COMMAND_ACTION_BEGIN_FRAME;
+	
+	if ( rightButtonIsPressed.O )
+		player->commandBuffer.action = COMMAND_ACTION_CAMERA_RECENTER;
 }
 
 static void Player_ProcessInputs( Player_s* player, float dt )
@@ -1067,7 +1392,7 @@ static void Player_DrawHUD( Player_s* player, float fadeToBlack )
 			cursorY += lineHeight;
 		}
 
-		if ( PlayerStream_IsValid( player ) && (u32)player->curFrameID == player->targetFrameID )
+		if ( player->playerState == PLAYER_STATE_STREAM && player->stream.desc.frameCount > 1 && (u32)player->curFrameID == player->targetFrameID )
 		{
 			if ( player->targetFrameID == 0 )
 				FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_Make( 255, 255, 255, 255 ), "Press A to play" );
@@ -1132,7 +1457,7 @@ static void Player_DrawUI( Player_s* player, float averageFPS, const GPUEventDur
 		const u32 cursorX = player->mainRenderTargetSet.width / 2;
 		u32 cursorY = lineHeight / 2;
 
-		if ( PlayerStream_IsValid( player ) )
+		if ( player->playerState == PLAYER_STATE_STREAM )
 		{
 			FontContext_AddLine( &player->fontContext, cursorX, cursorY, Color_White(), String_Format( "Stream: %s", player->stream.name ) );
 			cursorY += lineHeight;
@@ -1281,6 +1606,13 @@ static void Player_CopyToSurface( Player_s* player )
 			cbCompose->c_composeFrameUVScale = Vec2_Make( norm, 1.0f / player->win.size.y );
 		}
 
+		const Color_s backColor = V6_DARK_GRAY;
+		const Color_s borderColor = V6_ORANGE;
+		const float inv255 = 1.0f / 255.0f;
+
+		cbCompose->c_composeBackColor = Vec4_Make( backColor.r * inv255, backColor.g * inv255, backColor.b * inv255, backColor.a * inv255 );
+		cbCompose->c_composeBorderColor = Vec4_Make( borderColor.r * inv255, borderColor.g * inv255, borderColor.b * inv255, borderColor.a * inv255 );
+
 		GPUConstantBuffer_UnmapWrite( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE] );
 	}
 
@@ -1309,11 +1641,9 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 
 	GPUEvent_BeginFrame( frameID );
 
-	player->mainRenderTargetSet = player->createdRenderTargetSet;
-
 	Vec3 frameOrigin = Vec3_Zero();
 	float frameYaw = 0.0f;
-	if ( PlayerStream_IsValid( player ) )
+	if ( player->playerState == PLAYER_STATE_STREAM )
 	{
 		// update stream GPU data
 
@@ -1391,7 +1721,7 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 			Camera_MakeView( &views[eye], &player->camera, eye, nullptr );
 	}
 
-	if ( PlayerStream_IsValid( player ) )
+	if ( player->playerState == PLAYER_STATE_STREAM )
 	{
 		Vec3 centerEye = Vec3_Zero();
 		for ( u32 eye = 0; eye < EYE_COUNT; ++eye )
@@ -1408,10 +1738,10 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventDraw );
 
-		if ( PlayerStream_IsValid( player ) )
+		if ( player->playerState == PLAYER_STATE_STREAM )
 			TraceContext_DrawFrame( &player->traceContext, &player->mainRenderTargetSet, views, &player->traceOptions, fadeToBlack );
 		else
-			PlayerScene_Draw( player, views );
+			PlayerScene_DrawGrid( player, views );
 	}
 
 	// draw UI
@@ -1450,11 +1780,17 @@ static void Player_ProcessFrame( Player_s* player, u32 frameID, float dt, float 
 #endif // #if V6_USE_HMD == 
 
 #if V6_ENABLE_MIRRORING != 0
+	if ( player->playerState == PLAYER_STATE_STREAM )
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventCopy );
 		Player_CopyToSurface( player );
 	}
-#endif // #if V6_ENABLE_MIRRORING != 0 
+#endif // #if V6_ENABLE_MIRRORING != 0
+	else
+	{
+		V6_GPU_EVENT_SCOPE( s_gpuEventList );
+		PlayerScene_DrawList( player );
+	}
 
 	{
 		V6_GPU_EVENT_SCOPE( s_gpuEventPresent );
@@ -1499,7 +1835,7 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	player->heap = heap;
 	player->stack = stack;
 
-	if ( !Win_Create( &player->win, player, "V6 Player", 40, 40, windowWidth, windowHeight, WIN_FLAG_IS_MAIN | WIN_FLAG_RESIZABLE ) )
+	if ( !Win_Create( &player->win, player, "V6 Player (pre-alpha rev210)", 40, 40, windowWidth, windowHeight, WIN_FLAG_IS_MAIN | WIN_FLAG_RESIZABLE ) )
 		return false;
 
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
@@ -1520,6 +1856,8 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	}
 #endif // #if V6_USE_HMD == 1
 
+	PlayerStreamItem_Create( player );
+
 	PlayerScene_Create( player, defaultTanHalfFovPerPixel );
 
 	return true;
@@ -1527,9 +1865,10 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 
 static void Player_Release( Player_s* player )
 {
-	if ( PlayerStream_IsValid( player ) )
+	if ( player->playerState == PLAYER_STATE_STREAM )
 		PlayerStream_Release( player );
 	PlayerScene_Release( player );
+	PlayerStreamItem_Release( player );
 	Gamepad_Release( &player->gamepad );
 #if V6_USE_HMD == 1
 	Hmd_ReleaseResources();

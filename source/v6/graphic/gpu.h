@@ -176,6 +176,7 @@ struct GPUSurfaceContext_s
 
 struct GPURenderTargetSetCreationDesc_s
 {
+	GPUColorRenderTarget_s			reuseColorRenderTargets[2];
 	const char*						name;
 	u32								width;
 	u32								height;
@@ -197,6 +198,7 @@ enum GPUBlendMode : u8
 
 struct GPURenderTargetSetBindingDesc_s
 {
+	Color_s							clearColor;
 	bool							clear;
 	bool							noZ;
 	bool							useMSAA;
@@ -221,6 +223,7 @@ struct GPURenderTargetSet_s
 
 	u32								width;
 	u32								height;
+	bool							ownColors[2];
 	bool							supportMSAA;
 	bool							stereo;
 

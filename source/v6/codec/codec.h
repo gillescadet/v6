@@ -26,7 +26,6 @@ BEGIN_V6_NAMESPACE
 #define CODEC_STREAM_HEADER_SIZE			MulKB( 72u )
 
 #define CODEC_HEAD_ROOM_SIZE				50.0f
-#define CODEC_ICON_WIDTH					256
 
 #define CODEC_RAWFRAME_BUCKET_COUNT			5
 #define CODEC_CELL_MAX_COUNT				64u
@@ -62,6 +61,7 @@ BEGIN_V6_NAMESPACE
 
 #define	CODEC_ICON_KEY						"icon"
 #define	CODEC_ICON_MAGIC					"BC1\0"
+#define	CODEC_ICON_WIDTH					256
 
 #include <v6/core/mat4x4.h>
 

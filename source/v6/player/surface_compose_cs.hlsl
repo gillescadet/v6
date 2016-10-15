@@ -11,9 +11,16 @@ RWTexture2D< float4 > surfaceColors : REGISTER_UAV( HLSL_SURFACE_SLOT );
 float4 ComputeColor( uint2 pixelCoords, Texture2D< float4 > frameColors )
 {
 	const float2 uv = mad( pixelCoords + 0.5f, c_composeFrameUVScale, c_composeFrameUVBias );
-	const float mask = all( saturate( uv ) == uv ) ? 1.0f : 0.0f;
-	const float3 color = frameColors.SampleLevel( bilinearSampler, uv, 0.0f ).rgb;
-	return float4( color * mask, 0.0f );
+	const float2 distanceToCenter = abs( uv * 2.0f - 1.0f );
+	const float maxDistanceToCenter = max( distanceToCenter.x, distanceToCenter.y );
+	if ( maxDistanceToCenter < 0.99f )
+	{
+		return frameColors.SampleLevel( bilinearSampler, uv, 0.0f );
+	}
+	else
+	{
+		return maxDistanceToCenter < 1.0f ? c_composeBorderColor : c_composeBackColor;
+	}
 }
 
 [numthreads(8, 8, 1)]
