@@ -27,7 +27,7 @@
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			0
+#define V6_ENABLE_HMD			1
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -431,8 +431,12 @@ static void PlayerScene_Create( Player_s* player, float tanHalfFovPerPixel )
 
 		for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
 		{
-			const u32 textureID = Scene_GetNewTextureID( &player->sceneListView );
-			GPUTexture2D_CreateCompressed( &player->sceneListView.textures[textureID], CODEC_ICON_WIDTH, CODEC_ICON_WIDTH, item->iconTextureData, true, "icon" );
+			u32 textureID = Material_s::TEXTURE_INVALID;
+			if ( item->iconTextureData )
+			{
+				textureID = Scene_GetNewTextureID( &player->sceneListView );
+				GPUTexture2D_CreateCompressed( &player->sceneListView.textures[textureID], CODEC_ICON_WIDTH, CODEC_ICON_WIDTH, item->iconTextureData, true, "icon" );
+			}
 
 			const u32 materialID = Scene_GetNewMaterialID( &player->sceneListView );
 			Material_Create( &player->sceneListView.materials[materialID], PlayerMaterial_DrawList );
@@ -473,10 +477,16 @@ static void PlayerScene_DrawList( Player_s* player )
 	const float margin = 60.0f;
 	const float base = margin + CODEC_ICON_WIDTH * 0.5f;
 	float x = base;
+	float y = base;
 
 	for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
 	{
-		player->sceneListView.entities[item->entityID].pos = Vec3_Make( x, base, 0.0f );
+		if ( x + CODEC_ICON_WIDTH + margin > player->win.size.x )
+		{
+			x = base;
+			y += CODEC_ICON_WIDTH + margin;
+		}
+		player->sceneListView.entities[item->entityID].pos = Vec3_Make( x, y, 0.0f );
 		x += CODEC_ICON_WIDTH + margin;
 	}
 
@@ -1835,7 +1845,7 @@ static bool Player_Create( Player_s* player, u32 defaultWidth, u32 defaultHeight
 	player->heap = heap;
 	player->stack = stack;
 
-	if ( !Win_Create( &player->win, player, "V6 Player (pre-alpha rev210)", 40, 40, windowWidth, windowHeight, WIN_FLAG_IS_MAIN | WIN_FLAG_RESIZABLE ) )
+	if ( !Win_Create( &player->win, player, "V6 Player (pre-alpha rev211)", 40, 40, windowWidth, windowHeight, WIN_FLAG_IS_MAIN | WIN_FLAG_RESIZABLE ) )
 		return false;
 
 	Win_RegisterKeyEvent( &player->win, Player_OnKeyEvent );
