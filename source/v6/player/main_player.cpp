@@ -21,13 +21,14 @@
 #include <v6/graphic/scene.h>
 #include <v6/graphic/trace.h>
 #include <v6/graphic/view.h>
+#include <v6/player/missing_stream_256_bc1.h>
 #include <v6/player/player_shared.h>
 
 #pragma comment( lib, "d3d11.lib" )
 
 #define V6_D3D_DEBUG			0
 #define V6_STEREO				1
-#define V6_ENABLE_HMD			1
+#define V6_ENABLE_HMD			0
 #define V6_ENABLE_MIRRORING		1
 #define V6_USE_HMD				(V6_ENABLE_HMD == 1 && V6_STEREO == 1)
 #define V6_DUMP_GAMEPAD			0
@@ -429,9 +430,12 @@ static void PlayerScene_Create( Player_s* player, float tanHalfFovPerPixel )
 			GPUMesh_Create( &player->sceneListView.meshes[meshQuadID], vertices, 4, sizeof( ItemVertex_s ), VERTEX_FORMAT_POSITION | VERTEX_FORMAT_USER0_F2, indices, 4, sizeof( u16 ), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
 		}
 
+		const u32 missingTextureID = Scene_GetNewTextureID( &player->sceneListView );
+		GPUTexture2D_CreateCompressed( &player->sceneListView.textures[missingTextureID], CODEC_ICON_WIDTH, CODEC_ICON_WIDTH, (void*)g_missingStreamTextureData, true, "missing_icon" );
+
 		for ( StreamItem_s* item = player->firstStreamItem; item; item = item->next )
 		{
-			u32 textureID = Material_s::TEXTURE_INVALID;
+			u32 textureID = missingTextureID;
 			if ( item->iconTextureData )
 			{
 				textureID = Scene_GetNewTextureID( &player->sceneListView );
@@ -1248,6 +1252,7 @@ static void Player_OnKeyEvent( const KeyEvent_s* keyEvent )
 		player->commandBuffer.action = COMMAND_ACTION_TRACE_OPTION_OVERDRAW;
 		player->commandBuffer.arg[0] = 2;
 		break;
+	case 0x0D:
 	case 'P':
 		player->commandBuffer.action = COMMAND_ACTION_PLAY_PAUSE;
 		break;

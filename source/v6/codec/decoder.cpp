@@ -139,6 +139,8 @@ static bool VideoStream_LoadInternal( VideoStream_s* stream, IStreamReader* stre
 	
 	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
 	{
+		V6_MSG( "Loading sequence %d/%d...\n", sequenceID+1, stream->desc.sequenceCount );
+
 		if ( !VideoSequence_LoadInternal( &stream->sequences[sequenceID], streamReader, sequenceID, allocator, stack ) )
 			return false;
 
