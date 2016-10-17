@@ -600,16 +600,16 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 	buffer->size = count * DXGIFormat_Size( format );
 	buffer->flags = flags;
 
-	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
+	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
-		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
+		bufferDesc.Usage = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE)) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		if ( !isCPUWrite )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
-		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
+		bufferDesc.CPUAccessFlags = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE)) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = 0;
 		bufferDesc.StructureByteStride = 0;
 		
@@ -699,16 +699,16 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 	buffer->size = count * elementSize;
 	buffer->flags = flags;
 
-	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
+	const bool isCPUWrite = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
 
 	{
 		D3D11_BUFFER_DESC bufferDesc = {};
 		bufferDesc.ByteWidth = buffer->size;
-		bufferDesc.Usage = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
+		bufferDesc.Usage = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE)) != 0 ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
 		bufferDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		if ( !isCPUWrite )
 			bufferDesc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
-		bufferDesc.CPUAccessFlags = (flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
+		bufferDesc.CPUAccessFlags = (flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE)) != 0 ? D3D11_CPU_ACCESS_WRITE : 0;
 		bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 		bufferDesc.StructureByteStride = elementSize;
 		
@@ -818,13 +818,13 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcDat
 	V6_ASSERT( IsAligned< 16 >( srcData ) );
 	V6_ASSERT( dstOffset * sizeOfSrcElem + srcCount * sizeOfSrcElem <= dstBuffer->size );
 	
-	const bool isCPUWrite = (dstBuffer->flags & (GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
+	const bool isCPUWrite = (dstBuffer->flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE | GPUBUFFER_CREATION_FLAG_UPDATE)) != 0;
 	V6_ASSERT( isCPUWrite );
 
-	if ( dstBuffer->flags & GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE )
+	if ( dstBuffer->flags & (GPUBUFFER_CREATION_FLAG_MAP_DISCARD | GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE) )
 	{
 		D3D11_MAPPED_SUBRESOURCE res;
-		const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
+		const HRESULT mapResult = g_deviceContext->Map( dstBuffer->buf, 0, (dstBuffer->flags & GPUBUFFER_CREATION_FLAG_MAP_DISCARD) ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &res );
 		if ( mapResult == S_OK )
 		{
 			memcpy( (u8*)res.pData + dstOffset * sizeOfSrcElem, srcData, srcCount * sizeOfSrcElem );

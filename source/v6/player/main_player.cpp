@@ -556,7 +556,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_FRAMEMETRICS], sizeof( hlsl::CBFrameMetrics ), "frameMetrics" );
 
 	static_assert( BUFFER_COUNT <= GPUShaderContext_s::BUFFER_MAX_COUNT, "Out of buffer" );
-	GPUBuffer_CreateStructured( &shaderContext->buffers[BUFFER_FRAMEMETRICS], sizeof( hlsl::FrameMetrics_s ), FrameMetrics_s::WIDTH, GPUBUFFER_CREATION_FLAG_UPDATE, "frameMetrics" );
+	GPUBuffer_CreateStructured( &shaderContext->buffers[BUFFER_FRAMEMETRICS], sizeof( hlsl::FrameMetrics_s ), FrameMetrics_s::WIDTH, GPUBUFFER_CREATION_FLAG_MAP_DISCARD, "frameMetrics" );
 
 	{
 		ScopedStack scopedStack( player->stack );
@@ -570,6 +570,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 		GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_FRAMEMETRICS], "frame_metrics_cs.cso", player->stack );
 	}
 
+	FontSystem_Create();
 	FontContext_Create( &player->fontContext );
 
 	player->frameMetrics.data = (hlsl::FrameMetrics_s*)player->heap->alloc_aligned< 16 >( &player->frameMetrics.dataBuffer, player->frameMetrics.WIDTH * sizeof( hlsl::FrameMetrics_s ) );
@@ -579,6 +580,7 @@ static void PlayerDevice_Create( Player_s* player, u32 width, u32 height )
 static void PlayerDevice_Release( Player_s* player )
 {
 	FontContext_Release( &player->fontContext );
+	FontSystem_Release();
 
 	player->heap->free( player->frameMetrics.dataBuffer );
 
