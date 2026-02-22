@@ -1,0 +1,22 @@
+# Build output
+bin/
+build/
+
+# Generated VS project files
+project/
+
+# Visual Studio user/local files
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.db
+.vs/
+
+# Oculus SDK build artifacts
+thirdparty/OculusSDK/LibOVR/Lib/
+thirdparty/OculusSDK/LibOVR/Obj/
+thirdparty/OculusSDK/LibOVRKernel/Lib/
+thirdparty/OculusSDK/LibOVRKernel/Obj/
+
+CLAUDE.md
