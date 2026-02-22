@@ -7,6 +7,8 @@
 
 BEGIN_V6_HLSL_NAMESPACE
 
+#include <v6/graphic/font_background_ps_bytecode.h>
+#include <v6/graphic/font_background_vs_bytecode.h>
 #include <v6/graphic/font_ps_bytecode.h>
 #include <v6/graphic/font_vs_bytecode.h>
 

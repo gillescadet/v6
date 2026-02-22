@@ -48,10 +48,6 @@ namespace OVR {
 // The SlotType can be the same as T, but should probably be a larger fixed size.
 // This allows for forward compatibility when the updater is shared between processes.
 
-// FIXME: ExchangeAdd_Sync() should be replaced with a portable read-only primitive,
-// so that the lockless pose state can be read-only on remote processes and to reduce
-// false sharing between processes and improve performance.
-
 template<class T, class SlotType = T>
 class LocklessUpdater
 {

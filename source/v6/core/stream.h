@@ -33,7 +33,7 @@ public:
 	virtual x64		GetPos() const = 0;
 	virtual x64		GetRemaining() const { return ToX64( ToU64( GetSize() ) - ToU64( GetPos() ) ); }
 	virtual x64		GetSize() const = 0;
-	virtual void	Read( x64 nSize, void * pData ) = 0;
+	virtual x64		Read( x64 nSize, void * pData ) = 0;
 	void			ReadAligned( x64 nSize, void * pData, u32 alignment );
 	virtual void	SetPos( x64 pos ) = 0;
 	virtual void	Skip( x64 nSize ) = 0;
@@ -53,6 +53,7 @@ public:
 	virtual ~CFileReader();
 
 public:
+	bool IsOpen() { return m_file != nullptr; }
 	bool Open( const char* filename, u32 flags );
 	void Close();
 	const char* GetFilename() const { return m_filename; }
@@ -60,7 +61,7 @@ public:
 public:
 	virtual x64 GetPos() const;
 	virtual x64 GetSize() const;
-	virtual void Read( x64 nSize, void *data );
+	virtual x64 Read( x64 nSize, void *data );
 	virtual void SetPos( x64 pos );
 	virtual void Skip( x64 nSize );
 
@@ -101,7 +102,7 @@ public:
 	u32				GetBufferSize() const { return m_bufferSize; }
 	virtual x64		GetPos() const;
 	virtual x64		GetSize() const;
-	virtual void	Read( x64 nSize, void * pData );
+	virtual x64		Read( x64 nSize, void * pData );
 	virtual void	SetPos( x64 pos );
 	virtual void	Skip( x64 nSize );
 	void			SkipUnreadBuffer();
@@ -143,7 +144,7 @@ public:
 	const void * GetBuffer() { return m_pBuffer; }
 	virtual x64 GetPos() const { return m_nPos; }
 	virtual x64 GetSize() const { return m_nSize; }
-	virtual void Read( x64 nSize, void * pData );
+	virtual x64 Read( x64 nSize, void * pData );
 	virtual void SetPos( x64 pos );
 	virtual void Skip( x64 nSize );
 

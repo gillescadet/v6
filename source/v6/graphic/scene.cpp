@@ -33,6 +33,7 @@ void Entity_Create( Entity_s* entity, u32 materialID, u32 meshID, const Vec3& po
 	entity->meshID = meshID;
 	entity->pos = pos;
 	entity->scale = scale;
+	entity->yaw = 0.0f;
 	entity->visible = true;
 }
 

@@ -2,16 +2,16 @@
 
 #include <v6/core/common.h>
 
+#if V6_UE4_PLUGIN == 0
+
 #include <v6/core/windows_begin.h>
 #include <windows.h>
 #include <Windowsx.h>
-#include <Xinput.h>
+#include <DirectX/XInput.h>
 #include <v6/core/windows_end.h>
 
 #include <v6/core/gamepad.h>
 #include <v6/core/string.h>
-
-#pragma comment( lib, "Xinput.lib" )
 
 BEGIN_V6_NAMESPACE
 
@@ -53,8 +53,8 @@ bool Gamepad_UpdateState( Gamepad_s* gamepad )
 	gamepad->leftButtonWasDown = gamepad->leftButtonIsDown;
 	gamepad->rightButtonWasDown = gamepad->rightButtonIsDown;
 
-	memset( &gamepad->leftButtonIsDown, 0, sizeof( gamepad->leftButtonIsDown ) );
-	memset( &gamepad->rightButtonIsDown, 0, sizeof( gamepad->rightButtonIsDown ) );
+	gamepad->leftButtonIsDown.bits = 0;
+	gamepad->rightButtonIsDown.bits = 0;
 
 	memset( &s_states[gamepad->index], 0, sizeof( XINPUT_STATE ) );
 
@@ -125,3 +125,5 @@ void Gamepad_RegisterButtonEvent( Gamepad_s* gamepad, OnGamepadButtonEvent_f onG
 }
 
 END_V6_NAMESPACE
+
+#endif // #if V6_UE4_PLUGIN == 0

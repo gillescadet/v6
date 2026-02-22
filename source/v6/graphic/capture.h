@@ -14,6 +14,7 @@ struct GPUCaptureResources_s;
 
 struct CaptureDesc_s
 {
+	u32							averageLayerCount;
 	u32							sampleCount;
 	u32							samplingWidth;
 	u32							gridWidth;
@@ -36,10 +37,13 @@ struct CaptureContext_s
 	{
 		Vec3					origin;
 		u32						prevSampleLevel;
+		u32						leafCount;
 	}							frameState;
 	u32							resSampleCount;
 	u32							resNodeCount;
+	u32							resNodePageCount;
 	u32							resLeafCount;
+	u32							resLeafPageCount;
 	u32							resBlockPosCount;
 	u32							resBlockDataCount;
 };
@@ -50,7 +54,7 @@ Vec3	CaptureContext_GetSampleOffset( CaptureContext_s* captureContext, u32 sampl
 void	CaptureContext_Release( CaptureContext_s* captureContext );
 
 // render thread
-u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView );
+u32		CaptureContext_AddSamplesFromCubeFace( CaptureContext_s* captureContext, const Vec3* samplePos, const Vec3 basis[3], void* colorView, void* depthView, bool isSRGB );
 void	CaptureContext_Begin( CaptureContext_s* captureContext, const Vec3* origin );
 u32		CaptureContext_End( CaptureContext_s* captureContext );
 void	CaptureContext_MapBlocksForRead( CaptureContext_s* captureContext, u32* blockCounts, void** blockPos, void** blockData );

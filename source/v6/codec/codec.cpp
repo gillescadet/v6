@@ -6,6 +6,7 @@
 #include <v6/codec/compression.h>
 #include <v6/core/bit.h>
 #include <v6/core/memory.h>
+#include <v6/core/random.h>
 #include <v6/core/stream.h>
 #if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_LZ4
 #include <lz4/lib/lz4.h>
@@ -16,6 +17,9 @@
 
 #define CODEC_LZ4_COMPRESSION_LEVEL		4
 #define CODEC_ZSTD_COMPRESSION_LEVEL	19
+
+#define CODEC_PRESENCE_STATS 0
+#define CODEC_ZSTD_STATS     0
 
 BEGIN_V6_NAMESPACE
 
@@ -124,7 +128,7 @@ void* Codec_AllocToClusterSizeAndFillPaddingWithZero( void** buffer, u64 size, I
 {
 	const u64 allocSize = Codec_AlignToClusterSize( size ) + CODEC_CLUSTER_SIZE;
 	
-	void* rawData = allocator->alloc( allocSize );
+	void* rawData = allocator->alloc( allocSize, "CodecRawData" );
 	void* alignedData = Codec_AlignToClusterSize( rawData );
 	const u64 pad0 = (u32)((uintptr_t)alignedData - (uintptr_t)rawData);
 	memset( rawData, 0, pad0 );
@@ -165,7 +169,7 @@ void* Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc
 	const u64 beginPos = ToU64( streamReader->GetPos() );
 	V6_ASSERT( Codec_IsAlignedToClusterSize( beginPos ) );
 
-	if ( ToU64( streamReader->GetRemaining() ) < CODEC_STREAM_HEADER_SIZE )
+	if ( Codec_Error() || ToU64( streamReader->GetRemaining() ) < CODEC_STREAM_HEADER_SIZE )
 	{
 		V6_ERROR( "Stream is too small to contain the stream header.\n" );
 		return nullptr;
@@ -195,19 +199,19 @@ void* Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc
 	memcpy( &streamHeader, chunk, sizeof( streamHeader ) );
 	chunk += sizeof( streamHeader );
 
-	if ( memcmp( streamHeader.magic, CODEC_STREAM_MAGIC, 4 ) != 0 )
+	if ( Codec_Error() || memcmp( streamHeader.magic, CODEC_STREAM_MAGIC, 4 ) != 0 )
 	{
 		V6_ERROR( "Invalid magic '%c%c%c%c' for stream header.\n", streamHeader.magic[0], streamHeader.magic[1], streamHeader.magic[2], streamHeader.magic[3] );
 		goto clean_up;
 	}
 
-	if ( streamHeader.version != CODEC_STREAM_VERSION )
+	if ( Codec_Error() || (streamHeader.version != CODEC_STREAM_VERSION) )
 	{
 		V6_ERROR( "Incompatible version %d for stream header.\n", streamHeader.version );
 		goto clean_up;
 	}
 
-	if ( streamHeader.size != CODEC_STREAM_HEADER_SIZE )
+	if ( Codec_Error() || (streamHeader.size != CODEC_STREAM_HEADER_SIZE) )
 	{
 		V6_ERROR( "Bad file size of %d bytes for stream header.\n", streamHeader.size );
 		goto clean_up;
@@ -216,9 +220,11 @@ void* Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc
 	V6_ASSERT( ToU64( streamReader->GetPos() ) - beginPos == streamHeader.size );
 
 	memcpy( desc, &streamHeader.desc, sizeof( streamHeader.desc ) );
-
+	
 	if ( !data )
 		return (void*)1;
+
+	const u32 sequenceInfoSize = desc->sequenceCount * sizeof( CodecSequenceInfo_s );
 
 	u32 keySize = 0;
 	u32 valueSize = 0;
@@ -228,13 +234,16 @@ void* Codec_ReadStreamDesc( IStreamReader* streamReader, CodecStreamDesc_s* desc
 		valueSize += desc->valueSizes[keyID];
 	}
 
-	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + keySize + valueSize;
+	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + sequenceInfoSize + keySize + valueSize;
 
-	if ( bufferSize > CODEC_STREAM_HEADER_SIZE )
+	if ( Codec_Error() || bufferSize > CODEC_STREAM_HEADER_SIZE )
 	{
 		V6_ERROR( "Stream header size of %d KB is bigger than the limit of %d KB.\n", DivKB( bufferSize ), DivKB( CODEC_STREAM_HEADER_SIZE ) );
 		goto clean_up;
 	}
+
+	data->sequenceInfos = (CodecSequenceInfo_s*)chunk;
+	chunk += sequenceInfoSize;
 
 	data->keys = (char*)chunk;
 	chunk += keySize;
@@ -251,12 +260,12 @@ clean_up:
 	return nullptr;
 }
 
-bool Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* desc, u32 sequenceID )
+bool Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* desc )
 {	
 	const u64 beginPos = ToU64( streamReader->GetPos() );
 	V6_ASSERT( Codec_IsAlignedToClusterSize( beginPos ) );
 
-	if ( ToU64( streamReader->GetRemaining() ) < sizeof( CodecSequenceHeader_s ) )
+	if ( Codec_Error() || ToU64( streamReader->GetRemaining() ) < sizeof( CodecSequenceHeader_s ) )
 	{
 		V6_ERROR( "Stream is too small to contain the sequence header.\n" );
 		return false;
@@ -265,25 +274,19 @@ bool Codec_ReadSequenceDesc( IStreamReader* streamReader, CodecSequenceDesc_s* d
 	CodecSequenceHeader_s sequenceHeader = {};
 	Codec_AlignedRead( streamReader, sizeof( CodecSequenceHeader_s ), &sequenceHeader );
 
-	if ( memcmp( sequenceHeader.magic, CODEC_SEQUENCE_MAGIC, 4 ) != 0 )
+	if ( Codec_Error() || memcmp( sequenceHeader.magic, CODEC_SEQUENCE_MAGIC, 4 ) != 0 )
 	{
 		V6_ERROR( "Invalid magic '%c%c%c%c' for sequence header.\n", sequenceHeader.magic[0], sequenceHeader.magic[1], sequenceHeader.magic[2], sequenceHeader.magic[3] );
 		return false;
 	}
 
-	if ( sequenceHeader.version != CODEC_SEQUENCE_VERSION )
+	if ( Codec_Error() ||sequenceHeader.version != CODEC_SEQUENCE_VERSION )
 	{
 		V6_ERROR( "Incompatible version %d for sequence header.\n", sequenceHeader.version );
 		return false;
 	}
 
-	if ( sequenceHeader.desc.sequenceID != sequenceID )
-	{
-		V6_ERROR( "Incompatible sequence ID %d for sequence desc.\n", sequenceHeader.desc.sequenceID );
-		return false;
-	}
-
-	if ( sequenceHeader.size != sizeof( CodecSequenceHeader_s ) )
+	if ( Codec_Error() ||sequenceHeader.size != sizeof( CodecSequenceHeader_s ) )
 	{
 		V6_ERROR( "Bad file size of %d bytes for sequence header.\n", sequenceHeader.size );
 		return false;
@@ -301,6 +304,8 @@ bool Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s
 	const u64 beginPos = ToU64( streamWriter->GetPos() );
 	V6_ASSERT( Codec_IsAlignedToClusterSize( beginPos ) );
 
+	const u32 sequenceInfoSize = desc->sequenceCount * sizeof( CodecSequenceInfo_s );
+
 	u32 keySize = 0;
 	u32 valueSize = 0;
 	for ( u32 keyID = 0; keyID < desc->keyCount; ++keyID )
@@ -309,7 +314,7 @@ bool Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s
 		valueSize += desc->valueSizes[keyID];
 	}
 
-	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + keySize + valueSize;
+	const u32 bufferSize = sizeof( CodecStreamHeader_s ) + sequenceInfoSize + keySize + valueSize;
 
 	if ( bufferSize > CODEC_STREAM_HEADER_SIZE )
 	{
@@ -331,6 +336,7 @@ bool Codec_WriteStreamDesc( IStreamWriter* streamWriter, const CodecStreamDesc_s
 	chunkWriter.Write( &streamHeader, ToX64( sizeof( CodecStreamHeader_s ) ) );
 	if ( data )
 	{
+		chunkWriter.Write( data->sequenceInfos, ToX64( sequenceInfoSize ) );
 		chunkWriter.Write( data->keys, ToX64( keySize ) );
 		chunkWriter.Write( data->values, ToX64( valueSize ) );
 	}
@@ -535,56 +541,97 @@ bool Codec_ReadRawFrame( IStreamReader* streamReader, CodecRawFrameDesc_s* desc,
 	return true;
 }
 
-void* Codec_ReadFrame( CStreamReaderWithBuffering* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack )
+u32 Codec_ReadFrameSizeOnly( IStreamReader* streamReader )
 {
-	V6_ASSERT( streamReader->GetBufferSize() == CODEC_CLUSTER_SIZE );
+	if ( Codec_Error() || ToU64( streamReader->GetRemaining() ) < sizeof( CodecFrameHeader_s ) )
+	{
+		V6_ERROR( "Stream is too small to contain the frame header.\n" );
+		return 0;
+	}
+
+	CodecFrameHeader_s frameHeader;
+	streamReader->Read( ToX64( sizeof( frameHeader ) ), &frameHeader );
+	V6_ASSERT( frameHeader.size >= sizeof( frameHeader ) );
+	streamReader->Skip( ToX64( frameHeader.size - sizeof( frameHeader ) ) );
+	
+	return frameHeader.size;
+}
+
+void Codec_LogCellPresence(u32 const *blockCellPresences0, u32 const *blockCellPresences1, u32 blockCount) {
+#if CODEC_PRESENCE_STATS
+  u32 cellCount = 0;
+  for (u32 blockIdx = 0; blockIdx < blockCount; ++blockIdx) {
+    cellCount += Bit_GetBitHighCount(*blockCellPresences0) + Bit_GetBitHighCount(*blockCellPresences1);
+    ++blockCellPresences0;
+    ++blockCellPresences1;
+  }
+
+  V6_DEVMSG("\n *** %d Kblocks, %d Kcells, avg of %.1f cells/block\n", DivKB(blockCount), DivKB(cellCount), float(cellCount) / blockCount);
+#endif
+}
+
+void Codec_LogCompressedSize( void *chunk, u64 chunkSize, const char* desc, IAllocator* allocator, IStack* stack) {
+#if CODEC_ZSTD_STATS
+  ScopedStack scopedStack( stack );
+
+  const u64 chunkMaxSize = ZSTD_compressBound(chunkSize);
+  u8* chunkCompressed = (u8*)stack->alloc( chunkMaxSize , "dataMaxSize" );
+  const u64 chunkCompressedSize = ZSTD_compress( chunkCompressed, chunkMaxSize , chunk, chunkSize, CODEC_ZSTD_COMPRESSION_LEVEL );
+  V6_DEVMSG("\n *** %s: uncompressed %d KB, compressed %d KB\n", desc, DivKB(chunkSize), DivKB(chunkCompressedSize));
+#endif
+}
+
+u32 Codec_ReadFrame( void** buffer, IStreamReader* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack )
+{
+	*buffer = nullptr;
 
 	const u64 beginPos = ToU64( streamReader->GetPos() );
 
-	if ( ToU64( streamReader->GetRemaining() ) < sizeof( CodecFrameHeader_s ) )
+	if ( Codec_Error() || ToU64( streamReader->GetRemaining() ) < sizeof( CodecFrameHeader_s ) )
 	{
 		V6_ERROR( "Stream is too small to contain the frame header.\n" );
-		return nullptr;
+		return 0;
 	}
 
 	CodecFrameHeader_s frameHeader;
 	streamReader->Read( ToX64( sizeof( frameHeader ) ), &frameHeader );
 	
-	if ( memcmp( frameHeader.magic, CODEC_FRAME_MAGIC, 4 ) != 0 )
+	if ( Codec_Error() || memcmp( frameHeader.magic, CODEC_FRAME_MAGIC, 4 ) != 0 )
 	{
 		V6_ERROR( "Invalid magic '%c%c%c%c' for frame header.\n", frameHeader.magic[0], frameHeader.magic[1], frameHeader.magic[2], frameHeader.magic[3] );
-		return nullptr;
+		return 0;
 	}
 
-	if ( frameHeader.version != CODEC_FRAME_VERSION )
+	if ( Codec_Error() ||frameHeader.version != CODEC_FRAME_VERSION )
 	{
 		V6_ERROR( "Incompatible version %d for frame header.\n", frameHeader.version );
-		return nullptr;
+		return 0;
 	}
 
 	if ( frameHeader.desc.flags & CODEC_FRAME_FLAG_MOTION )
 	{
-		if ( frameHeader.desc.frameRank >= frameRank )
+		if ( Codec_Error() || frameHeader.desc.frameRank >= frameRank )
 		{
 			V6_ERROR( "Incompatible ref frame Rank %d for frame desc.\n", frameHeader.desc.frameRank );
-			return nullptr;
+			return 0;
 		}
 
 		memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
-		return (void*)1;
+		*buffer = (void*)1;
+		return 0;
 	}
 
-	if ( frameHeader.desc.frameRank != frameRank )
+	if ( Codec_Error() || frameHeader.desc.frameRank != frameRank )
 	{
 		V6_ERROR( "Incompatible frame ID %d for frame desc.\n", frameHeader.desc.frameRank );
-		return nullptr;
+		return 0;
 	}
 
 	const u64 remainingSize = sizeof( CodecFrameHeader_s ) + ToU64( streamReader->GetRemaining() );
-	if ( remainingSize < frameHeader.size )
+	if ( Codec_Error() || remainingSize < frameHeader.size )
 	{
 		V6_ERROR( "Bad stream size of %d bytes for frame header.\n", streamReader->GetRemaining() );
-		return nullptr;
+		return 0;
 	}
 
 	memcpy( desc, &frameHeader.desc, sizeof( frameHeader.desc ) );
@@ -616,43 +663,43 @@ void* Codec_ReadFrame( CStreamReaderWithBuffering* streamReader, CodecFrameDesc_
 
 #if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
 	const u64 compressedDataSize = frameHeader.size - sizeof( frameHeader );
-	u8* const chunkCompressed = (u8*)stack->alloc( compressedDataSize );
+	u8* const chunkCompressed = (u8*)stack->alloc( compressedDataSize, "CodecCompressedData" );
 	streamReader->Read( ToX64( compressedDataSize ), chunkCompressed );
 
 	const u64 packedAlignedOffsetChunk = chunkUnpackedAlignedSize - frameHeader.uncompressedDataAlignedSize;
 
-	void* buffer;
-	u8* const chunkBegin = (u8*)allocator->alloc_aligned< CODEC_BUFFER_ALIGNMENT >( &buffer, chunkUnpackedAlignedSize );
+	u8* const chunkBegin = (u8*)allocator->alloc_aligned< CODEC_BUFFER_ALIGNMENT >( buffer, chunkUnpackedAlignedSize, "CodecFrame" );
 	u8* chunk = chunkBegin;
 
 #if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_LZ4
 	{
-		if ( LZ4_decompress_fast( (char*)chunkCompressed, (char*)(chunk + packedAlignedOffsetChunk), (int)frameHeader.uncompressedDataAlignedSize ) != compressedDataSize )
+		if ( Codec_Error() || LZ4_decompress_fast( (char*)chunkCompressed, (char*)(chunk + packedAlignedOffsetChunk), (int)frameHeader.uncompressedDataAlignedSize ) != compressedDataSize )
 		{
 			V6_ERROR( "LZ4 decompression failed.\n" );
-			allocator->free( buffer );
-			return nullptr;
+			allocator->free( *buffer )
+			*buffer = nullptr;
+			return 0;
 		}
 	}
 #elif CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_ZSTD
 	{
 		const u64 chunkZSTDSize = ZSTD_decompress( chunk + packedAlignedOffsetChunk, frameHeader.uncompressedDataAlignedSize, chunkCompressed, compressedDataSize );
-		if ( chunkZSTDSize != frameHeader.uncompressedDataAlignedSize )
+		if ( Codec_Error() || chunkZSTDSize != frameHeader.uncompressedDataAlignedSize )
 		{
 			if ( ZSTD_isError( chunkZSTDSize ) )
 				V6_ERROR( "ZSTD decompression failed: %s\n", ZSTD_getErrorName( chunkZSTDSize ) );
 			else
 				V6_ERROR( "ZSTD decompression failed: %lld != %lld\n", chunkZSTDSize, frameHeader.uncompressedDataAlignedSize );
-			allocator->free( buffer );
-			return nullptr;
+			allocator->free( *buffer );
+			*buffer = nullptr;
+			return 0;
 		}
 	}
 #endif
 #else // #if CODEC_FRAME_COMPRESS != CODEC_FRAME_COMPRESS_TYPE_NONE
 	V6_ASSERT( frameHeader.size - sizeof( frameHeader ) == chunkUnpackedAlignedSize );
 
-	u8* const buffer;
-	u8* const chunkBegin = stack->alloc_aligned< CODEC_BUFFER_ALIGNMENT >( &buffer, chunkUnpackedAlignedSize );
+	u8* const chunkBegin = (u8*)stack->alloc_aligned< CODEC_BUFFER_ALIGNMENT >( buffer, chunkUnpackedAlignedSize, "CodecChunkBegin" );
 	u8* chunk = chunkBegin;
 
 	streamReader->Read( ToX64( chunkUnpackedAlignedSize ), chunkBegin );
@@ -667,8 +714,10 @@ void* Codec_ReadFrame( CStreamReaderWithBuffering* streamReader, CodecFrameDesc_
 		BitStream_s bitStreamReader;
 		BitStream_InitForRead( &bitStreamReader, (u64*)(chunk + packedAlignedOffsetChunk), (u32)(packedBlockPosAlignedSize * 8) );
 
-		u32* blockPos = stack->newArray< u32 >( frameHeader.desc.blockCount );
+		u32* blockPos = stack->newArray< u32 >( frameHeader.desc.blockCount, "CodecBlockPos" );
 		Block_UnpackPositions( &bitStreamReader, blockPos, frameHeader.desc.blockCount );
+
+        Codec_LogCompressedSize(chunk + packedAlignedOffsetChunk, packedBlockPosAlignedSize, "encodedBlockPos", allocator, stack);
 
 		memcpy( chunk, blockPos, blockPosSize );
 	}
@@ -700,11 +749,28 @@ void* Codec_ReadFrame( CStreamReaderWithBuffering* streamReader, CodecFrameDesc_
 	
 	data->blockRanges = (CodecBlockRange_s*)chunk;
 	chunk += Codec_AlignToBufferSize( blockRangeSize );
-	
+
+    Codec_LogCellPresence(data->blockCellPresences0, data->blockCellPresences1, frameHeader.desc.blockCount);
+
+    Codec_LogCompressedSize(data->blockPos, blockPosSize, "blockPos", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellPresences0, blockDataCellPresence0Size, "blockCellPresences0", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellPresences1, blockDataCellPresence1Size, "blockCellPresences1", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellEndColors, blockDataCellEndColorSize, "blockCellEndColors", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellColorIndices0, blockDataCellColorIndex0Size, "blockCellColorIndices0", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellColorIndices1, blockDataCellColorIndex1Size, "blockCellColorIndices1", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellColorIndices2, blockDataCellColorIndex2Size, "blockCellColorIndices2", allocator, stack);
+    Codec_LogCompressedSize(data->blockCellColorIndices3, blockDataCellColorIndex3Size, "blockCellColorIndices3", allocator, stack);
+
 	V6_ASSERT( ToU64( streamReader->GetPos() ) - beginPos == frameHeader.size );
 	V6_ASSERT( chunk - chunkBegin == chunkUnpackedAlignedSize );
 
-	return buffer;
+	return (u32)chunkUnpackedAlignedSize;
+}
+
+u32	Codec_ReadFrame( void** buffer, CStreamReaderWithBuffering* streamReader, CodecFrameDesc_s* desc, CodecFrameData_s* data, u32 frameRank, IAllocator* allocator, IStack* stack )
+{
+	V6_ASSERT( streamReader->GetBufferSize() == CODEC_CLUSTER_SIZE );
+	return Codec_ReadFrame( buffer, (IStreamReader*)streamReader, desc, data, frameRank, allocator, stack );
 }
 
 bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFrameDesc_s* desc, const CodecFrameData_s* data, IStack* stack )
@@ -746,7 +812,7 @@ bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFram
 	const u64 blockDataCellColorIndex1Size = desc->blockCount * 4;
 	const u64 blockDataCellColorIndex2Size = desc->blockCount * 4;
 	const u64 blockDataCellColorIndex3Size = desc->blockCount * 4;
-	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT );
+	V6_ASSERT( desc->blockRangeCount <= CODEC_RANGE_MAX_COUNT_PER_FRAME );
 	const u64 blockRangeSize = desc->blockRangeCount * sizeof( CodecBlockRange_s );
 
 	const u64 chunkUnpackedAlignedSize = 
@@ -759,12 +825,12 @@ bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFram
 		Codec_AlignToBufferSize( blockDataCellColorIndex2Size ) + 
 		Codec_AlignToBufferSize( blockDataCellColorIndex3Size ) + 
 		Codec_AlignToBufferSize( blockRangeSize );
-	CBufferWriter chunkWriter( stack->alloc( chunkUnpackedAlignedSize ), ToX64( chunkUnpackedAlignedSize ) );
+	CBufferWriter chunkWriter( stack->alloc( chunkUnpackedAlignedSize, "CodecChunkWriter" ), ToX64( chunkUnpackedAlignedSize ) );
 
 #if CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_NONE
 	const u64 chunkUncompressedAlignedSize = chunkUnpackedAlignedSize;
 	const u64 chunkCompressedSize = chunkUnpackedAlignedSize;
-	u8* chunkCompressed = chunkWriter->GetBuffer();
+	u8* chunkCompressed = (u8*)chunkWriter.GetBuffer();
 
 	chunkWriter.WriteAligned( data->blockPos, ToX64( blockPosSize ), CODEC_BUFFER_ALIGNMENT );
 	chunkWriter.WriteAligned( data->blockCellPresences0, ToX64( blockDataCellPresence0Size ), CODEC_BUFFER_ALIGNMENT );
@@ -779,7 +845,7 @@ bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFram
 
 #if CODEC_FRAME_PACK_POSITIONS == 1
 	const u64 packedBlockPosMaxSize = Block_ComputeBufferMaxSizeForPackingPositions( desc->blockCount );
-	u64* packedBlockPos = stack->newArray< u64 >( packedBlockPosMaxSize / 8 );
+	u64* packedBlockPos = stack->newArray< u64 >( packedBlockPosMaxSize / 8, "CodecPackedBlockPos" );
 	BitStream_s bitStreamWriter;
 	BitStream_InitForWrite( &bitStreamWriter, packedBlockPos, (u32)(packedBlockPosMaxSize * 8) );
 	Block_PackPositions( &bitStreamWriter, data->blockPos, desc->blockCount );
@@ -811,7 +877,7 @@ bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFram
 	const u64 chunkCompressedSize = LZ4_compress_HC( (char*)chunkWriter.GetBuffer(), (char*)chunkCompressed, (int)chunkUncompressedAlignedSize, (int)chunkCompressedMaxSize, CODEC_LZ4_COMPRESSION_LEVEL );
 #elif CODEC_FRAME_COMPRESS == CODEC_FRAME_COMPRESS_TYPE_ZSTD
 	const u64 chunkCompressedMaxSize = ZSTD_compressBound( chunkUncompressedAlignedSize );
-	u8* chunkCompressed = (u8*)stack->alloc( chunkCompressedMaxSize );
+	u8* chunkCompressed = (u8*)stack->alloc( chunkCompressedMaxSize, "CodecChunkCompressed" );
 	const u64 chunkCompressedSize = ZSTD_compress( chunkCompressed, chunkCompressedMaxSize, chunkWriter.GetBuffer(), chunkUncompressedAlignedSize, CODEC_ZSTD_COMPRESSION_LEVEL );
 #endif
 
@@ -841,5 +907,61 @@ bool Codec_WriteFrame( CStreamWriterWithBuffering* streamWriter, const CodecFram
 
 	return true;
 }
+
+u32 Codec_GetSupportedFrameRates( const u32** frameRates )
+{
+	static u32 s_supportedFrameRates[] = { 1, 30, 45, 60, 90, 120 };
+	
+	*frameRates = s_supportedFrameRates;
+	return V6_ARRAY_COUNT( s_supportedFrameRates );
+}
+
+u32 Codec_GetDefaultFrameRate()
+{
+	const u32 frameRate = 90;
+
+	V6_ASSERT( Codec_IsFrameRateSupported( frameRate ) );
+
+	return frameRate;
+}
+
+bool Codec_IsFrameRateSupported( u32 frameRate )
+{
+	const u32* supportedFrameRates;
+	const u32 frameRateCount = Codec_GetSupportedFrameRates( &supportedFrameRates );
+	
+	for ( u32 frameRateID = 0; frameRateID < frameRateCount; ++frameRateID )
+	{
+		if ( supportedFrameRates[frameRateID] == frameRate )
+			return true;
+	}
+	
+	return false;
+}
+
+#if CODEC_DEBUG_SIMULATE_STREAM_ERROR == 1
+bool Codec_Error()
+{
+#if 1
+	static u32 s_state = RandInt();
+	s_state = RandXORShift( s_state );
+	if ( (s_state & 0x7FFF) == 17 )
+	{
+		V6_MSG( "Codec Random Error %u\n", s_state );
+		return true;
+	}
+#else
+	static const u32 s_errorRank = 18;
+	static u32 s_rank = 0;
+	if ( Atomic_Inc( &s_rank ) == s_errorRank )
+	{
+		V6_MSG( "Codec Rank Error %d\n", s_errorRank );
+		return true;
+	}
+#endif
+
+	return false;
+}
+#endif
 
 END_V6_NAMESPACE

@@ -2203,7 +2203,6 @@ bool SymbolLookup::ReportThreadCallstack(OVR::String& sOutput, size_t skipCount,
 
     // Print the header
     char         headerBuffer[256];
-    char         threadName[32];
     char         threadSysIdStr[48];
     char         stackBaseStr[24];
     char         stackLimitStr[24];
@@ -2213,15 +2212,11 @@ bool SymbolLookup::ReportThreadCallstack(OVR::String& sOutput, size_t skipCount,
     ThreadHandle threadHandle = ConvertThreadSysIdToThreadHandle(threadSysId);
     OVR::GetThreadStackBounds(pStackBase, pStackLimit, threadHandle);
 
-    Thread::GetThreadName(threadName, OVR_ARRAY_COUNT(threadName), threadName);
     SprintfThreadSysId(threadSysIdStr, OVR_ARRAY_COUNT(threadSysIdStr), threadSysId);
     SprintfAddress(stackBaseStr, OVR_ARRAY_COUNT(stackBaseStr), pStackBase);
     SprintfAddress(stackLimitStr, OVR_ARRAY_COUNT(stackLimitStr), pStackLimit);
 
-    if(threadName[0])
-        snprintf(headerBuffer, OVR_ARRAY_COUNT(headerBuffer), "Thread \"%s\" id: %s, stack base: %s, stack limit: %s\n", threadName, threadSysIdStr, stackBaseStr, stackLimitStr);
-    else
-        snprintf(headerBuffer, OVR_ARRAY_COUNT(headerBuffer), "Thread id: %s, stack base: %s, stack limit: %s\n", threadSysIdStr, stackBaseStr, stackLimitStr);
+    snprintf(headerBuffer, OVR_ARRAY_COUNT(headerBuffer), "Thread id: %s, stack base: %s, stack limit: %s\n", threadSysIdStr, stackBaseStr, stackLimitStr);
 
     sOutput += headerBuffer;
 
@@ -3439,7 +3434,6 @@ void ExceptionHandler::WriteThreadCallstack(ThreadHandle threadHandle, ThreadSys
     // which we cannot do due to possibly being within an exception handler.
 
     // Print the header
-    char    threadName[32];
     char    threadSysIdStr[32];
     char    stackBaseStr[24];
     char    stackLimitStr[24];
@@ -3462,16 +3456,12 @@ void ExceptionHandler::WriteThreadCallstack(ThreadHandle threadHandle, ThreadSys
 
     OVR::GetThreadStackBounds(pStackBase, pStackLimit, threadHandle);
 
-    OVR::Thread::GetThreadName(threadName, OVR_ARRAY_COUNT(threadName), threadName);
     SprintfThreadSysId(threadSysIdStr, OVR_ARRAY_COUNT(threadSysIdStr), threadSysId);
     SprintfAddress(stackBaseStr, OVR_ARRAY_COUNT(stackBaseStr), pStackBase);
     SprintfAddress(stackLimitStr, OVR_ARRAY_COUNT(stackLimitStr), pStackLimit);
     SprintfAddress(stackCurrentStr, OVR_ARRAY_COUNT(stackCurrentStr), pStackCurrent);
 
-    if(threadName[0])
-        WriteReportLineF("Thread \"%s\" id: %s, stack base: %s, stack limit: %s, stack current: %s, %s\n", threadName, threadSysIdStr, stackBaseStr, stackLimitStr, stackCurrentStr, additionalInfo ? additionalInfo : "");
-    else
-        WriteReportLineF("Thread id: %s, stack base: %s, stack limit: %s, stack current: %s, %s\n", threadSysIdStr, stackBaseStr, stackLimitStr, stackCurrentStr, additionalInfo ? additionalInfo : "");
+     WriteReportLineF("Thread id: %s, stack base: %s, stack limit: %s, stack current: %s, %s\n", threadSysIdStr, stackBaseStr, stackLimitStr, stackCurrentStr, additionalInfo ? additionalInfo : "");
 
     // Print the backtrace info
     void*       addressArray[64];

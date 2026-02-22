@@ -145,14 +145,18 @@ x64 CFileReader::GetSize() const
 	return ToX64( (u64)size.QuadPart );
 }
 
-void CFileReader::Read( x64 nSize, void * pData )
+x64 CFileReader::Read( x64 nSize, void * pData )
 {
 	if ( ToU64( nSize ) == 0 )
-		return;
+		return ToX64( 0 );
 
 	V6_ASSERT( m_file != nullptr );
-	const bool done = ReadFile( (HANDLE)m_file, pData, (u32)ToU64( nSize ), nullptr, nullptr ) != 0;
-	V6_ASSERT( done );
+	::DWORD byteRead;
+	const bool done = ReadFile( (HANDLE)m_file, pData, (u32)ToU64( nSize ), &byteRead, nullptr ) != 0;
+	if ( !done )
+		byteRead = 0;
+
+	return ToX64( byteRead );
 }
 
 void CFileReader::SetPos( x64 pos )
@@ -288,17 +292,18 @@ void CStreamReaderWithBuffering::SkipUnreadBuffer()
 	m_bufferPos = m_bufferSize;
 }
 
-void CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
+x64 CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
 {
 	u8* curData = (u8*)pData;
 	u32 curSize = (u32)ToU64( nSize );
 
 	if ( curSize == 0 )
-		return;
+		return ToX64( 0 );
 
 	if ( m_bufferPos == m_bufferSize )
 	{
-		m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		const x64 byteRead = m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		V6_ASSERT( ToU64( byteRead ) == m_bufferSize );
 		m_bufferPos = 0;
 	}
 
@@ -307,7 +312,7 @@ void CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
 	{
 		memcpy( curData, m_alignedBuffer + m_bufferPos, curSize );
 		m_bufferPos += curSize;
-		return;
+		return nSize;
 	}
 
 	{
@@ -323,7 +328,8 @@ void CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
 		curSize -= remainingToExtendBuffer;
 		do 
 		{
-			m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+			const x64 byteRead = m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+			V6_ASSERT( ToU64( byteRead ) == m_bufferSize );
 			memcpy( curData, m_alignedBuffer, m_bufferSize );
 			curData += m_bufferSize;
 			curSize -= m_bufferSize;
@@ -332,10 +338,13 @@ void CStreamReaderWithBuffering::Read( x64 nSize, void * pData )
 
 	if ( remainingToExtendBuffer > 0 )
 	{
-		m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		const x64 byteRead = m_backendStreamReader->Read( ToX64( m_bufferSize ), m_alignedBuffer );
+		V6_ASSERT( ToU64( byteRead ) == m_bufferSize );
 		memcpy( curData, m_alignedBuffer, remainingToExtendBuffer );
 		m_bufferPos = remainingToExtendBuffer;
 	}
+
+	return nSize;
 }
 
 /// CStreamWriterWithBuffering
@@ -433,15 +442,17 @@ CBufferReader::CBufferReader( const void * pBuffer, x64 nSize )
 {
 }
 
-void CBufferReader::Read( x64 nSize, void * pData )
+x64 CBufferReader::Read( x64 nSize, void * pData )
 {
 	if ( ToU64( m_nPos ) + ToU64( nSize ) > ToU64( m_nSize ) )
 	{
-		V6_ASSERT(!"Buffer overrun");
-		return;
+		V6_ASSERT( !"Buffer overrun" );
+		return ToX64( 0 );
 	}
 	memcpy( pData, (char *)m_pBuffer + ToU64( m_nPos ), ToU64( nSize ) );
 	m_nPos = ToX64( ToU64( m_nPos ) + ToU64( nSize ) );
+
+	return nSize;
 }
 
 void CBufferReader::SetPos( x64 pos )
@@ -483,8 +494,14 @@ void CBufferWriter::SetPos( x64 pos )
 	m_nPos = pos;
 }
 
-void CBufferWriter::Write( const void * pData, x64 nSize)
+void CBufferWriter::Write( const void * pData, x64 nSize )
 {
+	if ( pData == nullptr )
+	{
+		V6_ASSERT( ToU64( nSize ) == 0 );
+		return;
+	}
+
 	if ( ToU64( m_nPos ) + ToU64( nSize ) > ToU64( m_nSize ) )
 	{
 		V6_ASSERT( !"Buffer overflow" );

@@ -16,25 +16,51 @@
 #define V6_UE4_PLUGIN			0
 #endif
 
+enum
+{
+	MSG_DEV,
+	MSG_LOG,
+	MSG_WARNING,
+	MSG_ERROR,
+	MSG_FATAL,
+};
+
 #if _DEBUG
-#define __ASSERT( EXP )				do { if ( !(EXP) ) __debugbreak(); } while ( false )
+#define V6_DEBUG	1
+#define V6_RELEASE	0
+#define V6_RETAIL	0
 #else
-#define __ASSERT( EXP )				do { if ( !(EXP) ) { V6_PRINT( "[ASSERT] %s\n", #EXP ); exit( 1 ); } } while ( false )
+#define V6_DEBUG	0
+#define V6_RELEASE	1
+#define V6_RETAIL	0
 #endif
 
-#define V6_ASSERT( EXP )			__ASSERT( EXP )
-#define V6_ASSERT_ALWAYS( EXP )		__ASSERT( false && (EXP) )
+#define V6_PRINT( MSG_TYPE, ... )	v6::OutputMessage( MSG_TYPE, __VA_ARGS__ )
+#define V6_DEVMSG( ... )			do { V6_PRINT( MSG_DEV, __VA_ARGS__ ); } while ( false )
+#define V6_MSG( ... )				do { V6_PRINT( MSG_LOG, __VA_ARGS__ ); } while ( false )
+#define V6_WARNING( ... )			do { V6_PRINT( MSG_WARNING, __VA_ARGS__ ); } while ( false )
+#define V6_ERROR( ... )				do { V6_PRINT( MSG_ERROR, __VA_ARGS__ ); } while ( false )
+#define V6_FATAL( ... )				do { V6_PRINT( MSG_FATAL, __VA_ARGS__ ); exit( 1 ); } while ( false )
+
+#if V6_DEBUG == 1
+#define __ASSERT( EXP, TXT )		do { if ( !(EXP) ) __debugbreak(); } while ( false )
+#else
+#define __ASSERT( EXP, TXT )		do { if ( !(EXP) ) { V6_PRINT( MSG_FATAL, TXT ); } } while ( false )
+#endif
+
+#define V6_ASSERT( EXP )			__ASSERT( EXP, "Assertion failed: " #EXP )
+#define V6_ASSERT_TXT( EXP, TXT )	__ASSERT( EXP, TXT )
+#define V6_ASSERT_ALWAYS( TXT )		__ASSERT( false, #TXT )
 #define V6_ASSERT_NOT_SUPPORTED()	V6_ASSERT_ALWAYS( "Not supported" )
+#define V6_ASSERT_UNREACHABLE()		V6_ASSERT_ALWAYS( "Unreachable" )
 
 #define V6_STATIC_ASSERT( EXP )		static_assert( EXP, "static assert: "#EXP )
 
-#define V6_PRINT( ... )				v6::OutputMessage( __VA_ARGS__ )
-#define V6_MSG( ... )				do { V6_PRINT( __VA_ARGS__ ); } while ( false )
-#define V6_WARNING( ... )			do { V6_PRINT( "[WARNING] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
-#define V6_ERROR( ... )				do { V6_PRINT( "[ERROR] " ); V6_PRINT( __VA_ARGS__ ); } while ( false )
-
 #define V6_ALIGN( SIZE )			__declspec( align( SIZE ) )
 #define V6_INLINE					__inline
+#define V6_THREAD_LOCAL_STORAGE		__declspec( thread )
+
+#define V6_ARRAY_COUNT( ARRAY )		( sizeof( ARRAY ) / sizeof( ARRAY[0] ) )
 
 #pragma warning( push, 3 )
 #ifdef _CRTBLD
@@ -82,7 +108,7 @@ _CRTIMP void __cdecl _wassert(_In_z_ const wchar_t * _Message, _In_z_ const wcha
 
 BEGIN_V6_NAMESPACE
 
-void OutputMessage( const char* format, ... );
+void OutputMessage( u32 msgType, const char* format, ... );
 
 END_V6_NAMESPACE
 

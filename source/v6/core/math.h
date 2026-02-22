@@ -17,10 +17,16 @@ template<>
 V6_INLINE float Abs( float x ) { return fabsf( x ); }
 
 template<typename T>
+V6_INLINE T Ceil( T x ) { return ceilf( x ); }
+
+template<typename T>
 V6_INLINE T Clamp(T v, T min, T max) { return Max(min, Min(v, max)); }
 
 template<typename T>
 V6_INLINE T Cos( T x ) { return cosf( x ); }
+
+template<typename T>
+V6_INLINE T Floor( T x ) { return floorf( x ); }
 
 template<typename T>
 V6_INLINE bool IsPowOfTwo( T x ) { return (x & (x-1)) == 0; }
@@ -81,6 +87,9 @@ V6_INLINE T MulKB( T x ) { return x << 10; }
 
 template<typename T>
 V6_INLINE T MulMB( T x ) { return x << 20; }
+
+template<typename T>
+V6_INLINE constexpr T MulMB_ConstExpr( T x ) { return x << 20; }
 
 template<typename T>
 V6_INLINE T MulGB( T x ) { return x << 30; }

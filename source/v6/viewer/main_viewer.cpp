@@ -38,8 +38,6 @@
 #include <v6/viewer/scene_info.h>
 #include <v6/viewer/viewer_shared.h>
 
-#pragma comment( lib, "d3d11.lib" )
-
 #define V6_D3D_DEBUG			0
 #define V6_LOAD_EXTERNAL		0
 #define V6_SIMPLE_SCENE			1
@@ -86,13 +84,12 @@ static const float FOV							= DegToRad( 90.0f );
 #else
 static const float FOV							= DegToRad( 90.0f );
 #endif
-static const int SAMPLE_MAX_COUNT				= 17;
+static const int AVERAGE_LAYER_COUNT			= 3;
+static const int SAMPLE_MAX_COUNT				= 1;
 static const float FREE_SCALE					= 50.0f;
 static const u32 RANDOM_CUBE_COUNT				= 100;
 
-static const u32 HMD_FPS						= 75;
 static const u32 VIDEO_FRAME_MAX_COUNT			= 10;
-static const u32 VIDEO_FPS						= 75;
 
 static const u32 DEBUG_BLOCK_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
 static const u32 DEBUG_TRACE_MAX_COUNT			= HLSL_BLOCK_THREAD_GROUP_SIZE * 10;
@@ -361,7 +358,7 @@ static GPURenderTargetSet_s		s_mainRenderTargetSet;
 
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;
@@ -533,7 +530,7 @@ static void PathPlayer_Pause( PathPlayer_s* pathPlayer, int relativeFrameID )
 	if ( relativeFrameID == 0 )
 		return;
 
-	const float dt = 1.0f / HMD_FPS;
+	const float dt = 1.0f / Codec_GetDefaultFrameRate();
 	pathPlayer->pathFrame = Clamp( (int)pathPlayer->pathFrame + relativeFrameID, 0, (int)VIDEO_FRAME_MAX_COUNT-1 );
 	pathPlayer->pathTime = pathPlayer->pathFrame * dt;
 }
@@ -862,7 +859,7 @@ static void GPUContext_CreateShaders( IStack* stack )
 	GPUConstantBuffer_Create( &shaderContext->constantBuffers[CONSTANT_BUFFER_COMPOSE], sizeof( hlsl::CBCompose), "compose" );
 
 	static_assert( COMPUTE_COUNT <= GPUShaderContext_s::COMPUTE_MAX_COUNT, "Out of compute" );
-	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "surface_compose_cs.cso", stack );
+	GPUCompute_CreateFromFile( &shaderContext->computes[COMPUTE_COMPOSESURFACE], "viewer_surface_compose_cs.cso", stack );
 
 	static_assert( SHADER_COUNT <= GPUShaderContext_s::SHADER_MAX_COUNT, "Out of shader" );
 	GPUShader_Create( &shaderContext->shaders[SHADER_BASIC], "viewer_basic_vs.cso", "viewer_basic_ps.cso", VERTEX_FORMAT_POSITION | VERTEX_FORMAT_COLOR, stack );
@@ -1102,7 +1099,7 @@ static void SceneViewer_MakeStreamFilename( const SceneViewer_s* scene, char* pa
 {
 	V6_ASSERT( scene->filename[0] );
 
-	FilePath_ChangeExtension( path, maxPathSize, scene->filename, "v6" );
+	FilePath_ChangeExtension( path, maxPathSize, scene->filename, CODEC_FILE_EXTENSION );
 }
 
 static void SceneViewer_MakeRawFrameFileTemplate( const SceneViewer_s* scene, char* path, u32 maxPathSize )
@@ -1187,7 +1184,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 	V6_MSG( "Init scene\n" );
 
 	ObjScene_s* objScene = &sceneContext->objScene;
-	SceneViewer_s* scene = sceneContext->stack->newInstance< SceneViewer_s >();
+	SceneViewer_s* scene = sceneContext->stack->newInstance< SceneViewer_s >( "SceneViewer" );
 	Scene_Create( scene );
 	SceneViewer_SetFilename( scene, sceneContext->filename );
 	SceneViewer_SetInfo( scene, &info );
@@ -1227,7 +1224,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 				if ( fileReader.Open( textureFilename, 0 ) )
 				{
 					textureSize = fileReader.GetSize();
-					textureData = sceneContext->stack->alloc( ToU64( textureSize ) );
+					textureData = sceneContext->stack->alloc( ToU64( textureSize ), "SceneContextTexture" );
 					fileReader.Read( ToX64( textureSize ), textureData );
 				}
 
@@ -1265,7 +1262,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 
 		ObjMesh_s* mesh = &objScene->meshes[meshID];
 		
-		GenericVertex_s* vertices = sceneContext->stack->newArray< GenericVertex_s >( mesh->triangleCount * 3 );
+		GenericVertex_s* vertices = sceneContext->stack->newArray< GenericVertex_s >( mesh->triangleCount * 3, "SceneVertex" );
 		
 		ObjTriangle_s* triangle = &objScene->triangles[mesh->firstTriangleID];
 		
@@ -1328,7 +1325,7 @@ static void SceneContext_Load( SceneContext_s* sceneContext, u32 arg0, u32 arg1 
 		sceneContext->stack->pop();
 
 		Entity_Create( &scene->entities[meshID], mesh->materialID, meshID, meshCenter, 1.0f );
-		scene->entities[meshID].name = sceneContext->stack->copyString( mesh->name );
+		scene->entities[meshID].name = sceneContext->stack->copyString( mesh->name, "SceneEntities" );
 		++scene->entityCount;
 	}
 
@@ -1445,7 +1442,7 @@ void Scene_UpdatePathGeo( ScenePathGeo_s* scene, const Path_s* path )
 
 void Scene_CreateDefault( SceneViewer_s* scene, IStack* stack )
 {
-	const char* filename = "D:/media/obj/default/default.obj";
+	const char* filename = "C:/media/obj/default/default.obj";
 
 	V6_ASSERT( !FilePath_HasExtension( filename, "info" ) );
 	char fileinfo[256];
@@ -1555,20 +1552,21 @@ public:
 	void ResetDrawMode();
 	bool WriteRawFrameFile( CaptureContext_s* captureContext, u32 frame );
 
-	CaptureContext_s	m_captureContext;
-	TraceContext_s*		m_traceContext;
-	VideoStream_s		m_stream;
-	int					m_bakedFrameCount;
+	CaptureContext_s		m_captureContext;
+	TraceResource_s*		m_traceRes;
+	TraceContext_s*			m_traceContext;
+	VideoStream_s			m_stream;
+	int						m_bakedFrameCount;
 
-	SceneViewer_s*		m_defaultScene;
-	ScenePathGeo_s*		m_pathGeoScene;
+	SceneViewer_s*			m_defaultScene;
+	ScenePathGeo_s*			m_pathGeoScene;
 
-	IAllocator*			m_heap;
-	IStack*				m_stack;
+	IAllocator*				m_heap;
+	IStack*					m_stack;
 
-	u32					m_width;
-	u32					m_height;
-	float				m_aspectRatio;
+	u32						m_width;
+	u32						m_height;
+	float					m_aspectRatio;
 };
 
 CRenderingDevice::CRenderingDevice()
@@ -1596,11 +1594,11 @@ bool CRenderingDevice::Create( int nWidth, int nHeight, IAllocator* heap, IStack
 
 	GPUContext_Create( nWidth, nHeight, (HWND)s_win.hWnd, heap, stack );
 
-	m_defaultScene = heap->newInstance< SceneViewer_s >();
+	m_defaultScene = heap->newInstance< SceneViewer_s >( "DefaultScene" );
 	Scene_CreateDefault( m_defaultScene, stack );
 	s_activeScene = m_defaultScene;
 
-	m_pathGeoScene = heap->newInstance< ScenePathGeo_s >();
+	m_pathGeoScene = heap->newInstance< ScenePathGeo_s >( "PathGeoScene" );
 	Scene_CreatePathGeo( m_pathGeoScene );
 
 	g_sample = 0;
@@ -1684,29 +1682,30 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 	if ( !VideoStream_LoadDesc( streamFilename, &codecDesc ) ||
 		codecDesc.sequenceCount != 1 ||
 		codecDesc.frameCount != frameCount ||
-		codecDesc.frameRate != HMD_FPS ||
-		codecDesc.playRate != VIDEO_FPS ||
+		codecDesc.frameRate != Codec_GetDefaultFrameRate() ||
 		codecDesc.sampleCount != SAMPLE_MAX_COUNT ||
 		codecDesc.gridMacroShift != GRID_MACRO_SHIFT ||
 		codecDesc.gridScaleMin != GRID_MIN_SCALE ||
 		codecDesc.gridScaleMax != GRID_MAX_SCALE )
 #endif // #if V6_USE_CACHE == 1
 	{
-		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, VIDEO_FPS, g_compressionQuality, false, m_heap ) )
+		if ( !VideoStream_Encode( streamFilename, templateFilename, 0, frameCount, Codec_GetDefaultFrameRate(), g_compressionQuality, false, m_heap ) )
 			return false;
 	}
 		
 	if ( !VideoStream_Load( &m_stream, streamFilename, m_heap, m_stack ) )
 		return false;
 	
-	m_traceContext = m_heap->newInstance< TraceContext_s >();
+	m_traceRes = m_heap->newInstance< TraceResource_s >( "TraceResource" );
+	m_traceContext = m_heap->newInstance< TraceContext_s >( "TraceContext" );
 
 	TraceDesc_s traceDesc = {};
 	traceDesc.screenWidth = m_width;
 	traceDesc.screenHeight = m_height;
 	traceDesc.stereo = V6_STEREO;
 
-	TraceContext_Create( m_traceContext, &traceDesc, &m_stream );
+	TraceResource_Create( m_traceRes, &traceDesc );
+	TraceContext_Create( m_traceContext, m_traceRes, &m_stream.desc, &m_stream.data, Codec_GetDefaultFrameRate() );
 
 	return true;
 }
@@ -1714,9 +1713,11 @@ bool CRenderingDevice::InitTraceMode( u32 frameCount )
 void CRenderingDevice::ReleaseTraceMode()
 {
 	TraceContext_Release( m_traceContext );
+	TraceResource_Release( m_traceRes );
 	VideoStream_Release( &m_stream, m_heap );
 
 	m_heap->deleteInstance( m_traceContext );
+	m_heap->deleteInstance( m_traceRes );
 }
 
 void CRenderingDevice::Output( GPURenderTargetSet_s* renderTargetSet )
@@ -1810,7 +1811,7 @@ bool CRenderingDevice::HasValidRawFrameFile( u32 frameID )
 		return false;
 	}
 
-	if ( frameDesc.frameRate != VIDEO_FPS )
+	if ( frameDesc.frameRate != Codec_GetDefaultFrameRate() )
 	{
 		V6_ERROR( "Stream frame rate is not compatible.\n" );
 		return false;
@@ -1864,7 +1865,7 @@ bool CRenderingDevice::WriteRawFrameFile( CaptureContext_s* captureContext, u32 
 			frameDesc.gridOrigin = s_buildOrigin;
 			frameDesc.gridYaw = 0.0f;
 			frameDesc.frameID = frameID;
-			frameDesc.frameRate = VIDEO_FPS;
+			frameDesc.frameRate = Codec_GetDefaultFrameRate();
 			frameDesc.gridWidth = GRID_WIDTH;
 			frameDesc.gridScaleMin = GRID_MIN_SCALE;
 			frameDesc.gridScaleMax = GRID_MAX_SCALE;
@@ -1900,7 +1901,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	if ( g_sample == 0 )
 	{
-		s_captureStartTickCount = GetTickCount();
+		s_captureStartTickCount = Tick_GetCount();
 
 		s_buildOrigin = s_headOffset;
 
@@ -1913,6 +1914,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 #endif // #if V6_USE_CACHE == 1
 
 		CaptureDesc_s captureDesc;
+		captureDesc.averageLayerCount = AVERAGE_LAYER_COUNT;
 		captureDesc.sampleCount = SAMPLE_MAX_COUNT;
 		captureDesc.samplingWidth = SAMPLING_WIDTH;
 		captureDesc.gridWidth = GRID_WIDTH;
@@ -1952,7 +1954,7 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		basis[0] = Cross( basis[2], basis[1] );
 
 		Capture_Render( &s_cubeFaceRenderTargetSet, &samplePos, basis );
-		sumLeafCount = CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv );
+		sumLeafCount = CaptureContext_AddSamplesFromCubeFace( &m_captureContext, &samplePos, basis, s_cubeFaceRenderTargetSet.colorBuffers[0].srv, s_cubeFaceRenderTargetSet.depthBuffer.srv, false );
 	}
 
 	const u32 newLeafCount = sumLeafCount - lastSumLeafCount;
@@ -1965,17 +1967,17 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 
 	if ( g_sample == SAMPLE_MAX_COUNT )
 	{
-		const u64 captureStopTickCount = GetTickCount();
+		const u64 captureStopTickCount = Tick_GetCount();
 
 		V6_MSG( "Packing all samples..." );
 
 		const u32 blockCount = CaptureContext_End( &m_captureContext );
 
-		const u64 packingStopTickCount = GetTickCount();
+		const u64 packingStopTickCount = Tick_GetCount();
 
 		const bool written = WriteRawFrameFile( &m_captureContext, frameID );
 
-		const u64 writeStopTickCount = GetTickCount();
+		const u64 writeStopTickCount = Tick_GetCount();
 
 		CaptureContext_Release( &m_captureContext );
 		GPURenderTargetSet_Release( &s_cubeFaceRenderTargetSet );
@@ -1987,10 +1989,10 @@ bool CRenderingDevice::BuildBlock( u32 frameID )
 		V6_MSG( "Packed all samples: %s cells (%s blocks)  added @ frame %d\n", String_FormatInteger( sumLeafCount ), String_FormatInteger( blockCount ), frameID );
 		V6_MSG( "Durations: %d captures in %.1fs, packing in %.1fs, writing in %.1fs => total of %.1fs\n",
 			SAMPLE_MAX_COUNT,
-			ConvertTicksToSeconds( captureStopTickCount - s_captureStartTickCount ),
-			ConvertTicksToSeconds( packingStopTickCount - captureStopTickCount ),
-			ConvertTicksToSeconds( writeStopTickCount - packingStopTickCount ),
-			ConvertTicksToSeconds( writeStopTickCount - s_captureStartTickCount ) );
+			Tick_ConvertToSeconds( captureStopTickCount - s_captureStartTickCount ),
+			Tick_ConvertToSeconds( packingStopTickCount - captureStopTickCount ),
+			Tick_ConvertToSeconds( writeStopTickCount - packingStopTickCount ),
+			Tick_ConvertToSeconds( writeStopTickCount - s_captureStartTickCount ) );
 		s_logReadBack = false;
 #if V6_INFINITE_CAPTURE == 1
 		g_sample = 0;
@@ -2154,7 +2156,7 @@ void CRenderingDevice::Draw( float dt )
 				{
 					++m_bakedFrameCount;
 
-					if ( PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS ) )
+					if ( PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / Codec_GetDefaultFrameRate() ) )
 						g_sample = 0;
 				}
 			}
@@ -2179,7 +2181,8 @@ void CRenderingDevice::Draw( float dt )
 
 			if ( m_bakedFrameCount == -1 )
 			{
-				TraceContext_UpdateFrame( m_traceContext, frameID, m_stack );
+				const u32 sequenceID = VideoStream_FindSequenceIDFromFrameID( &m_stream, frameID );
+				TraceContext_UpdateFrame( m_traceContext, &m_stream.sequences[sequenceID], sequenceID, m_stream.frameOffsets[sequenceID], frameID - m_stream.frameOffsets[sequenceID], m_stack );
 				
 				{
 					TraceOptions_s options = {};
@@ -2194,7 +2197,7 @@ void CRenderingDevice::Draw( float dt )
 				s_logReadBack = false;
 				g_mousePicked = false;
 
-				PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / HMD_FPS );
+				PathPlayer_AddTimeStep( &s_pathPlayer, 1.0f / Codec_GetDefaultFrameRate() );
 			}
 		}
 	}	
@@ -2259,7 +2262,7 @@ int main()
 	const v6::Vec2i renterTargerSize = v6::Vec2i_Make( v6::RENDERTARGET_WIDTH, v6::RENDERTARGET_WIDTH );
 #endif // #if V6_USE_HMD
 
-	const char* const title = "V6";
+	const char* const title = "Dragonfly";
 
 	if ( !v6::Win_Create( &v6::s_win, nullptr, title, 1920 - renterTargerSize.x * v6::EYE_COUNT, 48, renterTargerSize.x * v6::EYE_COUNT, renterTargerSize.y, v6::WIN_FLAG_IS_MAIN ) )
 		return 1;
@@ -2303,7 +2306,7 @@ int main()
 	v6::Win_RegisterKeyEvent( &v6::s_win, v6::Viewer_OnKeyEvent );
 	v6::Win_RegisterMouseEvent( &v6::s_win, v6::Viewer_OnMouseEvent );
 
-	__int64 frameTickLast = GetTickCount(); 
+	__int64 frameTickLast = v6::Tick_GetCount(); 
 	__int64 frameId = 0;
 	while ( !Win_ProcessMessagesAndShouldQuit( &v6::s_win ) )
 	{
@@ -2312,22 +2315,22 @@ int main()
 		static const int tMaxCount = 64;
 		static float dts[tMaxCount] = {};
 		
-		const __int64 frameTick = v6::GetTickCount();
+		const __int64 frameTick = v6::Tick_GetCount();
 		
 		__int64 frameUpdatedTick = frameTick;
 		float dt = 0.0f;
 		for (;;)
 		{
 			const __int64 frameDelta = frameUpdatedTick - frameTickLast;
-			dt = v6::Min( v6::ConvertTicksToSeconds( frameDelta ), 0.1f );
+			dt = v6::Min( v6::Tick_ConvertToSeconds( frameDelta ), 0.1f );
 #if !V6_USE_HMD
-			if ( dt + 0.0001f >= 1.0f / v6::HMD_FPS )
+			if ( dt + 0.0001f >= 1.0f / v6::Codec_GetDefaultFrameRate() )
 #endif // #if !V6_USE_HMD
 			{
 				break;
 			}
-			SwitchToThread();
-			frameUpdatedTick = v6::GetTickCount();
+			v6::Thread_Switch();
+			frameUpdatedTick = v6::Tick_GetCount();
 		}
 		dts[frameId & (tMaxCount-1)] = dt;
 

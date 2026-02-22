@@ -388,7 +388,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	if ( group == 0 )
 	{
 		gs_patchCount = min( blockPatchCounters[tileOffset], HLSL_BLOCK_PATCH_MAX_COUNT_PER_TILE );
-		gs_pageCount = (gs_patchCount + 63) >> 6;
+		gs_pageCount = (gs_patchCount + 63) >> 6; 
 
 #if BLOCK_DEBUG == 1
 		InterlockedAdd( blockTraceStats[0].tileInputCounts[max( 1, gs_pageCount ) - 1], 1 );
@@ -400,7 +400,7 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	InterlockedAdd( blockTraceStats[0].pixelInputCount, 1 );
 #endif // #if BLOCK_DEBUG == 1
 
-	GroupMemoryBarrierWithGroupSync();
+	GroupMemoryBarrierWithGroupSync(); // ensure that gs_patchCount is initialized
 
 	uint remainingPatchCount = gs_patchCount;
 	const uint pageSize = (c_traceFrameTileSize.x * c_traceFrameTileSize.y) * 64;
@@ -436,6 +436,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 			gs_patches[group] = tracePatch;
 		}
 
+		GroupMemoryBarrierWithGroupSync(); // ensure that gs_patches is filled
+
 		// Compute up to 64 visible blocks to intersect
 
 		uint patchMask0 = BuildTraceMask( group_xMask8_yMask8, 0 );
@@ -454,6 +456,8 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 #if BLOCK_DEBUG == 1
 		InterlockedAdd( blockTraceStats[0].pixelPageCount, 1 );
 #endif // #if BLOCK_DEBUG == 1
+
+		GroupMemoryBarrierWithGroupSync(); // ensure that gs_patches is no more used
 	}
 
 	float3 groupColor = float3( 0.0f, 0.0f, 0.0f );
@@ -462,8 +466,6 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 	if ( hit.depth < HLSL_FLT_MAX )
 	{
 		// Decode the BC1 color of the nearest hit
-
-		// 100 us
 
 		uint64 colorIndices64;
 		if ( hit.cellRank < 32 )
@@ -520,8 +522,6 @@ void main( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint
 
 	{
 		// Ouput
-		
-		// 50 us
 
 		const uint2 screenBufferPos = uint2( DTid.x, c_traceFrameSize.y - DTid.y - 1 );
 		outputColors[screenBufferPos] = float4( groupColor, responseFactor );

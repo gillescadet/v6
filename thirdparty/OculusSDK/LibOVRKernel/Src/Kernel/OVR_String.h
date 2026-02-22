@@ -227,8 +227,8 @@ public:
     // Removes the character(s) at posAt
     void        Remove(size_t posAt, size_t len = 1);
 
-    // Same as std::string::pop_back()
-    void        PopBack() { Remove(GetSize() - 1, 1); }
+    // Removes the last character.
+    void        PopBack() { Remove(GetLength() - 1, 1); }
 
     // Returns a String that's a substring of this.
     //  -start is the index of the first UTF8 character you want to include.

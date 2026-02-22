@@ -728,6 +728,8 @@ SharedMemoryFactory::SharedMemoryFactory()
 {
     OVR_DEBUG_LOG(("[SharedMemory] Creating factory"));
 
+    FakeMemoryManager::GetInstance(); // Make sure the fake memory manager is destroyed at the right time
+
     PushDestroyCallbacks();
 }
 

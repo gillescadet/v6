@@ -65,7 +65,7 @@ TEMPLATE projectConfigsEnd					= TEXT(			</ItemGroup>\n );
 
 TEMPLATE projectConfigImportGroupsBegin		= TEXT(			<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />\n );
 TEMPLATE projectConfigImportGroup			= TEXT(			<ImportGroup Condition="'$(Configuration)|$(Platform)'=='%s|%s'" Label="PropertySheets">\n
-																<Import Project="%s_common_%s_%s.props" />\n
+																<Import Project="%s_common_%s.props" />\n
 															</ImportGroup>\n );
 
 TEMPLATE projectItemDefinitionGroup			= TEXT(			<ItemDefinitionGroup>\n
@@ -91,6 +91,7 @@ TEMPLATE commonDebug						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 														<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">\n
 															<PropertyGroup Label="UserMacros">\n
 																<OVRSDKROOT>$(SolutionDir)/../../thirdparty/OculusSDK/</OVRSDKROOT>\n
+																<OVRPLATFORMSDKROOT>$(SolutionDir)/../../thirdparty/OVRPlatformSDK/</OVRPLATFORMSDKROOT>\n
 															</PropertyGroup>\n
 															<PropertyGroup>\n
 																<OutDir>$(SolutionDir)../../bin/$(Configuration)/</OutDir>\n
@@ -100,8 +101,8 @@ TEMPLATE commonDebug						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 															</PropertyGroup>\n
 															<ItemDefinitionGroup>\n
 																<ClCompile>\n
-																	<PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%%(PreprocessorDefinitions)</PreprocessorDefinitions>																
-																	<AdditionalIncludeDirectories>$(SolutionDir)../../source;../../thirdparty;$(OVRSDKROOT)/LibOVR/Include;$(OVRSDKROOT)/LibOVRKernel/Src</AdditionalIncludeDirectories>\n
+																	<PreprocessorDefinitions>WIN32;_DEBUG;_LIB;V6_VERSION_REV#%d;%%(PreprocessorDefinitions)</PreprocessorDefinitions>																
+																	<AdditionalIncludeDirectories>$(SolutionDir)../../source;../../thirdparty;$(OVRSDKROOT)/LibOVR/Include;$(OVRSDKROOT)/LibOVRKernel/Src;$(OVRPLATFORMSDKROOT)/Include</AdditionalIncludeDirectories>\n
 																	<Optimization>Disabled</Optimization>
 																	<WarningLevel>Level3</WarningLevel>
 																	<TreatWarningAsError>true</TreatWarningAsError>
@@ -127,6 +128,9 @@ TEMPLATE commonDebug						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 																<BuildMacro Include="OVRSDKROOT">\n
 																	<Value>$(OVRSDKROOT)</Value>\n
 																</BuildMacro>\n
+																<BuildMacro Include="OVRPLATFORMSDKROOT">\n
+																	<Value>$(OVRPLATFORMSDKROOT)</Value>\n
+																</BuildMacro>\n
 															</ItemGroup>\n
 														</Project>\n );
 
@@ -136,12 +140,16 @@ TEMPLATE projectUser						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 															<LocalDebuggerWorkingDirectory>$(TargetDir)</LocalDebuggerWorkingDirectory>\n
 															<DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>\n
 														</PropertyGroup>\n
+														<PropertyGroup>\n
+															<LocalDebuggerCommandArguments>%s</LocalDebuggerCommandArguments>\n
+														</PropertyGroup>\n
 													</Project>\n );
 
 TEMPLATE commonRelease						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 														<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">\n
 															<PropertyGroup Label="UserMacros">\n
 																<OVRSDKROOT>$(SolutionDir)/../../thirdparty/OculusSDK/</OVRSDKROOT>\n
+																<OVRPLATFORMSDKROOT>$(SolutionDir)/../../thirdparty/OVRPlatformSDK/</OVRPLATFORMSDKROOT>\n
 															</PropertyGroup>\n
 															<PropertyGroup>\n
 																<OutDir>$(SolutionDir)../../bin/$(Configuration)/</OutDir>\n
@@ -152,8 +160,8 @@ TEMPLATE commonRelease						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 															</PropertyGroup>\n
 															<ItemDefinitionGroup>\n
 																<ClCompile>\n
-																	<AdditionalIncludeDirectories>$(SolutionDir)../../source;../../thirdparty;$(OVRSDKROOT)/LibOVR/Include;$(OVRSDKROOT)/LibOVRKernel/Src</AdditionalIncludeDirectories>\n
-																	<PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%%(PreprocessorDefinitions)</PreprocessorDefinitions>
+																	<AdditionalIncludeDirectories>$(SolutionDir)../../source;../../thirdparty;$(OVRSDKROOT)/LibOVR/Include;$(OVRSDKROOT)/LibOVRKernel/Src;$(OVRPLATFORMSDKROOT)/Include</AdditionalIncludeDirectories>\n
+																	<PreprocessorDefinitions>WIN32;NDEBUG;_LIB;V6_VERSION_REV#%d;%%(PreprocessorDefinitions)</PreprocessorDefinitions>
 																	<Optimization>MaxSpeed</Optimization>
 																	<FunctionLevelLinking>true</FunctionLevelLinking>
 																	<IntrinsicFunctions>true</IntrinsicFunctions>
@@ -183,6 +191,9 @@ TEMPLATE commonRelease						= TEXT(	<?xml version="1.0" encoding="utf-8"?>\n
 																<BuildMacro Include="OVRSDKROOT">\n
 																	<Value>$(OVRSDKROOT)</Value>\n
 																</BuildMacro>\n
+																<BuildMacro Include="OVRPLATFORMSDKROOT">\n
+																	<Value>$(OVRPLATFORMSDKROOT)</Value>\n
+																</BuildMacro>\n
 															</ItemGroup>\n
 														</Project>\n );
 
@@ -193,20 +204,32 @@ TEMPLATE HLSL_DisableTreatWarningAsError	= TEXT( <TreatWarningAsError>false</Tre
 
 // Implementation
 
-#define LIB_OVR_KERNEL	"$(OVRSDKROOT)LibOVRKernel/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVRKernel.lib"
-#define LIB_OVR			"$(OVRSDKROOT)LibOVR/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVR.lib"
+#define LIB_OVR_KERNEL		"$(OVRSDKROOT)LibOVRKernel/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVRKernel.lib"
+#define LIB_OVR				"$(OVRSDKROOT)LibOVR/Lib/Windows/$(Platform)/$(Configuration)/VS2015/LibOVR.lib"
+#define LIB_OVR_PLATFORM	"$(OVRPLATFORMSDKROOT)Windows/LibOVRPlatform64_1.lib"
+
+#define LIB_D3D11			"$(SolutionDir)/../../thirdparty/DirectX/d3d11.lib"
+#define LIB_XINPUT			"$(SolutionDir)/../../thirdparty/DirectX/XInput.lib"
 
 typedef unsigned int u32;
 
+enum ProjectType_e
+{
+	PROJECT_TYPE_CONSOLEAPP,
+	PROJECT_TYPE_WINAPP,
+	PROJECT_TYPE_LIB,
+};
+
 struct Project_s
 {
-	u32			id;
-	const char* guid;
-	const char* name;
-	u32			dependencies;
-	bool		isLib;
-	const char* path;
-	const char* libPath;
+	u32				id;
+	const char*		guid;
+	const char*		name;
+	u32				dependencies;
+	ProjectType_e	projectType;
+	const char*		path;
+	const char*		libPath;
+	const char*		args;
 };
 
 struct ProjectFile_s
@@ -239,15 +262,16 @@ enum
 	PROJECT_CLASSWRAPPER		= 1 << 2,
 	PROJECT_COMPRESSOR			= 1 << 3,
 	PROJECT_DOC					= 1 << 4,
-	PROJECT_ENCODER				= 1 << 5,
-	PROJECT_LIBOVR				= 1 << 6,
-	PROJECT_LIBOVRKERNEL		= 1 << 7,
-	PROJECT_PLAYER				= 1 << 8,
-	PROJECT_TEXTURE_COMPRESSOR	= 1 << 9,
-	PROJECT_TRACER				= 1 << 10,
-	PROJECT_VIEWER				= 1 << 11,
+	PROJECT_DISK_BENCH			= 1 << 5,
+	PROJECT_ENCODER				= 1 << 6,
+	PROJECT_LIBOVR				= 1 << 7,
+	PROJECT_LIBOVRKERNEL		= 1 << 8,
+	PROJECT_PLAYER				= 1 << 9,
+	PROJECT_TEXTURE_COMPRESSOR	= 1 << 10,
+	PROJECT_TRACER				= 1 << 11,
+	PROJECT_VIEWER				= 1 << 12,
 
-	PROJECT_COUNT				= 12
+	PROJECT_COUNT				= 13
 };
 
 static const Config_s s_configs[CONFIG_COUNT] = 
@@ -263,13 +287,14 @@ static const Project_s s_projects[PROJECT_COUNT] =
 	{ PROJECT_CLASSWRAPPER,			"30B4EE66-3B03-4859-9372-974340DC4BD3", "class_wrappper" },
 	{ PROJECT_COMPRESSOR,			"EE652B0F-8AEA-42F8-8529-41C075FA4DA8", "compressor" },
 	{ PROJECT_DOC,					"3CF8E22B-F0B6-43A7-B472-9E3ACB91591A", "doc" },
+	{ PROJECT_DISK_BENCH,			"2C038544-0FFA-4BC7-813E-26CEAFC7A7D6", "disk_bench" },
 	{ PROJECT_ENCODER,				"8B3F2A6F-97DD-4089-82FC-70E0CC3BCC27", "encoder" },
-	{ PROJECT_LIBOVR,				"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"		, 0, true, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
-	{ PROJECT_LIBOVRKERNEL,			"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"	, 0, true, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
-	{ PROJECT_PLAYER,				"4185B5D4-480C-4E72-946F-90185611CE35", "player"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
+	{ PROJECT_LIBOVR,				"EA50E705-5113-49E5-B105-2512EDC8DDC6", "LibOVR"				, 0, PROJECT_TYPE_LIB, "../../thirdparty/OculusSDK/LibOVR/Projects/Windows/VS2015/", LIB_OVR },
+	{ PROJECT_LIBOVRKERNEL,			"29FA0962-DDC6-4F72-9D12-E150DF29E279", "LibOVRKernel"			, 0, PROJECT_TYPE_LIB, "../../thirdparty/OculusSDK/LibOVRKernel/Projects/Windows/VS2015/", LIB_OVR_KERNEL },
+	{ PROJECT_PLAYER,				"4185B5D4-480C-4E72-946F-90185611CE35", "player"				, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL, PROJECT_TYPE_WINAPP, nullptr, LIB_OVR_PLATFORM ";" LIB_D3D11 ";" LIB_XINPUT, "OculusStore" },
 	{ PROJECT_TEXTURE_COMPRESSOR,	"16C234D1-9833-46A1-9DEA-279409B53E67", "texture_compressor" },
 	{ PROJECT_TRACER,				"33EF0EB6-321C-49B1-8D7B-9637BCC97489", "tracer" },
-	{ PROJECT_VIEWER,				"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"		, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL },
+	{ PROJECT_VIEWER,				"CEC43B15-39D4-463B-825C-D630A53DAFB0", "viewer"				, PROJECT_LIBOVR | PROJECT_LIBOVRKERNEL, PROJECT_TYPE_CONSOLEAPP, nullptr, LIB_D3D11 },
 };
 
 static ProjectFile_s s_projectFiles[] =
@@ -320,14 +345,40 @@ static ProjectFile_s s_projectFiles[] =
 	// doc
 	{ "source/v6/doc/bench.txt",									PROJECT_DOC },
 	{ "source/v6/doc/make_project.cpp",								PROJECT_DOC },
-	{ "source/v6/doc/survey.txt",									PROJECT_DOC },
-	{ "source/v6/doc/todo.txt",										PROJECT_DOC },
 	
+	// disk bench
+	{ "source/v6/codec/codec.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/codec/compression.cpp",							PROJECT_DISK_BENCH },
+	{ "source/v6/codec/decoder.cpp",								PROJECT_DISK_BENCH },
+	{ "source/v6/core/filemap.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/filesystem.cpp",								PROJECT_DISK_BENCH },
+	{ "source/v6/core/image.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/memory.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/optimization.cpp",							PROJECT_DISK_BENCH },
+	{ "source/v6/core/process.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/stream.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/thread.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/core/time.cpp",									PROJECT_DISK_BENCH },
+	{ "source/v6/disk_bench/main_disk_bench.cpp",					PROJECT_DISK_BENCH },
+	{ "thirdparty/lz4/lib/lz4.c",									PROJECT_DISK_BENCH },
+	{ "thirdparty/lz4/lib/lz4hc.c",									PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",				PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",				PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/common/xxhash.c",						PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",					PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",				PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",				PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",				PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",			PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",			PROJECT_DISK_BENCH },
+	{ "thirdparty/zstd/lib/zstd.h",									PROJECT_DISK_BENCH },
+
 	// encoder
 	{ "source/v6/codec/codec.cpp",									PROJECT_ENCODER },
 	{ "source/v6/codec/compression.cpp",							PROJECT_ENCODER },
 	{ "source/v6/codec/decoder.cpp",								PROJECT_ENCODER },
 	{ "source/v6/codec/encoder.cpp",								PROJECT_ENCODER },
+	{ "source/v6/core/filemap.cpp",									PROJECT_ENCODER },
 	{ "source/v6/core/filesystem.cpp",								PROJECT_ENCODER },
 	{ "source/v6/core/image.cpp",									PROJECT_ENCODER },
 	{ "source/v6/core/memory.cpp",									PROJECT_ENCODER },
@@ -357,10 +408,13 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/codec/compression.cpp",							PROJECT_PLAYER },
 	{ "source/v6/codec/decoder.cpp",								PROJECT_PLAYER },
 	{ "source/v6/core/bit.h",										PROJECT_PLAYER },
+	{ "source/v6/core/filemap.cpp",									PROJECT_PLAYER },
 	{ "source/v6/core/filesystem.cpp",								PROJECT_PLAYER },
 	{ "source/v6/core/gamepad.cpp",									PROJECT_PLAYER },
+	{ "source/v6/core/ini.cpp", 									PROJECT_PLAYER },
 	{ "source/v6/core/memory.cpp",									PROJECT_PLAYER },
 	{ "source/v6/core/optimization.cpp",							PROJECT_PLAYER },
+	{ "source/v6/core/platform.cpp",								PROJECT_PLAYER },
 	{ "source/v6/core/plot.cpp",									PROJECT_PLAYER },
 	{ "source/v6/core/stream.cpp",									PROJECT_PLAYER },
 	{ "source/v6/core/string.cpp",									PROJECT_PLAYER },
@@ -375,9 +429,13 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/graphic/trace.cpp",								PROJECT_PLAYER },
 	{ "source/v6/graphic/view.cpp",									PROJECT_PLAYER },
 	{ "source/v6/player/main_player.cpp",							PROJECT_PLAYER },
+	{ "source/v6/player/grid_tile_512_bc1.h",						PROJECT_PLAYER },
 	{ "source/v6/player/missing_stream_256_bc1.h",					PROJECT_PLAYER },
+	{ "source/v6/player/stream_overlay_movie_64_bc1.h",				PROJECT_PLAYER },
+	{ "source/v6/player/stream_overlay_image_64_bc1.h",				PROJECT_PLAYER },
 	{ "thirdparty/lz4/lib/lz4.c",									PROJECT_PLAYER },
 	{ "thirdparty/lz4/lib/lz4hc.c",									PROJECT_PLAYER },
+	{ "thirdparty/OVRPlatformSDK/Windows/OVR_PlatformLoader.cpp",	PROJECT_PLAYER },
 	{ "thirdparty/zstd/lib/common/entropy_common.c",				PROJECT_PLAYER },
 	{ "thirdparty/zstd/lib/common/fse_decompress.c",				PROJECT_PLAYER },
 	{ "thirdparty/zstd/lib/common/xxhash.c",						PROJECT_PLAYER },
@@ -391,15 +449,22 @@ static ProjectFile_s s_projectFiles[] =
 
 	// player - HLSL
 	{ "source/v6/graphic/common_shared.h",							PROJECT_PLAYER },
-	{ "source/v6/player/frame_metrics_cs.hlsl",						PROJECT_PLAYER },
-	{ "source/v6/player/player_basic.hlsli",						PROJECT_PLAYER },
-	{ "source/v6/player/player_basic_ps.hlsl",						PROJECT_PLAYER },
-	{ "source/v6/player/player_basic_vs.hlsl",						PROJECT_PLAYER },
+	{ "source/v6/player/player_arrow.hlsli",						PROJECT_PLAYER },
+	{ "source/v6/player/player_arrow_ps.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_arrow_vs.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_env.hlsli",							PROJECT_PLAYER },
+	{ "source/v6/player/player_env_ps.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_env_vs.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_frame_metrics_cs.hlsl",				PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
 	{ "source/v6/player/player_list.hlsli",							PROJECT_PLAYER },
-	{ "source/v6/player/player_list_ps.hlsl",						PROJECT_PLAYER },
-	{ "source/v6/player/player_list_vs.hlsl",						PROJECT_PLAYER },
+	{ "source/v6/player/player_list_ps.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_list_vs.hlsl",						PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_particle.hlsli",						PROJECT_PLAYER },
+	{ "source/v6/player/player_particle_ps.hlsl",					PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_particle_vs.hlsl",					PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/player/player_shaders.h",							PROJECT_PLAYER },
 	{ "source/v6/player/player_shared.h",							PROJECT_PLAYER },
-	{ "source/v6/player/surface_compose_cs.hlsl",					PROJECT_PLAYER },
+	{ "source/v6/player/player_surface_compose_cs.hlsl",			PROJECT_PLAYER, HLSL_OuputBytecodeInHeaderFile },
 
 	// texture compressor
 	{ "source/v6/codec/compression.cpp",							PROJECT_TEXTURE_COMPRESSOR },
@@ -431,115 +496,120 @@ static ProjectFile_s s_projectFiles[] =
 	{ "source/v6/tracer/main_tracer.cpp",							PROJECT_TRACER },
 
 	// viewer
-	{ "source/v6/codec/codec.cpp",								PROJECT_VIEWER },
-	{ "source/v6/codec/compression.cpp",						PROJECT_VIEWER },
-	{ "source/v6/codec/decoder.cpp",							PROJECT_VIEWER },
-	{ "source/v6/codec/encoder.cpp",							PROJECT_VIEWER },
-	{ "source/v6/core/bit.h",									PROJECT_VIEWER },
-	{ "source/v6/core/filesystem.cpp",							PROJECT_VIEWER },
-	{ "source/v6/core/image.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/mat3x3.h",								PROJECT_VIEWER },
-	{ "source/v6/core/mat4x4.h",								PROJECT_VIEWER },
-	{ "source/v6/core/memory.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/obj_reader.cpp",							PROJECT_VIEWER },
-	{ "source/v6/core/optimization.cpp",						PROJECT_VIEWER },
-	{ "source/v6/core/plot.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/process.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/stream.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/string.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/thread.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/time.cpp",								PROJECT_VIEWER },
-	{ "source/v6/core/vec2.h",									PROJECT_VIEWER },
-	{ "source/v6/core/vec2i.h",									PROJECT_VIEWER },
-	{ "source/v6/core/vec3.h",									PROJECT_VIEWER },
-	{ "source/v6/core/vec3i.h",									PROJECT_VIEWER },
-	{ "source/v6/core/vec4.h",									PROJECT_VIEWER },
-	{ "source/v6/core/vec4i.h",									PROJECT_VIEWER },
-	{ "source/v6/core/win.cpp",									PROJECT_VIEWER },
-	{ "source/v6/graphic/capture.cpp",							PROJECT_VIEWER },
-	{ "source/v6/graphic/font.cpp",								PROJECT_VIEWER },
-	{ "source/v6/graphic/gpu.cpp",								PROJECT_VIEWER },
-	{ "source/v6/graphic/hmd.cpp",								PROJECT_VIEWER },
-	{ "source/v6/graphic/scene.cpp",							PROJECT_VIEWER },
-	{ "source/v6/graphic/trace.cpp",							PROJECT_VIEWER },
-	{ "source/v6/graphic/view.cpp",								PROJECT_VIEWER },
-	{ "thirdparty/lz4/lib/lz4.c",								PROJECT_VIEWER },
-	{ "thirdparty/lz4/lib/lz4hc.c",								PROJECT_VIEWER },
-	{ "source/v6/viewer/main_viewer.cpp",						PROJECT_VIEWER },
-	{ "source/v6/viewer/scene_info.cpp",						PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/common/entropy_common.c",			PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/common/fse_decompress.c",			PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/common/xxhash.c",					PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/common/zstd_common.c",				PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/compress/fse_compress.c",			PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/compress/huf_compress.c",			PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/compress/zstd_compress.c",			PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",		PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",		PROJECT_VIEWER },
-	{ "thirdparty/zstd/lib/zstd.h",								PROJECT_VIEWER },
+	{ "source/v6/codec/codec.cpp",									PROJECT_VIEWER },
+	{ "source/v6/codec/compression.cpp",							PROJECT_VIEWER },
+	{ "source/v6/codec/decoder.cpp",								PROJECT_VIEWER },
+	{ "source/v6/codec/encoder.cpp",								PROJECT_VIEWER },
+	{ "source/v6/core/bit.h",										PROJECT_VIEWER },
+	{ "source/v6/core/filemap.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/filesystem.cpp",								PROJECT_VIEWER },
+	{ "source/v6/core/image.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/mat3x3.h",									PROJECT_VIEWER },
+	{ "source/v6/core/mat4x4.h",									PROJECT_VIEWER },
+	{ "source/v6/core/memory.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/obj_reader.cpp",								PROJECT_VIEWER },
+	{ "source/v6/core/optimization.cpp",							PROJECT_VIEWER },
+	{ "source/v6/core/plot.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/process.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/stream.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/string.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/thread.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/time.cpp",									PROJECT_VIEWER },
+	{ "source/v6/core/vec2.h",										PROJECT_VIEWER },
+	{ "source/v6/core/vec2i.h",										PROJECT_VIEWER },
+	{ "source/v6/core/vec3.h",										PROJECT_VIEWER },
+	{ "source/v6/core/vec3i.h",										PROJECT_VIEWER },
+	{ "source/v6/core/vec4.h",										PROJECT_VIEWER },
+	{ "source/v6/core/vec4i.h",										PROJECT_VIEWER },
+	{ "source/v6/core/win.cpp",										PROJECT_VIEWER },
+	{ "source/v6/graphic/capture.cpp",								PROJECT_VIEWER },
+	{ "source/v6/graphic/font.cpp",									PROJECT_VIEWER },
+	{ "source/v6/graphic/gpu.cpp",									PROJECT_VIEWER },
+	{ "source/v6/graphic/hmd.cpp",									PROJECT_VIEWER },
+	{ "source/v6/graphic/scene.cpp",								PROJECT_VIEWER },
+	{ "source/v6/graphic/trace.cpp",								PROJECT_VIEWER },
+	{ "source/v6/graphic/view.cpp",									PROJECT_VIEWER },
+	{ "thirdparty/lz4/lib/lz4.c",									PROJECT_VIEWER },
+	{ "thirdparty/lz4/lib/lz4hc.c",									PROJECT_VIEWER },
+	{ "source/v6/viewer/main_viewer.cpp",							PROJECT_VIEWER },
+	{ "source/v6/viewer/scene_info.cpp",							PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/entropy_common.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/fse_decompress.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/xxhash.c",						PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/common/zstd_common.c",					PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/fse_compress.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/huf_compress.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/compress/zstd_compress.c",				PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/decompress/huf_decompress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/decompress/zstd_decompress.c",			PROJECT_VIEWER },
+	{ "thirdparty/zstd/lib/zstd.h",									PROJECT_VIEWER },
 
 	// viewer - HLSL
-	{ "source/v6/graphic/block_cull_cs_impl.hlsli",				PROJECT_VIEWER },
-	{ "source/v6/graphic/block_cull_optim_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_optim_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_post_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_cull_stats_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_project_cs_impl.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/graphic/block_project_optim_mip_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_project_optim_onion_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_project_stats_mip_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_project_stats_onion_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_cs_impl.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/graphic/block_trace_debug_mip_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_debug_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_optim_mip_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/block_trace_optim_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/capture_shaders.h",					PROJECT_VIEWER },
-	{ "source/v6/graphic/capture_shared.h",						PROJECT_VIEWER },
-	{ "source/v6/graphic/common_shared.h",						PROJECT_VIEWER },
-	{ "source/v6/graphic/font.hlsli",							PROJECT_VIEWER },
-	{ "source/v6/graphic/font_ps.hlsl",							PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/font_shared.h",						PROJECT_VIEWER },
-	{ "source/v6/graphic/font_vs.hlsl",							PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_build_inner_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_build_inner_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_build_leaf_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_build_leaf_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_build_node_impl.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_fill_leaf_impl.hlsli",			PROJECT_VIEWER },
-	{ "source/v6/graphic/octree_fill_leaf_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_pack_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/octree_pack_impl.hlsli",				PROJECT_VIEWER },
-	{ "source/v6/graphic/octree_pack_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/onion_impl.hlsli",						PROJECT_VIEWER },
-	{ "source/v6/graphic/pixel_sharpen_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/pixel_tsaa_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/sample_collect_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/sample_collect_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/sample_collect_onion_debug_cs.hlsl",	PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
-	{ "source/v6/graphic/sample_collect_onion_impl.hlsli",		PROJECT_VIEWER },
-	{ "source/v6/graphic/sample_pack.hlsli",					PROJECT_VIEWER },
-	{ "source/v6/graphic/trace_shaders.h",						PROJECT_VIEWER },
-	{ "source/v6/graphic/trace_shared.h",						PROJECT_VIEWER },
-	{ "source/v6/viewer/fake_cube.hlsli",						PROJECT_VIEWER },
-	{ "source/v6/viewer/fake_cube_ps.hlsl",						PROJECT_VIEWER },
-	{ "source/v6/viewer/fake_cube_vs.hlsl",						PROJECT_VIEWER },
-	{ "source/v6/viewer/generic.hlsli",							PROJECT_VIEWER },
-	{ "source/v6/viewer/generic_alpha_test_ps.hlsl",			PROJECT_VIEWER },
-	{ "source/v6/viewer/generic_ps.hlsl",						PROJECT_VIEWER },
-	{ "source/v6/viewer/generic_ps.hlsli",						PROJECT_VIEWER },
-	{ "source/v6/viewer/generic_vs.hlsl",						PROJECT_VIEWER },
-	{ "source/v6/viewer/viewer_basic.hlsli",					PROJECT_VIEWER },
-	{ "source/v6/viewer/viewer_basic_ps.hlsl",					PROJECT_VIEWER },
-	{ "source/v6/viewer/viewer_basic_vs.hlsl",					PROJECT_VIEWER },
-	{ "source/v6/viewer/surface_compose_cs.hlsl",				PROJECT_VIEWER },
-	{ "source/v6/viewer/viewer_shared.h",						PROJECT_VIEWER },
+	{ "source/v6/graphic/block_cull_cs_impl.hlsli",					PROJECT_VIEWER },
+	{ "source/v6/graphic/block_cull_optim_mip_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_optim_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_post_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_mip_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_cull_stats_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_cs_impl.hlsli",				PROJECT_VIEWER },
+	{ "source/v6/graphic/block_project_optim_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_optim_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_stats_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_project_stats_onion_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_cs_impl.hlsli",				PROJECT_VIEWER },
+	{ "source/v6/graphic/block_trace_debug_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_debug_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_optim_mip_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/block_trace_optim_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/capture_shaders.h",						PROJECT_VIEWER },
+	{ "source/v6/graphic/capture_shared.h",							PROJECT_VIEWER },
+	{ "source/v6/graphic/common_shared.h",							PROJECT_VIEWER },
+	{ "source/v6/graphic/font.hlsli",								PROJECT_VIEWER },
+	{ "source/v6/graphic/font_background_ps.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/font_background_vs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/font_ps.hlsl",								PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/font_shaders.h",							PROJECT_VIEWER },
+	{ "source/v6/graphic/font_shared.h",							PROJECT_VIEWER },
+	{ "source/v6/graphic/font_vs.hlsl",								PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_inner_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_inner_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_leaf_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_leaf_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_build_node_impl.hlsli",				PROJECT_VIEWER },
+	{ "source/v6/graphic/octree_fill_leaf_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_fill_leaf_impl.hlsli",				PROJECT_VIEWER },
+	{ "source/v6/graphic/octree_fill_leaf_onion_cs.hlsl",			PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_pack_cs.hlsl",						PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/octree_pack_impl.hlsli",					PROJECT_VIEWER },
+	{ "source/v6/graphic/octree_pack_onion_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/onion_impl.hlsli",							PROJECT_VIEWER },
+	{ "source/v6/graphic/pixel_sharpen_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/pixel_tsaa_cs.hlsl",						PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/sample_collect_cs.hlsl",					PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/sample_collect_onion_cs.hlsl",				PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/sample_collect_onion_debug_cs.hlsl",		PROJECT_VIEWER, HLSL_OuputBytecodeInHeaderFile },
+	{ "source/v6/graphic/sample_collect_onion_impl.hlsli",			PROJECT_VIEWER },
+	{ "source/v6/graphic/sample_pack.hlsli",						PROJECT_VIEWER },
+	{ "source/v6/graphic/trace_shaders.h",							PROJECT_VIEWER },
+	{ "source/v6/graphic/trace_shared.h",							PROJECT_VIEWER },
+	{ "source/v6/viewer/fake_cube.hlsli",							PROJECT_VIEWER },
+	{ "source/v6/viewer/fake_cube_ps.hlsl",							PROJECT_VIEWER },
+	{ "source/v6/viewer/fake_cube_vs.hlsl",							PROJECT_VIEWER },
+	{ "source/v6/viewer/generic.hlsli",								PROJECT_VIEWER },
+	{ "source/v6/viewer/generic_alpha_test_ps.hlsl",				PROJECT_VIEWER },
+	{ "source/v6/viewer/generic_ps.hlsl",							PROJECT_VIEWER },
+	{ "source/v6/viewer/generic_ps.hlsli",							PROJECT_VIEWER },
+	{ "source/v6/viewer/generic_vs.hlsl",							PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic.hlsli",						PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic_ps.hlsl",						PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_basic_vs.hlsl",						PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_shared.h",							PROJECT_VIEWER },
+	{ "source/v6/viewer/viewer_surface_compose_cs.hlsl",			PROJECT_VIEWER },
 };
 
 char*	s_solutionName		= nullptr;
 char*	s_solutionVersion	= nullptr;
+u32		s_solutionRev		= 0;
 char	s_solutionPath[256] = "";
 char	s_sourcePath[256]	= "../..";
 
@@ -601,7 +671,7 @@ const char* Project_GetName( const Project_s* project )
 		return project->name;
 
 	static char s_projectNameBuffer[256]; // not thread safe
-	sprintf( s_projectNameBuffer, "%s_%s_%s", s_solutionName, project->name, s_solutionVersion );
+	sprintf( s_projectNameBuffer, "%s_%s", s_solutionName, project->name );
 
 	return s_projectNameBuffer;
 }
@@ -768,11 +838,11 @@ static void Project_Write( FILE* f, const Project_s* project )
 	}
 	fprintf( f, projectSourcesEnd );
 
-	fprintf( f, projectSet, project->guid, Project_GetName( project ), project->isLib ? "StaticLibrary" : "Application" );
+	fprintf( f, projectSet, project->guid, Project_GetName( project ), project->projectType == PROJECT_TYPE_LIB ? "StaticLibrary" : "Application" );
 
 	fprintf( f, projectConfigImportGroupsBegin );
 	for ( u32 configID = 0; configID < CONFIG_COUNT; ++configID )
-		fprintf( f, projectConfigImportGroup, s_configs[configID].name, s_configs[configID].platform, s_solutionName, s_configs[configID].name, s_solutionVersion );
+		fprintf( f, projectConfigImportGroup, s_configs[configID].name, s_configs[configID].platform, s_solutionName, s_configs[configID].name );
 
 	char additionalDependencies[4096] = {};
 	if ( project->dependencies )
@@ -780,7 +850,7 @@ static void Project_Write( FILE* f, const Project_s* project )
 		for ( u32 dependentProjectFileID = 0; dependentProjectFileID < PROJECT_COUNT; ++dependentProjectFileID )
 		{
 			const Project_s* dependentProject = &s_projects[dependentProjectFileID];
-			if ( (project->dependencies & dependentProject->id) != 0 && dependentProject->isLib )
+			if ( (project->dependencies & dependentProject->id) != 0 && dependentProject->projectType == PROJECT_TYPE_LIB )
 			{
 				if ( dependentProject->libPath )
 					sprintf( additionalDependencies, "%s;%s", additionalDependencies, dependentProject->libPath );
@@ -789,31 +859,36 @@ static void Project_Write( FILE* f, const Project_s* project )
 			}
 		}
 	}
-	fprintf( f, projectItemDefinitionGroup, project->isLib ? "Windows" : "Console", additionalDependencies );
+
+	if ( project->projectType != PROJECT_TYPE_LIB && project->libPath )
+		sprintf( additionalDependencies, "%s;%s", additionalDependencies, project->libPath );
+
+	fprintf( f, projectItemDefinitionGroup, project->projectType == PROJECT_TYPE_CONSOLEAPP	 ? "Console" : "Windows", additionalDependencies );
 
 	fprintf( f, projectEnd );
 }
 
 static void ProjectUser_Write( FILE* f, const Project_s* project )
 {
-	fprintf( f, projectUser );
+	fprintf( f, projectUser, project->args );
 }
 
 int main( int argc, char* argv[] )
 {
-	if ( argc < 3 )
+	if ( argc < 4 )
 	{
-		printf( "Usage: make SOLUTION VERSION\n" );
+		printf( "Usage: make SOLUTION VERSION VERSION_REV\n" );
 		return 1;
 	}
 
 	s_solutionName = argv[1];
 	s_solutionVersion = argv[2];
-	sprintf( s_solutionPath, "project/vc%s", s_solutionVersion );
+	s_solutionRev = atoi( argv[3] );
+	sprintf( s_solutionPath, "project/vs%s", s_solutionVersion );
 
 	{
 		char solutionFilename[256];
-		sprintf_s( solutionFilename, sizeof( solutionFilename ), "%s/%s_%s.sln", s_solutionPath, s_solutionName, s_solutionVersion );
+		sprintf_s( solutionFilename, sizeof( solutionFilename ), "%s/%s_vs%s.sln", s_solutionPath, s_solutionName, s_solutionVersion );
 		FILE* fSolution = fopen( solutionFilename, "wt" );
 		if ( !fSolution )
 		{
@@ -827,14 +902,14 @@ int main( int argc, char* argv[] )
 	for ( u32 configID = 0; configID < CONFIG_COUNT; ++configID )
 	{
 		char commonFilename[256];
-		sprintf_s( commonFilename, sizeof( commonFilename ), "%s/%s_common_%s_%s.props", s_solutionPath, s_solutionName, s_configs[configID].name, s_solutionVersion );
+		sprintf_s( commonFilename, sizeof( commonFilename ), "%s/%s_common_%s.props", s_solutionPath, s_solutionName, s_configs[configID].name );
 		FILE* fCommon = fopen( commonFilename, "wt" );
 		if ( !fCommon )
 		{
 			printf( "Error: Unable to open %s\n", commonFilename );
 			return 1;
 		}
-		fprintf( fCommon, s_configs[configID].props );
+		fprintf( fCommon, s_configs[configID].props, s_solutionRev );
 		fclose( fCommon );
 	}
 

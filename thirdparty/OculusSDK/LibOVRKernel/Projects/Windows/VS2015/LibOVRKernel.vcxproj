@@ -47,7 +47,6 @@
     <ClInclude Include="..\..\..\Src\Kernel\OVR_StringHash.h" />
     <ClInclude Include="..\..\..\Src\Kernel\OVR_SysFile.h" />
     <ClInclude Include="..\..\..\Src\Kernel\OVR_System.h" />
-    <ClInclude Include="..\..\..\Src\Kernel\OVR_ThreadCommandQueue.h" />
     <ClInclude Include="..\..\..\Src\Kernel\OVR_Threads.h" />
     <ClInclude Include="..\..\..\Src\Kernel\OVR_Timer.h" />
     <ClInclude Include="..\..\..\Src\Kernel\OVR_Types.h" />
@@ -90,7 +89,6 @@
     <ClCompile Include="..\..\..\Src\Kernel\OVR_String_PathUtil.cpp" />
     <ClCompile Include="..\..\..\Src\Kernel\OVR_SysFile.cpp" />
     <ClCompile Include="..\..\..\Src\Kernel\OVR_System.cpp" />
-    <ClCompile Include="..\..\..\Src\Kernel\OVR_ThreadCommandQueue.cpp" />
     <ClCompile Include="..\..\..\Src\Kernel\OVR_ThreadsPthread.cpp" />
     <ClCompile Include="..\..\..\Src\Kernel\OVR_ThreadsWinAPI.cpp" />
     <ClCompile Include="..\..\..\Src\Kernel\OVR_Timer.cpp" />
@@ -202,7 +200,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <MinimalRebuild>false</MinimalRebuild>
       <OmitDefaultLibName>true</OmitDefaultLibName>
-      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <OmitFramePointers>false</OmitFramePointers>
       <EnablePREfast>false</EnablePREfast>
       <TreatWarningAsError>true</TreatWarningAsError>
@@ -230,7 +228,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>_WIN64;NDEBUG;_LIB;%(PreprocessorDefinitions);</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OmitDefaultLibName>true</OmitDefaultLibName>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>

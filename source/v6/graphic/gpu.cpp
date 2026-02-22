@@ -17,7 +17,7 @@
 
 BEGIN_V6_NAMESPACE
 
-static const u32 EVENT_BUFFER_COUNT			= 3;
+static const u32 EVENT_BUFFER_COUNT			= 5;
 static const u32 EVENT_MAX_COUNT			= 32;
 static const u32 EVENT_NAME_MAX_SIZE		= 64;
 static const u32 EVENT_STACK_MAX_SIZE		= 32;
@@ -235,15 +235,9 @@ void GPUEvent_EndFrame()
 u32 GPUEvent_UpdateDurations( GPUEventDuration_s** eventDurations )
 {
 	const u32 prevBufferID = (s_eventContext.state.frameID + 1) % EVENT_BUFFER_COUNT;
-	if ( s_eventContext.hierarchies[prevBufferID].count == 0 )
-		return 0;
-
-	GPUQuery_s* frequency = &s_eventContext.queries[prevBufferID].frequency;
-	if ( !GPUQuery_ReadTimeStampDisjoint( frequency ) )
-		return 0;
-
 	const u32 eventCount = s_eventContext.hierarchies[prevBufferID].count;
-	*eventDurations = s_eventContext.eventDurations;
+	if ( eventCount == 0 )
+		return 0;
 
 	const u32 timingFrameID = s_eventContext.state.frameID % EVENT_TIMING_FRAME_COUNT;
 	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
@@ -252,6 +246,17 @@ u32 GPUEvent_UpdateDurations( GPUEventDuration_s** eventDurations )
 
 		GPUQuery_ReadTimeStamp( &s_eventContext.queries[prevBufferID].begins[eventID] );
 		GPUQuery_ReadTimeStamp( &s_eventContext.queries[prevBufferID].ends[eventID] );
+	}
+
+	GPUQuery_s* frequency = &s_eventContext.queries[prevBufferID].frequency;
+	if ( !GPUQuery_ReadTimeStampDisjoint( frequency ) )
+		return 0;
+	
+	*eventDurations = s_eventContext.eventDurations;
+
+	for ( u32 eventRank = 0; eventRank < eventCount; ++eventRank )
+	{
+		const GPUEventID_t eventID = s_eventContext.hierarchies[prevBufferID].ids[eventRank];
 
 		const float time = GPUQuery_GetElpasedTime( &s_eventContext.queries[prevBufferID].begins[eventID], &s_eventContext.queries[prevBufferID].ends[eventID], frequency );
 		const u32 timeUS = (u32)(Min( time, 1.0f ) * 1000000.0f);
@@ -296,15 +301,18 @@ static void GPUEventContext_Release()
 
 void GPUResource_LogMemory( const char* res, u32 size, const char* name )
 {
+#if 0
+	V6_ASSERT_TXT( size <= MulMB( 512u ), String_Format( "Buffer %s uses %uMB which is bigger than 512 MB", name, DivMB( size ) ) );
+#endif
 	if ( g_deviceLogMemory && DivMB( size ) >= 1 )
-		V6_MSG( "%-16s %-30s: %8s MB\n", res, name, String_FormatInteger( DivMB( size ) ) );
+		V6_DEVMSG( "%-16s %-30s: %8s MB\n", res, name, String_FormatInteger( DivMB( size ) ) );
 	Atomic_Add( &s_gpuMemory, size );
 }
 
 void GPUResource_LogMemoryUsage()
 {
 	if ( g_deviceLogMemory )
-		V6_MSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger( DivMB( s_gpuMemory ) ) );
+		V6_DEVMSG( "%-16s %-30s: %8s MB\n", "GPU", "total", String_FormatInteger( DivMB( s_gpuMemory ) ) );
 }
 
 void GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize )
@@ -336,6 +344,9 @@ void GPUCompute_Release( GPUCompute_s* compute )
 
 void GPUCompute_Dispatch( GPUCompute_s* compute, u32 groupX, u32 groupY, u32 groupZ )
 {
+	V6_ASSERT( groupX < MulKB( 64u ) );
+	V6_ASSERT( groupY < MulKB( 64u ) );
+	V6_ASSERT( groupZ < MulKB( 64u ) );
 	g_deviceContext->CSSetShader( compute->m_computeShader, nullptr, 0 );
 	g_deviceContext->Dispatch( groupX, groupY, groupZ );
 }
@@ -353,9 +364,12 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 	
 	D3D11_INPUT_ELEMENT_DESC idesc[VERTEX_INPUT_MAX_COUNT] = {};
 
+	const u32 inputSlot = 0;
+	const D3D11_INPUT_CLASSIFICATION inputSlotClass = (vertexFormat & VERTEX_FORMAT_INSTANCED) != 0 ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA;
+	const u32 instanceDataStepRate = (vertexFormat & VERTEX_FORMAT_INSTANCED) != 0 ? 1 : 0;
 	int stride = 0;
 	int inputCount = 0;
-		
+
 	if ( vertexFormat & VERTEX_FORMAT_POSITION )
 	{
 		V6_ASSERT( inputCount < VERTEX_INPUT_MAX_COUNT );
@@ -363,10 +377,10 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		idesc[inputCount].SemanticName = "POSITION";
 		idesc[inputCount].SemanticIndex = 0;
 		idesc[inputCount].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 12;
 		++inputCount;
@@ -379,10 +393,10 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		idesc[inputCount].SemanticName = "COLOR";
 		idesc[inputCount].SemanticIndex = 0;
 		idesc[inputCount].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 4;
 		++inputCount;
@@ -399,10 +413,10 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER0_MASK ) >> VERTEX_FORMAT_USER0_SHIFT;
 		V6_ASSERT( width >= 1 && width <= 4 );
 		idesc[inputCount].Format = widthToFloatFormats[width];
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 4 * width;
 		++inputCount;
@@ -417,10 +431,10 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER1_MASK ) >> VERTEX_FORMAT_USER1_SHIFT;
 		V6_ASSERT( width >= 1 && width <= 4 );
 		idesc[inputCount].Format = widthToFloatFormats[width];
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 4 * width;
 		++inputCount;
@@ -435,10 +449,10 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER2_MASK ) >> VERTEX_FORMAT_USER2_SHIFT;
 		V6_ASSERT( width >= 1 && width <= 4 );
 		idesc[inputCount].Format = widthToFloatFormats[width];
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 4 * width;
 		++inputCount;
@@ -453,16 +467,23 @@ void GPUShader_CreateFromSource( GPUShader_s* shader, const void* sourceVS, u32 
 		const u32 width = ( vertexFormat & VERTEX_FORMAT_USER3_MASK ) >> VERTEX_FORMAT_USER3_SHIFT;
 		V6_ASSERT( width >= 1 && width <= 4 );
 		idesc[inputCount].Format = widthToFloatFormats[width];
-		idesc[inputCount].InputSlot = 0;
+		idesc[inputCount].InputSlot = inputSlot;
 		idesc[inputCount].AlignedByteOffset = stride;
-		idesc[inputCount].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
-		idesc[inputCount].InstanceDataStepRate = 0;
+		idesc[inputCount].InputSlotClass = inputSlotClass;
+		idesc[inputCount].InstanceDataStepRate = instanceDataStepRate;
 
 		stride += 4 * width;
 		++inputCount;
 	}
 
-	V6_ASSERT_D3D11( g_device->CreateInputLayout( idesc, inputCount, sourceVS, sourceSizeVS, &shader->m_inputLayout ) );
+	if ( inputCount )
+	{
+		V6_ASSERT_D3D11( g_device->CreateInputLayout( idesc, inputCount, sourceVS, sourceSizeVS, &shader->m_inputLayout ) );
+	}
+	else
+	{
+		shader->m_inputLayout = nullptr;
+	}
 
 	shader->m_vertexFormat = vertexFormat;
 }
@@ -494,7 +515,8 @@ bool GPUShader_Create( GPUShader_s* shader, const char* vs, const char* ps, u32 
 
 void GPUShader_Release( GPUShader_s* shader )
 {
-	V6_RELEASE_D3D11( shader->m_inputLayout );
+	if ( shader->m_inputLayout )
+		V6_RELEASE_D3D11( shader->m_inputLayout );
 	V6_RELEASE_D3D11( shader->m_vertexShader );
 	V6_RELEASE_D3D11( shader->m_pixelShader );
 }
@@ -538,7 +560,7 @@ void GPUBuffer_CreateIndirectArgs( GPUBuffer_s* buffer, u32 count, u32 flags, co
 		srvDesc.Format = DXGI_FORMAT_R32_UINT;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = count;
+		srvDesc.Buffer.NumElements = count;
 
 		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
@@ -636,7 +658,7 @@ void GPUBuffer_CreateTyped( GPUBuffer_s* buffer, DXGI_FORMAT format, u32 count, 
 		srvDesc.Format = format;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = count;
+		srvDesc.Buffer.NumElements = count;
 
 		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
@@ -735,7 +757,7 @@ void GPUBuffer_CreateStructured( GPUBuffer_s* buffer, u32 elementSize, u32 count
 		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 		srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = count;
+		srvDesc.Buffer.NumElements = count;
 
 		V6_ASSERT_D3D11( g_device->CreateShaderResourceView( buffer->buf, &srvDesc, &buffer->srv ) );
 	}
@@ -852,9 +874,9 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* srcDat
 	}
 }
 
-void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name )
+void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, bool useMSAA, bool bindable, bool writable, const char* name )
 {
-	V6_ASSERT( sampleCount > 0 );
+	V6_ASSERT( s_surfaceContext.initialized );
 
 	memset( colorRenderTarget, 0, sizeof( *colorRenderTarget ) );
 
@@ -865,8 +887,8 @@ void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 1;
 		texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		texDesc.SampleDesc.Count = sampleCount;
-		texDesc.SampleDesc.Quality = sampleCount == 1 ? 0 : 16;
+		texDesc.SampleDesc.Count = useMSAA ? s_surfaceContext.sampleMaxCount : 1;
+		texDesc.SampleDesc.Quality = useMSAA ? s_surfaceContext.qualityMaxLevel : 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
 		texDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
 		if ( bindable )
@@ -883,7 +905,7 @@ void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32
 	{
 		D3D11_RENDER_TARGET_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = sampleCount == 1 ? D3D11_RTV_DIMENSION_TEXTURE2D : D3D11_RTV_DIMENSION_TEXTURE2DMS;
+		viewDesc.ViewDimension = !useMSAA ? D3D11_RTV_DIMENSION_TEXTURE2D : D3D11_RTV_DIMENSION_TEXTURE2DMS;
 		viewDesc.Texture2D.MipSlice = 0;
 
 		V6_ASSERT_D3D11( g_device->CreateRenderTargetView( colorRenderTarget->tex, &viewDesc, &colorRenderTarget->rtv ) );
@@ -893,7 +915,7 @@ void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		viewDesc.ViewDimension = sampleCount == 1 ? D3D11_SRV_DIMENSION_TEXTURE2D : D3D11_SRV_DIMENSION_TEXTURE2DMS;
+		viewDesc.ViewDimension = !useMSAA ? D3D11_SRV_DIMENSION_TEXTURE2D : D3D11_SRV_DIMENSION_TEXTURE2DMS;
 		viewDesc.Texture2D.MipLevels = 1;
 		viewDesc.Texture2D.MostDetailedMip = 0;
 
@@ -902,7 +924,7 @@ void GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32
 
 	if ( writable )
 	{
-		V6_ASSERT( sampleCount == 1 );
+		V6_ASSERT( !useMSAA );
 
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 		uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -928,8 +950,10 @@ void GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget )
 		V6_RELEASE_D3D11( colorRenderTarget->uav );
 }
 
-void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name )
+void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32 width, u32 height, bool useMSAA, bool bindable, const char* name )
 {
+	V6_ASSERT( s_surfaceContext.initialized );
+
 	memset( depthRenderTarget, 0, sizeof( *depthRenderTarget ) );
 
 	{
@@ -939,8 +963,8 @@ void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32
 		texDesc.MipLevels = 1;
 		texDesc.ArraySize = 1;
 		texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-		texDesc.SampleDesc.Count = sampleCount;
-		texDesc.SampleDesc.Quality = sampleCount == 1 ? 0 : 16;
+		texDesc.SampleDesc.Count = useMSAA ? s_surfaceContext.sampleMaxCount : 1;
+		texDesc.SampleDesc.Quality = useMSAA ? s_surfaceContext.qualityMaxLevel : 0;
 		texDesc.Usage = D3D11_USAGE_DEFAULT;
 		texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 		if ( bindable )
@@ -955,7 +979,7 @@ void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32
 	{
 		D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-		viewDesc.ViewDimension = sampleCount == 1 ? D3D11_DSV_DIMENSION_TEXTURE2D : D3D11_DSV_DIMENSION_TEXTURE2DMS;
+		viewDesc.ViewDimension = !useMSAA ? D3D11_DSV_DIMENSION_TEXTURE2D : D3D11_DSV_DIMENSION_TEXTURE2DMS;
 		viewDesc.Flags = 0;
 		viewDesc.Texture2D.MipSlice = 0;
 
@@ -966,7 +990,7 @@ void GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* depthRenderTarget, u32
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 		viewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-		viewDesc.ViewDimension = sampleCount == 1 ? D3D11_SRV_DIMENSION_TEXTURE2D : D3D11_SRV_DIMENSION_TEXTURE2DMS;
+		viewDesc.ViewDimension = !useMSAA ? D3D11_SRV_DIMENSION_TEXTURE2D : D3D11_SRV_DIMENSION_TEXTURE2DMS;
 		viewDesc.Texture2D.MipLevels = 1;
 		viewDesc.Texture2D.MostDetailedMip = 0;
 
@@ -1401,7 +1425,7 @@ void GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCoun
 
 	V6_ASSERT( segmentCount >= 2 );
 
-	Vec2* circleCoords = stack->newArray< Vec2 >( segmentCount );
+	Vec2* circleCoords = stack->newArray< Vec2 >( segmentCount , "GPUMeshCircleCoords" );
 	
 	const float phiStep = 2.0f * V6_PI / segmentCount;
 	float phi = 0.0f;
@@ -1414,7 +1438,7 @@ void GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCoun
 	const u32 circleCount = segmentCount-1;
 	const u32 vertexCount = circleCount * segmentCount + 2;
 
-	BasicVertex_s* vertices = stack->newArray< BasicVertex_s >( vertexCount );
+	BasicVertex_s* vertices = stack->newArray< BasicVertex_s >( vertexCount, "GPUMeshVertex" );
 	u32 vertexID = 0;
 
 	vertices[vertexID].position = Vec3_Make( 0.0f, 0.0f, 1.0f );
@@ -1443,7 +1467,7 @@ void GPUMesh_CreateSphere( GPUMesh_s* mesh, const Color_s color, u32 segmentCoun
 
 	const u32 indexCount = circleCount * segmentCount * 3 * 2;
 
-	u16* indices = stack->newArray< u16 >( indexCount );
+	u16* indices = stack->newArray< u16 >( indexCount, "GPUMeshIndex" );
 	u16 indexID = 0;
 
 	for ( u32 coordID = 0; coordID < segmentCount; ++coordID )
@@ -1537,7 +1561,7 @@ void GPUMesh_DrawIndirect( GPUMesh_s* mesh, u32 instanceCount, GPUShader_s* shad
 	const u32 stride = mesh->m_vertexSize; 
 	const u32 offset = 0;
 			
-	g_deviceContext->IASetVertexBuffers( 0, mesh->m_vertexBuffer != nullptr ? 1 : 0, &mesh->m_vertexBuffer, &stride, &offset );	
+	g_deviceContext->IASetVertexBuffers( 0, mesh->m_vertexBuffer != nullptr ? 1 : 0, &mesh->m_vertexBuffer, &stride, &offset );
 	g_deviceContext->IASetPrimitiveTopology( mesh->m_topology );
 
 	if ( mesh->m_indexCount )
@@ -1647,7 +1671,7 @@ void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPU
 	}
 	else
 	{
-		GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[0], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( desc->stereo ? "%sLeftColor" : "%sColor", desc->name ) );
+		GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[0], desc->width, desc->height, false, desc->bindable, desc->writable, String_Format( desc->stereo ? "%sLeftColor" : "%sColor", desc->name ) );
 		renderTargetSet->ownColors[0] = true;
 	}
 
@@ -1662,18 +1686,18 @@ void GPURenderTargetSet_Create( GPURenderTargetSet_s* renderTargetSet, const GPU
 		}
 		else
 		{
-			GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[1], desc->width, desc->height, 1, desc->bindable, desc->writable, String_Format( "%sRightColor", desc->name ) );
+			GPUColorRenderTarget_Create( &renderTargetSet->colorBuffers[1], desc->width, desc->height, false, desc->bindable, desc->writable, String_Format( "%sRightColor", desc->name ) );
 			renderTargetSet->ownColors[1] = true;
 		}
 		renderTargetSet->stereo = true;
 	}
 
-	GPUDepthRenderTarget_Create( &renderTargetSet->depthBuffer, desc->width, desc->height, 1, desc->bindable, String_Format( "%sDepth", desc->name ) );
+	GPUDepthRenderTarget_Create( &renderTargetSet->depthBuffer, desc->width, desc->height, false, desc->bindable, String_Format( "%sDepth", desc->name ) );
 
 	if ( desc->supportMSAA )
 	{
-		GPUColorRenderTarget_Create( &renderTargetSet->colorBufferMSAA, desc->width, desc->height, 8, false, false, String_Format( "%sColorMSAA", desc->name ) );
-		GPUDepthRenderTarget_Create( &renderTargetSet->depthBufferMSAA, desc->width, desc->height, 8, false, String_Format( "%sDepthMSAA", desc->name ) );
+		GPUColorRenderTarget_Create( &renderTargetSet->colorBufferMSAA, desc->width, desc->height, true, false, false, String_Format( "%sColorMSAA", desc->name ) );
+		GPUDepthRenderTarget_Create( &renderTargetSet->depthBufferMSAA, desc->width, desc->height, true, false, String_Format( "%sDepthMSAA", desc->name ) );
 		renderTargetSet->supportMSAA = true;
 	}
 
@@ -1877,7 +1901,7 @@ void GPUShaderContext_CreateEmpty()
 
 	{
 		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_MINIMUM_MIN_MAG_LINEAR_MIP_POINT;
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
 		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
@@ -2008,7 +2032,60 @@ void GPUDevice_Set( ID3D11Device* device )
 	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
 }
 
-void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug )
+const char* const GPUDevice_GetVendorName( GPUVendor_e vendor )
+{
+	V6_ASSERT( vendor < GPU_VENDOR_COUNT );
+
+	switch( vendor )
+	{
+	case GPU_VENDOR_AMD: return "AMD";
+	case GPU_VENDOR_NVIDIA: return "nVidia";
+	case GPU_VENDOR_UNKNOW: return "unknown";
+	default:
+		V6_ASSERT_NOT_SUPPORTED();
+	}
+
+	return "?";
+}
+
+void GPUDevice_GetInfo( GPUInfo_s* gpuInfo )
+{
+	V6_ASSERT( g_device != nullptr );
+
+	DXGI_ADAPTER_DESC desc;
+	
+	{
+		IDXGIDevice* dxgiDevice = nullptr;
+		V6_ASSERT_D3D11( g_device->QueryInterface( IID_PPV_ARGS( &dxgiDevice ) ) );
+
+		IDXGIAdapter* dxgiAdapter = nullptr;
+		V6_ASSERT_D3D11( dxgiDevice->GetAdapter( &dxgiAdapter ) );
+
+		dxgiAdapter->GetDesc( &desc );
+
+		V6_RELEASE_D3D11( dxgiAdapter );
+		V6_RELEASE_D3D11( dxgiDevice );
+	}
+
+	WideCharToMultiByte( CP_ACP, 0, desc.Description, -1, gpuInfo->deviceName, sizeof( gpuInfo->deviceName ), nullptr, nullptr );
+
+	switch( desc.VendorId )
+	{
+	case 0x1002: 
+		gpuInfo->vendor = GPU_VENDOR_AMD;
+		break;
+	case 0x10DE: 
+		gpuInfo->vendor = GPU_VENDOR_NVIDIA;
+		break;
+	default:
+		gpuInfo->vendor = GPU_VENDOR_UNKNOW;
+	}
+
+	gpuInfo->vendorID = desc.VendorId;
+	gpuInfo->deviceID = desc.DeviceId;
+}
+
+bool GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug )
 {
 	V6_ASSERT( g_device == nullptr );
 
@@ -2032,14 +2109,14 @@ void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool
 	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 	swapChainDesc.Flags = 0;
 
-	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_1 };
+	D3D_FEATURE_LEVEL pFeatureLevels[2] = { D3D_FEATURE_LEVEL_11_0 };
 	
 	D3D_FEATURE_LEVEL featureLevel;
-	V6_ASSERT_D3D11( D3D11CreateDeviceAndSwapChain(
+	const HRESULT createDeviceAndSwapChainRes = D3D11CreateDeviceAndSwapChain(
 		NULL,
 		D3D_DRIVER_TYPE_HARDWARE,
 		NULL,
-		(debug ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT,
+		debug ? D3D11_CREATE_DEVICE_DEBUG : 0,
 		pFeatureLevels,
 		1,
 		D3D11_SDK_VERSION,
@@ -2047,29 +2124,52 @@ void GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool
 		&s_surfaceContext.swapChain,
 		&g_device,
 		&featureLevel,
-		&g_deviceContext ) );
+		&g_deviceContext );
 
-	V6_ASSERT( featureLevel == D3D_FEATURE_LEVEL_11_1 );
+	if ( createDeviceAndSwapChainRes != S_OK )
+	{
+		const char* str = nullptr;
+		switch ( createDeviceAndSwapChainRes )
+		{
+		case 0x887A0004: 
+			str = "The requested functionality is not supported by the device or the driver";
+			break;
+		}
+		if ( str )
+			V6_FATAL( "Unable to create D3D11 device. %s. (DXGI_ERROR: 0x%08X)\n", str, createDeviceAndSwapChainRes );
+		else
+			V6_FATAL( "Unable to create D3D11 device (DXGI_ERROR: 0x%08X)\n", createDeviceAndSwapChainRes );
+		return false;
+	}
+
+	V6_ASSERT( featureLevel == D3D_FEATURE_LEVEL_11_0 );
 	
 	V6_ASSERT_D3D11( g_deviceContext->QueryInterface( IID_PPV_ARGS( &s_userDefinedAnnotation ) ) );
 
-#if 0
+	s_surfaceContext.sampleMaxCount = 0;
+	s_surfaceContext.qualityMaxLevel = 0;
+
 	for ( u32 sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount++)
 	{
 		u32 maxQualityLevel;
-		HRESULT hr = m_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, MSAA_SAMPLE_QUALITY, &maxQualityLevel );
+		HRESULT hr = g_device->CheckMultisampleQualityLevels( DXGI_FORMAT_R8G8B8A8_UNORM, sampleCount, &maxQualityLevel );
 		
 		if ( hr != S_OK )
 			break;
 		
 		if ( maxQualityLevel > 0 )
-			V6_MSG ("MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
+		{
+			V6_DEVMSG( "MSAA %dX supported with %d quality levels.\n", sampleCount, maxQualityLevel-1 );
+			s_surfaceContext.sampleMaxCount = sampleCount;
+			s_surfaceContext.qualityMaxLevel = maxQualityLevel-1;
+		}
 	}
-#endif
 
 	s_surfaceContext.initialized = true;
 
 	GPUSurfaceContext_CreateColorRenderTarget();
+
+	return true;
 }
 
 void GPUDevice_Release()

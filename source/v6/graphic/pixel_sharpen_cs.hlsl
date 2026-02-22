@@ -32,7 +32,9 @@ void main_pixel_sharpen_cs( uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_Gr
 		s0 *= (l0 * 2.0f - blurryLuminance) / l0;
 	}
 	
-	const float3 black = ((Gid.x & 1) == (Gid.y & 1)) ? float3( 0.01f, 0.01f, 0.01f ) : (float3( l0, l0, l0 ) * 0.01f);
+	const float3 outOfRangeColor = ((Gid.x & 1) == (Gid.y & 1)) ? float3( 0.01f, 0.01f, 0.01f ) : (float3( l0, l0, l0 ) * 0.01f);
+	const float3 black = c_postProcessFadeToBlack == 0.0f ? outOfRangeColor : float3( 0.0f, 0.0f, 0.0f );
+	const float3 fadeToBlack = c_postProcessFadeToBlack == 0.0f ? c_postProcessOutOfRange : c_postProcessFadeToBlack;
 
-	outputColors[pixelCoords] = float4( lerp( s0, black, c_postProcessFadeToBlack ), 0.0f );
+	outputColors[pixelCoords] = float4( lerp( s0, black, fadeToBlack ), 0.0f );
 }

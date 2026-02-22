@@ -4,8 +4,12 @@
 
 #include <v6/codec/decoder.h>
 #include <v6/codec/encoder.h>
+#include <v6/core/filesystem.h>
 #include <v6/core/memory.h>
 #include <v6/core/time.h>
+
+#define V6_VERSION_MAJOR		0
+#define V6_VERSION_MINOR		1
 
 #define VALIDATE (ENCODER_STRICT_CELL)
 
@@ -13,20 +17,27 @@ BEGIN_V6_NAMESPACE
 
 struct CommandArgs
 {
+	const char*		inputFilenames[16];
 	const char*		streamFilename;
 	const char*		templateFilename;
 	const char*		key;
 	const char*		value;
 	u32				frameOffset;
 	u32				frameCount;
-	u32				playRate;
+	u32				frameRate;
 	u32				compressionQuality;
+	u32				inputFilenameCount;
+	u32				firstSequenceToRemoveCount;
+	u32				lastSequenceToRemoveCount;
 	bool			extend;
 };
 
+static FILE*	s_logFile = nullptr;
+static Mutex_s	s_logMutex;
+
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;
@@ -36,19 +47,60 @@ void OutputMessage( const char * format, ... )
 
 	fputs( buffer, stdout );
 
-#if 0
-	static FILE* f = nullptr;
-	if ( f == nullptr )
-		fopen_s( &f, "d:/tmp/v6/encoder_log.txt", "wt" );
-	fprintf( f, buffer );
-#endif
+	if ( s_logFile )
+	{
+		Mutex_Lock( &s_logMutex );
+		switch( msgType )
+		{
+		case MSG_WARNING:
+			fputs( "[WARNING] ", s_logFile );
+			break;
+		case MSG_ERROR:
+			fputs( "[ERROR] ", s_logFile );
+			break;
+		case MSG_FATAL:
+			fputs( "[FATAL] ", s_logFile );
+			break;
+		}
+		fputs( buffer, s_logFile );
+		Mutex_Unlock( &s_logMutex );
+	}
+
+	if ( msgType == MSG_FATAL )
+		exit( 1 );
 }
 
 //----------------------------------------------------------------------------------------------------
 
+static void LogFile_Create( const CommandArgs* commandArgs )
+{
+	char logFilename[256];
+	v6::FilePath_ChangeExtension( logFilename, sizeof( logFilename ), commandArgs->streamFilename, "log" );
+	fopen_s( &v6::s_logFile, logFilename, commandArgs->extend ? "a+t" : "wt" );
+	if ( v6::s_logFile )
+		Mutex_Create( &v6::s_logMutex );
+	else
+		V6_WARNING( "Unable to open log file %s\n", logFilename );
+}
+
+static void LogFile_Release()
+{
+	if ( v6::s_logFile )
+	{
+		Mutex_Lock( &v6::s_logMutex );
+		FILE* const logFile = v6::s_logFile;
+		v6::s_logFile = nullptr;
+		Mutex_Unlock( &v6::s_logMutex );
+
+		Mutex_Release( &v6::s_logMutex );
+		fclose( logFile );
+	}
+}
+
 static void CommandArgs_PrintUsage()
 {
-	V6_MSG( "USAGE1: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-q COMPRESSION_QUALITY] [-e]\n");
+	V6_MSG( "*** Encode multiple raw frames ***\n");
+	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -t RAW_FILENAME_TEMPLATE [-o FRAME_OFFSET] [-c FRAME_COUNT] [-r PLAY_RATE] [-q COMPRESSION_QUALITY] [-e]\n");
 	V6_MSG( "\n");
 	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
 	V6_MSG( " -t RAW_FILENAME_TEMPLATE: Raw filename template. Use a printf like format to describe the raw filename with a variable frame ID.\n");
@@ -60,11 +112,28 @@ static void CommandArgs_PrintUsage()
 	V6_MSG( "\n");
 	V6_MSG( "\n");
 
-	V6_MSG( "USAGE2: encoder -s STREAM_FILENAME -k KEY_NAME [-v KEY_VALUE]\n");
+	V6_MSG( "*** Add a key\\value pair ***\n");
+	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -k KEY_NAME [-v KEY_VALUE]\n");
 	V6_MSG( "\n");
 	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
-	V6_MSG( " -k KEY_NAME:				Name of the key.\n");
-	V6_MSG( " -v VALUE_NAME:			Value of the key to update.\n");
+	V6_MSG( " -k KEY_NAME:              Name of the key.\n");
+	V6_MSG( " -v VALUE_NAME:            Value of the key to update.\n");
+	V6_MSG( "\n");
+
+	V6_MSG( "*** Merge multiple streams ***\n");
+	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -a INPUT_STREAM_FILENAME#1 -a INPUT_STREAM_FILENAME#2 ... -a INPUT_STREAM_FILENAME#N\n");
+	V6_MSG( "\n");
+	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
+	V6_MSG( " -a INPUT_STREAM_FILENAME: Input stream filenames.\n");
+	V6_MSG( "\n");
+
+	V6_MSG( "*** Trim a stream ***\n");
+	V6_MSG( "USAGE: encoder -s STREAM_FILENAME -i INPUT_STREAM_FILENAME -f FIRST_SEQUENCE_COUNT -l LAST_SEQUENCE_COUNT\n" );
+	V6_MSG( "\n");
+	V6_MSG( " -s STREAM_FILENAME:       Stream filename.\n");
+	V6_MSG( " -a INPUT_STREAM_FILENAME: Input stream filename.\n");
+	V6_MSG( " -f FIRST_SEQUENCE_COUNT:  Number of sequences to remove from the beginning.\n");
+	V6_MSG( " -l LAST_SEQUENCE_COUNT:   Number of sequences to remove from the end.\n");
 	V6_MSG( "\n");
 }
 
@@ -72,73 +141,97 @@ static void CommandArgs_Init( CommandArgs* commandArgs )
 {
 	memset( commandArgs, 0, sizeof( *commandArgs ) );
 	commandArgs->frameCount = 1;
-	commandArgs->playRate = 75;
+	commandArgs->frameRate = Codec_GetDefaultFrameRate();
 
 #if 0
-	commandArgs->streamFilename = "D:/media/obj/crytek-sponza/sponza.v6";
-	commandArgs->templateFilename = "D:/media/obj/crytek-sponza/sponza_%06d.v6f";
+	commandArgs->streamFilename = "d:/tmp/v6/ue.df";
+	commandArgs->templateFilename = "d:/tmp/v6/ue_%06u.v6f";
 	commandArgs->frameOffset = 0;
 	commandArgs->frameCount = 1;
-	commandArgs->playRate = 75;
-	commandArgs->extend = false;
-#endif
-
-#if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->frameOffset = 0;
-	commandArgs->frameCount = 1;
-	commandArgs->playRate = 75;
-	commandArgs->extend = false;
-#endif
-
-#if 0
-	commandArgs->streamFilename = "D:/tmp/v6/ue.v6";
-	commandArgs->templateFilename = "D:/tmp/v6/ue_%06d.v6f";
-	commandArgs->frameOffset = 0;
-	commandArgs->frameCount = 2;
-	commandArgs->playRate = 75;
+	commandArgs->frameRate = 90;
 	commandArgs->compressionQuality = 1;
 	commandArgs->extend = false;
 #endif
 
 #if 0
+	commandArgs->streamFilename = "d:/tmp/v6/fight_scene_movie.df";
+	commandArgs->key = "icon";
+	commandArgs->value = "d:/tmp/v6/fight_scene_movie.tga";
+#endif
+
+#if 0
+	commandArgs->streamFilename = "v6/test.df";
+	commandArgs->inputFilenames[0] = "d:/tmp/v6/Fight Scene 1400+.df";
+	commandArgs->inputFilenames[1] = "d:/tmp/v6/Fight Scene 1400+.df";
+	commandArgs->inputFilenameCount = 2;
+#endif
+
+#if 0
+	commandArgs->streamFilename = "d:/tmp/v6/infiltrator_final_trimmed.df";
+	commandArgs->inputFilenames[0] = "d:/tmp/v6/infiltrator_final.df";
+	commandArgs->firstSequenceToRemoveCount = 38;
+	commandArgs->lastSequenceToRemoveCount = 0;
+#endif
+
+#if 0
+	commandArgs->streamFilename = "c:/tmp/v6/ue.df";
+	commandArgs->templateFilename = "c:/tmp/v6/ue_%06u.v6f";
+	commandArgs->frameOffset = 0;
+	commandArgs->frameCount = 1;
+	commandArgs->frameRate = 90;
+	commandArgs->compressionQuality = 1;
+	commandArgs->extend = false;
+#elif 0
+	commandArgs->streamFilename = "c:/tmp/v6/ue.df";
+	commandArgs->templateFilename = "c:/tmp/v6/ue_%06u.v6f";
+	commandArgs->frameOffset = 1;
+	commandArgs->frameCount = 1;
+	commandArgs->frameRate = 90;
+	commandArgs->compressionQuality = 1;
 	commandArgs->extend = true;
 #endif
 
 #if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->key = "title";
-	commandArgs->value = "Les vacances a la plage a St-Tropez";
+	commandArgs->streamFilename = "c:/tmp/v6/kite21.df";
+	commandArgs->templateFilename = "c:/tmp/v6/kite21_%06u.v6f";
+	commandArgs->frameOffset = 0;
+	commandArgs->frameCount = 1;
+	commandArgs->frameRate = 1;
+	commandArgs->compressionQuality = 0;
+	commandArgs->extend = false;
 #endif
+}
 
-#if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->key = "title2";
-	commandArgs->value = "Les vacances a la plage a Maurice";
-#endif
+static void CommandArgs_Log( const CommandArgs* commandArgs )
+{
+	V6_MSG( "Stream filename: %s\n", commandArgs->streamFilename );
 
-#if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->key = "title3";
-	commandArgs->value = "Les vacances a la plage a Paris";
-#endif
-
-#if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->key = "icon";
-	commandArgs->value = "D:/media/image/test.tga";
-#endif
-
-#if 0
-	commandArgs->streamFilename = "D:/media/obj/default/default.v6";
-	commandArgs->templateFilename = "D:/media/obj/default/default_%06d.v6f";
-	commandArgs->key = "title";
-#endif
+	if ( commandArgs->key != nullptr )
+	{
+		V6_MSG( "Key: %s\n", commandArgs->key );
+		if ( commandArgs->value )
+			V6_MSG( "Value: %s\n", commandArgs->value );
+	}
+	else if ( commandArgs->inputFilenameCount > 0 )
+	{
+		for ( u32 streamID = 0; streamID < commandArgs->inputFilenameCount; ++streamID )
+			V6_MSG( "Input stream filename #%d: %s\n", streamID, commandArgs->inputFilenames[streamID] );
+	}
+	else if ( commandArgs->firstSequenceToRemoveCount > 0 || commandArgs->lastSequenceToRemoveCount > 0 )
+	{
+		V6_MSG( "Input stream filename: %s\n", commandArgs->inputFilenames[0] );
+		V6_MSG( "First sequence to remove: %d\n", commandArgs->firstSequenceToRemoveCount );
+		V6_MSG( "Last sequence to remove: %d\n", commandArgs->lastSequenceToRemoveCount );
+	}
+	else
+	{
+		V6_MSG( "Raw filename template: %s\n", commandArgs->templateFilename );
+		V6_MSG( "Frame offset: %d\n", commandArgs->frameOffset );
+		V6_MSG( "Frame count: %d\n", commandArgs->frameCount );
+		V6_MSG( "Frame rate: %d\n", commandArgs->frameRate );
+		V6_MSG( "Compression quality: %d\n", commandArgs->compressionQuality );
+		V6_MSG( "Extend: %s\n", commandArgs->extend ? "yes" : "no" );
+	}
 }
 
 static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** argv )
@@ -160,6 +253,17 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 			}
 			switch( argv[argID][1] )
 			{
+			case 'a':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -a should be followed by the input stream filename.\n" );
+					return false;
+				}
+				V6_ASSERT( commandArgs->inputFilenameCount < V6_ARRAY_COUNT( commandArgs->inputFilenames ) );
+				commandArgs->inputFilenames[commandArgs->inputFilenameCount] = argv[argID+1];
+				++argID;
+				++commandArgs->inputFilenameCount;
+				break;
 			case 'c':
 				if ( isLast )
 				{
@@ -172,6 +276,25 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 			case 'e':
 				commandArgs->extend = true;
 				break;
+			case 'f':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -f should be followed by the first sequence count.\n" );
+					return false;
+				}
+				commandArgs->firstSequenceToRemoveCount = atoi( argv[argID+1] );
+				++argID;
+				break;
+			case 'i':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -i should be followed by the input stream filename.\n" );
+					return false;
+				}
+				V6_ASSERT( commandArgs->inputFilenameCount == 0 );
+				commandArgs->inputFilenames[0] = argv[argID+1];
+				++argID;
+				break;
 			case 'k':
 				if ( isLast )
 				{
@@ -179,6 +302,15 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 					return false;
 				}
 				commandArgs->key = argv[argID+1];
+				++argID;
+				break;
+			case 'l':
+				if ( isLast )
+				{
+					V6_ERROR( "Command -l should be followed by the last sequence count.\n" );
+					return false;
+				}
+				commandArgs->lastSequenceToRemoveCount = atoi( argv[argID+1] );
 				++argID;
 				break;
 			case 'o':
@@ -202,10 +334,10 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 			case 'r':
 				if ( isLast )
 				{
-					V6_ERROR( "Command -o should be followed by the play rate.\n" );
+					V6_ERROR( "Command -o should be followed by the frame rate.\n" );
 					return false;
 				}
-				commandArgs->playRate = atoi( argv[argID+1] );
+				commandArgs->frameRate = atoi( argv[argID+1] );
 				++argID;
 				break;
 			case 's':
@@ -248,12 +380,22 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 		return false;
 	}
 
+	LogFile_Create( commandArgs );
+
 	if ( commandArgs->key != nullptr )
+		return true;
+
+	if ( commandArgs->inputFilenameCount > 0 )
+		return true;
+
+	if ( commandArgs->firstSequenceToRemoveCount > 0 || commandArgs->lastSequenceToRemoveCount > 0 )
 	{
-		V6_MSG( "Stream filename: %s\n", commandArgs->streamFilename );
-		V6_MSG( "Key: %s\n", commandArgs->key );
-		if ( commandArgs->value )
-			V6_MSG( "Value: %s\n", commandArgs->value );
+		if ( commandArgs->inputFilenames[0] == nullptr )
+		{
+			V6_ERROR( "Missing -i command to specify an input stream filename.\n" );
+			return false;
+		}
+
 		return true;
 	}
 
@@ -269,9 +411,9 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 		return false;
 	}
 
-	if ( commandArgs->playRate != 75 )
+	if ( !Codec_IsFrameRateSupported( commandArgs->frameRate ) )
 	{
-		V6_ERROR( "Playrate of %d is not supported.\n", commandArgs->playRate );
+		V6_ERROR( "Frame rate of %d is not supported.\n", commandArgs->frameRate );
 		return false;
 	}
 
@@ -280,14 +422,6 @@ static bool CommandArgs_Read( CommandArgs* commandArgs, int argc, const char** a
 		V6_ERROR( "Compression quality of %d is not supported.\n", commandArgs->compressionQuality );
 		return false;
 	}
-
-	V6_MSG( "Stream filename: %s\n", commandArgs->streamFilename );
-	V6_MSG( "Raw filename template: %s\n", commandArgs->templateFilename );
-	V6_MSG( "Frame offset: %d\n", commandArgs->frameOffset );
-	V6_MSG( "Frame count: %d\n", commandArgs->frameCount );
-	V6_MSG( "Play rate: %d\n", commandArgs->playRate );
-	V6_MSG( "Compression quality: %d\n", commandArgs->compressionQuality );
-	V6_MSG( "Extend: %s\n", commandArgs->extend ? "yes" : "no" );
 
 	return true;
 }
@@ -299,7 +433,7 @@ int Main_HandleKey( const CommandArgs* commandArgs, IAllocator* heap )
 	if ( commandArgs->value )
 	{
 		if ( !VideoStream_SetKeyValue( commandArgs->streamFilename, commandArgs->key, (u8*)commandArgs->value, (u32)strlen( commandArgs->value ) + 1u, &stack ) )
-			return 1;;
+			return 1;
 	}
 	else
 	{
@@ -320,16 +454,26 @@ int Main_HandleKey( const CommandArgs* commandArgs, IAllocator* heap )
 	return 0;
 }
 
+int Main_HandleMerge( const CommandArgs* commandArgs, IAllocator* heap )
+{
+	return VideoStream_Merge( commandArgs->streamFilename, commandArgs->inputFilenames, commandArgs->inputFilenameCount, heap ) ? 0 : 1;
+}
+
+int Main_HandleTrim( const CommandArgs* commandArgs, IAllocator* heap )
+{
+	return VideoStream_Trim( commandArgs->streamFilename, commandArgs->inputFilenames[0], commandArgs->firstSequenceToRemoveCount, commandArgs->lastSequenceToRemoveCount, heap ) ? 0 : 1;
+}
+
 int Main_HandleSequence( const CommandArgs* commandArgs, IAllocator* heap )
 {
-	u64 startTick = GetTickCount();
+	u64 startTick = Tick_GetCount();
 
-	if ( !VideoStream_Encode( commandArgs->streamFilename, commandArgs->templateFilename, commandArgs->frameOffset, commandArgs->frameCount, commandArgs->playRate, commandArgs->compressionQuality, commandArgs->extend, heap ) )
+	if ( !VideoStream_Encode( commandArgs->streamFilename, commandArgs->templateFilename, commandArgs->frameOffset, commandArgs->frameCount, commandArgs->frameRate, commandArgs->compressionQuality, commandArgs->extend, heap ) )
 		return 1;
 
-	const u64 endTick = GetTickCount();
+	const u64 endTick = Tick_GetCount();
 
-	V6_MSG( "Duration: %5.3fs\n", ConvertTicksToSeconds( endTick - startTick ) );
+	V6_MSG( "Duration: %5.3fs\n", Tick_ConvertToSeconds( endTick - startTick ) );
 
 #if VALIDATE
 
@@ -365,7 +509,7 @@ END_V6_NAMESPACE
 
 int main( int argc, const char** argv )
 {
-	V6_MSG( "Encoder 0.0\n\n" );
+	V6_MSG( "Encoder %d.%d.%d\n\n", V6_VERSION_MAJOR, V6_VERSION_MINOR, V6_VERSION_REV );
 
 	v6::CHeap heap;
 
@@ -377,8 +521,19 @@ int main( int argc, const char** argv )
 		return 1;
 	}
 
-	if ( commandArgs.key )
-		return Main_HandleKey( &commandArgs, &heap );
+	CommandArgs_Log( &commandArgs );
 
-	return Main_HandleSequence( &commandArgs, &heap );
+	int exitCode;
+	if ( commandArgs.key )
+		exitCode = Main_HandleKey( &commandArgs, &heap );
+	else if ( commandArgs.inputFilenameCount > 0 )
+		exitCode = Main_HandleMerge( &commandArgs, &heap );
+	else if ( commandArgs.firstSequenceToRemoveCount > 0 || commandArgs.lastSequenceToRemoveCount > 0 )
+		exitCode = Main_HandleTrim( &commandArgs, &heap );
+	else
+		exitCode = Main_HandleSequence( &commandArgs, &heap );
+
+	v6::LogFile_Release();
+
+	return exitCode;
 }

@@ -79,7 +79,7 @@ void Image_Create( Image_s* image, IAllocator* allocator, u32 width, u32 height 
 	image->allocator = allocator;
 	image->width = width;
 	image->height = height;
-	image->pixels = allocator->newArray< Color_s >( width * height );
+	image->pixels = allocator->newArray< Color_s >( width * height, "Image" );
 }
 
 void Image_Clear( Image_s* image )
@@ -280,7 +280,7 @@ CImage::CImage(IAllocator & oHeap, int nWidth, int nHeight)
 	allocator = &oHeap;
 	width = nWidth;
 	height = nHeight;
-	pixels = (Color_s *)allocator->alloc(GetSize());
+	pixels = (Color_s *)allocator->alloc( GetSize(), "Image" );
 }
 
 CImage::~CImage()
@@ -333,7 +333,7 @@ void ImageBC1_CreateWithData( ImageBC1_s* imageBC1, ImageBlockBC1_s* blocks, u32
 
 void ImageBC1_Create( ImageBC1_s* imageBC1, IAllocator* allocator, u32 width, u32 height )
 {
-	ImageBlockBC1_s* blocks = allocator->newArray< ImageBlockBC1_s >( (width>>2) * (height>>2) );
+	ImageBlockBC1_s* blocks = allocator->newArray< ImageBlockBC1_s >( (width>>2) * (height>>2), "ImageBC1" );
 	ImageBC1_CreateWithData( imageBC1, blocks, width, height );
 	imageBC1->allocator = allocator;
 }

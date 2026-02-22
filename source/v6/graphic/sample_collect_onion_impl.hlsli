@@ -2,11 +2,11 @@
 #include "capture_shared.h"
 #include "sample_pack.hlsli"
 
-Texture2D< float4 > colors							: REGISTER_SRV( HLSL_CAPTURE_COLOR_SLOT );
-Texture2D< float > depths							: REGISTER_SRV( HLSL_CAPTURE_DEPTH_SLOT );
+Texture2D< float4 > colors						: REGISTER_SRV( HLSL_CAPTURE_COLOR_SLOT );
+Texture2D< float > depths						: REGISTER_SRV( HLSL_CAPTURE_DEPTH_SLOT );
 
-RWStructuredBuffer< Sample > collectedSamples		: REGISTER_UAV( HLSL_SAMPLE_SLOT );
-RWBuffer< uint > sampleIndirectArgs					: REGISTER_UAV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );
+RWStructuredBuffer< Sample > collectedSamples	: REGISTER_UAV( HLSL_SAMPLE_SLOT );
+RWStructuredBuffer< SampleInfo > sampleInfo		: REGISTER_UAV( HLSL_SAMPLE_INFO_SLOT );
 
 #if SAMPLE_DEBUG == 1
 RWStructuredBuffer< SampleDebugOnion > sampleDebug : REGISTER_UAV( HLSL_SAMPLE_DEBUG_SLOT );
@@ -33,9 +33,9 @@ void main( uint3 DTid : SV_DispatchThreadID )
 {
 	const uint2 pixelCoords = uint2( DTid.xy );
 	const int3 textureCoords = int3( pixelCoords.x, pixelCoords.y, 0 );
-	const float3 cubeColor = colors.Load( textureCoords ).rgb;
+	const float3 cubeColor = pow( abs( colors.Load( textureCoords ).rgb ), c_sampleOnionGammaCorrection );
 	const float cubeDepth = rcp( mad ( depths.Load( textureCoords ), c_sampleOnionDepthLinearScale, c_sampleOnionDepthLinearBias ) );
-	
+
 	const float2 scale = mad( pixelCoords.xy + 0.5f, c_sampleOnionInvSamplingWidth * 2.0f, -1.0f );
 	const float3 dir = c_sampleOnionForward.xyz + c_sampleOnionRight.xyz * scale.x - c_sampleOnionUp.xyz * scale.y;
 	const float3 posFromDepthBuffer = mad( dir, cubeDepth, c_sampleOnionSampleCenterWS.xyz );
@@ -144,18 +144,8 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		if ( !rejected )
 		{
 			uint sampleID;
-			InterlockedAdd( sample_count, 1, sampleID );
+			InterlockedAdd( sampleInfo[0].count, 1, sampleID );
 			SampleOnion_Pack( collectedSamples[sampleID], axis, sign, blockCoords, cellCoordsWS, uint3( mad( cubeColor.rgb, 255.0f, 0.5f ) ) );
-
-			const uint sampleCount = sampleID+1;
-			InterlockedMax( sample_groupCountX, HLSL_GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 		}
-	}
-	
-	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )
-	{
-		InterlockedMax( sample_groupCountX, uint( 1 ) );
-		sample_groupCountY = 1;
-		sample_groupCountZ = 1;
 	}
 }

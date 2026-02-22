@@ -335,35 +335,6 @@ inline uint64_t OVR_CDECL OVR_atouq(const char* string)
 int OVR_CDECL OVR_stricmp(const char* dest, const char* src);
 int OVR_CDECL OVR_strnicmp(const char* dest, const char* src, size_t count);
 
-
-// This is like sprintf but with a destination buffer size argument. However, the behavior is different
-// from vsnprintf in that the return value semantics are like sprintf (which returns -1 on capacity overflow) and
-// not like snprintf (which returns intended strlen on capacity overflow).
-inline size_t OVR_CDECL OVR_sprintf(char *dest, size_t destsize, const char* format, ...)
-{
-    va_list argList;
-    va_start(argList,format);
-    int ret;
-#if defined(OVR_CC_MSVC)
-    #if defined(OVR_MSVC_SAFESTRING)
-        ret = _vsnprintf_s(dest, destsize, _TRUNCATE, format, argList);
-        OVR_ASSERT(ret != -1);
-    #else
-        OVR_UNUSED(destsize);
-        ret = _vsnprintf(dest, destsize - 1, format, argList); // -1 for space for the null character
-        OVR_ASSERT(ret != -1);
-        dest[destsize-1] = 0;
-    #endif
-#else
-    OVR_UNUSED(destsize);
-    ret = vsprintf(dest, format, argList);
-    OVR_ASSERT(ret < destsize);
-#endif
-    va_end(argList);
-    return ret;
-}
-
-
 // This is like vsprintf but with a destination buffer size argument. However, the behavior is different
 // from vsnprintf in that the return value semantics are like vsprintf (which returns -1 on capacity overflow) and
 // not like vsnprintf (which returns intended strlen on capacity overflow).

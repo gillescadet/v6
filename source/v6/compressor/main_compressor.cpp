@@ -35,7 +35,7 @@ struct RawBlock_s
 
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;
@@ -156,7 +156,7 @@ u32 LoadBlockForCompression( RawBlock_s** blocks, IAllocator* heap, IStack* stac
 		blockDataCount += cellCount;
 	}
 
-	*blocks = heap->newArray< RawBlock_s >( blockPosCount );
+	*blocks = heap->newArray< RawBlock_s >( blockPosCount, "LoadBlockForCompression" );
 	memset( *blocks, 0, blockPosCount * sizeof( RawBlock_s ) );
 
 	u32 rawBlockCount = 0;
@@ -266,7 +266,7 @@ static void TestImageCompressions( Stack* stack )
 
 	for ( u32 fileID = 0; fileID < fileCount; ++fileID )
 	{
-		V6_PRINT( "\n" );
+		V6_PRINT( MSG_LOG, "\n" );
 		TestImageCompression( filenameSrcs[fileID], stack );
 	}
 }
@@ -313,7 +313,7 @@ static void TestImageDownscales( Stack* stack )
 
 	for ( u32 fileID = 0; fileID < fileCount; ++fileID )
 	{
-		V6_PRINT( "\n" );
+		V6_PRINT( MSG_LOG, "\n" );
 		TestImageDownscale( filenameSrcs[fileID], stack );
 	}
 }
@@ -378,7 +378,7 @@ int main()
 			return 1;
 #endif
 
-		const v6::u64 startTick = v6::GetTickCount();
+		const v6::u64 startTick = v6::Tick_GetCount();
 
 #if TEST_BEST_LINE == 1
 		v6::TextBestLineFitting( &stack );
@@ -404,9 +404,9 @@ int main()
 		v6::BenchBlockCompression( &encodedBlockSum, blocks, testBlockCount );
 #endif
 
-		const v6::u64 endTick = v6::GetTickCount();
+		const v6::u64 endTick = v6::Tick_GetCount();
 
-		V6_MSG( "%.1fus/item\n", v6::ConvertTicksToSeconds( endTick - startTick ) * 1000000.0f / itemCount );
+		V6_MSG( "%.1fus/item\n", v6::Tick_ConvertToSeconds( endTick - startTick ) * 1000000.0f / itemCount );
 
 #if BENCH_BLOCK == 1
 		V6_MSG( "\n" );

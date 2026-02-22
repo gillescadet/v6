@@ -74,27 +74,27 @@ WatchDogObserver::WatchDogObserver() :
     ApplicationName(),
     OrganizationName()
 {
-    Start();
-
+    WatchdogThreadHandle = std::make_unique<std::thread>([this] { this->Run(); });
     // Must be at end of function
     PushDestroyCallbacks();
 }
 
 WatchDogObserver::~WatchDogObserver()
 {
-    TerminationEvent.SetEvent();
-
-    Join();
+    OVR_ASSERT(!WatchdogThreadHandle->joinable());
 }
 
 void WatchDogObserver::OnThreadDestroy()
 {
     TerminationEvent.SetEvent();
+
+    WatchdogThreadHandle->join();
 }
 
 void WatchDogObserver::OnSystemDestroy()
 {
-    Release();
+    // NOTE: Explicitly allowed to do this by the top-level comment of OnSystemDestroy()
+    delete this;
 }
 
 void WatchDogObserver::OnDeadlock(const String& deadlockedThreadName)
@@ -143,7 +143,7 @@ void WatchDogObserver::OnDeadlock(const String& deadlockedThreadName)
 
 int WatchDogObserver::Run()
 {
-    SetThreadName("WatchDog");
+    Thread::SetCurrentThreadName("WatchDog");
 
     Logger.LogDebug("Starting watchdog thread");
 

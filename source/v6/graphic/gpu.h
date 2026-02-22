@@ -12,7 +12,7 @@
 #include <v6/core/vec3i.h>
 #include <v6/core/vec4i.h>
 
-#define V6_ASSERT_D3D11( EXP )	{ HRESULT hRes = EXP; V6_ASSERT( hRes == S_OK ); }
+#define V6_ASSERT_D3D11( EXP )	{ HRESULT hRes = EXP; V6_ASSERT_TXT( hRes == S_OK, "D3D11 error: " #EXP ); }
 #define V6_RELEASE_D3D11( EXP )	{ V6_ASSERT( EXP ); EXP->Release(); EXP = nullptr; }
 
 #define V6_GPU_EVENT_SCOPE( ID ) GPUEventScope_s s_gpuEventScope_##ID( ID )
@@ -21,6 +21,16 @@ BEGIN_V6_NAMESPACE
 
 class IAllocator;
 class IStack;
+
+enum GPUVendor_e
+{
+	GPU_VENDOR_UNKNOW = -1,
+	
+	GPU_VENDOR_AMD = 0,
+	GPU_VENDOR_NVIDIA,
+
+	GPU_VENDOR_COUNT,
+};
 
 enum
 {
@@ -56,6 +66,8 @@ enum
 	VERTEX_FORMAT_USER3_F2		= 2 << VERTEX_FORMAT_USER3_SHIFT,
 	VERTEX_FORMAT_USER3_F3		= 3 << VERTEX_FORMAT_USER3_SHIFT,
 	VERTEX_FORMAT_USER3_F4		= 4 << VERTEX_FORMAT_USER3_SHIFT,
+
+	VERTEX_FORMAT_INSTANCED		= 1 << 31
 };
 
 enum GPUBufferCreationFlag_e
@@ -64,6 +76,14 @@ enum GPUBufferCreationFlag_e
 	GPUBUFFER_CREATION_FLAG_UPDATE					= 1 << 1,
 	GPUBUFFER_CREATION_FLAG_MAP_DISCARD				= 1 << 2,
 	GPUBUFFER_CREATION_FLAG_MAP_NO_OVERWRITE		= 1 << 3,
+};
+
+struct GPUInfo_s
+{
+	char		deviceName[256]; 
+	GPUVendor_e vendor;
+	u32			vendorID;
+	u32			deviceID;
 };
 
 struct GPUBuffer_s
@@ -171,6 +191,9 @@ struct GPUSurfaceContext_s
 	GPUColorRenderTarget_s			surface;
 
 	IDXGISwapChain*					swapChain;
+
+	u32								sampleMaxCount;
+	u32								qualityMaxLevel;
 
 	bool							initialized;
 };
@@ -285,10 +308,12 @@ void						GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const void* s
 template < typename T >
 void						GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, u32 srcCount );
 
-void						GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug );
+bool						GPUDevice_CreateWithSurfaceContext( u32 width, u32 height, void* hWnd, bool debug );
 ID3D11Device*				GPUDevice_Get();
+void						GPUDevice_GetInfo( GPUInfo_s* gpuInfo );
 void						GPUDevice_Set( ID3D11Device* device );
 void						GPUDevice_Release();
+const char* const			GPUDevice_GetVendorName( GPUVendor_e vendor );
 
 void						GPUCompute_CreateFromSource( GPUCompute_s* compute, const void* source, u32 sourceSize );
 bool						GPUCompute_CreateFromFile( GPUCompute_s* compute, const char* cs, IAllocator* allocator );
@@ -302,9 +327,9 @@ void						GPUConstantBuffer_Release( GPUConstantBuffer_s* buffer );
 void						GPUConstantBuffer_UnmapWrite( GPUConstantBuffer_s* buffer );
 
 void						GPUColorRenderTarget_Copy( GPUColorRenderTarget_s* dstColorRenderTarget, GPUColorRenderTarget_s* srcColorRenderTarget  );
-void						GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, bool writable, const char* name );
+void						GPUColorRenderTarget_Create( GPUColorRenderTarget_s* colorRenderTarget, u32 width, u32 height, bool useMSAA, bool bindable, bool writable, const char* name );
 void						GPUColorRenderTarget_Release( GPUColorRenderTarget_s* colorRenderTarget );
-void						GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, u32 sampleCount, bool bindable, const char* name );
+void						GPUDepthRenderTarget_Create( GPUDepthRenderTarget_s* colorRenderTarget, u32 width, u32 height, bool useMSAA, bool bindable, const char* name );
 void						GPUDepthRenderTarget_Release( GPUDepthRenderTarget_s* depthRenderTarget );
 
 void						GPUEvent_Begin( GPUEventID_t eventID );
@@ -379,66 +404,66 @@ void GPUBuffer_Update( GPUBuffer_s* dstBuffer, u32 dstOffset, const T* srcData, 
 
 inline void ReadBack_Log( const char* res, u32 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: %10d\n", res, name, value );
+	V6_DEVMSG( "%-16s %-30s: %10d\n", res, name, value );
 }
 
 inline void ReadBack_Log( const char* res, hex32 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: 0x%08X\n", res, name, value.n );
+	V6_DEVMSG( "%-16s %-30s: 0x%08X\n", res, name, value.n );
 }
 
 inline void ReadBack_Log( const char* res, float value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: %g\n", res, name, value );
+	V6_DEVMSG( "%-16s %-30s: %g\n", res, name, value );
 }
 
 inline void ReadBack_Log( const char* res, Vec2 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%g, %g)\n", res, name, value.x, value.y );
+	V6_DEVMSG( "%-16s %-30s: (%g, %g)\n", res, name, value.x, value.y );
 }
 
 inline void ReadBack_Log( const char* res, Vec3 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%g, %g, %g)\n", res, name, value.x, value.y, value.z );
+	V6_DEVMSG( "%-16s %-30s: (%g, %g, %g)\n", res, name, value.x, value.y, value.z );
 }
 
 inline void ReadBack_Log( const char* res, Vec4 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%g, %g, %g, %g)\n", res, name, value.x, value.y, value.z, value.w );
+	V6_DEVMSG( "%-16s %-30s: (%g, %g, %g, %g)\n", res, name, value.x, value.y, value.z, value.w );
 }
 
 inline void ReadBack_Log( const char* res, Vec2u value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%4u, %4u)\n", res, name, value.x, value.y );
+	V6_DEVMSG( "%-16s %-30s: (%4u, %4u)\n", res, name, value.x, value.y );
 }
 
 inline void ReadBack_Log( const char* res, Vec3u value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u)\n", res, name, value.x, value.y, value.z );
+	V6_DEVMSG( "%-16s %-30s: (%4u, %4u, %4u)\n", res, name, value.x, value.y, value.z );
 }
 
 inline void ReadBack_Log( const char* res, Vec4u value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%4u, %4u, %4u, %4u)\n", res, name, value.x, value.y, value.z, value.w );
+	V6_DEVMSG( "%-16s %-30s: (%4u, %4u, %4u, %4u)\n", res, name, value.x, value.y, value.z, value.w );
 }
 
 inline void ReadBack_Log( const char* res, Vec2i value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%4d, %4d)\n", res, name, value.x, value.y );
+	V6_DEVMSG( "%-16s %-30s: (%4d, %4d)\n", res, name, value.x, value.y );
 }
 
 inline void ReadBack_Log( const char* res, Vec3i value, const char* name )
 {
-	V6_MSG( "%-16s %-30s: (%4d, %4d, %4d)\n", res, name, value.x, value.y, value.z );
+	V6_DEVMSG( "%-16s %-30s: (%4d, %4d, %4d)\n", res, name, value.x, value.y, value.z );
 }
 
 inline void ReadBack_Log( const char* res, Mat4x4 value, const char* name )
 {
-	V6_MSG( "%-16s %-30s:\n", res, name );
-	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row0.x, value.m_row0.y, value.m_row0.z, value.m_row0.w );
-	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row1.x, value.m_row1.y, value.m_row1.z, value.m_row1.w );	
-	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row2.x, value.m_row2.y, value.m_row2.z, value.m_row2.w );
-	V6_MSG(	"[%g, %g, %g, %g]\n", value.m_row3.x, value.m_row3.y, value.m_row3.z, value.m_row3.w );
+	V6_DEVMSG( "%-16s %-30s:\n", res, name );
+	V6_DEVMSG(	"[%g, %g, %g, %g]\n", value.m_row0.x, value.m_row0.y, value.m_row0.z, value.m_row0.w );
+	V6_DEVMSG(	"[%g, %g, %g, %g]\n", value.m_row1.x, value.m_row1.y, value.m_row1.z, value.m_row1.w );	
+	V6_DEVMSG(	"[%g, %g, %g, %g]\n", value.m_row2.x, value.m_row2.y, value.m_row2.z, value.m_row2.w );
+	V6_DEVMSG(	"[%g, %g, %g, %g]\n", value.m_row3.x, value.m_row3.y, value.m_row3.z, value.m_row3.w );
 }
 
 END_V6_NAMESPACE

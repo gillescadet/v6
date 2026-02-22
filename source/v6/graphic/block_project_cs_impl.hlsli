@@ -42,7 +42,6 @@ struct BlockPatchDetail
 groupshared BlockPatchHeader	gs_patchHeaders[HLSL_BLOCK_THREAD_GROUP_SIZE];
 groupshared BlockPatchDetail	gs_patchDetails[HLSL_BLOCK_THREAD_GROUP_SIZE * 9];
 groupshared uint				gs_visibleBlockCount;
-groupshared uint				gs_patchHeaderCount;
 groupshared uint				gs_patchDetailCount;
 
 [ numthreads( HLSL_BLOCK_THREAD_GROUP_SIZE, 1, 1 ) ]
@@ -51,7 +50,6 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 	if ( GTid.x == 0 )
 	{
 		gs_visibleBlockCount = visibleBlockContext[VISIBLEBLOCKCONTEXT_COUNT_OFFSET]; 
-		gs_patchHeaderCount = 0;
 		gs_patchDetailCount = 0;
 	}
 
@@ -59,7 +57,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 	InterlockedAdd( blockProjectStats[0].blockInputCount, 1 );
 #endif // #if BLOCK_GET_STATS == 1
 
-	GroupMemoryBarrierWithGroupSync(); // ensure that gs_patchCount == 0
+	GroupMemoryBarrierWithGroupSync(); // ensure that gs_visibleBlockCount is up-to-date
 
 	if ( DTid.x < gs_visibleBlockCount )
 	{
@@ -206,9 +204,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 			maxBlockScreenPos = max( maxBlockScreenPos, vertexScreenPos );
 		}
 
-		uint blockRank;
-		InterlockedAdd( gs_patchHeaderCount, 1, blockRank );
-
+		const uint blockRank = GTid.x;
 		const uint blockRank6_none26 = blockRank << 26;
 
 		const uint2 minBlockPixelCoords = uint2( saturate( mad( minBlockScreenPos, 0.5f, 0.5f ) ) * c_projectFrameSize );
@@ -244,7 +240,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 		const uint2 blockTileRect = min( 1 + maxBlockTileCoords - minBlockTileCoords, 3 );
 
 		const uint patchDetailCount = blockTileRect.x * blockTileRect.y;
-				
+
 		uint patchDetailID;
 		InterlockedAdd( gs_patchDetailCount, patchDetailCount, patchDetailID );
 
@@ -276,7 +272,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 #endif // #if BLOCK_GET_STATS == 1
 	}
 
-	GroupMemoryBarrierWithGroupSync(); // ensure that gs_patchCount is up to date
+	GroupMemoryBarrierWithGroupSync(); // ensure that gs_patchDetailCount is up to date
 
 	const uint pageSize = (c_projectFrameTileSize.x * c_projectFrameTileSize.y) * 64;
 
@@ -308,7 +304,7 @@ void main( uint3 Gid : SV_GroupID, uint3 GTid : SV_GroupThreadID, uint3 DTid : S
 
 			const uint page = patchRank >> 6;
 			const uint group = patchRank & 0x3F;
-			const uint pageOffset =  mad( tileOffset, 64, group );
+			const uint pageOffset = mad( tileOffset, 64, group );
 			const uint patchID = mad( page, pageSize, pageOffset );
 			blockPatches[patchID] = blockPatch;
 

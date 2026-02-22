@@ -12,6 +12,14 @@
 BEGIN_V6_NAMESPACE
 
 struct GPUFontResources_s;
+struct View_s;
+
+enum FontAnchor_e
+{
+	FONT_ANCHOR_NONE				= 0,
+	FONT_ANCHOR_HORIZONTAL_LEFT		= FONT_ANCHOR_NONE,
+	FONT_ANCHOR_HORIZONTAL_CENTER	= 1 << 0,
+};
 
 struct FontText_s
 {
@@ -38,18 +46,29 @@ struct FontContext_s
 	u32						characterCount;
 };
 
+struct FontObject_s
+{
+	static const u32	CHARACTER_MAX_COUNT = 1024;
+	GPUBuffer_s			gpuCharacters;
+};
+
 void	FontSystem_Create();
 void	FontSystem_Release();
 
 void	FontContext_Create( FontContext_s* fontContext );
-void	FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str );
-void	FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize );
+void	FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 anchors );
+void	FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize, u32 anchors );
 u32		FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeight, Color_s color, const char* text );
-void	FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet, bool leftEye, bool rightEye );
+void	FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet, const View_s* leftView, const View_s* rightView, Color_s backgroundColor );
 u32		FontContext_GetLineHeight( const FontContext_s* fontContext );
+u32		FontContext_GetLineWidth( const FontContext_s* fontContext, const char* str );
 void	FontContext_Release( FontContext_s* fontContext );
 
-void	Font_Draw();
+void	FontObject_Create( FontObject_s* fontObject, u32 characterMaxCount );
+void	FontObject_Draw( FontObject_s* fontObject, const Mat4x4* viewProj, u16 x, u16 y, Color_s color, const char* str );
+u32		FontObject_GetTextHeight( FontObject_s* fontObject, const char* str );
+u32		FontObject_GetTextWidth( FontObject_s* fontObject, const char* str );
+void	FontObject_Release( FontObject_s* fontObject );
 
 END_V6_NAMESPACE
 

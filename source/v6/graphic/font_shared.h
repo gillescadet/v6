@@ -14,8 +14,14 @@ BEGIN_V6_HLSL_NAMESPACE
 
 CBUFFER( CBFont, 0 )
 {
-	float2				c_fontInvFrameSize;
+	float4				c_fontMatRow0;
+	float4				c_fontMatRow1;
+	float4				c_fontMatRow2;
+	float4				c_fontMatRow3;
+	float4				c_fontBackgroundQuad;
+	float4				c_fontBackgroundColor;
 	float2				c_fontInvBitmapSize;
+	float2				c_fontUnused;
 };
 
 struct Character

@@ -135,13 +135,13 @@ String GetSystemFileVersionStringW(wchar_t filePath[MAX_PATH]);
 // Get the path for local app data.
 
 String GetBaseOVRPath(bool create_dir);
-
+String GetOVRPath(const wchar_t* subPath, bool create_dir);
 
 
 //-----------------------------------------------------------------------------
 // Retrieves memory usage info for the current process.
 //
-// Do not call this function frequently as it takes hundreds of microseconds to 
+// Do not call this function frequently as it takes hundreds of microseconds to
 // execute on typical computers.
 
 struct ProcessMemoryInfo
@@ -151,6 +151,19 @@ struct ProcessMemoryInfo
 
 ProcessMemoryInfo GetCurrentProcessMemoryInfo();
 
+//-----------------------------------------------------------------------------
+// Retrieves memory info for the system (counterpart of GetCurrentProcessMemoryInfo)
+//
+// Do not call this function frequently as it takes a long time to
+// execute on typical computers.
+
+struct SystemMemoryInfo
+{
+    double PageFault;        // System-wide hard page faults per sec
+    uint64_t CommittedTotal; // Total number of committed memory (in bytes) on the system
+};
+
+SystemMemoryInfo GetSystemMemoryInfo();
 
 
 } } // namespace OVR { namespace Util {

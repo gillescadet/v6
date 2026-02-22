@@ -2,6 +2,10 @@
 
 #include <v6/core/common.h>
 
+#include <v6/core/windows_begin.h>
+#include <windows.h>
+#include <v6/core/windows_end.h>
+
 #include <v6/core/string.h>
 
 BEGIN_V6_NAMESPACE
@@ -69,6 +73,11 @@ const char* String_FormatInteger( u32 n )
 	V6_ASSERT( s_str < s_strEnd );
 
 	return sBegin;
+}
+
+void String_ConvertWideCharToAnsiChar( char* ansiString, u32 ansiStringMaxSize, const wchar_t* wideString )
+{
+	WideCharToMultiByte( CP_ACP, 0, wideString, -1, ansiString, ansiStringMaxSize, nullptr, nullptr );
 }
 
 END_V6_NAMESPACE

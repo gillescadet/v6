@@ -43,13 +43,17 @@ void Camera_SetStereoUsingIPD( Camera_s* camera, float ipd )
 	camera->stereoOrientation = Mat4x4_Identity();
 	camera->stereoEyePosLS[0] = Vec3_Make( -halfIPD, 0.0f, 0.0f );
 	camera->stereoEyePosLS[1] = Vec3_Make( +halfIPD, 0.0f, 0.0f );
+	camera->stereoEyePosHS[0] = camera->stereoEyePosLS[0];
+	camera->stereoEyePosHS[1] = camera->stereoEyePosLS[1];
 }
 
-void Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyePos[2] )
+void Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyeOffsets[2], const Vec3 eyePos[2] )
 {
 	camera->stereoOrientation = *orientation;
-	camera->stereoEyePosLS[0] = eyePos[0];
-	camera->stereoEyePosLS[1] = eyePos[1];
+	camera->stereoEyePosLS[0] = eyeOffsets[0];
+	camera->stereoEyePosLS[1] = eyeOffsets[1];
+	camera->stereoEyePosHS[0] = eyePos[0];
+	camera->stereoEyePosHS[1] = eyePos[1];
 }
 
 void Camera_ResetStereo( Camera_s* camera )
@@ -57,6 +61,8 @@ void Camera_ResetStereo( Camera_s* camera )
 	camera->stereoOrientation = Mat4x4_Identity();
 	camera->stereoEyePosLS[0] = Vec3_Zero();
 	camera->stereoEyePosLS[1] = Vec3_Zero();
+	camera->stereoEyePosHS[0] = Vec3_Zero();
+	camera->stereoEyePosHS[1] = Vec3_Zero();
 }
 
 void Camera_UpdateBasis( Camera_s* camera )
@@ -73,8 +79,8 @@ void Camera_UpdateBasis( Camera_s* camera )
 	finalMatrix.GetYAxis( &camera->up );
 
 	// note: should be better to rotate the eye offsets around the center eye instead or rotating around the stereo basis
-	Mat4x4_TransformDir( &camera->stereoEyePosWS[0], cameraRotationMatrix, camera->stereoEyePosLS[0] );
-	Mat4x4_TransformDir( &camera->stereoEyePosWS[1], cameraRotationMatrix, camera->stereoEyePosLS[1] );
+	Mat4x4_TransformDir( &camera->stereoEyePosWS[0], cameraRotationMatrix, camera->stereoEyePosHS[0] );
+	Mat4x4_TransformDir( &camera->stereoEyePosWS[1], cameraRotationMatrix, camera->stereoEyePosHS[1] );
 
 	V6_ASSERT( Abs( Dot( camera->forward, camera->right ) ) < 0.00001f );
 	V6_ASSERT( Abs( Dot( camera->right, camera->up ) ) < 0.00001f );
@@ -83,12 +89,22 @@ void Camera_UpdateBasis( Camera_s* camera )
 
 void Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye, const ViewProjection_s* overridenViewProjection )
 {
-	view->org = camera->pos + camera->posOffset + camera->stereoEyePosWS[eye];
-	view->forward = camera->forward;
-	view->right = camera->right;
-	view->up = camera->up;
+	{
+		const Vec3 right = Vec3_Make( 1.0f, 0.0f, 0.0f );
+		const Vec3 up = Vec3_Make( 0.0f, 1.0f, 0.0f );
+		const Vec3 forward = Vec3_Make( 0.0f, 0.0f, -1.0f );
 
-	view->viewMatrix = Mat4x4_View( &view->org, &camera->right, &camera->up, &camera->forward );
+		view->lockedViewMatrix = Mat4x4_View( &camera->stereoEyePosLS[eye], &right, &up, &forward );
+	}
+
+	{
+		view->org = camera->pos + camera->posOffset + camera->stereoEyePosWS[eye];
+		view->forward = camera->forward;
+		view->right = camera->right;
+		view->up = camera->up;
+
+		view->viewMatrix = Mat4x4_View( &view->org, &camera->right, &camera->up, &camera->forward );
+	}
 	
 	if ( overridenViewProjection )
 	{

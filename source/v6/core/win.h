@@ -29,6 +29,7 @@ enum MouseButtonEvent_e
 	MOUSE_BUTTON_NONE,
 	MOUSE_BUTTON_DOWN,
 	MOUSE_BUTTON_UP,
+	MOUSE_BUTTON_DOUBLE_CLICK,
 };
 
 struct MouseEvent_s
@@ -36,8 +37,11 @@ struct MouseEvent_s
 	Win_s*				win;
 	MouseButtonEvent_e	leftButton;
 	MouseButtonEvent_e	rightButton;
+	int					posX;
+	int					posY;
 	int					deltaX;
 	int					deltaY;
+	int					deltaWheel;
 };
 
 typedef void (*OnKeyEvent_f)( const KeyEvent_s* keyEvent );
@@ -54,6 +58,8 @@ struct Win_s
 	Vec2i				size;
 	bool				isMain;
 	Vec2i				mouseCursorPos;
+	Vec2i				mouseClickPos;
+	u64					mouseClickTime;
 	bool				mouseCaptured;
 };
 
@@ -67,6 +73,9 @@ void Win_Release( Win_s* win );
 void Win_ReleaseMouse( Win_s* win );
 void Win_SetTitle( Win_s* win, const char* title );
 void Win_Show( Win_s* win, bool show );
+void Win_ShowMessage( Win_s* win, const char* str, const char* title );
+void Win_ShowWaitCursor( Win_s* win, bool show );
+void Win_Terminate( Win_s* win );
 
 END_V6_NAMESPACE
 

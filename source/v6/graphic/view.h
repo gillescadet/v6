@@ -13,6 +13,7 @@ struct Camera_s
 {
 	Mat4x4			stereoOrientation;
 	Vec3			stereoEyePosLS[2];
+	Vec3			stereoEyePosHS[2];
 	Vec3			stereoEyePosWS[2];
 
 	Vec3			pos;
@@ -44,6 +45,7 @@ struct ViewProjection_s
 
 struct View_s
 {
+	Mat4x4			lockedViewMatrix;
 	Mat4x4			viewMatrix;
 	Mat4x4			projMatrix;
 
@@ -62,7 +64,7 @@ void	Camera_Create( Camera_s* camera, float znear, float zfar, float tanFov, flo
 void	Camera_MakeView( View_s* view, const Camera_s* camera, u32 eye, const ViewProjection_s* overridenViewProjection );
 void	Camera_SetPosOffset( Camera_s* camera, const Vec3* pos );
 void	Camera_SetStereoUsingIPD( Camera_s* camera, float ipd );
-void	Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyePos[2] );
+void	Camera_SetStereoUsingOrientation( Camera_s* camera, const Mat4x4* orientation, const Vec3 eyeOffsets[2], const Vec3 eyePos[2] );
 void	Camera_SetYawOffset( Camera_s* camera, float yaw );
 void	Camera_ResetOffsets( Camera_s* camera );
 void	Camera_ResetStereo( Camera_s* camera );

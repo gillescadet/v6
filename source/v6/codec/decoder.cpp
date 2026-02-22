@@ -8,8 +8,36 @@
 #include <v6/core/bit.h>
 #include <v6/core/memory.h>
 #include <v6/core/stream.h>
+#include <v6/core/time.h>
+
+#if CODEC_DEBUG_SIMULATE_STREAM_ERROR == 1
+#pragma message( "### CODEC DEBUG SIMULATE STREAM ERROR ENABLED ###" )
+#endif
+
+#if CODEC_CHECK_PERFORMANCE == 1
+#pragma message( "### CODEC CHECK PERFORMANCE ENABLED ###" )
+#endif
+
+#define VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT 0xFFFFFFFF
 
 BEGIN_V6_NAMESPACE
+
+struct VideoFrameJob_s
+{
+	IAllocator*					heap;
+	IStack*						stack;
+	VideoStreamPrefetcher_s*	prefetcher;
+	const void*					frameData;
+	u32							frameDataSize;
+	u32							sequenceID;
+	u32							frameRank;
+};
+
+#if CODEC_CHECK_PERFORMANCE  == 1
+#define CODEC_SCOPED_HITCH_DETECTION( NAME, MIN_TIME_US ) SCOPED_HITCH_DETECTION( NAME, MIN_TIME_US )
+#else
+#define CODEC_SCOPED_HITCH_DETECTION( NAME, MIN_TIME_US )
+#endif // #if CODEC_CHECK_PERFORMANCE  == 1
 
 struct DecoderBlock_s
 {
@@ -17,6 +45,8 @@ struct DecoderBlock_s
 	u32			cellRGBA[CODEC_CELL_MAX_COUNT];
 	u32			cellCount;
 };
+
+static const CPUEventID_t s_cpuEventDecode		= CPUEvent_Register( "Decode", true );
 
 static int Block_ComparePos( void* blockPointer, void const* blockIDPointer0, void const* blockIDPointer1 )
 {
@@ -83,21 +113,19 @@ static bool Block_CompareData( const DecoderBlock_s* rawBlock, const DecoderBloc
 	return true;
 }
 
-static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader* streamReader, u32 sequenceID, IAllocator* allocator, IStack* stack )
+static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader* streamReader, IAllocator* allocator, IStack* stack )
 {
-	if ( !Codec_ReadSequenceDesc( streamReader, &sequence->desc, sequenceID ) )
+	if ( !Codec_ReadSequenceDesc( streamReader, &sequence->desc ) )
 		return false;
 
 	V6_ALIGN( CODEC_CLUSTER_SIZE ) u8 streamReaderBuffer[CODEC_CLUSTER_SIZE];
 	CStreamReaderWithBuffering streamReaderWithBuffering( streamReader, streamReaderBuffer, sizeof( streamReaderBuffer ) );
 
-	sequence->frameDescArray = allocator->newArray< CodecFrameDesc_s >( sequence->desc.frameCount );
-	sequence->frameDataArray = allocator->newArray< CodecFrameData_s >( sequence->desc.frameCount );
-	sequence->frameBufferArray = allocator->newArray< void* >( sequence->desc.frameCount );
 	memset( sequence->frameBufferArray, 0, sequence->desc.frameCount * sizeof( void* ) );
 	for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
 	{
-		void* frameBuffer = Codec_ReadFrame( &streamReaderWithBuffering, &sequence->frameDescArray[frameRank], &sequence->frameDataArray[frameRank], frameRank, allocator, stack );
+		void* frameBuffer;
+		Codec_ReadFrame( &frameBuffer, &streamReaderWithBuffering, &sequence->frameDescArray[frameRank], &sequence->frameDataArray[frameRank], frameRank, allocator, stack );
 		if ( !frameBuffer )
 		{
 			streamReaderWithBuffering.SkipUnreadBuffer();
@@ -105,19 +133,6 @@ static bool VideoSequence_LoadInternal( VideoSequence_s* sequence, IStreamReader
 		}
 		if ( (sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION) == 0 )
 			sequence->frameBufferArray[frameRank] = frameBuffer;
-#if 0
-		const CodecFrameDesc_s* frameDesc = &sequence->frameDescArray[frameRank];
-		const CodecFrameData_s* frameData = &sequence->frameDataArray[frameRank];
-		V6_MSG( "Frame %d: %d blocks, %d ranges\n", frameRank, frameDesc->blockCount, frameDesc->blockRangeCount );
-		for ( u32 rangeID = 0; rangeID < frameDesc->blockRangeCount; ++rangeID )
-		{
-			const CodecBlockRange_s* blockRange = &frameData->blockRanges[rangeID];
-			const u32 rangeFrameRank = blockRange->frameRank7_newBlock1_firstBlockID24 >> 25;
-			const u32 firstBlockID = blockRange->frameRank7_newBlock1_firstBlockID24 & 0xFFFFFF;
-			const u32 rangeBlockCount = blockRange->blockCount;
-			V6_MSG( " range frame %d: %d blocks starting from block %d\n", rangeFrameRank, rangeBlockCount, firstBlockID );
-		}
-#endif
 	}
 
 	streamReaderWithBuffering.SkipUnreadBuffer();
@@ -131,31 +146,251 @@ static bool VideoStream_LoadInternal( VideoStream_s* stream, IStreamReader* stre
 	if ( !stream->buffer )
 		return false;
 
-	stream->sequences = allocator->newArray< VideoSequence_s >( stream->desc.sequenceCount );
+	stream->sequences = allocator->newArray< VideoSequence_s >( stream->desc.sequenceCount, "VideoStreamSequences" );
 	memset( stream->sequences, 0, stream->desc.sequenceCount * sizeof( *stream->sequences ) );
 	
-	stream->frameOffets = allocator->newArray< u32 >( stream->desc.sequenceCount );
+	stream->frameOffsets = allocator->newArray< u32 >( stream->desc.sequenceCount+1, "VideoStreamFrameOffsets" );
 	u32 frameOffset = 0;
 	
 	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
 	{
-		V6_MSG( "Loading sequence %d/%d...\n", sequenceID+1, stream->desc.sequenceCount );
+		V6_DEVMSG( "Loading sequence %d/%d...\n", sequenceID+1, stream->desc.sequenceCount );
 
-		if ( !VideoSequence_LoadInternal( &stream->sequences[sequenceID], streamReader, sequenceID, allocator, stack ) )
+		if ( !VideoSequence_LoadInternal( &stream->sequences[sequenceID], streamReader, allocator, stack ) )
 			return false;
 
-		stream->frameOffets[sequenceID] = frameOffset;
+		stream->frameOffsets[sequenceID] = frameOffset;
 		frameOffset += stream->sequences[sequenceID].desc.frameCount;
 	}
+
+	stream->frameOffsets[stream->desc.sequenceCount] = frameOffset;
 	
 	return true;
 }
 
-bool VideoSequence_Load( VideoSequence_s* sequence, IStreamReader* streamReader, u32 sequenceID, IAllocator* allocator, IStack* stack )
+static void VideoFrame_DeferredLoad_Job( const void* args )
+{
+	V6_CPU_EVENT_SCOPE( s_cpuEventDecode );
+
+	const VideoFrameJob_s* job = (const VideoFrameJob_s*)args;
+
+	CBufferReader bufferReader( job->frameData, ToX64( job->frameDataSize ) );
+
+	VideoSequence_s* sequence = &job->prefetcher->stream->sequences[job->sequenceID];
+	void* buffer;
+	const u32 frameSize = Codec_ReadFrame( &buffer, &bufferReader, &sequence->frameDescArray[job->frameRank], &sequence->frameDataArray[job->frameRank], job->frameRank, job->heap, job->stack );
+	sequence->frameBufferArray[job->frameRank] = buffer;
+
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &job->prefetcher->sequencePrefetchInfos[job->sequenceID];
+	const u32 pendingFrameCount = Atomic_Dec( &sequencePrefetchInfo->pendingFrameCount );
+	Atomic_Add( &sequencePrefetchInfo->allocatedSize, frameSize );
+	V6_ASSERT( pendingFrameCount > 0 );
+}
+
+static void VideoStreamPrefetcher_FreeSequence( VideoStreamPrefetcher_s* prefetcher, u32 sequenceID )
+{
+	VideoSequence_s* sequence = &prefetcher->stream->sequences[sequenceID];
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+
+	V6_ASSERT( !sequencePrefetchInfo->inUse );
+	V6_ASSERT( sequencePrefetchInfo->pendingFrameCount != VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT );
+
+	VideoSequence_Release( sequence, &prefetcher->queueAllocator );
+
+	prefetcher->queueAllocator.pop();
+
+	sequencePrefetchInfo->filemapRegionID = Filemap_s::INVALID_REGION;
+	sequencePrefetchInfo->pendingFrameCount = VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT;
+}
+
+static VideoStreamGetSequenceStatus_e VideoStreamPrefetcher_DeferredLoadSequence( VideoStreamPrefetcher_s* prefetcher, u32 sequenceID )
+{
+	VideoSequence_s* sequence = &prefetcher->stream->sequences[sequenceID];
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+
+	const u32 sequenceRegionID = sequencePrefetchInfo->filemapRegionID;
+	V6_ASSERT( sequenceRegionID != Filemap_s::INVALID_REGION );
+
+	const u32 sequencePendingFrameCount = sequencePrefetchInfo->pendingFrameCount;
+	if ( sequencePendingFrameCount == VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT )
+	{
+		u8* sequenceData = nullptr;
+		{
+			CODEC_SCOPED_HITCH_DETECTION( Filemap_GetRegionData, 100 );
+			sequenceData = (u8*)Filemap_GetRegionData( &prefetcher->filemap, sequenceRegionID );
+			if ( !sequenceData )
+				return VIDEO_STREAM_GET_SEQUENCE_LOADING;
+		}
+		
+		sequencePrefetchInfo->dispatchTime = Tick_GetCount();
+
+		CBufferReader bufferReader( sequenceData, ToX64( (sequencePrefetchInfo+1)->streamOffset - (sequencePrefetchInfo+0)->streamOffset ) );
+
+		if ( !Codec_ReadSequenceDesc( &bufferReader, &sequence->desc ) )
+			return VIDEO_STREAM_GET_SEQUENCE_FAILED;
+
+		prefetcher->queueAllocator.push();
+		sequencePrefetchInfo->pendingFrameCount = 0;
+		sequencePrefetchInfo->allocatedSize = 0;
+
+		if ( sequence->desc.frameCount == 0 )
+			return VIDEO_STREAM_GET_SEQUENCE_SUCCEEDED;
+
+		const u8* frameData = sequenceData + ToU64( bufferReader.GetPos() );
+
+		{
+			CODEC_SCOPED_HITCH_DETECTION( Dispatch, 100 );
+
+			u32 workerThreadLoads[VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT] = {};
+
+			for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
+			{
+				const u32 frameDataSize = Codec_ReadFrameSizeOnly( &bufferReader );
+				if ( frameDataSize == 0 )
+					return VIDEO_STREAM_GET_SEQUENCE_FAILED;
+
+				u32 availableWorkerThreadID = 0;
+				u32 minLoad = workerThreadLoads[0];
+				for ( u32 workerThreadID = 1; workerThreadID < VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT; ++workerThreadID )
+				{
+					const u32 load = workerThreadLoads[workerThreadID];
+					if ( load < minLoad )
+					{
+						availableWorkerThreadID = workerThreadID;
+						minLoad = load;
+					}
+				}
+
+				{
+					VideoFrameJob_s job = {};
+					job.heap = &prefetcher->queueAllocator;
+					job.stack = &prefetcher->workerStacks[availableWorkerThreadID];
+					job.prefetcher = prefetcher;
+					job.frameData = frameData;
+					job.frameDataSize = frameDataSize;
+					job.sequenceID = sequenceID;
+					job.frameRank = frameRank;
+
+					Atomic_Inc( &sequencePrefetchInfo->pendingFrameCount );
+					WorkerThread_AddJob( &prefetcher->workerThreads[availableWorkerThreadID], VideoFrame_DeferredLoad_Job, &job, sizeof( job ) );
+				}
+
+				workerThreadLoads[availableWorkerThreadID] += frameDataSize;
+
+				frameData += frameDataSize;
+			}
+		}
+
+		return VIDEO_STREAM_GET_SEQUENCE_LOADING;
+	}
+
+	if ( sequencePendingFrameCount > 0 )
+		return VIDEO_STREAM_GET_SEQUENCE_LOADING;
+
+	Filemap_UnlockRegion( &prefetcher->filemap, sequenceRegionID );
+
+	for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
+	{
+		void* frameBuffer = sequence->frameBufferArray[frameRank];
+		if ( !frameBuffer )
+		{
+			VideoStreamPrefetcher_FreeSequence( prefetcher, sequenceID );
+			return VIDEO_STREAM_GET_SEQUENCE_FAILED;
+		}
+
+		if ( (sequence->frameDescArray[frameRank].flags & CODEC_FRAME_FLAG_MOTION) != 0 )
+			sequence->frameBufferArray[frameRank] = nullptr;
+	}
+
+	const u32 allocatedSequenceCount = (u32)(prefetcher->allocatedSequenceQueueEnd - prefetcher->allocatedSequenceQueueBegin);
+	if ( allocatedSequenceCount == VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_COUNT )
+	{
+		const u32 queuePos = prefetcher->allocatedSequenceQueueBegin & VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_MOD;
+		const u32 allocatedSequenceID = prefetcher->allocatedSequenceQueue[queuePos];
+		if ( Codec_Error() || prefetcher->sequencePrefetchInfos[allocatedSequenceID].inUse )
+		{
+			V6_ERROR( "Too many sequences in use\n" );
+			return VIDEO_STREAM_GET_SEQUENCE_FAILED;
+		}
+		prefetcher->allocatedSequenceSize -= prefetcher->sequencePrefetchInfos[allocatedSequenceID].allocatedSize;
+		VideoStreamPrefetcher_FreeSequence( prefetcher, allocatedSequenceID );
+		++prefetcher->allocatedSequenceQueueBegin;
+	}
+
+	const u32 queuePos = prefetcher->allocatedSequenceQueueEnd & VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_MOD;
+	prefetcher->allocatedSequenceQueue[queuePos] = sequenceID;
+	++prefetcher->allocatedSequenceQueueEnd;
+	prefetcher->allocatedSequenceSize += sequencePrefetchInfo->allocatedSize;
+
+	sequencePrefetchInfo->unlockTime = Tick_GetCount();
+
+	return VIDEO_STREAM_GET_SEQUENCE_SUCCEEDED;
+}
+
+static bool VideoStreamPrefetcher_PrefetchSequence( VideoStreamPrefetcher_s* prefetcher, u32 sequenceID )
+{
+	const u32 prefetchedSequenceCount = (u32)(prefetcher->prefetchedSequenceQueueEnd - prefetcher->prefetchedSequenceQueueBegin);
+	if ( prefetchedSequenceCount == VideoStreamPrefetcher_s::PREFECTHED_SEQUENCE_MAX_COUNT )
+		return false;
+
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+
+	if ( sequencePrefetchInfo->pendingFrameCount == 0 )
+		return true;
+
+	if ( sequencePrefetchInfo->filemapRegionID != Filemap_s::INVALID_REGION )
+		return true;
+
+	sequencePrefetchInfo->lockTime = Tick_GetCount();
+
+	VideoSequence_s* sequence = &prefetcher->stream->sequences[sequenceID];
+	memset( sequence->frameBufferArray, 0, sequence->desc.frameCount * sizeof( void* ) );
+
+	const u32 sequenceSize = (u32)((sequencePrefetchInfo+1)->streamOffset - (sequencePrefetchInfo+0)->streamOffset);
+	sequencePrefetchInfo->filemapRegionID = Filemap_LockRegion( &prefetcher->filemap, sequencePrefetchInfo->streamOffset, sequenceSize );
+	V6_ASSERT( sequencePrefetchInfo->filemapRegionID != Filemap_s::INVALID_REGION );
+
+	const u32 queuePos = prefetcher->prefetchedSequenceQueueEnd & VideoStreamPrefetcher_s::PREFECTHED_SEQUENCE_MAX_MOD;
+	prefetcher->prefetchedSequenceQueue[queuePos] = sequenceID;
+	++prefetcher->prefetchedSequenceQueueEnd;
+
+	return true;
+}
+
+static void VideoStreamPrefetcher_InitSequences( VideoStreamPrefetcher_s* prefetcher, VideoStream_s* stream, IStreamReader* streamReader, IAllocator* allocator )
+{
+	prefetcher->stream = stream;
+
+	Filemap_SetStreamReader( &prefetcher->filemap, streamReader );
+
+	prefetcher->sequencePrefetchInfos = allocator->newArray< VideoSequencePrefetchInfo_s >( stream->desc.sequenceCount+1, "VideoStreamPrefetchInfos" );
+	memset( prefetcher->sequencePrefetchInfos, 0, stream->desc.sequenceCount * sizeof( *prefetcher->sequencePrefetchInfos ) );
+
+	u64 streamOffset = ToU64( streamReader->GetPos() );
+	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
+	{
+		const CodecSequenceInfo_s* sequenceInfo = &stream->data.sequenceInfos[sequenceID];
+		const u32 sequenceSize = (sequenceInfo->fadeToBlack1_frameCount7_size24 & 0xFFFFFF) << 4;
+
+		VideoSequencePrefetchInfo_s* prefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+		prefetchInfo->streamOffset = streamOffset;
+		prefetchInfo->filemapRegionID = Filemap_s::INVALID_REGION;
+		prefetchInfo->pendingFrameCount = VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT;
+
+		streamOffset += sequenceSize;
+	}
+
+	VideoSequencePrefetchInfo_s* prefetchInfo = &prefetcher->sequencePrefetchInfos[stream->desc.sequenceCount];
+	prefetchInfo->streamOffset = streamOffset;
+	prefetchInfo->filemapRegionID = Filemap_s::INVALID_REGION;
+	prefetchInfo->pendingFrameCount = VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT;
+}
+
+bool VideoSequence_Load( VideoSequence_s* sequence, IStreamReader* streamReader, IAllocator* allocator, IStack* stack )
 {
 	memset( sequence, 0, sizeof( *sequence ) );
 
-	if ( !VideoSequence_LoadInternal( sequence, streamReader, sequenceID, allocator, stack ) )
+	if ( !VideoSequence_LoadInternal( sequence, streamReader, allocator, stack ) )
 	{
 		VideoSequence_Release( sequence, allocator );
 		return false;
@@ -166,13 +401,9 @@ bool VideoSequence_Load( VideoSequence_s* sequence, IStreamReader* streamReader,
 
 void VideoSequence_Release( VideoSequence_s* sequence, IAllocator* allocator )
 {
-	allocator->free( sequence->buffer );
-	sequence->buffer = nullptr;
 	for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
 		allocator->free( sequence->frameBufferArray[frameRank] );
-	allocator->deleteArray( sequence->frameDescArray );
-	allocator->deleteArray( sequence->frameDataArray );
-	allocator->deleteArray( sequence->frameBufferArray );
+	memset( sequence, 0, sizeof( VideoSequence_s ) );
 }
 
 bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFilename, u32 frameOffset, IAllocator* allocator )
@@ -253,7 +484,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 			}
 
 
-			DecoderBlock_s* rawBlocks = stack.newArray< DecoderBlock_s >( blockCount );
+			DecoderBlock_s* rawBlocks = stack.newArray< DecoderBlock_s >( blockCount, "VideoStreamRawBlock" );
 
 			{
 				// Load raw blocks
@@ -287,7 +518,7 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 				}
 			}
 
-			DecoderBlock_s* sequenceBlocks = stack.newArray< DecoderBlock_s >( blockCount );
+			DecoderBlock_s* sequenceBlocks = stack.newArray< DecoderBlock_s >( blockCount, "VideoStreamSequenceBlock" );
 
 			// Load sequence blocks
 			{
@@ -339,13 +570,13 @@ bool VideoStream_Validate( const VideoStream_s* stream, const char* templateFile
 					}
 				}
 					
-				u32* rawFrameBlockIDs = stack.newArray< u32 >( blockCount );
+				u32* rawFrameBlockIDs = stack.newArray< u32 >( blockCount, "VideoStreamRawFrameBlockID" );
 				for ( u32 blockRank = 0; blockRank < blockCount; ++blockRank )
 					rawFrameBlockIDs[blockRank] = blockRank;
 
 				qsort_s( rawFrameBlockIDs, blockCount, sizeof( u32 ), Block_ComparePos, rawBlocks );
 
-				u32* sequenceBlockIDs = stack.newArray< u32 >( blockCount );
+				u32* sequenceBlockIDs = stack.newArray< u32 >( blockCount, "VideoStreamSequenceBlockID" );
 				for ( u32 blockRank = 0; blockRank < blockCount; ++blockRank )
 					sequenceBlockIDs[blockRank] = blockRank;
 
@@ -442,7 +673,7 @@ u8* VideoStream_GetKeyValue( u32* valueSize, const CodecStreamDesc_s* streamDesc
 			if ( streamDesc->valueSizes[keyID] == 0 )
 				return nullptr;
 
-			u8* value = (u8*)allocator->alloc( streamDesc->valueSizes[keyID] );
+			u8* value = (u8*)allocator->alloc( streamDesc->valueSizes[keyID], "VideoStreamValue" );
 			memcpy( value, streamData->values + valueOffet, streamDesc->valueSizes[keyID] );
 			*valueSize = streamDesc->valueSizes[keyID];
 			return value;
@@ -451,17 +682,24 @@ u8* VideoStream_GetKeyValue( u32* valueSize, const CodecStreamDesc_s* streamDesc
 		valueOffet += streamDesc->valueSizes[keyID];
 	}
 
-	V6_MSG( "Key %s not found.\n", key );
+	// V6_MSG( "Key %s not found.\n", key );
 	return nullptr;
 }
 
 void VideoStream_Release( VideoStream_s* stream, IAllocator* allocator )
 {
-	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
-		VideoSequence_Release( &stream->sequences[sequenceID], allocator );
-	allocator->deleteArray( stream->sequences );
-	allocator->deleteArray( stream->frameOffets );
-	allocator->free( stream->buffer );
+	if ( stream->buffer != nullptr )
+	{
+		if ( stream->sequences )
+		{
+			for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
+				VideoSequence_Release( &stream->sequences[sequenceID], allocator );
+			allocator->deleteArray( stream->sequences );
+		}
+		allocator->deleteArray( stream->frameOffsets );
+		allocator->free( stream->buffer );
+	}
+
 	memset( stream, 0, sizeof( *stream ) );
 }
 
@@ -475,13 +713,263 @@ u32 VideoStream_FindSequenceIDFromFrameID( const VideoStream_s* stream, u32 fram
 	while ( maxSequenceID - minSequenceID > 1 )
 	{
 		const u32 midSequenceID = (minSequenceID + maxSequenceID) / 2;
-		if ( frameID < stream->frameOffets[midSequenceID] )
+		if ( frameID < stream->frameOffsets[midSequenceID] )
 			maxSequenceID = midSequenceID;
 		else
 			minSequenceID = midSequenceID;
 	}
 	
 	return minSequenceID;
+}
+
+bool VideoStreamPrefetcher_Process( VideoStreamPrefetcher_s* prefetcher )
+{
+	CODEC_SCOPED_HITCH_DETECTION( Process, 100 );
+
+	const u32 prefetchedSequenceCount = (u32)(prefetcher->prefetchedSequenceQueueEnd - prefetcher->prefetchedSequenceQueueBegin);
+	u32 prefetchedSequenceRankUndone;
+	for ( prefetchedSequenceRankUndone = 0; prefetchedSequenceRankUndone < prefetchedSequenceCount; ++prefetchedSequenceRankUndone )
+	{
+		const u32 queuePos = (prefetcher->prefetchedSequenceQueueBegin + prefetchedSequenceRankUndone) & VideoStreamPrefetcher_s::PREFECTHED_SEQUENCE_MAX_MOD;
+		const u32 prefetchedSequenceID = prefetcher->prefetchedSequenceQueue[queuePos];
+		VideoStreamGetSequenceStatus_e deferredStatus = VideoStreamPrefetcher_DeferredLoadSequence( prefetcher, prefetchedSequenceID );
+		if ( deferredStatus == VIDEO_STREAM_GET_SEQUENCE_FAILED )
+			return false;
+		if ( deferredStatus == VIDEO_STREAM_GET_SEQUENCE_LOADING )
+			break;
+	}
+	prefetcher->prefetchedSequenceQueueBegin += prefetchedSequenceRankUndone;
+
+	while ( prefetcher->allocatedSequenceSize > VideoStreamPrefetcher_s::SEQUENCE_CACHE_CAPACITY )
+	{
+		V6_ASSERT( prefetcher->allocatedSequenceQueueBegin < prefetcher->allocatedSequenceQueueEnd );
+		const u32 queuePos = prefetcher->allocatedSequenceQueueBegin & VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_MOD;
+		const u32 allocatedSequenceID = prefetcher->allocatedSequenceQueue[queuePos];
+		VideoSequencePrefetchInfo_s* allocatedSequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[allocatedSequenceID];
+		if ( allocatedSequencePrefetchInfo->inUse )
+			break;
+
+		CODEC_SCOPED_HITCH_DETECTION( FreeSequence, 100 );
+
+		V6_ASSERT( allocatedSequencePrefetchInfo->allocatedSize <= prefetcher->allocatedSequenceSize );
+		prefetcher->allocatedSequenceSize -= allocatedSequencePrefetchInfo->allocatedSize;
+		VideoStreamPrefetcher_FreeSequence( prefetcher, allocatedSequenceID );
+		++prefetcher->allocatedSequenceQueueBegin;
+	}
+
+	return true;
+}
+
+VideoStreamGetSequenceStatus_e VideoStreamPrefetcher_GetSequence( VideoStreamPrefetcher_s* prefetcher, u32 sequenceID, bool fillBuffer )
+{
+	CODEC_SCOPED_HITCH_DETECTION( VideoStream_TryToGetSequence_Inner, 100 );
+
+	const u32 prefetchedFrameTargetCount = (u32)(prefetcher->prefetchDuration * prefetcher->stream->desc.frameRate);
+
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+	V6_ASSERT( !sequencePrefetchInfo->inUse );
+
+	// prefetch sequences
+
+	{
+		CODEC_SCOPED_HITCH_DETECTION( Prefetch, 100 );
+
+		u32 prefetchedFrameCount = 0;
+		const u32 frameOffset = prefetcher->stream->frameOffsets[sequenceID];
+		for ( u32 prefetchSequenceID = sequenceID; prefetchSequenceID < prefetcher->stream->desc.sequenceCount && prefetchedFrameCount < prefetchedFrameTargetCount; ++prefetchSequenceID )
+		{
+			if ( !VideoStreamPrefetcher_PrefetchSequence( prefetcher, prefetchSequenceID ) )
+				break;
+			prefetchedFrameCount = prefetcher->stream->frameOffsets[prefetchSequenceID+1] - frameOffset; 
+		}
+	}
+
+	const VideoStreamGetSequenceStatus_e status = prefetcher->sequencePrefetchInfos[sequenceID].pendingFrameCount > 0 ? VIDEO_STREAM_GET_SEQUENCE_LOADING : VIDEO_STREAM_GET_SEQUENCE_SUCCEEDED;
+
+	if ( !VideoStreamPrefetcher_Process( prefetcher ) )
+		return VIDEO_STREAM_GET_SEQUENCE_FAILED;
+
+	if ( fillBuffer && prefetcher->prefetchedSequenceQueueBegin < prefetcher->prefetchedSequenceQueueEnd )
+		return VIDEO_STREAM_GET_SEQUENCE_LOADING;
+
+	if ( status == VIDEO_STREAM_GET_SEQUENCE_SUCCEEDED )
+		sequencePrefetchInfo->inUse = true;
+
+	return status;
+}
+
+void VideoStreamPrefetcher_ReleaseSequence( VideoStreamPrefetcher_s* prefetcher, u32 sequenceID )
+{
+	VideoSequencePrefetchInfo_s* sequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[sequenceID];
+	V6_ASSERT( sequencePrefetchInfo->inUse );
+
+	sequencePrefetchInfo->inUse = false;
+}
+
+void VideoStreamPrefetcher_Create( VideoStreamPrefetcher_s* prefetcher, float preftechDuration, IAllocator* heap )
+{
+	const u32 cacheCapacity = VideoStreamPrefetcher_s::FILEMAP_CACHE_CAPACITY;
+	prefetcher->cache = (u8*)heap->alloc( cacheCapacity, "VideoStreamCache" );
+
+	Filemap_Create( &prefetcher->filemap, prefetcher->cache, cacheCapacity );
+
+	for ( u32 workerThreadID = 0; workerThreadID < VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT; ++workerThreadID )
+	{
+		WorkerThread_Create( &prefetcher->workerThreads[workerThreadID], THREAD_ANY_CORE );
+		prefetcher->workerStacks[workerThreadID].Init( heap, MulMB( 64 ) );
+	}
+
+	prefetcher->queueAllocator.Init( heap, VideoStreamPrefetcher_s::QUEUE_ALLOCATOR_CAPACITY );
+
+	prefetcher->allocatedSequenceQueueBegin = 0;
+	prefetcher->allocatedSequenceQueueEnd = 0;
+	prefetcher->allocatedSequenceSize = 0;
+
+	prefetcher->prefetchedSequenceQueueBegin = 0;
+	prefetcher->prefetchedSequenceQueueEnd = 0;
+
+	prefetcher->sequencePrefetchInfos = nullptr;
+
+	prefetcher->prefetchDuration = preftechDuration;
+
+	V6_MSG( "Stream prefetcher created\n" );
+}
+
+void VideoStreamPrefetcher_Release( VideoStreamPrefetcher_s* prefetcher, IAllocator* heap )
+{
+	V6_ASSERT( prefetcher->sequencePrefetchInfos == nullptr );
+
+	Filemap_WaitForIdle( &prefetcher->filemap );
+	heap->free( prefetcher->cache );
+	Filemap_Release( &prefetcher->filemap );
+
+	for ( u32 workerThreadID = 0; workerThreadID < VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT; ++workerThreadID )
+	{
+		WorkerThread_Release( &prefetcher->workerThreads[workerThreadID] );
+		prefetcher->workerStacks[workerThreadID].Release();
+	}
+	
+	prefetcher->queueAllocator.Release();
+}
+
+void VideoStreamPrefetcher_CancelAllPendingSequences( VideoStreamPrefetcher_s* prefetcher )
+{
+	Filemap_CancelAllRegions( &prefetcher->filemap );
+
+	for ( u32 workerThreadID = 0; workerThreadID < VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT; ++workerThreadID )
+		WorkerThread_CancelAllJobs( &prefetcher->workerThreads[workerThreadID] );
+}
+
+void VideoStreamPrefetcher_ReleaseSequences( VideoStreamPrefetcher_s* prefetcher, IAllocator* allocator )
+{
+	V6_ASSERT( Filemap_GetPendingRegionCount( &prefetcher->filemap ) == 0 );
+
+	for ( u32 workerThreadID = 0; workerThreadID < VideoStreamPrefetcher_s::WORKER_THREAD_MAX_COUNT; ++workerThreadID )
+	{
+		V6_ASSERT( WorkerThread_GetPendingJobCount( &prefetcher->workerThreads[workerThreadID] ) == 0 );
+	}
+
+	while ( prefetcher->allocatedSequenceQueueBegin < prefetcher->allocatedSequenceQueueEnd )
+	{
+		const u32 queuePos = prefetcher->allocatedSequenceQueueBegin & VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_MOD;
+		const u32 allocatedSequenceID = prefetcher->allocatedSequenceQueue[queuePos];
+		VideoSequencePrefetchInfo_s* allocatedSequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[allocatedSequenceID];
+		V6_ASSERT( !allocatedSequencePrefetchInfo->inUse );
+		V6_ASSERT( allocatedSequencePrefetchInfo->allocatedSize <= prefetcher->allocatedSequenceSize );
+		prefetcher->allocatedSequenceSize -= allocatedSequencePrefetchInfo->allocatedSize;
+		VideoStreamPrefetcher_FreeSequence( prefetcher, allocatedSequenceID );
+		++prefetcher->allocatedSequenceQueueBegin;
+	}
+
+	while ( prefetcher->prefetchedSequenceQueueBegin < prefetcher->prefetchedSequenceQueueEnd )
+	{
+		const u32 queuePos = prefetcher->allocatedSequenceQueueBegin & VideoStreamPrefetcher_s::ALLOCATED_SEQUENCE_MAX_MOD;
+		const u32 prefetchedSequenceID = prefetcher->prefetchedSequenceQueue[queuePos];
+		VideoSequencePrefetchInfo_s* prefetchedSequencePrefetchInfo = &prefetcher->sequencePrefetchInfos[prefetchedSequenceID];
+		if ( prefetchedSequencePrefetchInfo->pendingFrameCount != VIDEO_PREFETCH_SEQUENCE_INVALID_PENDING_FRAME_COUNT )
+			VideoStreamPrefetcher_FreeSequence( prefetcher, prefetchedSequenceID );
+		++prefetcher->prefetchedSequenceQueueBegin;
+	}
+
+#if 1
+	for ( u32 sequenceID = 0; sequenceID < prefetcher->stream->desc.sequenceCount; ++sequenceID )
+	{
+		VideoSequence_s* sequence = &prefetcher->stream->sequences[sequenceID];
+		for ( u32 frameRank = 0; frameRank < sequence->desc.frameCount; ++frameRank )
+			V6_ASSERT( sequence->frameBufferArray[frameRank] == nullptr );
+	}
+#endif
+
+	prefetcher->allocatedSequenceQueueBegin = 0;
+	prefetcher->allocatedSequenceQueueEnd = 0;
+
+	prefetcher->prefetchedSequenceQueueBegin = 0;
+	prefetcher->prefetchedSequenceQueueEnd = 0;
+
+	V6_ASSERT( prefetcher->allocatedSequenceSize == 0 );
+
+	allocator->deleteArray(	prefetcher->sequencePrefetchInfos );
+	prefetcher->sequencePrefetchInfos = nullptr;
+}
+
+bool VideoStream_InitWithPrefetcher( VideoStream_s* stream, VideoStreamPrefetcher_s* prefetcher, CFileReader* fileReader, const char* streamFilename, IAllocator* allocator )
+{
+	memset( stream, 0, sizeof( *stream ) );
+
+	if ( Codec_Error() || !fileReader->Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open file %s\n", streamFilename );
+		goto clean_up;
+	}
+
+	stream->buffer = Codec_ReadStreamDesc( fileReader, &stream->desc, &stream->data, allocator );
+	if ( !stream->buffer )
+		goto clean_up;
+
+	if ( Codec_Error() || stream->desc.sequenceCount == 0 )
+	{
+		V6_ERROR( "No sequence in stream %s\n", streamFilename );
+		goto clean_up;
+	}
+
+	if ( Codec_Error() || stream->desc.frameCount == 0 )
+	{
+		V6_ERROR( "No frame in stream %s\n", streamFilename );
+		goto clean_up;
+	}
+
+	if ( Codec_Error() || stream->data.sequenceInfos == nullptr )
+	{
+		V6_ERROR( "Stream %s is not up-to-date\n", streamFilename );
+		goto clean_up;
+	}
+
+	strcpy_s( stream->name, sizeof( stream->name ), streamFilename );
+
+	stream->sequences = allocator->newArray< VideoSequence_s >( stream->desc.sequenceCount, "VideoStreamSequences" );
+	memset( stream->sequences, 0, stream->desc.sequenceCount * sizeof( *stream->sequences ) );
+
+	stream->frameOffsets = allocator->newArray< u32 >( stream->desc.sequenceCount+1, "VideoStreamFrameOffsets" );
+	u32 frameOffset = 0;
+	
+	for ( u32 sequenceID = 0; sequenceID < stream->desc.sequenceCount; ++sequenceID )
+	{
+		const CodecSequenceInfo_s* sequenceInfo = &stream->data.sequenceInfos[sequenceID];
+		const u32 frameCount = (sequenceInfo->fadeToBlack1_frameCount7_size24 >> 24) & 0x7F;
+		stream->frameOffsets[sequenceID] = frameOffset;
+		frameOffset += frameCount;
+	}
+	stream->frameOffsets[stream->desc.sequenceCount] = frameOffset;
+
+	VideoStreamPrefetcher_InitSequences( prefetcher, stream, fileReader, allocator );
+
+	return true;
+
+clean_up:
+	fileReader->Close();
+	VideoStream_Release( stream, allocator );
+
+	return false;
 }
 
 END_V6_NAMESPACE

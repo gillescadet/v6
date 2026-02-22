@@ -2,11 +2,23 @@
 
 SamplerState trilinearSampler	: REGISTER_SAMPLER( HLSL_TRILINEAR_SLOT );
 
-Texture2D texAlbedo				: REGISTER_SRV( HLSL_LIST_ALBEDO_SLOT );
+Texture2D texAlbedo				: REGISTER_SRV( HLSL_ALBEDO_SLOT );
+Texture2D texOverlay			: REGISTER_SRV( HLSL_OVERLAY_SLOT );
 
 float4 main_player_list_ps( PixelInput i ) : SV_TARGET
 {
-	const float3 albedo = texAlbedo.Sample( trilinearSampler, i.uv ).rgb;
-	const float useAlbedo = all( saturate( i.uv ) == i.uv );
-	return lerp( c_listColor, float4( albedo, 1.0f ), useAlbedo );
+	if ( abs( i.uv.z - 0.0f ) < 0.01f )
+	{
+		return float4( texAlbedo.Sample( trilinearSampler, i.uv.xy ).rgb, 1.0f );
+	}
+	else if ( abs( i.uv.z - 1.0f ) < 0.01f )
+	{
+		const float3 color = texOverlay.Sample( trilinearSampler, i.uv.xy ).rgb;
+		const float lum = color.x + color.y + color.z;
+		return lum < 0.25f ? float4( 0.0f, 0.0f, 0.0f, lum ) : float4( color, 1.0f );
+	}
+	else
+	{
+		return c_listColor;
+	}
 }

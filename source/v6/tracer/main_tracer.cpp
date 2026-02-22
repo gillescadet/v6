@@ -19,7 +19,7 @@ struct uint64
 
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;

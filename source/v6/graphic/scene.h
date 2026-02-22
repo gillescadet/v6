@@ -26,11 +26,13 @@ struct Material_s
 
 struct Entity_s
 {
+	void*			owner;
 	const char*		name;
 	u32				materialID;
 	u32				meshID;
 	Vec3			pos;
 	float			scale;
+	float			yaw;
 	bool			visible;
 };
 

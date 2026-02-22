@@ -6,7 +6,7 @@ Texture2D< float4 > colors						: REGISTER_SRV( HLSL_CAPTURE_COLOR_SLOT );
 Texture2D< float > depths						: REGISTER_SRV( HLSL_CAPTURE_DEPTH_SLOT );
 
 RWStructuredBuffer< Sample > collectedSamples	: REGISTER_UAV( HLSL_SAMPLE_SLOT );
-RWBuffer< uint > sampleIndirectArgs				: REGISTER_UAV( HLSL_SAMPLE_INDIRECT_ARGS_SLOT );
+RWStructuredBuffer< SampleInfo > sampleInfo		: REGISTER_UAV( HLSL_SAMPLE_INFO_SLOT );
 
 uint GetMip( float3 p )
 {
@@ -28,7 +28,7 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 	{
 		const uint2 pixelCoords = uint2( DTid.xy );
 		const int3 coords = int3( pixelCoords.x, pixelCoords.y, 0 );
-		const float3 cubeColor = colors.Load( coords ).rgb;
+		const float3 cubeColor = pow( abs( colors.Load( coords ).rgb ), c_sampleGammaCorrection );
 		const float cubeDepth = rcp( mad ( depths.Load( coords ), c_sampleDepthLinearScale, c_sampleDepthLinearBias ) );
 	
 		const float2 scale = mad( pixelCoords.xy + 0.5f, c_sampleInvCubeSize * 2.0f, -1.0f );
@@ -70,28 +70,14 @@ void main_sample_collect_cs( uint3 DTid : SV_DispatchThreadID )
 			const int3 sampleCoords = int3( cellCoords );
 
 			uint sampleID;
-			InterlockedAdd( sample_count, 1, sampleID );
+			InterlockedAdd( sampleInfo[0].count, 1, sampleID );
 			Sample_Pack( collectedSamples[sampleID], sampleCoords, mip, uint3( mad( cubeColor.rgb, 255.0f, 0.5f ) ) );
-
-			const uint sampleCount = sampleID+1;
-			InterlockedMax( sample_groupCountX, HLSL_GROUP_COUNT( sampleCount, HLSL_SAMPLE_THREAD_GROUP_SIZE ) );
 
 #if HLSL_DEBUG_COLLECT == 1
 			if ( any( sampleCoords < 0 ) || any( sampleCoords >= (int)c_sampleGridWidth ) )
-				InterlockedAdd( sample_error, 1 );
-#if 0
-			InterlockedOr( sample_occupancy, occupancy );
-			sample_cellCoords( sample_pixelSampleID ) = asuint( cellCoords.x );
-#endif
-			InterlockedAdd( sample_pixelCount, 1 );
+				InterlockedAdd( sampleInfo[0].error, 1 );
+			InterlockedAdd( sampleInfo[0].pixelCount, 1 );
 #endif // #if HLSL_DEBUG_COLLECT == 1
 		}
-	}
-	
-	if ( DTid.x == 0 && DTid.y == 0 && DTid.z == 0 )
-	{
-		InterlockedMax( sample_groupCountX, uint( 1 ) );
-		sample_groupCountY = 1;
-		sample_groupCountZ = 1;
 	}
 }

@@ -4,11 +4,15 @@
 
 #include <v6/core/windows_begin.h>
 #include <windows.h>
+#include <shlwapi.h>
+#include <shlobj.h>
 #include <v6/core/windows_end.h>
 
 #include <v6/core/filesystem.h>
 
 #include <v6/core/memory.h>
+
+#pragma comment( lib, "shlwapi.lib" )
 
 BEGIN_V6_NAMESPACE
 
@@ -155,7 +159,7 @@ void FilePath_Make( char* filePath, u32 maxSize, char* path, char* filename )
 	strcat_s( filePath, maxSize - pathLen, filename );
 }
 
-bool FileSystem_GetFileList( const char * pFilter, FileCallback pFileCallback, void * pCallbackData )
+bool FileSystem_GetFileList( const char* pFilter, FileCallback pFileCallback, void * pCallbackData )
 {
 	if (pFilter == NULL)
 	{
@@ -182,7 +186,7 @@ bool FileSystem_GetFileList( const char * pFilter, FileCallback pFileCallback, v
 	{
 		if (!(oFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 		{
-			pFileCallback(oFindData.cFileName, pCallbackData);
+			pFileCallback( oFindData.cFileName, pCallbackData, pFilter );
 		}
 	} while (FindNextFileA(hFind, &oFindData) != 0);
 	
@@ -212,7 +216,7 @@ int FileSystem_ReadFile( const char* filename, void** data, IAllocator* allocato
 		return 0;
 	}
 
-	*data = allocator->alloc( size );
+	*data = allocator->alloc( size, "FileSystem" );
 	fread( *data, size, 1, file );
 	fclose( file );
 	
@@ -222,6 +226,41 @@ int FileSystem_ReadFile( const char* filename, void** data, IAllocator* allocato
 bool FileSystem_DeleteFile( const char* filename )
 {
 	return DeleteFileA( filename ) != 0;
+}
+
+bool FileSystem_FileExists( const char* filename )
+{
+	return PathFileExistsA( filename ) != 0;
+}
+
+bool FileSystem_CreateDirectory( const char* filename )
+{
+	const int res = SHCreateDirectoryExA( nullptr, filename, nullptr );
+
+	return res == ERROR_SUCCESS || res == ERROR_ALREADY_EXISTS;
+}
+
+bool FileSystem_GetLocalAppDataPath( char* filePath, u32 filePathMaxSize )
+{
+	V6_ASSERT( filePath );
+	V6_ASSERT( filePathMaxSize > 0 );
+	
+	PWSTR output = nullptr;
+	const HRESULT hResult = SHGetKnownFolderPath( FOLDERID_LocalAppData, 0, nullptr, &output );
+	
+	filePath[0] = 0;
+
+	if ( hResult == S_FALSE )
+	{
+		CoTaskMemFree( output );
+		return false;
+	}
+
+	WideCharToMultiByte( CP_ACP, 0, output, -1, filePath, filePathMaxSize, nullptr, nullptr );
+
+	CoTaskMemFree( output );
+
+	return filePath[0] != 0;
 }
 
 bool FileDialog_Open( char* filename, u32 maxSizeOfFilename, const char* extension )

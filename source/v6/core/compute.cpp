@@ -138,7 +138,7 @@ void Compute_Dispatch( u32 elementCount, u32 groupSize, Compute_DispatchKernel_f
 	s_threadGroupSize = groupSize;
 
 	for ( u32 threadGroupID = 0; threadGroupID < groupSize; ++threadGroupID )
-		WorkerThread_Create( &s_workerThreads[threadGroupID] );
+		WorkerThread_Create( &s_workerThreads[threadGroupID], THREAD_ANY_CORE );
 
 	u32 threadID = 0;
 	// V6_PRINT( "Dispatch %s( %d/%d )", name, threadID, elementCount );

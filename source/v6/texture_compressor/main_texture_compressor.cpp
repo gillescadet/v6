@@ -13,7 +13,7 @@ BEGIN_V6_NAMESPACE
 
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;
@@ -52,15 +52,15 @@ static bool Image_CompressBC1( const char* filename, IStack* stack )
 		return false;
 	}
 
-	if ( image.width != CODEC_ICON_WIDTH || image.height != CODEC_ICON_WIDTH )
+	if ( image.width != image.height )
 	{
-		V6_ERROR( "%s must have a dimension of %dx%d.\n", CODEC_ICON_WIDTH, CODEC_ICON_WIDTH );
+		V6_ERROR( "%s must be square.\n", filename);
 		return false;
 	}
 
 	u32 imageSize = 0;
 	{
-		u32 width = CODEC_ICON_WIDTH;
+		u32 width = image.width;
 		u32 mipCount = 0;
 		do 
 		{
@@ -70,7 +70,7 @@ static bool Image_CompressBC1( const char* filename, IStack* stack )
 		} while ( width >= 4 );
 	}
 
-	u8* imageData = (u8*)stack->alloc( imageSize );
+	u8* imageData = (u8*)stack->alloc( imageSize, "ImageBC1" );
 	u8* chunk = imageData;
 
 	{
@@ -78,7 +78,7 @@ static bool Image_CompressBC1( const char* filename, IStack* stack )
 		Image_s imageDown = image;
 
 		ImageBlockBC1_s* blocks = (ImageBlockBC1_s*)chunk;
-		u32 width = CODEC_ICON_WIDTH;
+		u32 width = image.width;
 		u32 mipCount = 0;
 		do 
 		{
@@ -122,10 +122,12 @@ static bool Image_CompressBC1( const char* filename, IStack* stack )
 
 END_V6_NAMESPACE
 
-int main( int argc, char* argv[] )
+int main( int argc, const char* argv[] )
 {
+	V6_MSG( "Texture Compressor 0.0\n\n" );
+
 	v6::CHeap heap;
-	v6::Stack stack( &heap, 100 * 1024 * 1024 );
+	v6::Stack stack( &heap, v6::MulMB( 100 ) );
 
 	if ( argc < 2 )
 	{

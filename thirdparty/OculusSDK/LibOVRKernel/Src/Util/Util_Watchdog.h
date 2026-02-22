@@ -67,12 +67,14 @@ protected:
 //-----------------------------------------------------------------------------
 // WatchDogObserver
 
-class WatchDogObserver : public Thread, public SystemSingletonBase<WatchDogObserver>
+class WatchDogObserver : public SystemSingletonBase<WatchDogObserver>
 {
     OVR_DECLARE_SINGLETON(WatchDogObserver);
     virtual void OnThreadDestroy() override;
 
     friend class WatchDog;
+
+    std::unique_ptr<std::thread> WatchdogThreadHandle;
 
 public:
     // Uses the exception logger to write deadlock reports
@@ -119,7 +121,7 @@ protected:
     void OnDeadlock(const String& deadlockedThreadName);
 
 protected:
-    virtual int Run() override;
+    int Run();
 
     void Add(WatchDog* dog);
     void Remove(WatchDog* dog);

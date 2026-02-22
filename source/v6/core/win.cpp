@@ -7,7 +7,10 @@
 #include <Windowsx.h>
 #include <v6/core/windows_end.h>
 
+#include <v6/core/time.h>
 #include <v6/core/win.h>
+
+#define V6_EMULATE_FULLSCREEN 0
 
 BEGIN_V6_NAMESPACE
 
@@ -125,7 +128,7 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 					win->onKeyEvent( &keyEvent );
 
 #if 0
-					V6_MSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
+					V6_DEVMSG( "Kbd: make=%04x Flags:%04x Reserved:%04x ExtraInformation:%08x, msg=%04x VK=%04x\n",
 						raw->data.keyboard.MakeCode, 
 						raw->data.keyboard.Flags, 
 						raw->data.keyboard.Reserved, 
@@ -141,8 +144,33 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 				{
 					MouseEvent_s mouseEvent = { win };
 				
+					POINT cursorPos;
+					GetCursorPos( &cursorPos );
+					ScreenToClient( (HWND)win->hWnd, &cursorPos );
+					mouseEvent.posX = (int)cursorPos.x; 
+					mouseEvent.posY = (int)cursorPos.y;
+
+					mouseEvent.deltaX = raw->data.mouse.lLastX; 
+					mouseEvent.deltaY = raw->data.mouse.lLastY;
+
 					if ( (raw->data.mouse.ulButtons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0 )
-						mouseEvent.leftButton = MOUSE_BUTTON_DOWN;
+					{
+						const u64 clickTime = Tick_GetCount();
+						if ( Abs( win->mouseClickPos.x - mouseEvent.posX ) <= 1 && Abs( win->mouseClickPos.y - mouseEvent.posY ) <= 1 && Tick_ConvertToSeconds( clickTime - win->mouseClickTime ) < 0.5f )
+						{
+							win->mouseClickPos.x = 0;
+							win->mouseClickPos.y = 0;
+							win->mouseClickTime = 0;
+							mouseEvent.leftButton = MOUSE_BUTTON_DOUBLE_CLICK;
+						}
+						else
+						{
+							win->mouseClickPos.x = mouseEvent.posX;
+							win->mouseClickPos.y = mouseEvent.posY;
+							win->mouseClickTime = clickTime;
+							mouseEvent.leftButton = MOUSE_BUTTON_DOWN;
+						}
+					}
 					else if ( (raw->data.mouse.ulButtons & RI_MOUSE_LEFT_BUTTON_UP) != 0 )
 						mouseEvent.leftButton = MOUSE_BUTTON_UP;
 
@@ -151,13 +179,13 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 					else if ( (raw->data.mouse.ulButtons & RI_MOUSE_RIGHT_BUTTON_UP) != 0 )
 						mouseEvent.rightButton = MOUSE_BUTTON_UP;
 
-					mouseEvent.deltaX = raw->data.mouse.lLastX; 
-					mouseEvent.deltaY = raw->data.mouse.lLastY;
+					if ( (raw->data.mouse.ulButtons & RI_MOUSE_WHEEL) != 0 )
+						mouseEvent.deltaWheel = (short)raw->data.mouse.usButtonData;
 
 					win->onMouseEvent( &mouseEvent );
 
 #if 0
-					V6_MSG( "Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\n",
+					V6_DEVMSG( "Mouse: usFlags=%04x ulButtons=%04x usButtonFlags=%04x usButtonData=%04x ulRawButtons=%04x lLastX=%04x lLastY=%04x ulExtraInformation=%04x\n",
 						raw->data.mouse.usFlags, 
 						raw->data.mouse.ulButtons, 
 						raw->data.mouse.usButtonFlags, 
@@ -171,6 +199,14 @@ static LRESULT CALLBACK Win_Proc( HWND hWnd, u32 message, WPARAM wParam, LPARAM 
 			}
 		}
 		break;
+	
+	case WM_GETMINMAXINFO:
+		{
+			MINMAXINFO* minMaxInfo = (MINMAXINFO*)lParam;
+			minMaxInfo->ptMinTrackSize.x = (long)800;
+			minMaxInfo->ptMinTrackSize.y = (long)600;
+		}
+		return 0;
 
 	case WM_SIZE:
 		if ( wParam != SIZE_MINIMIZED && win->onWindowResized )
@@ -219,9 +255,13 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		return false;
 	}
 
+#if V6_EMULATE_FULLSCREEN  == 1
+	const int style = WS_POPUP;
+#else
 	int style = WS_POPUP | WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 	if ( winFlags & WIN_FLAG_RESIZABLE )
 		style |= WS_SIZEBOX | WS_MAXIMIZEBOX;
+#endif
 		
 	RECT rect = { 0, 0, width, height };
 	AdjustWindowRect( &rect, style, false );
@@ -243,9 +283,29 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		nullptr,
 		nullptr
 		);
+
+	if ( x == -1 )
+	{
+		const u32 monitorW = GetSystemMetrics( SM_CXSCREEN );
+		x = (monitorW - dim.x) / 2;
+	}
+	else
+	{
+		x -= dim.x - width;
+	}
+
+	if ( y == -1 )
+	{
+		const u32 monitorH = GetSystemMetrics( SM_CYSCREEN );
+		y = (monitorH - dim.y) / 2;
+	}
+	else
+	{
+		y -= dim.y - height;
+	}
 	
 	V6_ASSERT( win->hWnd == hWnd );
-	SetWindowPos( hWnd, nullptr, x - dim.x + width, y - dim.y + height, dim.x, dim.y, 0 );
+	SetWindowPos( hWnd, nullptr, x, y, dim.x, dim.y, 0 );
 
 	RECT r;
 	GetClientRect( hWnd, &r );
@@ -269,6 +329,8 @@ bool Win_Create( Win_s* win, void* owner, const char* title, int x, int y, int w
 		V6_ERROR( "Call to RegisterRawInputDevices failed!\n" );
 		return false;
 	}
+
+	V6_MSG( "Window created\n" );
 
 	return true;
 }
@@ -296,7 +358,11 @@ void Win_RegisterResizeEvent( Win_s* win, OnWindowResized_f onWindowResized )
 
 void Win_Show( Win_s* win, bool show )
 {
+#if V6_EMULATE_FULLSCREEN  == 1
+	ShowWindow( (HWND)win->hWnd, show ? SW_SHOWMAXIMIZED : SW_HIDE );
+#else
 	ShowWindow( (HWND)win->hWnd, show ? SW_SHOWNORMAL : SW_HIDE );
+#endif
 	if ( show )
 		UpdateWindow( (HWND)win->hWnd );
 }
@@ -319,6 +385,21 @@ bool Win_ProcessMessagesAndShouldQuit( Win_s* win )
 void Win_SetTitle( Win_s* win, const char* title )
 {
 	SetWindowTextA( (HWND)win->hWnd, title );
+}
+
+void Win_ShowWaitCursor( Win_s* win, bool show )
+{
+	SetCursor( LoadCursor( nullptr, show ? IDC_ARROW : IDC_WAIT) );
+}
+
+void Win_ShowMessage( Win_s* win, const char* str, const char* title )
+{
+	MessageBoxA( (HWND)win->hWnd, str, title, MB_OK );
+}
+
+void Win_Terminate( Win_s* win )
+{
+	ExitProcess( 1 );
 }
 
 END_V6_NAMESPACE

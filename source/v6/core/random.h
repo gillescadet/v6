@@ -14,6 +14,11 @@ inline void RandSeed( u32 seed )
 	srand( seed );
 }
 
+inline u32 RandInt()
+{
+	return (u32)rand();
+}
+
 inline float RandFloat()
 {
 	static float fInvRandMax = 1.0f / RAND_MAX;

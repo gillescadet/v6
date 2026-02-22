@@ -9,7 +9,7 @@ BEGIN_V6_NAMESPACE
 
 //----------------------------------------------------------------------------------------------------
 
-void OutputMessage( const char * format, ... )
+void OutputMessage( u32 msgType, const char * format, ... )
 {
 	char buffer[4096];
 	va_list args;
@@ -81,7 +81,7 @@ char* ReadToken( char** cursor, IAllocator* allocator )
 		++s;
 
 	u32 len = (u32)(s-token);
-	char* buffer = allocator->newArray< char >( len + 1 );
+	char* buffer = allocator->newArray< char >( len + 1, "BmFont" );
 	strncpy_s( buffer, len+1, token, len );
 
 	*cursor = s;

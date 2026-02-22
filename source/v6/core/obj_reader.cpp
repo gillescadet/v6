@@ -47,7 +47,7 @@ static void TrimRight( char* token )
 
 static ObjMaterial_s* Obj_CreateDefaultMaterial( IAllocator* allocator )
 {
-	ObjMaterial_s* material = (ObjMaterial_s*)allocator->alloc( sizeof( ObjMaterial_s ) );
+	ObjMaterial_s* material = (ObjMaterial_s*)allocator->alloc( sizeof( ObjMaterial_s ), "ObjMaterial" );
 	memset( material, 0, sizeof( ObjMaterial_s ) );	
 	material->kd = Vec3_Make( 1.0f, 1.0f, 1.0f );
 	return material;
@@ -79,7 +79,7 @@ u32 Obj_ReadMaterialFile( ObjMaterial_s** materials, const char* filenameMTL, IA
 	char path[256];
 	FilePath_ExtractPath( path, sizeof( path ), filenameMTL );
 
-	*materials = (ObjMaterial_s*)allocator->alloc( materialCount * sizeof( ObjMaterial_s ) );
+	*materials = (ObjMaterial_s*)allocator->alloc( materialCount * sizeof( ObjMaterial_s ), "ObjMaterials" );
 
 	ObjMaterial_s* curMaterial = nullptr;
 	u32 materialID = 0;
@@ -273,11 +273,11 @@ bool Obj_ReadObjectFile( ObjScene_s* scene, const char* filenameOBJ, IAllocator*
 	}
 
 	scene->materials = materials;
-	scene->positions = allocator->newArray< Vec3 >( positionCount );
-	scene->normals = normalCount > 0 ? allocator->newArray< Vec3 >( normalCount ) : nullptr;
-	scene->uvs = uvCount > 0 ? allocator->newArray< Vec2 >( uvCount ) : nullptr;
-	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount );
-	scene->meshes = allocator->newArray< ObjMesh_s >( Max( 1u, meshCount ) );
+	scene->positions = allocator->newArray< Vec3 >( positionCount, "ObjPositions" );
+	scene->normals = normalCount > 0 ? allocator->newArray< Vec3 >( normalCount, "ObjNormals" ) : nullptr;
+	scene->uvs = uvCount > 0 ? allocator->newArray< Vec2 >( uvCount, "ObjUVs" ) : nullptr;
+	scene->triangles = allocator->newArray< ObjTriangle_s >( triangleCount, "ObjTriangles" );
+	scene->meshes = allocator->newArray< ObjMesh_s >( Max( 1u, meshCount ), "ObjMeshes" );
 	scene->materialCount = materialCount;
 	scene->meshCount = Max( 1u, meshCount );
 

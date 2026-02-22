@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 744.09448819 1052.3622047"
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="oculus_store_cover_landscape.svg"
+   inkscape:export-filename="D:\dev\v6\trunk\images\oculus_store_cover_landscape.png"
+   inkscape:export-xdpi="288"
+   inkscape:export-ydpi="288">
+  <defs
+     id="defs4" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.98994949"
+     inkscape:cx="184.42863"
+     inkscape:cy="695.41771"
+     inkscape:document-units="px"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="1920"
+     inkscape:window-height="1177"
+     inkscape:window-x="-8"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata7">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:#282828;fill-opacity:1;stroke:none;stroke-width:3.37400007;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect4395-0"
+       width="800"
+       height="450"
+       x="-53.998047"
+       y="136.97946"
+       inkscape:export-xdpi="288"
+       inkscape:export-ydpi="288" />
+    <g
+       transform="translate(-39.405914,39.48366)"
+       id="g4777-5">
+      <g
+         transform="matrix(1.1058987,0,0,1.1578732,135.64678,-491.1002)"
+         id="g7618-1">
+        <text
+           xml:space="preserve"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:40px;line-height:125%;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';text-align:center;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           x="510.3559"
+           y="641.10498"
+           id="text7583-6"
+           sodipodi:linespacing="125%"><tspan
+             sodipodi:role="line"
+             id="tspan7589-6"
+             x="510.3559"
+             y="641.10498"
+             style="font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:91.66625214px;line-height:125%;font-family:Candara;-inkscape-font-specification:'Candara, Italic';text-align:end;writing-mode:lr-tb;text-anchor:end;fill:#ff491b;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1">Dragonfly</tspan><tspan
+             sodipodi:role="line"
+             id="tspan7591-5"
+             x="510.3559"
+             y="755.68781"
+             style="font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:91.66625214px;line-height:125%;font-family:Candara;-inkscape-font-specification:'Candara, Italic';text-align:end;writing-mode:lr-tb;text-anchor:end;fill:#969696;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"> Player</tspan></text>
+      </g>
+      <rect
+         y="166.79716"
+         x="60.407867"
+         height="250"
+         width="650"
+         id="rect4395-0-3"
+         style="fill:none;fill-opacity:0;stroke:none;stroke-width:2.81599998;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1" />
+      <g
+         transform="matrix(1.0097725,0,0,1.0097719,-366.4499,-198.5026)"
+         id="g4509-6">
+        <ellipse
+           style="fill:#e2491b;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path4136-6-1"
+           cx="-729.57849"
+           cy="0.19347166"
+           rx="7.5"
+           ry="100"
+           transform="matrix(-0.70710678,-0.70710678,-0.70710678,0.70710678,0,0)" />
+        <ellipse
+           style="fill:#969696;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path4136-2-5-4"
+           cx="-146.38849"
+           cy="644.95105"
+           rx="4.5"
+           ry="60"
+           transform="matrix(0.5,-0.86602541,0.86602541,0.5,0,0)" />
+        <ellipse
+           style="fill:#969696;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path4136-2-9-8-6"
+           cx="-229.26512"
+           cy="622.74426"
+           rx="4.5"
+           ry="60"
+           transform="matrix(-0.86602541,0.5,0.5,0.86602541,0,0)" />
+        <ellipse
+           style="fill:#969696;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path4136-2-6-6-7"
+           cx="231.26915"
+           cy="-764.48645"
+           rx="4.5"
+           ry="60"
+           transform="matrix(0.86602541,-0.5,-0.5,-0.86602541,0,0)" />
+        <ellipse
+           style="fill:#969696;fill-opacity:1;stroke:#282828;stroke-width:2;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path4136-2-9-0-3-2"
+           cx="148.39252"
+           cy="-786.69318"
+           rx="4.5"
+           ry="60"
+           transform="matrix(-0.5,0.86602541,-0.86602541,-0.5,0,0)" />
+      </g>
+    </g>
+  </g>
+</svg>

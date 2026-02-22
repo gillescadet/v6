@@ -19,7 +19,7 @@ public:
 			float x;
 			float y;
 		};
-		float m_fValues[2];
+		float values[2];
 	};	
 
 public:
@@ -141,7 +141,7 @@ V6_INLINE Vec2 Max( Vec2 const & v1, Vec2 const & v2)
 	Vec2 v;
 	v.x = Max( v1.x, v2.x );
 	v.y = Max( v1.y, v2.y );
-return v;					   
+	return v;
 }
 
 V6_INLINE Vec2 operator*( Vec2 const & v1, float f)

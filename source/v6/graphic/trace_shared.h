@@ -139,8 +139,9 @@ CBUFFER( CBTSAA, 2 )
 
 CBUFFER( CBPostProcess, 3 )
 {
+	float				c_postProcessOutOfRange;
 	float				c_postProcessFadeToBlack;
-	float3				c_postProcessPad;
+	float2				c_postProcessPad;
 };
 
 struct BlockGroup

@@ -14,24 +14,17 @@ BEGIN_V6_NAMESPACE
 #define JOB_BUFFER_SIZE		1024
 #define JOB_BUFFER_MASK		(JOB_BUFFER_SIZE-1)
 
-template  < typename T >
-struct Job_s
-{
-	typedef void	(*Process_f)( T* ctx, u32 arg0, u32 arg1 );
+#define THREAD_ANY_CORE		0xFFFFFFFF
 
-	Process_f		process;
-	T*				context;
-	u32				arg0;
-	u32				arg1;
-};
+typedef void (*WorkerProcess_f)( const void* argData );
+typedef void (*WorkerProcessWithFixedArgs_f)( void* ctx, u32 arg0, u32 arg1 );
 
-struct JobBackend_s
+struct WorkerJob_t
 {
-	void*			process;
-	void*			context;
-	u32				arg0;
-	u32				arg1;
+	WorkerProcess_f	process;
+	char			args[56];
 };
+V6_STATIC_ASSERT( sizeof( WorkerJob_t ) == 64 );
 
 struct Mutex_s
 {
@@ -42,9 +35,6 @@ struct Signal_s
 {
 	void*			handle;
 };
-
-typedef Job_s< void >				WorkerJob_t;
-typedef Job_s< void >::Process_f	WorkerProcess_f;
 
 struct WorkerThread_s
 {
@@ -63,62 +53,39 @@ u32			Atomic_Inc( u32* v );
 u64			Atomic_Inc( u64* v );
 template < typename T >
 T			Atomic_Load( T* p ) { return *((volatile T*)p); }
+u32			Atomic_Max( u32* ref, u32 value );
+u64			Atomic_Max( u64* ref, u64 value );
+u32			Atomic_Min( u32* ref, u32 value );
+u64			Atomic_Min( u64* ref, u64 value );
 u32			Atomic_Or( u32* v, u32 mask );
 u64			Atomic_Or( u64* v, u64 mask );
+u32			Atomic_Set( u32* v, u32 setValue );
+u64			Atomic_Set( u64* v, u64 setValue );
 
-template  < typename T >
-void Job_Launch( typename Job_s< T >::Process_f process,  T* context );
+void		Mutex_Create( Mutex_s* mutex );
+void		Mutex_Lock( Mutex_s* mutex );
+void		Mutex_Unlock( Mutex_s* mutex );
+void		Mutex_Release( Mutex_s* mutex );
 
-void Mutex_Create( Mutex_s* mutex );
-void Mutex_Lock( Mutex_s* mutex );
-void Mutex_Unlock( Mutex_s* mutex );
-void Mutex_Release( Mutex_s* mutex );
+void		Signal_Create( Signal_s* signal );
+void		Signal_Emit( Signal_s* signal );
+void		Signal_Reset( Signal_s* signal );
+void		Signal_Release( Signal_s* signal );
+void		Signal_Wait( Signal_s* signal );
 
-void Signal_Create( Signal_s* signal );
-void Signal_Emit( Signal_s* signal );
-void Signal_Reset( Signal_s* signal );
-void Signal_Release( Signal_s* signal );
-void Signal_Wait( Signal_s* signal );
+void		Thread_Create( unsigned long (__stdcall *process)( void* ), void* ctx, u32 core );
+u32			Thread_GetCurrentCore();
+void		Thread_SetCoreAffinity( u32 core );
+void		Thread_Sleep( u32 ms );
+void		Thread_Switch();
 
-void Thread_Create( unsigned long (__stdcall *process)( void* ), void* ctx );
-
-void WorkerThread_Create( WorkerThread_s* workerThread );
-void WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcess_f process, void* context, u32 arg0, u32 arg1 );
-void WorkerThread_WaitAllJobs( WorkerThread_s* workerThread );
-void WorkerThread_Release( WorkerThread_s* workerThread );
-
-extern u64				g_jobCount;
-extern JobBackend_s		g_jobBackends[JOB_BUFFER_SIZE];
-
-template  < typename T >
-unsigned long __stdcall __Job_Execute( void* jobPointer )
-{
-	Job_s< T >* job = (Job_s< T >*)jobPointer;
-	Job_s< T >::Process_f process = job->process;
-	T* context = job->context;
-	const u32 arg0 = job->arg0;
-	const u32 arg1 = job->arg1;
-	memset( job, 0, sizeof( Job_s< T > ) );
-	
-	process( context, arg0, arg1 );
-
-	return 0; 
-}
-
-template  < typename T >
-void Job_Launch( typename Job_s< T >::Process_f process,  T* context, u32 arg0, u32 arg1 )
-{
-	const u32 jobID = Atomic_Inc( &g_jobCount ) & (JOB_BUFFER_SIZE - 1);
-	V6_ASSERT( jobID < JOB_BUFFER_SIZE );
-	V6_ASSERT( g_jobBackends[jobID].process == nullptr );
-	V6_ASSERT( sizeof(  JobBackend_s ) == sizeof( Job_s< T > ) );
-	Job_s< T >* job = (Job_s< T >*)&g_jobBackends[jobID];
-	job->process = process;
-	job->context = context;
-	job->arg0 = arg0;
-	job->arg1 = arg1;
-	Thread_Create( __Job_Execute< T >, job );
-}
+void		WorkerThread_CancelAllJobs( WorkerThread_s* workerThread );
+void		WorkerThread_Create( WorkerThread_s* workerThread, u32 core );
+void		WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcess_f process, void* argData, u32 argSize );
+void		WorkerThread_AddJob( WorkerThread_s* workerThread, WorkerProcessWithFixedArgs_f process, void* context, u32 arg0, u32 arg1 );
+u32			WorkerThread_GetPendingJobCount( WorkerThread_s* workerThread );
+void		WorkerThread_WaitAllJobs( WorkerThread_s* workerThread );
+void		WorkerThread_Release( WorkerThread_s* workerThread );
 
 END_V6_NAMESPACE
 

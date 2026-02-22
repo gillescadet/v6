@@ -10,6 +10,7 @@ BEGIN_V6_NAMESPACE
 const char* String_Format( const char* format, ... );
 const char* String_FormatInteger( u32 n );
 void		String_ResetInternalBuffer();
+void		String_ConvertWideCharToAnsiChar( char* ansiString, u32 ansiStringMaxSize, const wchar_t* wideString );
 
 END_V6_NAMESPACE
 

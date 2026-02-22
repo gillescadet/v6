@@ -842,7 +842,7 @@ static void RawFrame_CompressedBlockDataChunk_Job( void* jobPointer, u32 threadI
 		BlockDataChunk_s* chunk = job->firstChunk + chunkRank;
 
 		const u32 chunkLZ4MaxSize = LZ4_compressBound( chunk->decompressedSize );
-		u8* chunckLZ4 = (u8*)job->stack.alloc( chunkLZ4MaxSize );
+		u8* chunckLZ4 = (u8*)job->stack.alloc( chunkLZ4MaxSize, "RawFrameChunckLZ4" );
 		chunk->compressedSize = LZ4_compress_HC( (char*)chunk->decompressedRGBA, (char*)chunckLZ4, chunk->decompressedSize, chunkLZ4MaxSize, ENCODER_LZ4_COMPRESSION_LEVEL );
 		if ( chunk->compressedSize == 0 )
 		{
@@ -881,7 +881,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 	}
 
 	char cacheFilename[256];
-	FilePath_ChangeExtension( cacheFilename, sizeof( cacheFilename ), filename, "~v6c" );
+	FilePath_ChangeExtension( cacheFilename, sizeof( cacheFilename ), filename, "~dfcache" );
 	CFileWriter dataCacheWriter;
 	if ( !dataCacheWriter.Open( cacheFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
 	{
@@ -911,7 +911,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		streamDesc->gridScaleMax = desc.gridScaleMax;
 		streamDesc->flags = desc.flags;
 		if ( (desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 )
-			streamDesc->gridOrigin = desc.gridOrigin;
+			streamDesc->staticGridOrigin = desc.gridOrigin;
 		ContextStream_PostInitDesc( context->stream );
 	}
 	else
@@ -921,14 +921,6 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			V6_ERROR( "Incompatible frame rate.\n" );
 			return false;
 		}
-
-#if 0
-		if ( desc.sampleCount != streamDesc->sampleCount )
-		{
-			V6_ERROR( "Incompatible sample count.\n" );
-			return false;
-		}
-#endif
 
 		if ( desc.gridWidth != streamDesc->gridWidth )
 		{
@@ -948,7 +940,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			return false;
 		}
 
-		if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 && streamDesc->gridOrigin != desc.gridOrigin )
+		if ( (streamDesc->flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW) == 0 && streamDesc->staticGridOrigin != desc.gridOrigin )
 		{
 			V6_ERROR( "Incompatible origin.\n" );
 			return false;
@@ -1015,13 +1007,13 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		blockDataCount += cellCount;
 	}
 
-	frame->blocks = context->heap->newArray< Block_s >( blockPosCount );
-	frame->blockIDs = context->heap->newArray< u32 >( blockPosCount );
+	frame->blocks = context->heap->newArray< Block_s >( blockPosCount, "RawFrameBlocks" );
+	frame->blockIDs = context->heap->newArray< u32 >( blockPosCount, "RawFrameBlockIDs" );
 	memset( frame->blocks, 0, blockPosCount * sizeof( Block_s ) );
 	frame->blockCount = blockPosCount;
 
 	const u32 chunkCount = (blockPosCount + ENCODER_BLOCK_PER_DATA_CHUNK - 1) / ENCODER_BLOCK_PER_DATA_CHUNK;
-	frame->blockDataChunks = context->heap->newArray< BlockDataChunk_s >( chunkCount );
+	frame->blockDataChunks = context->heap->newArray< BlockDataChunk_s >( chunkCount, "RawFrameBlockDataChunks" );
 	memset( frame->blockDataChunks, 0, chunkCount * sizeof( BlockDataChunk_s ) );
 
 	u32 blockID = 0;
@@ -1042,7 +1034,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 				block->key = ComputeKeyFromMipAndBlockPos( grid, Block_GetPos( block, context ), frame->gridMin[grid] - context->gridMin[grid] );
 			else
 				block->key = ComputeKeyFromFaceAndBlockPos( grid, Block_GetPos( block, context ) );
-			V6_ASSERT( block->key != 0 );
+			// V6_ASSERT( block->key != 0 );
 			block->frameRank = frameRank;
 			block->bucket = bucket;
 			
@@ -1096,12 +1088,12 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 
 	ShowProgress();
 
-	u32* const rgbaBuffer = context->stack->newArray< u32 >( blockDataCount );
-	u32* const compressedBuffer = context->stack->newArray< u32 >( blockDataCount );
+	u32* const rgbaBuffer = context->stack->newArray< u32 >( blockDataCount, "RawFrameRGBABuffer" );
+	u32* const compressedBuffer = context->stack->newArray< u32 >( blockDataCount, "RawFrameCompressedBuffer" );
 	u32 compressedBufferSize = 0;
 
 	BlockDataChunk_s* chunk = frame->blockDataChunks;
-	chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK );
+	chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK, "RawFrameOffsets" );
 	u32* curRGBA = rgbaBuffer;
 	chunk->decompressedRGBA = curRGBA;
 
@@ -1133,7 +1125,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 			
 			if ( (chunk - frame->blockDataChunks) < chunkCount )
 			{
-				chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK );
+				chunk->offsets = context->stack->newArray< u32 >( ENCODER_BLOCK_PER_DATA_CHUNK, "RawFrameOffsets" );
 				chunk->decompressedRGBA = curRGBA;
 			}
 		}
@@ -1218,7 +1210,7 @@ static bool RawFrame_LoadFromFile( u32 frameRank, const char* filename, Context_
 		RawFrameBlockCache_s* cache = &frame->threadCaches[threadID];
 		cache->lastBlockOrder = ENCODER_INVALID_ID;
 		cache->lastBlockDataChunkID = ENCODER_INVALID_ID;
-		cache->chunkBuffer = (u8*)context->heap->alloc( maxDecompressedSize );
+		cache->chunkBuffer = (u8*)context->heap->alloc( maxDecompressedSize, "RawFrameChunkBuffer" );
 	}
 
 	HideProgress();
@@ -1476,7 +1468,10 @@ static void RawFrame_UpdateLimits( u32 frameRank, const CodecFrameDesc_s* desc, 
 		frameBlockGroupCount += (data->blockRanges[rangeID].blockCount + CODEC_BLOCK_THREAD_GROUP_SIZE - 1) / CODEC_BLOCK_THREAD_GROUP_SIZE;
 
 	context->stream->desc.maxBlockRangeCountPerFrame = Max( context->stream->desc.maxBlockRangeCountPerFrame, desc->blockRangeCount );
+	V6_ASSERT( context->stream->desc.maxBlockRangeCountPerFrame <= CODEC_RANGE_MAX_COUNT_PER_FRAME );
+	
 	context->stream->desc.maxBlockGroupCountPerFrame = Max( context->stream->desc.maxBlockGroupCountPerFrame, frameBlockGroupCount );
+	V6_ASSERT( context->stream->desc.maxBlockGroupCountPerFrame <= CODEC_BLOCK_GROUP_MAX_COUNT_PER_FRAME );
 
 	context->blockCountPerSequence += desc->blockCount;
 	V6_ASSERT( context->blockCountPerSequence <= CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
@@ -1592,10 +1587,9 @@ static u32 RawFrame_WriteBlockRanges( u32 frameRank, IStreamWriter* streamWriter
 	return rangeCount;
 }
 
-static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, u32 sequenceID, Context_s* context )
+static void Context_WriteSequenceHeader( IStreamWriter* streamWriter, Context_s* context )
 {
 	CodecSequenceDesc_s desc = {};
-	desc.sequenceID = sequenceID;
 	desc.frameCount = context->frameCount;
 
 	Codec_WriteSequenceDesc( streamWriter, &desc );
@@ -1607,18 +1601,18 @@ static bool RawFrame_Write( u32 frameRank, CStreamWriterWithBuffering* streamWri
 
 	ScopedStack scopedStack( context->stack );
 
-	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellPresences0(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellPresences1(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellColorIndices2(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
-	CBufferWriter memoryBlockCellColorIndices3(	context->stack->alloc( MulMB( 16llu ) ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockPosWriter(			context->stack->alloc( MulMB( 16llu ), "RawFrameBlockPosWriter" ),			ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellPresences0(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellPresences0" ),		ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellPresences1(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellPresences1" ),		ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellEndColors(		context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellEndColors" ),		ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices0(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellColorIndices0" ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices1(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellColorIndices1" ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices2(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellColorIndices2" ),	ToX64( MulMB( 16llu ) ) );
+	CBufferWriter memoryBlockCellColorIndices3(	context->stack->alloc( MulMB( 16llu ), "RawFrameBlockCellColorIndices3" ),	ToX64( MulMB( 16llu ) ) );
 
 	IStreamWriter* memoryBlockDataWriters[7] = { &memoryBlockCellPresences0, &memoryBlockCellPresences1, &memoryBlockCellEndColors, &memoryBlockCellColorIndices0, &memoryBlockCellColorIndices1, &memoryBlockCellColorIndices2, &memoryBlockCellColorIndices3 };
 
-	CBufferWriter memoryBlockRangeWriter(		context->stack->alloc( MulMB(  1llu ) ),	ToX64( MulMB(  1llu ) ) );\
+	CBufferWriter memoryBlockRangeWriter(		context->stack->alloc( MulMB(  1llu ), "RawFrameBlockRangeWriter" ),		ToX64( MulMB(  1llu ) ) );\
 
 	u32 blockCount = 0;
 	u32 rangeCount = 0;
@@ -1678,19 +1672,19 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 {
 	ScopedStack scopedStack( streamContext->stack );
 
-	Context_s* context = streamContext->stack->newInstance< Context_s >();
+	Context_s* context = streamContext->stack->newInstance< Context_s >( "ContextStream" );
 	memset( context, 0, sizeof( *context ) );
 
 	Mutex_Create( &context->mainLock );
 	context->stream = streamContext;
 	context->heap = streamContext->heap;
 	context->stack = streamContext->stack;
-	context->frames = streamContext->stack->newArray< RawFrame_s >( frameCount );
+	context->frames = streamContext->stack->newArray< RawFrame_s >( frameCount, "ContextStreamFrame" );
 	context->frameCount = frameCount;
 	context->compressionQuality = compressionQuality;
 	for ( u32 threadID = 0; threadID < ENCODER_THREAD_COUNT; ++threadID )
 	{
-		WorkerThread_Create( &context->threads[threadID] );
+		WorkerThread_Create( &context->threads[threadID], THREAD_ANY_CORE );
 		BlockAllocator_Create( &context->threadBlockAllocators[threadID], context->heap, MulMB( 16u ) );
 	}
 
@@ -1724,58 +1718,46 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 	}
 
 	{
-		const float frameToWriteRatio = (float)streamContext->desc.frameRate / streamContext->desc.playRate;
 		for ( u32 pass = 0; ; ++pass )
 		{
 			V6_ASSERT( context->unresolvedBlockPerSequence == 0 );
 
 			V6_MSG( "Merging (pass %d)...\n", pass+1 );
 
-			float framePart = 1.0f;
 			u32 refFrameRank = (u32)-1;
 			u32 prevResolvedBlockCount = context->resolvedBlockPerSequence;
 			u32 prevUnresolvedBlockCount = 0;
-			for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank, framePart += frameToWriteRatio )
+			for ( u32 frameRank = 0; frameRank < context->frameCount; ++frameRank )
 			{
-				if ( framePart + FLT_EPSILON >= 1.0f )
-				{
-					RawFrame_Merge( frameRank, context );
-					const u32 newResolvedBlockCount = context->resolvedBlockPerSequence - prevResolvedBlockCount;
-					const u32 newUnresolvedBlockCount = context->unresolvedBlockPerSequence - prevUnresolvedBlockCount;
-					prevResolvedBlockCount = context->resolvedBlockPerSequence;
-					prevUnresolvedBlockCount = context->unresolvedBlockPerSequence;
-					if ( newUnresolvedBlockCount )
-						V6_MSG( "F%02d: %8d/%d, %5.1f%% new blocks, %8d unique blocks ( %d unresolved blocks ).\n", frameRank, newResolvedBlockCount, context->frames[frameRank].blockCount, newResolvedBlockCount * 100.0f / context->frames[frameRank].blockCount, context->resolvedBlockPerSequence, newUnresolvedBlockCount );
-					else
-						V6_MSG( "F%02d: %8d/%d, %5.1f%% new blocks, %8d unique blocks.\n", frameRank, newResolvedBlockCount, context->frames[frameRank].blockCount, newResolvedBlockCount * 100.0f / context->frames[frameRank].blockCount, context->resolvedBlockPerSequence );
-					framePart = 0.0f;
-					refFrameRank = frameRank;
-
-					if ( context->resolvedBlockPerSequence > CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE )
-					{
-						const u32 frameDoneCount = (pass > 0) ? context->frameCount : frameRank;
-						u32 newFrameCount;
-						if ( frameDoneCount == 0 || context->frameCount == 1 )
-						{
-							newFrameCount = 0;
-							V6_ERROR( "Exceeded the limit of %d unique blocks with one frame. This is not supported.\n", CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
-						}
-						else
-						{
-							newFrameCount = Min( frameDoneCount, context->frameCount / 2 );
-							V6_MSG( "Exceeded the limit of %d unique blocks with %d frames. Sequence will be split.\n", CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE, context->frameCount );
-						}
-						for ( ; context->frameCount > 0 ; --context->frameCount )
-							RawFrame_Release( context->frameCount-1, context );
-						context->frameCount = newFrameCount;
-						goto clean_up;
-					}
-				}
+				RawFrame_Merge( frameRank, context );
+				const u32 newResolvedBlockCount = context->resolvedBlockPerSequence - prevResolvedBlockCount;
+				const u32 newUnresolvedBlockCount = context->unresolvedBlockPerSequence - prevUnresolvedBlockCount;
+				prevResolvedBlockCount = context->resolvedBlockPerSequence;
+				prevUnresolvedBlockCount = context->unresolvedBlockPerSequence;
+				if ( newUnresolvedBlockCount )
+					V6_MSG( "F%02d: %8d/%d, %5.1f%% new blocks, %8d unique blocks ( %d unresolved blocks ).\n", frameRank, newResolvedBlockCount, context->frames[frameRank].blockCount, newResolvedBlockCount * 100.0f / context->frames[frameRank].blockCount, context->resolvedBlockPerSequence, newUnresolvedBlockCount );
 				else
+					V6_MSG( "F%02d: %8d/%d, %5.1f%% new blocks, %8d unique blocks.\n", frameRank, newResolvedBlockCount, context->frames[frameRank].blockCount, newResolvedBlockCount * 100.0f / context->frames[frameRank].blockCount, context->resolvedBlockPerSequence );
+				refFrameRank = frameRank;
+
+				if ( context->resolvedBlockPerSequence > CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE )
 				{
-					V6_ASSERT( refFrameRank != (u32)-1 );
-					RawFrame_Skip( frameRank, refFrameRank, context );
-					V6_MSG( "F%02d: skipped.\n", frameRank );
+					const u32 frameDoneCount = (pass > 0) ? context->frameCount : frameRank;
+					u32 newFrameCount;
+					if ( frameDoneCount == 0 || context->frameCount == 1 )
+					{
+						newFrameCount = 0;
+						V6_ERROR( "Exceeded the limit of %d unique blocks with one frame. This is not supported.\n", CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE );
+					}
+					else
+					{
+						newFrameCount = Min( frameDoneCount, context->frameCount / 2 );
+						V6_MSG( "Exceeded the limit of %d unique blocks with %d frames. Sequence will be split.\n", CODEC_BLOCK_MAX_COUNT_PER_SEQUENCE, context->frameCount );
+					}
+					for ( ; context->frameCount > 0 ; --context->frameCount )
+						RawFrame_Release( context->frameCount-1, context );
+					context->frameCount = newFrameCount;
+					goto clean_up;
 				}
 			}
 
@@ -1803,7 +1785,7 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 
 	V6_MSG( "Writing...\n" );
 
-	Context_WriteSequenceHeader( streamWriter, sequenceID, context );
+	Context_WriteSequenceHeader( streamWriter, context );
 
 	{
 		V6_ALIGN( CODEC_CLUSTER_SIZE ) u8 streamWriterBuffer[CODEC_CLUSTER_SIZE];
@@ -1833,9 +1815,9 @@ static u32 ContextStream_EncodeSequence( IStreamWriter* streamWriter, const char
 	Context_UpdateLimits( context );
 
 	const u64 sequenceSize = ToU64( streamWriter->GetPos() ) - prevSequenceSize;
-	V6_PRINT( "\n" );
+	V6_PRINT( MSG_LOG, "\n" );
 	V6_MSG( "Sequence %d: %lld KB, avg of %lld KB/frame\n", sequenceID, DivKB( sequenceSize ), DivKB( sequenceSize / context->frameCount ) );
-	V6_PRINT( "\n" );
+	V6_PRINT( MSG_LOG, "\n" );
 
 clean_up:
 
@@ -1849,9 +1831,240 @@ clean_up:
 	return context->frameCount;
 }
 
-bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend, IAllocator* heap )
+bool VideoStream_Merge( const char* outputStreamFilename, const char* const inputStreamFilenames[16], u32 streamCount, IAllocator* heap )
 {
-	if ( frameCount == 0 || playRate == 0 || playRate > CODEC_FRAME_MAX_COUNT )
+	const u32 streamMaxCount = 16;
+
+	V6_ASSERT( streamCount > 1 && streamCount <= streamMaxCount );
+
+	Stack stack( heap, 100 * 1024 * 1024 );
+
+	CodecStreamDesc_s streamDesc;
+	CodecStreamData_s streamData;
+	
+	CodecStreamDesc_s inputStreamDescs[streamMaxCount];
+	CodecStreamData_s inputStreamDatas[streamMaxCount];
+
+	CFileReader fileReaders[streamMaxCount-1];
+	for ( u32 streamID = 0; streamID < streamCount; ++streamID )
+	{
+		if ( !fileReaders[streamID].Open( inputStreamFilenames[streamID], FILE_OPEN_FLAG_UNBUFFERED ) )
+		{
+			V6_ERROR( "Unable to open %s.\n", inputStreamFilenames[streamID] );
+			return false;
+		}
+
+		CodecStreamDesc_s curStreamDesc;
+		CodecStreamData_s curStreamData;
+
+		if ( Codec_ReadStreamDesc( &fileReaders[streamID], &curStreamDesc, &curStreamData, &stack ) == nullptr )
+			return false;
+
+		if ( streamID == 0 )
+		{
+			streamDesc = curStreamDesc;
+			streamData = curStreamData;
+		}
+		else
+		{
+			if ( curStreamDesc.frameRate != streamDesc.frameRate )
+			{
+				V6_ERROR( "Incompatible frame rate.\n" );
+				return false;
+			}
+
+			if ( curStreamDesc.gridWidth != streamDesc.gridWidth )
+			{
+				V6_ERROR( "Incompatible grid resolution.\n" );
+				return false;
+			}
+
+			if ( curStreamDesc.gridScaleMin != streamDesc.gridScaleMin || curStreamDesc.gridScaleMax != streamDesc.gridScaleMax )
+			{
+				V6_ERROR( "Incompatible grid scales.\n" );
+				return false;
+			}
+
+			if ( curStreamDesc.flags != streamDesc.flags )
+			{
+				V6_ERROR( "Incompatible flags.\n" );
+				return false;
+			}
+
+			streamDesc.sequenceCount += curStreamDesc.sequenceCount;
+			streamDesc.frameCount += curStreamDesc.frameCount;
+			streamDesc.maxBlockCountPerSequence = Max( streamDesc.maxBlockCountPerSequence, curStreamDesc.maxBlockCountPerSequence );
+			streamDesc.maxBlockRangeCountPerFrame = Max( streamDesc.maxBlockRangeCountPerFrame, curStreamDesc.maxBlockRangeCountPerFrame );
+			streamDesc.maxBlockGroupCountPerFrame = Max( streamDesc.maxBlockGroupCountPerFrame, curStreamDesc.maxBlockGroupCountPerFrame );
+		}
+		
+		inputStreamDescs[streamID] = curStreamDesc;
+		inputStreamDatas[streamID] = curStreamData;
+	}
+
+	streamData.sequenceInfos = stack.newArray< CodecSequenceInfo_s >( streamDesc.sequenceCount, "StackMergeCodecSequenceInfo" );
+
+	u64 streamSizes[streamMaxCount];
+	u64 totalStreamSize = 0;
+	u32 totalSequenceCount = 0;
+	u32 sequenceID = 0;
+	for ( u32 streamID = 0; streamID < streamCount; ++streamID )
+	{
+		const CodecStreamDesc_s* curStreamDesc = &inputStreamDescs[streamID];
+		const CodecStreamData_s* curStreamData = &inputStreamDatas[streamID];
+
+		u64 streamSize = 0;
+		for ( u32 curSequenceID = 0; curSequenceID < curStreamDesc->sequenceCount; ++curSequenceID, ++sequenceID )
+		{
+			const CodecSequenceInfo_s* sequenceInfo = &curStreamData->sequenceInfos[curSequenceID];
+			const u32 sequenceSize = (sequenceInfo->fadeToBlack1_frameCount7_size24 & 0xFFFFFF) << 4;
+			streamSize += sequenceSize;
+
+			streamData.sequenceInfos[sequenceID] = *sequenceInfo;
+
+			if ( curSequenceID == curStreamDesc->sequenceCount-1 && streamID < streamCount-1  )
+				streamData.sequenceInfos[sequenceID].fadeToBlack1_frameCount7_size24 |= 1 << 31;
+		}
+
+		streamSizes[streamID] = streamSize;
+		totalStreamSize += streamSize;
+	}
+
+	CFileWriter fileWriter;
+
+	if ( !fileWriter.Open( outputStreamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", outputStreamFilename );
+		return false;
+	}
+
+	V6_ASSERT( ToU64( fileWriter.GetPos() ) == 0 );
+	if ( !Codec_WriteStreamDesc( &fileWriter, &streamDesc, &streamData, &stack ) )
+		return false;
+
+	const u64 chunkSize = MulMB( 8llu );
+	u8* chunk = (u8*)stack.alloc_aligned< CODEC_CLUSTER_SIZE >( nullptr, chunkSize, "StackMergeChunk" );
+
+	for ( u32 streamID = 0; streamID < streamCount; ++streamID )
+	{
+		const u64 curStreamSize = streamSizes[streamID];
+		u64 remainingStreamSize = curStreamSize;
+
+		while ( remainingStreamSize > 0 )
+		{
+			const u64 readSize = Min( remainingStreamSize, chunkSize );
+			V6_ASSERT( IsAligned< CODEC_CLUSTER_SIZE >( readSize ) );
+			fileReaders[streamID].Read( ToX64( readSize ), chunk );
+			fileWriter.Write( chunk, ToX64( readSize ) );
+			remainingStreamSize -= readSize;
+
+			V6_MSG( "\rStream #%d: added %7lld/%7lld KB", streamID, DivKB( curStreamSize - remainingStreamSize ), DivKB( curStreamSize ) );
+		}
+		V6_MSG( "\n" );
+	}
+
+	V6_MSG( "\n" );
+	V6_MSG( "Stream: %lld KB with %d sequences, avg of %lld KB/sequence\n", DivKB( totalStreamSize ), streamDesc.sequenceCount, DivKB( totalStreamSize / streamDesc.sequenceCount ) );
+	V6_MSG( "\n" );
+
+	return true;
+}
+
+bool VideoStream_Trim( const char* outputStreamFilename, const char* const inputStreamFilename, u32 firstSequenceToRemoveCount, u32 lastSequenceToRemoveCount, IAllocator* heap )
+{
+	Stack stack( heap, 100 * 1024 * 1024 );
+
+	CodecStreamDesc_s streamDesc;
+	CodecStreamData_s streamData;
+
+	CFileReader fileReader;
+	if ( !fileReader.Open( inputStreamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", inputStreamFilename );
+		return false;
+	}
+
+	if ( Codec_ReadStreamDesc( &fileReader, &streamDesc, &streamData, &stack ) == nullptr )
+		return false;
+
+	if ( streamDesc.sequenceCount <= firstSequenceToRemoveCount + lastSequenceToRemoveCount )
+	{
+		V6_ERROR( "Not enough sequences to remove.\n" );
+		return false;
+	}
+
+	u32 trimmedSequenceCount = streamDesc.sequenceCount - firstSequenceToRemoveCount - lastSequenceToRemoveCount;
+
+	CodecSequenceInfo_s* trimmedSequenceInfos = stack.newArray< CodecSequenceInfo_s >( trimmedSequenceCount, "StackTrimmedCodecSequenceInfo" );
+
+	u64 firstSequenceOffset = 0;
+	u32 skipFrameCount = 0;
+	for ( u32 sequenceID = 0; sequenceID < firstSequenceToRemoveCount; ++sequenceID )
+	{
+		const CodecSequenceInfo_s* sequenceInfo = &streamData.sequenceInfos[sequenceID];
+		const u32 sequenceSize = (sequenceInfo->fadeToBlack1_frameCount7_size24 & 0xFFFFFF) << 4;
+		firstSequenceOffset += sequenceSize;
+		skipFrameCount += (sequenceInfo->fadeToBlack1_frameCount7_size24 >> 24) & 0x7F;
+	}
+
+	u64 totalStreamSize = 0;
+	for ( u32 sequenceID = 0; sequenceID < trimmedSequenceCount; ++sequenceID )
+	{
+		const CodecSequenceInfo_s* sequenceInfo = &streamData.sequenceInfos[sequenceID + firstSequenceToRemoveCount];
+		trimmedSequenceInfos[sequenceID] = *sequenceInfo;
+		const u32 sequenceSize = (sequenceInfo->fadeToBlack1_frameCount7_size24 & 0xFFFFFF) << 4;
+		totalStreamSize += sequenceSize;
+	}
+
+	for ( u32 sequenceID = streamDesc.sequenceCount - lastSequenceToRemoveCount; sequenceID < streamDesc.sequenceCount; ++sequenceID )
+	{
+		const CodecSequenceInfo_s* sequenceInfo = &streamData.sequenceInfos[sequenceID];
+		skipFrameCount += (sequenceInfo->fadeToBlack1_frameCount7_size24 >> 24) & 0x7F;
+	}
+
+	streamDesc.sequenceCount -= firstSequenceToRemoveCount + lastSequenceToRemoveCount;
+	streamDesc.frameCount -= skipFrameCount;
+	streamData.sequenceInfos = trimmedSequenceInfos;
+	
+	CFileWriter fileWriter;
+
+	if ( !fileWriter.Open( outputStreamFilename, FILE_OPEN_FLAG_UNBUFFERED ) )
+	{
+		V6_ERROR( "Unable to open %s.\n", outputStreamFilename );
+		return false;
+	}
+
+	V6_ASSERT( ToU64( fileWriter.GetPos() ) == 0 );
+	if ( !Codec_WriteStreamDesc( &fileWriter, &streamDesc, &streamData, &stack ) )
+		return false;
+
+	const u64 chunkSize = MulMB( 8llu );
+	u8* chunk = (u8*)stack.alloc_aligned< CODEC_CLUSTER_SIZE >( nullptr, chunkSize, "StackTrimChunk" );
+
+	fileReader.Skip( ToX64( firstSequenceOffset ) );
+
+	u64 remainingStreamSize = totalStreamSize;
+	while ( remainingStreamSize > 0 )
+	{
+		const u64 readSize = Min( remainingStreamSize, chunkSize );
+		V6_ASSERT( IsAligned< CODEC_CLUSTER_SIZE >( readSize ) );
+		fileReader.Read( ToX64( readSize ), chunk );
+		fileWriter.Write( chunk, ToX64( readSize ) );
+		remainingStreamSize -= readSize;
+
+		V6_MSG( "\rStream: added %7lld/%7lld KB", DivKB( totalStreamSize - remainingStreamSize ), DivKB( totalStreamSize ) );
+	}
+
+	V6_MSG( "\n" );
+	V6_MSG( "Stream: %lld KB with %d sequences, avg of %lld KB/sequence\n", DivKB( totalStreamSize ), streamDesc.sequenceCount, DivKB( totalStreamSize / streamDesc.sequenceCount ) );
+	V6_MSG( "\n" );
+
+	return true;
+}
+
+bool VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend, IAllocator* heap )
+{
+	if ( frameCount == 0 || frameRate == 0 || frameRate > CODEC_FRAME_MAX_COUNT )
 	{
 		V6_ERROR( "Frame count out of range.\n" );
 		return false;
@@ -1881,11 +2094,6 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		{
 			if ( Codec_ReadStreamDesc( &fileReader, &prevStreamDesc, &prevStreamData, &stack ) == nullptr )
 				return false;
-			if ( prevStreamDesc.playRate != playRate )
-			{
-				V6_ERROR( "Incompatible play rate.\n" );
-				return false;
-			}
 			if ( prevStreamDesc.frameRate == 0 )
 			{
 				V6_ERROR( "Invalid frame rate.\n" );
@@ -1903,7 +2111,6 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 
 	streamContext.desc.sequenceCount = 0;
 	streamContext.desc.frameCount = frameCount;
-	streamContext.desc.playRate = playRate;
 
 	if ( !fileWriter.Open( streamFilename, FILE_OPEN_FLAG_UNBUFFERED | (extend ? FILE_OPEN_FLAG_EXTEND : 0) ) )
 	{
@@ -1918,9 +2125,20 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 			return false;
 	}
 
+	const u32 sequenceMaxCount = prevStreamDesc.sequenceCount + streamContext.desc.frameCount;
+	CodecSequenceInfo_s* sequenceInfos = stack.newArray< CodecSequenceInfo_s >( sequenceMaxCount, "EncoderSequenceInfos" );
+	CodecSequenceInfo_s* curSequenceInfos = sequenceInfos;
+	for ( u32 sequenceID = 0; sequenceID < prevStreamDesc.sequenceCount; ++sequenceID )
+	{
+		*curSequenceInfos = prevStreamData.sequenceInfos[sequenceID];
+		++curSequenceInfos;
+	}
+
 	for ( u32 sequenceID = prevStreamDesc.sequenceCount; frameCount > 0; ++sequenceID )
 	{
-		u32 sequenceFrameCount = Min( frameCount, playRate );
+		const u64 sequencePosBegin = ToU64( fileWriter.GetPos() );
+
+		u32 sequenceFrameCount = Min( frameCount, frameRate );
 
 		for (;;)
 		{
@@ -1935,6 +2153,13 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 			sequenceFrameCount = frameEncodedCount;
 		}
 
+		const u64 sequencePosEnd = ToU64( fileWriter.GetPos() );
+		const u32 sequenceSize = (u32)(sequencePosEnd - sequencePosBegin);
+
+		V6_ASSERT( (sequenceSize & 0xF) == 0 );
+		curSequenceInfos->fadeToBlack1_frameCount7_size24 = (sequenceFrameCount << 24) | (sequenceSize >> 4);
+		++curSequenceInfos;
+
 		frameOffset += sequenceFrameCount;
 		frameCount -= sequenceFrameCount;
 		++streamContext.desc.sequenceCount;
@@ -1947,20 +2172,23 @@ bool VideoStream_Encode( const char* streamFilename, const char* templateRawFile
 		streamContext.desc.frameCount += prevStreamDesc.frameCount;
 	}
 
+	CodecStreamData_s streamData = prevStreamData;
+	streamData.sequenceInfos = sequenceInfos;
+	
 	fileWriter.SetPos( ToX64( 0 ) );
-	if ( !Codec_WriteStreamDesc( &fileWriter, &streamContext.desc, &prevStreamData, &stack ) )
+	if ( !Codec_WriteStreamDesc( &fileWriter, &streamContext.desc, &streamData, &stack ) )
 		return false;
 	
 	const u64 streamSize = ToU64( fileWriter.GetSize() );
 	
-	V6_PRINT( "\n" );
+	V6_PRINT( MSG_LOG, "\n" );
 	V6_MSG( "Stream: %lld KB with %d sequences, avg of %lld KB/sequence\n", DivKB( streamSize ), streamContext.desc.sequenceCount, DivKB( streamSize / streamContext.desc.sequenceCount ) );
 	if ( streamContext.desc.flags & CODEC_STREAM_FLAG_MOVING_POINT_OF_VIEW )
 		V6_MSG( "Moving point of view\n" );
 	else
 		V6_MSG( "Static point of view\n" );
 
-	V6_PRINT( "\n" );
+	V6_PRINT( MSG_LOG, "\n" );
 
 	return true;
 }
@@ -1976,15 +2204,16 @@ void VideoStream_CancelEncodingInSeparateProcess( Process_s* process )
 	Process_Cancel( process );
 }
 
-bool VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend )
+bool VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* trunkDir, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend )
 {
 	char cmd[256];
-	sprintf_s( cmd, sizeof( cmd ), "D:/dev/v6/trunk/bin/Release/v6_encoder_2015.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d -q %d %s", 
+	sprintf_s( cmd, sizeof( cmd ), "%s/bin/Release/dragonfly_encoder.exe -s \"%s\" -t \"%s\" -o %d -c %d -r %d -q %d %s", 
+		trunkDir,
 		streamFilename, 
 		templateRawFilename, 
 		frameOffset, 
 		frameCount, 
-		playRate, 
+		frameRate, 
 		compressionQuality,
 		extend ? "-e" : "" );
 
@@ -1996,11 +2225,11 @@ bool VideoStream_WaitEncodingInSeparateProcess( Process_s* process )
 	return Process_Wait( process ) == 0;
 }
 
-bool VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend )
+bool VideoStream_EncodeInSeparateProcess( const char* trunkDir, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend )
 {
 	Process_s process;
 
-	if ( !VideoStream_StartEncodingInSeparateProcess( &process, streamFilename, templateRawFilename, frameOffset, frameCount, playRate, compressionQuality, extend ) )
+	if ( !VideoStream_StartEncodingInSeparateProcess( &process, trunkDir, streamFilename, templateRawFilename, frameOffset, frameCount, frameRate, compressionQuality, extend ) )
 		return false;
 
 	return VideoStream_WaitEncodingInSeparateProcess( &process );
@@ -2022,7 +2251,7 @@ bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, co
 {
 	ScopedStack scopedStack( stack );
 
-	if ( _stricmp( newKey, CODEC_ICON_KEY ) == 0 )
+	if ( _stricmp( newKey, CODEC_KEY_ICON ) == 0 )
 	{
 		V6_ASSERT( newValueSize <= 256 );
 		const char* filename = (const char*)newValue;
@@ -2066,7 +2295,7 @@ bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, co
 			} while ( width >= 4 );
 		}
 
-		u8* chunk = (u8*)stack->alloc( 4 + newValueSize );
+		u8* chunk = (u8*)stack->alloc( 4 + newValueSize, "VideoStreamChunk" );
 		newValue = chunk;
 
 		memcpy( chunk, CODEC_ICON_MAGIC, 4 );
@@ -2151,8 +2380,9 @@ bool VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, co
 
 	const u32 newKeySize = (u32)strlen( newKey ) + 1u;
 	CodecStreamData_s newStreamData = {};
-	newStreamData.keys = (char*)stack->alloc( keySize + newKeySize );
-	newStreamData.values = (u8*)stack->alloc( valueSize + newValueSize );
+	newStreamData.sequenceInfos = streamData.sequenceInfos;
+	newStreamData.keys = (char*)stack->alloc( keySize + newKeySize, "VideoStreamKey" );
+	newStreamData.values = (u8*)stack->alloc( valueSize + newValueSize, "VideoStreamValue" );
 
 	CodecStreamDesc_s newStreamDesc = streamDesc;
 	const u32 newKeyID = streamDesc.keyCount;

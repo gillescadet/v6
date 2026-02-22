@@ -14,11 +14,13 @@ class IStack;
 struct Process_s;
 
 void	VideoStream_CancelEncodingInSeparateProcess( Process_s* process );
-bool	VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend, IAllocator* heap );
-bool	VideoStream_EncodeInSeparateProcess( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend );
+bool	VideoStream_Encode( const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend, IAllocator* heap );
+bool	VideoStream_EncodeInSeparateProcess( const char* trunkDir, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend );
 void	VideoStream_DeleteRawFrameFiles( const char* templateRawFilename, u32 frameOffset, u32 frameCount );
-bool	VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 playRate, u32 compressionQuality, bool extend );
+bool	VideoStream_Merge( const char* outputStreamFilename, const char* const inputStreamFilenames[16], u32 streamCount, IAllocator* heap );
+bool	VideoStream_StartEncodingInSeparateProcess( Process_s* process, const char* trunkDir, const char* streamFilename, const char* templateRawFilename, u32 frameOffset, u32 frameCount, u32 frameRate, u32 compressionQuality, bool extend );
 bool	VideoStream_SetKeyValue( const char* streamFilename, const char* newKey, const u8* newValue, u32 newValueSize, IStack* stack );
+bool	VideoStream_Trim( const char* outputStreamFilename, const char* const inputStreamFilename, u32 firstSequenceToRemoveCount, u32 lastSequenceToRemoveCount, IAllocator* heap );
 bool	VideoStream_WaitEncodingInSeparateProcess( Process_s* process );
 
 END_V6_NAMESPACE

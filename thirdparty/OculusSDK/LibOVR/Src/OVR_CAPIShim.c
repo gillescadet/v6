@@ -1327,6 +1327,19 @@ OVR_PUBLIC_FUNCTION(ovrTrackingState) ovr_GetTrackingState(ovrSession session, d
     return API.ovr_GetTrackingState.Ptr(session, absTime, latencyMarker);
 }
 
+OVR_PUBLIC_FUNCTION(ovrTrackingState) ovr_GetTrackingStateWithSensorData(ovrSession session, double absTime, ovrBool latencyMarker, ovrSensorData* sensorData)
+{
+    if (!API.ovr_GetTrackingStateWithSensorData.Ptr)
+    {
+        ovrTrackingState nullTrackingState;
+        memset(&nullTrackingState, 0, sizeof(nullTrackingState));
+        if (sensorData)
+            memset(&sensorData, 0, sizeof(sensorData));
+        return nullTrackingState;
+    }
+
+    return API.ovr_GetTrackingStateWithSensorData.Ptr(session, absTime, latencyMarker, sensorData);
+}
 
 OVR_PUBLIC_FUNCTION(ovrTrackerPose) ovr_GetTrackerPose(ovrSession session, unsigned int trackerPoseIndex)
 {
@@ -1395,6 +1408,70 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetControllerVibrationState(ovrSession sessio
         return ovrError_NotInitialized;
 
     return API.ovr_GetControllerVibrationState.Ptr(session, controllerType, outState);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_TestBoundary(ovrSession session, ovrTrackedDeviceType deviceBitmask, ovrBoundaryType singleBoundaryType, ovrBoundaryTestResult* outTestResult)
+{
+    if (!API.ovr_TestBoundary.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_TestBoundary.Ptr(session, deviceBitmask, singleBoundaryType, outTestResult);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_TestBoundaryPoint(ovrSession session, const ovrVector3f* point, ovrBoundaryType singleBoundaryType, ovrBoundaryTestResult* outTestResult)
+{
+    if (!API.ovr_TestBoundaryPoint.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_TestBoundaryPoint.Ptr(session, point, singleBoundaryType, outTestResult);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_SetBoundaryLookAndFeel(ovrSession session, const ovrBoundaryLookAndFeel* lookAndFeel)
+{
+    if (!API.ovr_SetBoundaryLookAndFeel.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_SetBoundaryLookAndFeel.Ptr(session, lookAndFeel);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_ResetBoundaryLookAndFeel(ovrSession session)
+{
+    if (!API.ovr_ResetBoundaryLookAndFeel.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_ResetBoundaryLookAndFeel.Ptr(session);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetBoundaryGeometry(ovrSession session, ovrBoundaryType singleBoundaryType, ovrVector3f* outFloorPoints, int* outFloorPointsCount)
+{
+    if (!API.ovr_GetBoundaryGeometry.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_GetBoundaryGeometry.Ptr(session, singleBoundaryType, outFloorPoints, outFloorPointsCount);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetBoundaryDimensions(ovrSession session, ovrBoundaryType singleBoundaryType, ovrVector3f* outDimensions)
+{
+    if (!API.ovr_GetBoundaryDimensions.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_GetBoundaryDimensions.Ptr(session, singleBoundaryType, outDimensions);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetBoundaryVisible(ovrSession session, ovrBool* outIsVisible)
+{
+    if (!API.ovr_GetBoundaryVisible.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_GetBoundaryVisible.Ptr(session, outIsVisible);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_RequestBoundaryVisible(ovrSession session, ovrBool visible)
+{
+    if (!API.ovr_RequestBoundaryVisible.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_RequestBoundaryVisible.Ptr(session, visible);
 }
 
 OVR_PUBLIC_FUNCTION(ovrSizei) ovr_GetFovTextureSize(ovrSession session, ovrEyeType eye, ovrFovPort fov,
@@ -1621,6 +1698,21 @@ OVR_PUBLIC_FUNCTION(ovrEyeRenderDesc) ovr_GetRenderDesc(ovrSession session, ovrE
     return API.ovr_GetRenderDesc.Ptr(session, eyeType, fov);
 }
 
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetPerfStats(ovrSession session, ovrPerfStats* outPerfStats)
+{
+    if (!API.ovr_GetPerfStats.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_GetPerfStats.Ptr(session, outPerfStats);
+}
+
+OVR_PUBLIC_FUNCTION(ovrResult) ovr_ResetPerfStats(ovrSession session)
+{
+    if (!API.ovr_ResetPerfStats.Ptr)
+        return ovrError_NotInitialized;
+
+    return API.ovr_ResetPerfStats.Ptr(session);
+}
 
 OVR_PUBLIC_FUNCTION(double) ovr_GetPredictedDisplayTime(ovrSession session, long long frameIndex)
 {

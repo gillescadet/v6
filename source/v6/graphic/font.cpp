@@ -11,6 +11,7 @@
 #include <v6/graphic/font_data.h>
 #include <v6/graphic/font_shaders.h>
 #include <v6/graphic/font_shared.h>
+#include <v6/graphic/view.h>
 
 BEGIN_V6_NAMESPACE
 
@@ -20,6 +21,7 @@ struct GPUFontResources_s
 	GPUBuffer_s				characters;
 	GPUTexture2D_s			fontBitmap;
 	GPUShader_s				shader;
+	GPUShader_s				shaderBackground;
 	ID3D11Buffer*			indices;
 	ID3D11SamplerState*		trilinearSamplerState;
 };
@@ -38,7 +40,7 @@ static const u32			s_fontTextBufferMaxSize = s_gpuCharacterMaxCount + (s_gpuChar
 static u8					s_fontTextBuffer[s_fontTextBufferMaxSize];
 
 
-static u32 EncodeTextToGPUCHaracters( hlsl::Character* gpuCharacters, u32 gpuCharacterMaxCount, u16 x, u16 y, Color_s color, const char* str )
+static u32 EncodeTextToGPUCHaracters( hlsl::Character* gpuCharacters, u32 gpuCharacterMaxCount, Vec2u* bbMin, Vec2u* bbMax, u16 x, u16 y, Color_s color, const char* str )
 {
 	u32 gpuCharacterCount = 0;
 
@@ -54,10 +56,17 @@ static u32 EncodeTextToGPUCHaracters( hlsl::Character* gpuCharacters, u32 gpuCha
 		V6_ASSERT( gpuCharacterCount < gpuCharacterMaxCount );
 
 		hlsl::Character* gpuCharacter = &gpuCharacters[gpuCharacterCount];
-		gpuCharacter->posx16_posy16 = ((posX + fontCharacter->xoffset) << 16) | (posY + fontCharacter->yoffset);
+		gpuCharacter->posx16_posy16 = ((posX + fontCharacter->xoffset) << 16) | (posY + g_fontLineHeight - fontCharacter->yoffset);
 		gpuCharacter->x8_y8_w8_h8 = (fontCharacter->x << 24) | (fontCharacter->y << 16) | (fontCharacter->width << 8) | (fontCharacter->height << 0);
 		gpuCharacter->rgba = rgba;
 		++gpuCharacterCount;
+
+		if ( bbMin && bbMax )
+		{
+			const Vec2u pos = Vec2u_Make( posX, posY );
+			*bbMin = Min( *bbMin, pos );
+			*bbMax = Max( *bbMax, pos );
+		}
 
 		posX += fontCharacter->xadvance;
 	}
@@ -73,9 +82,10 @@ void FontSystem_Create()
 	GPUConstantBuffer_Create( &res->cb, sizeof( v6::hlsl::CBFont ), "font" );
 	GPUBuffer_CreateStructured( &res->characters, sizeof( hlsl::Character ), s_gpuCharacterMaxCount, GPUBUFFER_CREATION_FLAG_MAP_DISCARD, "fontCharacters" );
 
-	GPUTexture2D_CreateCompressed( &res->fontBitmap, g_fontBitmapSize.x, g_fontBitmapSize.y, (void*)(g_fontBitmap + 128), true, "fontColors" );
+	GPUTexture2D_CreateCompressed( &res->fontBitmap, g_fontBitmapSize.x, g_fontBitmapSize.y, (void*)g_fontBitmap, true, "fontColors" );
 
 	GPUShader_CreateFromSource( &res->shader, hlsl::g_main_font_vs, sizeof( hlsl::g_main_font_vs ), hlsl::g_main_font_ps, sizeof( hlsl::g_main_font_ps ), 0 );
+	GPUShader_CreateFromSource( &res->shaderBackground, hlsl::g_main_font_background_vs, sizeof( hlsl::g_main_font_background_vs ), hlsl::g_main_font_background_ps, sizeof( hlsl::g_main_font_background_ps ), 0 );
 	
 	{
 		const u16 indices[] = { 0, 1, 2, 3 };
@@ -127,6 +137,7 @@ void FontSystem_Release()
 	GPUBuffer_Release( &res->characters );
 	GPUTexture2D_Release( &res->fontBitmap );
 	GPUShader_Release( &res->shader );
+	GPUShader_Release( &res->shaderBackground );
 	V6_RELEASE_D3D11( res->indices );
 	V6_RELEASE_D3D11( res->trilinearSamplerState );
 
@@ -148,7 +159,7 @@ void FontContext_Create( FontContext_s* fontContext )
 	fontContext->res = &s_gpuFontResources;
 }
 
-void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize )
+void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 strSize, u32 anchors )
 {
 	V6_ASSERT( str && *str && color.a > 0 && strSize > 0 );
 
@@ -157,6 +168,12 @@ void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Colo
 
 	if ( fontContext->textBufferSize + fontTextSize > s_fontTextBufferMaxSize || fontContext->characterCount + characterCount > s_gpuCharacterMaxCount )
 		return;
+
+	if ( anchors & FONT_ANCHOR_HORIZONTAL_CENTER )
+	{
+		const u32 textHalfWidth = (g_fontCharacterWidth * strSize) / 2;
+		x = Max( 0, (int)(x - textHalfWidth) );
+	}
 
 	FontTextEx_s* fontText = (FontTextEx_s*)(fontContext->textBuffer + fontContext->textBufferSize);
 	fontText->x = (u16)x;
@@ -172,12 +189,12 @@ void FontContext_AddLineWithSize( FontContext_s* fontContext, u32 x, u32 y, Colo
 	fontContext->characterCount += characterCount;
 }
 
-void FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str )
+void FontContext_AddLine( FontContext_s* fontContext, u32 x, u32 y, Color_s color, const char* str, u32 anchors )
 {
 	if ( !str || !*str || color.a == 0 )
 		return;
 
-	FontContext_AddLineWithSize( fontContext, x, y, color, str, (u32)strlen( str ) );
+	FontContext_AddLineWithSize( fontContext, x, y, color, str, (u32)strlen( str ), anchors );
 }
 
 u32 FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeight, Color_s color, const char* text )
@@ -192,26 +209,29 @@ u32 FontContext_AddText( FontContext_s* fontContext, u32 x, u32 y, u32 lineHeigh
 			++text;
 
 		if ( text != lineBegin )
-			FontContext_AddLineWithSize( fontContext, x, y, color, lineBegin, (u32)(text - lineBegin) );
+			FontContext_AddLineWithSize( fontContext, x, y, color, lineBegin, (u32)(text - lineBegin), FONT_ANCHOR_NONE );
 
 		if ( *text == 0 )
 			break;
 		
 		++text;
-		y += lineHeight;
+		y -= lineHeight;
 	}
 
 	return y;
 }
 
-void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet, bool leftEye, bool rightEye )
+void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderTargetSet, const View_s* leftView, const View_s* rightView, Color_s backgroundColor )
 {
 	hlsl::Character* gpuCharacters = (hlsl::Character*)fontContext->characters;
 	u32 gpuCharacterCount = 0;
 
+	Vec2u bbMin = Vec2u_Make( 0xFFFFFFFF, 0xFFFFFFFF );
+	Vec2u bbMax = Vec2u_Make( 0, 0 );
+
 	for ( FontTextEx_s* fontText = (FontTextEx_s*)fontContext->firstText; fontText; fontText = (FontTextEx_s*)fontText->next )
 	{
-		gpuCharacterCount += EncodeTextToGPUCHaracters( gpuCharacters + gpuCharacterCount, s_gpuCharacterMaxCount - gpuCharacterCount, fontText->x, fontText->y, fontText->color, fontText->str );
+		gpuCharacterCount += EncodeTextToGPUCHaracters( gpuCharacters + gpuCharacterCount, s_gpuCharacterMaxCount - gpuCharacterCount, &bbMin, &bbMax, fontText->x, fontText->y, fontText->color, fontText->str );
 		V6_ASSERT( gpuCharacterCount <= s_gpuCharacterMaxCount );
 	}
 
@@ -232,22 +252,37 @@ void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderT
 
 	// update
 
-	{
-		v6::hlsl::CBFont* cbFont = (v6::hlsl::CBFont*)GPUConstantBuffer_MapWrite( &fontRes->cb );
-		cbFont->c_fontInvFrameSize = 1.0f / Vec2_Make( (float)renderTargetSet->width, (float)renderTargetSet->height );
-		cbFont->c_fontInvBitmapSize = 1.0f / Vec2_Make( (float)g_fontBitmapSize.x, (float)g_fontBitmapSize.y );
-		GPUConstantBuffer_UnmapWrite( &fontRes->cb );
-	}
-
 	GPUBuffer_Update( &fontRes->characters, 0, gpuCharacters, gpuCharacterCount );
+
+	Vec4 backGroundQuad;
+	backGroundQuad.x = (float)(bbMin.x - g_fontCharacterWidth);
+	backGroundQuad.y = (float)(bbMin.y - 0.5f * g_fontLineHeight);
+	backGroundQuad.z = (float)(bbMax.x - bbMin.x) + 3.0f * g_fontCharacterWidth;
+	backGroundQuad.w = (float)(bbMax.y - bbMin.y) + 2.0f * g_fontLineHeight;
 
 	for ( u32 eye = 0; eye < 2; ++eye )
 	{
-		if ( eye == 0 && !leftEye )
+		const View_s* view = eye == 0 ? leftView : rightView;
+
+		if ( !view )
 			continue;
 
-		if ( eye == 1 && !rightEye )
-			continue;
+		const float inv255 = 1.0f / 255.0f;
+
+		{
+			Mat4x4 objectToProjMatrix;
+			Mat4x4_Mul( &objectToProjMatrix, view->projMatrix, view->viewMatrix );
+
+			v6::hlsl::CBFont* cbFont = (v6::hlsl::CBFont*)GPUConstantBuffer_MapWrite( &fontRes->cb );
+			cbFont->c_fontMatRow0 = objectToProjMatrix.m_row0;
+			cbFont->c_fontMatRow1 = objectToProjMatrix.m_row1;
+			cbFont->c_fontMatRow2 = objectToProjMatrix.m_row2;
+			cbFont->c_fontMatRow3 = objectToProjMatrix.m_row3;
+			cbFont->c_fontBackgroundQuad = backGroundQuad;
+			cbFont->c_fontBackgroundColor = Vec4_Make( backgroundColor.r * inv255, backgroundColor.g * inv255, backgroundColor.b * inv255, backgroundColor.a * inv255 );
+			cbFont->c_fontInvBitmapSize = 1.0f / Vec2_Make( (float)g_fontBitmapSize.x, (float)g_fontBitmapSize.y );
+			GPUConstantBuffer_UnmapWrite( &fontRes->cb );
+		}
 
 		GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
 
@@ -261,19 +296,28 @@ void FontContext_Draw( FontContext_s* fontContext, GPURenderTargetSet_s* renderT
 		g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, &fontRes->fontBitmap.srv );
 
 		// draw
-	
+
 		g_deviceContext->IASetInputLayout( fontRes->shader.m_inputLayout );
-		g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
-		g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
 
 		u32 stride = 0;
 		u32 offset = 0;
 		g_deviceContext->IASetVertexBuffers( 0, 0, nullptr, &stride, &offset );
-		g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP   );
+		g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP );
 		g_deviceContext->IASetIndexBuffer( fontRes->indices, DXGI_FORMAT_R16_UINT, 0 );
 
+		if ( backgroundColor.a > 0 )
+		{
+			g_deviceContext->VSSetShader( fontRes->shaderBackground.m_vertexShader, nullptr, 0 );
+			g_deviceContext->PSSetShader( fontRes->shaderBackground.m_pixelShader, nullptr, 0 );
+			
+			g_deviceContext->DrawIndexed( 4, 0, 0 );
+		}
+
+		g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
+		g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
+
 		g_deviceContext->DrawIndexedInstanced( 4, gpuCharacterCount, 0, 0, 0 );
-	
+
 		// unset
 	
 		static const void* nulls[8] = {};
@@ -291,20 +335,17 @@ u32 FontContext_GetLineHeight( const FontContext_s* fontContext )
 	return g_fontLineHeight;
 }
 
+u32 FontContext_GetLineWidth( const FontContext_s* fontContext, const char* str )
+{
+	return (u32)strlen( str ) * g_fontCharacterWidth;
+}
+
 void FontContext_Release( FontContext_s* fontContext )
 {
 	V6_ASSERT( s_gpuFontResourcesCreated == true );
 
 	memset( fontContext, 0, sizeof( *fontContext ) );
 }
-
-#if 0
-
-struct FontObject_s
-{
-	static const u32	CHARACTER_MAX_COUNT = 1024;
-	GPUBuffer_s			gpuCharacters;
-};
 
 void FontObject_Create( FontObject_s* fontObject, u32 characterMaxCount )
 {
@@ -313,82 +354,79 @@ void FontObject_Create( FontObject_s* fontObject, u32 characterMaxCount )
 	GPUBuffer_CreateStructured( &fontObject->gpuCharacters, sizeof( hlsl::Character ), characterMaxCount, GPUBUFFER_CREATION_FLAG_MAP_DISCARD, "fontObjectCharacters" );
 }
 
-void FontObject_Release( FontObject_s* fontObject, u32 characterMaxCount )
+void FontObject_Release( FontObject_s* fontObject)
 {
-	V6_ASSERT( characterMaxCount <= FontObject_s::CHARACTER_MAX_COUNT );;
 	GPUBuffer_Release( &fontObject->gpuCharacters );
 	memset( fontObject, 0, sizeof( *fontObject ) );
 }
 
-void FontObject_Draw( FontObject_s* fontObject, u16 x, u16 y, Color_s color, const char* str )
+u32 FontObject_GetTextHeight( FontObject_s* fontObject, const char* str )
 {
-	hlsl::Character* gpuCharacters[FontObject_s::CHARACTER_MAX_COUNT];
+	return g_fontLineHeight;
+}
+
+u32 FontObject_GetTextWidth( FontObject_s* fontObject, const char* str )
+{
+	return (u32)strlen( str ) * g_fontCharacterWidth;
+}
+
+void FontObject_Draw( FontObject_s* fontObject, const Mat4x4* viewProj, u16 x, u16 y, Color_s color, const char* str )
+{
+	hlsl::Character gpuCharacters[FontObject_s::CHARACTER_MAX_COUNT];
 	
-	const u32 gpuCharacterCount = EncodeTextToGPUCHaracters( gpuCharacters, FontObject_s::CHARACTER_MAX_COUNT, x, y, color, str );
+	const u32 gpuCharacterCount = EncodeTextToGPUCHaracters( gpuCharacters, FontObject_s::CHARACTER_MAX_COUNT, nullptr, nullptr, x, y, color, str );
 
 	if ( gpuCharacterCount == 0 )
 		return;
 
-	GPUEvent_Begin( s_gpuEventFont );
+	GPUEvent_Begin( s_gpuEventFontObject );
 
-	GPUFontResources_s* fontRes = fontContext->res;
+	GPUFontResources_s* fontRes = &s_gpuFontResources;
 
 	// update
 
 	{
 		v6::hlsl::CBFont* cbFont = (v6::hlsl::CBFont*)GPUConstantBuffer_MapWrite( &fontRes->cb );
-		cbFont->c_fontInvFrameSize = 1.0f / Vec2_Make( (float)renderTargetSet->width, (float)renderTargetSet->height );
+		cbFont->c_fontMatRow0 = viewProj->m_row0;
+		cbFont->c_fontMatRow1 = viewProj->m_row1;
+		cbFont->c_fontMatRow2 = viewProj->m_row2;
+		cbFont->c_fontMatRow3 = viewProj->m_row3;
 		cbFont->c_fontInvBitmapSize = 1.0f / Vec2_Make( (float)g_fontBitmapSize.x, (float)g_fontBitmapSize.y );
 		GPUConstantBuffer_UnmapWrite( &fontRes->cb );
 	}
 
-	GPUBuffer_Update( &fontRes->characters, 0, gpuCharacters, gpuCharacterCount );
+	GPUBuffer_Update( &fontObject->gpuCharacters, 0, gpuCharacters, gpuCharacterCount );
 
-	for ( u32 eye = 0; eye < 2; ++eye )
-	{
-		if ( eye == 0 && !leftEye )
-			continue;
+	// set
 
-		if ( eye == 1 && !rightEye )
-			continue;
+	g_deviceContext->VSSetConstantBuffers( v6::hlsl::CBFontSlot, 1, &fontRes->cb.buf );
 
-		GPURenderTargetSet_Bind( renderTargetSet, &renderTargetSetBindingDesc, eye );
+	g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &fontRes->trilinearSamplerState );
 
-		// set
+	g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, &fontObject->gpuCharacters.srv );
+	g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, &fontRes->fontBitmap.srv );
 
-		g_deviceContext->VSSetConstantBuffers( v6::hlsl::CBFontSlot, 1, &fontRes->cb.buf );
-
-		g_deviceContext->PSSetSamplers( HLSL_TRILINEAR_SLOT, 1, &fontRes->trilinearSamplerState );
-
-		g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, &fontRes->characters.srv );
-		g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, &fontRes->fontBitmap.srv );
-
-		// draw
+	// draw
 	
-		g_deviceContext->IASetInputLayout( fontRes->shader.m_inputLayout );
-		g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
-		g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
+	g_deviceContext->IASetInputLayout( fontRes->shader.m_inputLayout );
+	g_deviceContext->VSSetShader( fontRes->shader.m_vertexShader, nullptr, 0 );
+	g_deviceContext->PSSetShader( fontRes->shader.m_pixelShader, nullptr, 0 );
 
-		u32 stride = 0;
-		u32 offset = 0;
-		g_deviceContext->IASetVertexBuffers( 0, 0, nullptr, &stride, &offset );
-		g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP   );
-		g_deviceContext->IASetIndexBuffer( fontRes->indices, DXGI_FORMAT_R16_UINT, 0 );
+	u32 stride = 0;
+	u32 offset = 0;
+	g_deviceContext->IASetVertexBuffers( 0, 0, nullptr, &stride, &offset );
+	g_deviceContext->IASetPrimitiveTopology( D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP   );
+	g_deviceContext->IASetIndexBuffer( fontRes->indices, DXGI_FORMAT_R16_UINT, 0 );
 
-		g_deviceContext->DrawIndexedInstanced( 4, gpuCharacterCount, 0, 0, 0 );
+	g_deviceContext->DrawIndexedInstanced( 4, gpuCharacterCount, 0, 0, 0 );
 	
-		// unset
-	
-		static const void* nulls[8] = {};
-		g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
-		g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	// unset
 
-		GPURenderTargetSet_Unbind( renderTargetSet );
-	}
+	static const void* nulls[8] = {};
+	g_deviceContext->VSSetShaderResources( HLSL_FONT_CHARACTER_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
+	g_deviceContext->PSSetShaderResources( HLSL_FONT_TEXTURE_SLOT, 1, (ID3D11ShaderResourceView**)nulls );
 
 	GPUEvent_End();
 }
-
-#endif 
 
 END_V6_NAMESPACE

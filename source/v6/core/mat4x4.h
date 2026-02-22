@@ -210,6 +210,16 @@ V6_INLINE void Mat4x4_Identity( Mat4x4* r )
 	r->m_row3 = Vec4_Make( 0.0, 0.0, 0.0, 1.0 );
 }
 
+V6_INLINE Mat4x4 Mat4x4_Scale( float scale )
+{
+	Mat4x4 r;
+	r.m_row0 = Vec4_Make( scale, 0.0, 0.0, 0.0 );
+	r.m_row1 = Vec4_Make( 0.0, scale, 0.0, 0.0 );
+	r.m_row2 = Vec4_Make( 0.0, 0.0, scale, 0.0 );
+	r.m_row3 = Vec4_Make( 0.0, 0.0, 0.0, 1.0 );
+	return r;
+}
+
 V6_INLINE void Mat4x4_Scale( Mat4x4* r, float scale )
 {
 	r->m_row0 = Vec4_Make( scale, 0.0, 0.0, 0.0 );
@@ -299,6 +309,34 @@ V6_INLINE Mat4x4 Mat4x4_View( const Vec3* org, const Vec3* right, const Vec3* up
 	Vec3 invT;
 	Mat4x4_TransformDir( &invT, m, -*org );
 	Mat4x4_SetTranslation( &m, invT);
+
+	return m;
+}
+
+V6_INLINE Mat4x4 Mat4x4_Orthographic( float w, float h )
+{
+	const float invW = 1.0f / w;
+	const float invH = 1.0f / h;
+
+	Mat4x4 m;
+	m.m_row0 = Vec4_Make(  2 * invW, 0,        0, -1 );
+	m.m_row1 = Vec4_Make(  0,        2 * invH, 0, -1 );
+	m.m_row2 = Vec4_Make(  0,        0,        0,  0 );
+	m.m_row3 = Vec4_Make(  0,        0,        0,  1 );
+
+	return m;
+}
+
+V6_INLINE Mat4x4 Mat4x4_OrthographicFlipY( float w, float h )
+{
+	const float invW = 1.0f / w;
+	const float invH = 1.0f / h;
+
+	Mat4x4 m;
+	m.m_row0 = Vec4_Make(  2 * invW, 0,         0, -1 );
+	m.m_row1 = Vec4_Make(  0,        -2 * invH, 0,  1 );
+	m.m_row2 = Vec4_Make(  0,        0,         0,  0 );
+	m.m_row3 = Vec4_Make(  0,        0,         0,  1 );
 
 	return m;
 }

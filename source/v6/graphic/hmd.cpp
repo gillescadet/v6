@@ -27,11 +27,13 @@ static ovrHmdDesc					s_hmdDesc;
 static const u32					s_textureCount = 3;
 static Vec2i						s_eyeRenderTargetSize;
 static ovrTextureSwapChain			s_textureSets[2] = { nullptr, nullptr };
+static ovrMirrorTexture				s_mirrorTexture = nullptr;
 static ID3D11RenderTargetView*		s_textureRTVs[2][s_textureCount] = {};
 static ID3D11ShaderResourceView*	s_textureSRVs[2][s_textureCount] = {};
 static ID3D11UnorderedAccessView*	s_textureUAVs[2][s_textureCount] = {};
 static ovrLayer_Union				s_layer = {};
-
+static u32							s_inputStateButtons = 0;
+;
 static ovrFovPort GetFovPort( u32 eye )
 {
 #if 1
@@ -76,6 +78,12 @@ static void ReleaseResources()
 				s_textureUAVs[eye][i] = nullptr;
 			}
 		}
+	}
+
+	if ( s_mirrorTexture )
+	{
+		ovr_DestroyMirrorTexture( s_session, s_mirrorTexture );
+		s_mirrorTexture = nullptr;
 	}
 }
 
@@ -128,7 +136,7 @@ bool Hmd_Init()
 
 	V6_MSG( "hmd.type                      : %s\n", hmdTypeName );
 	V6_MSG( "hmd.productName               : %s\n", s_hmdDesc.ProductName );
-	V6_MSG( "hmd.manufacturer              : %s\n", s_hmdDesc.Manufacturer );	
+	V6_MSG( "hmd.manufacturer              : %s\n", s_hmdDesc.Manufacturer );
 	V6_MSG( "hmd.vendorId                  : %d\n", s_hmdDesc.VendorId );
 	V6_MSG( "hmd.productId                 : %d\n", s_hmdDesc.ProductId );
 	V6_MSG( "hmd.serialNumber              : %s\n", s_hmdDesc.SerialNumber );
@@ -148,6 +156,18 @@ bool Hmd_Init()
 	return true;
 }
 
+float Hmd_GetDisplayRefreshRate()
+{
+	V6_ASSERT( s_session != nullptr );
+	return s_hmdDesc.DisplayRefreshRate;
+}
+
+Vec2i Hmd_GetResolution()
+{
+	V6_ASSERT( s_session != nullptr );
+	return Vec2i_Make( s_hmdDesc.Resolution.w, s_hmdDesc.Resolution.h );
+}
+
 Vec2i Hmd_GetRecommendedRenderTargetSize()
 {
 	V6_ASSERT( s_session != nullptr );
@@ -160,20 +180,85 @@ Vec2i Hmd_GetRecommendedRenderTargetSize()
 	return Vec2i_Make( recommendedTex0Size.w, Max( recommendedTex0Size.h, recommendedTex1Size.h ) );
 }
 
-Vec2 Hmd_GetRecommendedFOV()
+Vec2 Hmd_GetRecommendedTanHalfFOV()
 {
 	V6_ASSERT( s_session != nullptr );
 	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
 
-	Vec2 fov;
+	Vec2 tanHalfFov;
 
-	fov.x = Max(  GetFovPort( 0 ).LeftTan + GetFovPort( 0 ).RightTan, GetFovPort( 1 ).LeftTan + GetFovPort( 1 ).RightTan );
-	fov.y = Max( GetFovPort( 0 ).DownTan + GetFovPort( 0 ).UpTan, GetFovPort( 1 ).DownTan + GetFovPort( 1 ).UpTan );
+	tanHalfFov.x = 0.5f * Max( GetFovPort( 0 ).LeftTan + GetFovPort( 0 ).RightTan, GetFovPort( 1 ).LeftTan + GetFovPort( 1 ).RightTan );
+	tanHalfFov.y = 0.5f * Max( GetFovPort( 0 ).DownTan + GetFovPort( 0 ).UpTan, GetFovPort( 1 ).DownTan + GetFovPort( 1 ).UpTan );
 	
-	return fov;
+	return tanHalfFov;
 }
 
-bool Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize, bool createMirrorTexture )
+bool Hmd_CreateMirrorResources( void* device, const Vec2i* winRenderTargetSize )
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_mirrorTexture == nullptr );
+
+	ID3D11Device* d3d11Device = (ID3D11Device*)device;
+
+	ovrMirrorTextureDesc mirrorDesc = {};
+	mirrorDesc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+	mirrorDesc.Width = winRenderTargetSize->x;
+	mirrorDesc.Height = winRenderTargetSize->y;
+	mirrorDesc.MiscFlags = ovrTextureMisc_DX_Typeless;
+	const ovrResult result = ovr_CreateMirrorTextureDX( s_session, d3d11Device, &mirrorDesc, &s_mirrorTexture );
+
+	if ( OVR_FAILURE( result ) )
+	{
+		ovrErrorInfo errorInfo;
+		ovr_GetLastErrorInfo( &errorInfo );
+		V6_ERROR( "ovr_CreateMirrorTextureDX failed: %s\n", errorInfo.ErrorString );
+		ReleaseResources();
+		return false;
+	}
+
+	return true;
+}
+
+void* Hmd_GetMirrorTexture()
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_mirrorTexture != nullptr );
+
+    ID3D11Texture2D* tex = nullptr;
+    ovr_GetMirrorTextureBufferDX( s_session, s_mirrorTexture, IID_PPV_ARGS( &tex ) );
+    
+	return tex;
+}
+
+void Hmd_ReleaseMirrorTexture( void* tex )
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_mirrorTexture != nullptr );
+
+	((ID3D11Texture2D*)tex)->Release();
+}
+
+void Hmd_ReleaseMirrorResources()
+{
+	V6_ASSERT( s_session != nullptr );
+	V6_ASSERT( s_textureSets[0] != nullptr && s_textureSets[1] != nullptr );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_layer.Header.Type == 0 );
+	V6_ASSERT( s_mirrorTexture != nullptr );
+
+	ovr_DestroyMirrorTexture( s_session, s_mirrorTexture );
+	s_mirrorTexture = nullptr;
+}
+
+bool Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize )
 {
 	V6_ASSERT( s_session != nullptr );
 	V6_ASSERT( s_textureSets[0] == nullptr && s_textureSets[1] == nullptr );
@@ -199,15 +284,17 @@ bool Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize, bool c
 
 		for ( u32 eye = 0; eye < 2; ++eye )
 		{
-			const ovrResult result = ovr_CreateTextureSwapChainDX( s_session, d3d11Device, &desc, &s_textureSets[eye] );
-
-			if ( OVR_FAILURE( result ) )
 			{
-				ovrErrorInfo errorInfo;
-				ovr_GetLastErrorInfo( &errorInfo );
-				V6_ERROR( "ovr_CreateTextureSwapChainDX failed: %s\n", errorInfo.ErrorString );
-				ReleaseResources();
-				return false;
+				const ovrResult result = ovr_CreateTextureSwapChainDX( s_session, d3d11Device, &desc, &s_textureSets[eye] );
+
+				if ( OVR_FAILURE( result ) )
+				{
+					ovrErrorInfo errorInfo;
+					ovr_GetLastErrorInfo( &errorInfo );
+					V6_ERROR( "ovr_CreateTextureSwapChainDX failed: %s\n", errorInfo.ErrorString );
+					ReleaseResources();
+					return false;
+				}
 			}
 
 			int textureCount = 0;
@@ -262,6 +349,8 @@ bool Hmd_CreateResources( void* device, const Vec2i* eyeRenderTargetSize, bool c
 		}
 	}
 
+	V6_MSG( "HMD resources created\n" );
+
 	return true;
 }
 
@@ -283,12 +372,12 @@ u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2
 	const double displayMidpointSeconds = ovr_GetPredictedDisplayTime( s_session, 0 );
 	const ovrTrackingState ts = ovr_GetTrackingState( s_session, displayMidpointSeconds, ovrTrue );
 
-	if ( (ts.StatusFlags & ovrStatus_OrientationTracked) == 0 )
-		return HMD_TRACKING_STATE_OFF;
-
-	u32 state = HMD_TRACKING_STATE_ON;
-
-	state |= (ts.StatusFlags & ovrStatus_PositionTracked) != 0 ? HMD_TRACKING_STATE_POS: 0;
+	u32 state = HMD_TRACKING_STATE_OFF;
+	if ( (ts.StatusFlags & ovrStatus_OrientationTracked) != 0 )
+	{
+		state |= HMD_TRACKING_STATE_ON;
+		state |= (ts.StatusFlags & ovrStatus_PositionTracked) != 0 ? HMD_TRACKING_STATE_POS: 0;
+	}
 
 	ovrEyeRenderDesc eyeRenderDesc[2];
 	eyeRenderDesc[0] = ovr_GetRenderDesc( s_session, ovrEye_Left, GetFovPort( 0 ) );
@@ -329,8 +418,21 @@ u32 Hmd_BeginRendering( HmdRenderTarget_s renderTargets[2], HmdEyePose_s poses[2
 		poses[eye].lookAt.m_row1.w *= V6_M_TO_CM;
 		poses[eye].lookAt.m_row2.w *= V6_M_TO_CM;
 
+		if ( state == HMD_TRACKING_STATE_OFF )
+		{
+			Mat4x4_Identity( &poses[eye].lookAt );
+		}
+		else if ( (state & HMD_TRACKING_STATE_POS) == 0 )
+		{
+			poses[eye].lookAt.m_row0.w = 0.0f;
+			poses[eye].lookAt.m_row1.w = 0.0f;
+			poses[eye].lookAt.m_row2.w = 0.0f;
+		}
+
 		const OVR::Matrix4f mxProj = ovrMatrix4f_Projection( s_layer.EyeFov.Fov[eye], zNear, zFar, 0 );
 		memcpy( &poses[eye].projection, &mxProj, sizeof( mxProj ) );
+
+		poses[eye].eyeOffset = Vec3_Make( hmdToEyeOffset[eye].x, hmdToEyeOffset[eye].y, hmdToEyeOffset[eye].z ) * V6_M_TO_CM;
 
 		poses[eye].tanHalfFOVLeft = eyeRenderDesc[eye].Fov.LeftTan;
 		poses[eye].tanHalfFOVRight = eyeRenderDesc[eye].Fov.RightTan;
@@ -399,6 +501,72 @@ void Hmd_SetPerfHUdMode( u32 mode )
 	V6_ASSERT( s_session != nullptr );
 
 	ovr_SetInt( s_session, OVR_PERF_HUD_MODE, (int)mode );
+}
+
+bool Hmd_GetStatus( HmdStatus_s* status )
+{
+	V6_ASSERT( s_session != nullptr );
+
+	ovrSessionStatus sessionStatus;
+	const ovrResult result = ovr_GetSessionStatus( s_session, &sessionStatus );
+	if ( OVR_FAILURE(result) )
+	{
+		memset( status, 0, sizeof( *status ) );
+		return false;
+	}
+
+	V6_STATIC_ASSERT( sizeof( *status ) == sizeof( sessionStatus ) );
+
+	status->isVisible		= sessionStatus.IsVisible != 0;
+	status->hmdPresent		= sessionStatus.HmdPresent != 0;
+	status->hmdMounted		= sessionStatus.HmdMounted != 0;
+	status->displayLost		= sessionStatus.DisplayLost != 0;
+	status->shouldQuit		= sessionStatus.ShouldQuit != 0;
+	status->shouldRecenter	= sessionStatus.ShouldRecenter != 0;
+
+	return true;
+}
+
+bool Hmd_GetInputState( HmdInputState_s* inputState )
+{
+	V6_ASSERT( s_session != nullptr );
+
+	memset( inputState, 0, sizeof( *inputState ) );
+
+	ovrInputState ovrInputState = {};
+	const ovrResult result = ovr_GetInputState( s_session, ovrControllerType_Remote, &ovrInputState );
+	if ( OVR_FAILURE(result) )
+	{
+		s_inputStateButtons = 0;
+		return false;
+	}
+
+	const u32 buttonChanges = s_inputStateButtons ^ ovrInputState.Buttons;
+
+	if ( buttonChanges == 0 )
+		return false;
+
+	if ( buttonChanges & ovrButton_Up )
+		inputState->up = (ovrInputState.Buttons & ovrButton_Up) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	if ( buttonChanges & ovrButton_Down )
+		inputState->down = (ovrInputState.Buttons & ovrButton_Down) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	if ( buttonChanges & ovrButton_Left )
+		inputState->left = (ovrInputState.Buttons & ovrButton_Left) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	if ( buttonChanges & ovrButton_Right )
+		inputState->right = (ovrInputState.Buttons & ovrButton_Right) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	if ( buttonChanges & ovrButton_Enter )
+		inputState->enter = (ovrInputState.Buttons & ovrButton_Enter) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	if ( buttonChanges & ovrButton_Back )
+		inputState->back = (ovrInputState.Buttons & ovrButton_Back) ? HMD_INPUT_EVENT_PRESSED : HMD_INPUT_EVENT_RELEASED;
+
+	s_inputStateButtons = ovrInputState.Buttons;
+
+	return true;
 }
 
 END_V6_NAMESPACE
