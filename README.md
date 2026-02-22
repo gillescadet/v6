@@ -70,3 +70,7 @@ source/v6/
 ## Author
 
 Gilles Cadet - [SupraWings](http://www.video6dof.com/)
+
+## License
+
+[MIT](LICENSE)
