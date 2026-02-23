@@ -4,7 +4,7 @@ Dragonfly is a volumetric video system that captures 3D scenes, encodes them as 
 
 The Dragonfly player was released on the Oculus Store in 2016, showcasing volumetric videos captured from Unreal Engine 4.
 
-**Demo:** https://www.youtube.com/watch?v=qJhnPsNcy2g
+[![Watch the demo](images/demo_thumbnail.png)](https://www.youtube.com/watch?v=qJhnPsNcy2g)
 
 ## How It Works
 
